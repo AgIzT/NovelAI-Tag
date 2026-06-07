@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>法典图鉴 · NovelAI 提示词</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
@@ -22,6 +23,9 @@
 
   <label class="toggle" title="只显示已配图的词条">
     <input type="checkbox" id="onlyImaged"><span>只看有图</span>
+  </label>
+  <label class="toggle" title="只显示收藏的词条">
+    <input type="checkbox" id="onlyFav"><span>⭐ 收藏</span>
   </label>
   <div class="topbar-actions">
     <a class="icon-btn github-btn" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库">
@@ -64,6 +68,7 @@
       <div class="card-title-row">
         <h3 class="card-title"></h3>
         <span class="badge-new" hidden>NEW</span>
+        <button class="fav-btn" type="button" title="收藏" aria-label="收藏">☆</button>
       </div>
       <div class="card-tags"></div>
       <div class="card-foot">

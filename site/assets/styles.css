@@ -23,7 +23,7 @@ button{font-family:inherit;cursor:pointer}
   position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:14px;
   height:56px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line);
 }
-.brand{font-size:18px;font-weight:800;letter-spacing:1px}
+.brand{font-size:18px;font-weight:800;letter-spacing:1px;white-space:nowrap;flex:none}
 .brand span{color:var(--accent)}
 .icon-btn{
   border:none;background:transparent;color:var(--text);font-size:18px;text-decoration:none;
@@ -104,6 +104,13 @@ button{font-family:inherit;cursor:pointer}
   flex:none;font-size:10px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--new);
   padding:2px 6px;border-radius:6px;
 }
+.fav-btn{
+  margin-left:auto;flex:none;border:none;background:transparent;cursor:pointer;
+  font-size:16px;line-height:1;color:var(--muted);padding:2px 5px;border-radius:7px;
+  transition:background .12s,color .12s;
+}
+.fav-btn:hover{background:var(--tagbg);color:#f5b301}
+.fav-btn.on{color:#f5b301}
 .card.no-img .card-title{font-size:14.5px}
 .card-tags{
   font-size:12.5px;color:var(--muted);background:var(--tagbg);border-radius:10px;padding:9px 10px;

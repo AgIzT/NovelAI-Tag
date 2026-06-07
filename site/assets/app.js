@@ -11,6 +11,8 @@ const state = {
   activePath: [],     // 选中的目录路径
   query: '',
   onlyImaged: false,
+  onlyFav: false,
+  favs: new Set(),    // 收藏集合，键为 codexId:entryId
 };
 
 const THEME_ICONS = {
@@ -20,6 +22,7 @@ const THEME_ICONS = {
 
 /* ---------------- 数据加载 ---------------- */
 async function init() {
+  state.favs = new Set(JSON.parse(localStorage.getItem('fadian-favs') || '[]'));
   const codexes = await fetch('data/codexes.json').then(r => r.json());
   const sel = $('#codexSelect');
   sel.innerHTML = codexes.map(c => `<option value="${c.id}">${c.title}</option>`).join('');
@@ -96,6 +99,7 @@ function applyFilter() {
     list = list.filter(e => p.every((seg, i) => e.path[i] === seg));
   }
   if (state.onlyImaged) list = list.filter(e => e.image);
+  if (state.onlyFav) list = list.filter(e => state.favs.has(favKey(e)));
   state.list = list;
   updateResultBar();
   renderList();
@@ -106,6 +110,7 @@ function updateResultBar() {
   let t;
   if (state.query.trim()) t = `搜索 “${esc(state.query.trim())}”：<b>${n}</b> 条结果`;
   else if (state.activePath.length) t = `${esc(state.activePath.join(' › '))}：<b>${n}</b> 条`;
+  else if (state.onlyFav) t = `⭐ 我的收藏：<b>${n}</b> 条`;
   else t = `全部 <b>${n}</b> 条词条 · ${state.codex.imagedCount} 条已配图`;
   $('#resultInfo').innerHTML = t;
   $('#empty').hidden = n > 0;
@@ -150,6 +155,11 @@ function makeCard(e) {
   node.querySelector('.card-tags').textContent = e.tags;
   node.querySelector('.card-path').textContent = e.path.join(' › ');
   if (e.isNew) node.querySelector('.badge-new').hidden = false;
+  const fav = node.querySelector('.fav-btn');
+  const faved = state.favs.has(favKey(e));
+  fav.textContent = faved ? '★' : '☆';
+  fav.classList.toggle('on', faved);
+  fav.onclick = ev => { ev.stopPropagation(); toggleFav(e, fav); };
   if (e.image) {
     const wrap = node.querySelector('.card-img-wrap');
     const img = node.querySelector('.card-img');
@@ -188,6 +198,17 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 1600);
 }
 
+/* ---------------- 收藏 ---------------- */
+function favKey(e) { return state.codex.id + ':' + e.id; }
+function toggleFav(e, btn) {
+  const k = favKey(e);
+  if (state.favs.has(k)) state.favs.delete(k); else state.favs.add(k);
+  localStorage.setItem('fadian-favs', JSON.stringify([...state.favs]));
+  const on = state.favs.has(k);
+  if (btn) { btn.textContent = on ? '★' : '☆'; btn.classList.toggle('on', on); }
+  if (state.onlyFav) applyFilter();
+}
+
 /* ---------------- 灯箱 ---------------- */
 function openLightbox(src) {
   $('#lightboxImg').src = src;
@@ -210,6 +231,7 @@ function bindUI() {
   };
   // 只看有图
   $('#onlyImaged').onchange = e => { state.onlyImaged = e.target.checked; applyFilter(); };
+  $('#onlyFav').onchange = e => { state.onlyFav = e.target.checked; applyFilter(); };
   // 主题
   const applyTheme = d => {
     document.body.classList.toggle('dark', d);
