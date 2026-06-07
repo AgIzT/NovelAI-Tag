@@ -13,6 +13,11 @@ const state = {
   onlyImaged: false,
 };
 
+const THEME_ICONS = {
+  moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
+};
+
 /* ---------------- 数据加载 ---------------- */
 async function init() {
   const codexes = await fetch('data/codexes.json').then(r => r.json());
@@ -208,7 +213,8 @@ function bindUI() {
   // 主题
   const applyTheme = d => {
     document.body.classList.toggle('dark', d);
-    $('#themeBtn').textContent = d ? '☀️' : '🌙';
+    $('#themeBtn').innerHTML = d ? THEME_ICONS.sun : THEME_ICONS.moon;
+    $('#themeBtn').setAttribute('aria-label', d ? '切换浅色模式' : '切换深色模式');
     localStorage.setItem('fadian-dark', d ? '1' : '0');
   };
   $('#themeBtn').onclick = () => applyTheme(!document.body.classList.contains('dark'));

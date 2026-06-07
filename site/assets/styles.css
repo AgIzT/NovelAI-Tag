@@ -30,6 +30,10 @@ button{font-family:inherit;cursor:pointer}
   width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
 }
 .icon-btn:hover{background:var(--tagbg)}
+.icon-btn svg{display:block}
+.topbar-actions{margin-left:auto;display:flex;align-items:center;gap:4px;flex:none}
+.github-mark{width:22px;height:22px}
+.theme-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .codex-pick select{
   border:1px solid var(--line);background:var(--card);color:var(--text);
   border-radius:10px;padding:7px 12px;font-size:13px;max-width:280px;
@@ -136,6 +140,10 @@ button{font-family:inherit;cursor:pointer}
 /* ---------- 响应式 ---------- */
 .sidebar.hidden{display:none}
 @media (max-width:600px){
+  .topbar{gap:10px;padding:0 10px}
+  .topbar-actions{gap:2px}
+  .icon-btn{width:34px;height:34px}
+  .github-mark{width:21px;height:21px}
   .sidebar{position:fixed;z-index:25;top:56px;left:0;box-shadow:var(--shadow-hover)}
   .toggle span{display:none}
   .brand{font-size:16px}
