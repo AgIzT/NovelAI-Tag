@@ -56,17 +56,31 @@
 
 <script>
 const $=(s,r=document)=>r.querySelector(s);
-const state={cid:null,codex:null,list:[],rendered:0};
+const state={
+  cid:null,codex:null,list:[],rendered:0,
+  media:{baseUrl:'',imagePrefix:'images',originalPrefix:'originals',localFallback:true}
+};
 const CHUNK=40;
 
 async function init(){
-  const cx=await fetch('data/codexes.json').then(r=>r.json());
+  const [cx,media]=await Promise.all([
+    fetch('data/codexes.json').then(r=>r.json()),
+    loadMedia()
+  ]);
+  state.media={...state.media,...media};
   $('#codex').innerHTML=cx.map(c=>`<option value="${c.id}">${c.title}</option>`).join('');
   $('#codex').onchange=()=>load($('#codex').value);
   $('#q').oninput=debounce(filter,180);
   $('#onlyTodo').onchange=filter;
   new IntersectionObserver(e=>{if(e[0].isIntersecting)more();},{rootMargin:'500px'}).observe($('#sentinel'));
   if(cx.length) await load(cx[0].id);
+}
+async function loadMedia(){
+  try{
+    const res=await fetch('data/media.json?_='+Date.now());
+    if(res.ok) return res.json();
+  }catch{}
+  return {};
 }
 async function load(id){
   state.cid=id;
@@ -99,7 +113,7 @@ function makeRow(e){
   const row=document.createElement('div'); row.className='row'+(e.image?' done':'');
   const zone=document.createElement('div'); zone.className='zone';
   zone.innerHTML=e.image
-    ? `<img src="images/${state.cid}/${e.image}?_=${Date.now()}"><span class="badge">✓</span>`
+    ? `<img src="${thumbUrl(e)}"><span class="badge">✓</span>`
     : '＋<br>拖图/点击';
   const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.hidden=true;
   input.onchange=()=>{ if(input.files[0]) upload(e,row,zone,input.files[0]); };
@@ -123,13 +137,35 @@ function upload(e,row,zone,file){
       const r=await fetch('/__upload__',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({codexId:state.cid,entryId:e.id,dataURL:fr.result})}).then(r=>r.json());
       if(!r.ok) throw new Error(r.error||'失败');
-      e.image=r.image; row.classList.add('done');
-      zone.innerHTML=`<img src="images/${state.cid}/${r.image}?_=${Date.now()}"><span class="badge">✓</span>`;
+      e.image=r.image; e.original=r.original; e.assetRev=r.assetRev; row.classList.add('done');
+      zone.innerHTML=`<img src="${thumbUrl(e)}"><span class="badge">✓</span>`;
       updateProgress();
       if($('#onlyTodo').checked){ row.style.transition='.4s';row.style.opacity='.0';setTimeout(()=>row.remove(),400); }
     }catch(err){ busy.textContent='✗ '+err.message; busy.style.color='#e23'; setTimeout(()=>busy.remove(),1500); }
   };
   fr.readAsDataURL(file);
+}
+function isLocalOrigin(){
+  return ['localhost','127.0.0.1','::1'].includes(location.hostname)||location.protocol==='file:';
+}
+function mediaPath(kind,e){
+  const file=kind==='original'?e.original:e.image;
+  if(!file) return '';
+  const prefix=kind==='original'?state.media.originalPrefix:state.media.imagePrefix;
+  return [prefix||(kind==='original'?'originals':'images'),state.cid,file]
+    .map(part=>encodeURIComponent(part).replace(/%2F/g,'/')).join('/');
+}
+function withRev(url,e){
+  if(!url) return '';
+  const rev=e.assetRev||Date.now();
+  return url+(url.includes('?')?'&':'?')+'v='+encodeURIComponent(rev);
+}
+function thumbUrl(e){
+  const path=mediaPath('image',e);
+  if(!path) return '';
+  if(isLocalOrigin()&&state.media.localFallback!==false) return withRev(path,e);
+  const base=String(state.media.baseUrl||'').replace(/\/+$/,'');
+  return withRev(base?`${base}/${path}`:path,e);
 }
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
 function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}

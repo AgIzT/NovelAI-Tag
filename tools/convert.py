@@ -16,6 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, "法典源")
 DATA_DIR = os.path.join(ROOT, "site", "data")
 IMG_DIR = os.path.join(ROOT, "site", "images")
+ORIG_DIR = os.path.join(ROOT, "originals")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # 已知法典 → 短 id（其余用文件名哈希）
@@ -177,7 +178,7 @@ def assign_stable_ids(cid, items):
         final = []
         for i, item in enumerate(items, 1):
             eid = f"{cid}-{i:04d}"
-            final.append({**item, "id": eid, "image": find_image(cid, eid)})
+            final.append({**item, "id": eid, **image_metadata(cid, eid)})
         return final
 
     old_by_key = defaultdict(list)
@@ -221,7 +222,7 @@ def assign_stable_ids(cid, items):
 
         eid = best.get("id") if best is not None else fresh_id()
         used.add(eid)
-        final.append({**item, "id": eid, "image": find_image(cid, eid)})
+        final.append({**item, "id": eid, **image_metadata(cid, eid, best)})
     return final
 
 def outline_lvl(p):
@@ -246,6 +247,39 @@ def find_image(cid, eid):
         if os.path.exists(fn):
             return eid + "." + ext
     return None
+
+def find_original(cid, eid):
+    for ext in IMG_EXTS:
+        fn = os.path.join(ORIG_DIR, cid, eid + "." + ext)
+        if os.path.exists(fn):
+            return eid + "." + ext
+    return None
+
+def local_asset_rev(cid, image, original):
+    h = hashlib.sha256()
+    found = False
+    for root, fn in ((IMG_DIR, image), (ORIG_DIR, original)):
+        if not fn:
+            continue
+        path = os.path.join(root, cid, fn)
+        if not os.path.exists(path):
+            continue
+        st = os.stat(path)
+        h.update(f"{fn}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+        found = True
+    return h.hexdigest()[:16] if found else None
+
+def image_metadata(cid, eid, old=None):
+    old = old or {}
+    image = old.get("image") or find_image(cid, eid)
+    original = old.get("original") or find_original(cid, eid)
+    asset_rev = old.get("assetRev") or local_asset_rev(cid, image, original)
+    meta = {"image": image}
+    if original:
+        meta["original"] = original
+    if asset_rev:
+        meta["assetRev"] = asset_rev
+    return meta
 
 def build_tree(entries):
     root = {}

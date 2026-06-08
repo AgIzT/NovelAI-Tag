@@ -5,11 +5,11 @@
   GET  /__pei__     → 配图工具页面
   POST /__upload__  → 接收一张图：
                        · 原图原样存到 originals/<codexId>/<entryId>.<ext>（不重新编码，保留元数据；已 gitignore）
-                       · Pillow 压缩成缩略图 site/images/<codexId>/<entryId>.jpg（展示/部署用）
-                       · 更新 site/data/<codexId>.json 的 entry.image
+                       · Pillow 压缩成缩略图 site/images/<codexId>/<entryId>.jpg（本地缓存，发布到 R2）
+                       · 更新 site/data/<codexId>.json 的 entry.image / original / assetRev
 用法：python tools/imgserver.py  （或双击 配图工具.bat）
 """
-import http.server, socketserver, json, base64, io, os, threading
+import http.server, socketserver, json, base64, io, os, threading, hashlib, mimetypes, urllib.parse
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +20,22 @@ TOOL_HTML = os.path.join(os.path.dirname(__file__), "pei.html")
 MAXDIM = 1100          # 缩略图最长边压到 1100px
 PORT = 8767
 LOCK = threading.Lock()
+
+
+def _hash_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _asset_rev(*paths):
+    h = hashlib.sha256()
+    for path in paths:
+        if path and os.path.exists(path):
+            h.update(_hash_file(path).encode("ascii"))
+    return h.hexdigest()[:16]
 
 
 def _ext_from_dataurl(durl):
@@ -41,7 +57,8 @@ def save_image(cid, eid, durl):
     odir = os.path.join(ORIG, cid)
     os.makedirs(odir, exist_ok=True)
     ofn = eid + "." + ext
-    with open(os.path.join(odir, ofn), "wb") as f:
+    op = os.path.join(odir, ofn)
+    with open(op, "wb") as f:
         f.write(raw)
 
     # 2) 缩略图：压到 MAXDIM，存 JPEG（展示/部署用）
@@ -52,7 +69,9 @@ def save_image(cid, eid, durl):
     tdir = os.path.join(SITE, "images", cid)
     os.makedirs(tdir, exist_ok=True)
     tfn = eid + ".jpg"
-    im.save(os.path.join(tdir, tfn), "JPEG", quality=86, optimize=True)
+    tp = os.path.join(tdir, tfn)
+    im.save(tp, "JPEG", quality=86, optimize=True)
+    rev = _asset_rev(tp, op)
 
     # 3) 更新 JSON（entry.image 指向缩略图，沿用旧字段）
     with LOCK:
@@ -62,12 +81,26 @@ def save_image(cid, eid, durl):
         for e in d["entries"]:
             if e["id"] == eid:
                 e["image"] = tfn
+                e["original"] = ofn
+                e["assetRev"] = rev
                 break
         d["imagedCount"] = sum(1 for e in d["entries"] if e.get("image"))
         with open(jp, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False)
 
-    return {"ok": True, "image": tfn, "original": ofn, "imagedCount": d["imagedCount"]}
+        ip = os.path.join(DATA, "codexes.json")
+        if os.path.exists(ip):
+            with open(ip, encoding="utf-8") as f:
+                index = json.load(f)
+            for item in index:
+                if item.get("id") == cid:
+                    item["imagedCount"] = d["imagedCount"]
+                    item["entryCount"] = d.get("entryCount", item.get("entryCount"))
+                    break
+            with open(ip, "w", encoding="utf-8") as f:
+                json.dump(index, f, ensure_ascii=False, indent=2)
+
+    return {"ok": True, "image": tfn, "original": ofn, "assetRev": rev, "imagedCount": d["imagedCount"]}
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -92,7 +125,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as ex:
                 self.send_error(500, str(ex))
             return
+        if self.path.split("?")[0].startswith("/originals/"):
+            return self._serve_original()
         return super().do_GET()
+
+    def _serve_original(self):
+        rel = urllib.parse.unquote(self.path.split("?", 1)[0].lstrip("/"))
+        rel = rel.replace("/", os.sep)
+        target = os.path.abspath(os.path.join(ROOT, rel))
+        base = os.path.abspath(ORIG)
+        if not (target == base or target.startswith(base + os.sep)):
+            self.send_error(403)
+            return
+        if not os.path.isfile(target):
+            self.send_error(404)
+            return
+        try:
+            with open(target, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", mimetypes.guess_type(target)[0] or "application/octet-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as ex:
+            self.send_error(500, str(ex))
 
     def do_POST(self):
         if self.path != "/__upload__":

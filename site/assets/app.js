@@ -13,6 +13,12 @@ const state = {
   onlyImaged: false,
   onlyFav: false,
   favs: new Set(),    // 收藏集合，键为 codexId:entryId
+  media: {
+    baseUrl: '',
+    imagePrefix: 'images',
+    originalPrefix: 'originals',
+    localFallback: true,
+  },
 };
 
 const THEME_ICONS = {
@@ -23,12 +29,24 @@ const THEME_ICONS = {
 /* ---------------- 数据加载 ---------------- */
 async function init() {
   state.favs = new Set(JSON.parse(localStorage.getItem('fadian-favs') || '[]'));
-  const codexes = await fetch('data/codexes.json').then(r => r.json());
+  const [codexes, media] = await Promise.all([
+    fetch('data/codexes.json').then(r => r.json()),
+    loadMedia(),
+  ]);
+  state.media = { ...state.media, ...media };
   const sel = $('#codexSelect');
   sel.innerHTML = codexes.map(c => `<option value="${c.id}">${c.title}</option>`).join('');
   sel.onchange = () => loadCodex(sel.value);
   bindUI();
   if (codexes.length) await loadCodex(codexes[0].id);
+}
+
+async function loadMedia() {
+  try {
+    const res = await fetch('data/media.json', { cache: 'no-store' });
+    if (res.ok) return res.json();
+  } catch {}
+  return {};
 }
 
 async function loadCodex(id) {
@@ -163,10 +181,20 @@ function makeCard(e) {
   if (e.image) {
     const wrap = node.querySelector('.card-img-wrap');
     const img = node.querySelector('.card-img');
-    img.src = `images/${state.codex.id}/${e.image}`;
+    img.src = thumbUrl(e);
     img.alt = e.title;
+    img.onerror = () => {
+      const fallback = localAssetUrl('image', e);
+      if (fallback && img.dataset.fallbackTried !== '1') {
+        img.dataset.fallbackTried = '1';
+        img.src = fallback;
+      }
+    };
     wrap.hidden = false;
-    wrap.querySelector('.zoom-btn').onclick = ev => { ev.stopPropagation(); openLightbox(img.src); };
+    wrap.querySelector('.zoom-btn').onclick = ev => {
+      ev.stopPropagation();
+      openLightbox(originalUrl(e) || img.src, img.src);
+    };
   } else {
     node.classList.add('no-img');
   }
@@ -210,9 +238,55 @@ function toggleFav(e, btn) {
 }
 
 /* ---------------- 灯箱 ---------------- */
-function openLightbox(src) {
-  $('#lightboxImg').src = src;
+function openLightbox(src, fallbackSrc = '') {
+  const img = $('#lightboxImg');
+  img.onerror = () => {
+    if (fallbackSrc && img.dataset.fallbackTried !== '1') {
+      img.dataset.fallbackTried = '1';
+      img.src = fallbackSrc;
+    }
+  };
+  img.dataset.fallbackTried = '';
+  img.src = src;
   $('#lightbox').hidden = false;
+}
+
+function isLocalOrigin() {
+  return ['localhost', '127.0.0.1', '::1'].includes(location.hostname) || location.protocol === 'file:';
+}
+
+function mediaPath(kind, e) {
+  const file = kind === 'original' ? e.original : e.image;
+  if (!file) return '';
+  const prefix = kind === 'original' ? state.media.originalPrefix : state.media.imagePrefix;
+  return [prefix || (kind === 'original' ? 'originals' : 'images'), state.codex.id, file]
+    .map(part => encodeURIComponent(part).replace(/%2F/g, '/'))
+    .join('/');
+}
+
+function withRev(url, e) {
+  if (!url || !e.assetRev) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(e.assetRev);
+}
+
+function localAssetUrl(kind, e) {
+  return withRev(mediaPath(kind, e), e);
+}
+
+function assetUrl(kind, e) {
+  const path = mediaPath(kind, e);
+  if (!path) return '';
+  if (isLocalOrigin() && state.media.localFallback !== false) return withRev(path, e);
+  const base = String(state.media.baseUrl || '').replace(/\/+$/, '');
+  return withRev(base ? `${base}/${path}` : path, e);
+}
+
+function thumbUrl(e) {
+  return assetUrl('image', e);
+}
+
+function originalUrl(e) {
+  return assetUrl('original', e);
 }
 
 /* ---------------- 交互绑定 ---------------- */
@@ -244,7 +318,7 @@ function bindUI() {
   // 侧栏开关（移动端）
   $('#menuBtn').onclick = () => $('#sidebar').classList.toggle('hidden');
   // 灯箱关闭
-  $('#lightbox').onclick = () => { $('#lightbox').hidden = true; };
+  $('#lightbox').onclick = () => { $('#lightbox').hidden = true; $('#lightboxImg').src = ''; };
   // 无限滚动
   new IntersectionObserver(es => {
     if (es[0].isIntersecting && state.rendered < state.list.length) renderMore();

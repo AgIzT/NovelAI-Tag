@@ -14,5 +14,12 @@ Thumbs.db
 # 原图（本地保留、不进仓库；将来批量上传 R2）
 originals/
 
+# 图片缓存（实际发布到 Cloudflare R2，不进仓库）
+site/images/
+image.png
+
+# Cloudflare R2 本地密钥配置
+r2_config.json
+
 # 本地 AI 交接说明（不公开；供新会话 / 其它 AI 快速接手）
 CLAUDE.md

@@ -1,4 +1,3 @@
-![alt text](image.png)
 # 法典图鉴 · NovelAI 提示词图鉴
 
 [示例站点](https://novelai-tag.pages.dev/)
@@ -22,8 +21,9 @@
 > 前置：本机装好 Python 3，并 `pip install -r requirements.txt`
 
 1. **加法典**：把法典 `.docx` 放进 `法典源/` → 双击 `转换法典.bat`
-2. **配图**：双击 `配图工具.bat` → 把图拖到对应词条上（自动压缩、命名、入库）
+2. **配图**：双击 `配图工具.bat` → 把图拖到对应词条上（自动压缩、命名、写入本地缓存）
 3. **预览**：双击 `启动预览.bat` → 打开 http://localhost:8766
+4. **同步图片**：复制 `r2_config.example.json` 为 `r2_config.json`，填入 Cloudflare R2 信息 → 双击 `同步R2.bat`
 
 转换器还会生成 `site/data/待复核_*.txt`，列出极少数可能解析有误的词条，供人工复核。
 
@@ -32,8 +32,8 @@
 - **Cloudflare Pages**（推荐，国内更稳）：连接本仓库，Build command 留空，**Build output directory 填 `site`**
 - **GitHub Pages**：把 Pages 源指向 `site/` 目录
 
-更新流程：本地配图 / 加法典 → 双击 `发布.bat`（git push）→ 平台自动重新部署，约 1 分钟生效。
-数据与图片都存在本仓库（GitHub）里，平台只是拉取并展示。
+更新流程：本地配图 / 加法典 → 双击 `发布.bat`（先同步 R2，再 git push）→ 平台自动重新部署，约 1 分钟生效。
+词条数据存在本仓库；缩略图和原图发布到 Cloudflare R2，GitHub 仓库不保留图片文件。
 
 ## 📁 目录结构
 ```
@@ -46,8 +46,8 @@ site/              ← 部署的网站本体（无需构建）
   index.html
   assets/          样式与脚本
   data/            各法典 JSON + 法典索引
-  images/<法典id>/ 例图（按词条 id 命名）
-转换法典.bat / 配图工具.bat / 启动预览.bat / 发布.bat
+转换法典.bat / 配图工具.bat / 启动预览.bat / 同步R2.bat / 发布.bat
+originals/ 与 site/images/ 是本地图片缓存，会同步到 R2，但不会进入 Git。
 ```
 
 ## 🗺️ 后续计划（Roadmap）
@@ -55,13 +55,13 @@ site/              ← 部署的网站本体（无需构建）
 ### A. 早晚要做
 - [ ] 处理「待复核」里的异类段落：`各式场景 › 视角与打光` 是「术语：解释」的词典式内容、`自然语言` 是整段中文描述，需单独渲染或排除（目前唯一的小瑕疵）
 - [ ] 导入其余几本法典（把 docx 丢进 `法典源/` 跑转换器即可）
-- [ ] 图片量大后迁移到 **Cloudflare R2**（免费出站、容量近乎无限；接近 GitHub ~1GB 或 CF Pages 2 万文件上限前再做）
+- [x] 图片迁移到 **Cloudflare R2**，GitHub 只保留代码与数据
 
 ### B. 锦上添花
 - [x] 网站图标 favicon
 - [x] 词条收藏（⭐，浏览器本地记忆）
 - [ ] 缩略图尺寸调优（已保留原图，可重压更小以加速加载、减小仓库）
-- [ ] 点击放大查看原图（随 R2 一起做）
+- [x] 点击放大查看原图（原图走 R2）
 - [ ] README 配真实界面截图
 - [ ] （可选）tag 购物车 / 权重快捷按钮（偏 prompt 编辑器，与「忠实复刻」定位略有取舍）
 

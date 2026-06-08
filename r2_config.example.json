@@ -1,0 +1,11 @@
+{
+  "account_id": "your-cloudflare-account-id",
+  "access_key_id": "your-r2-access-key-id",
+  "secret_access_key": "your-r2-secret-access-key",
+  "bucket": "novelai-tag-assets",
+  "public_base_url": "https://pub-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.r2.dev",
+  "region": "auto",
+  "image_prefix": "images",
+  "original_prefix": "originals",
+  "cache_control": "public, max-age=31536000, immutable"
+}
