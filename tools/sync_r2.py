@@ -11,6 +11,7 @@ R2 keys:
   originals/<codexId>/<entryId>.<ext>
 """
 import argparse
+import concurrent.futures
 import datetime as dt
 import hashlib
 import hmac
@@ -19,6 +20,7 @@ import mimetypes
 import os
 import posixpath
 import sys
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -39,6 +41,7 @@ DEFAULT_BUCKET = "novelai-tag-assets"
 DEFAULT_IMAGE_PREFIX = "images"
 DEFAULT_ORIGINAL_PREFIX = "originals"
 ORIGINAL_PRIORITY = {"png": 0, "jpg": 1, "jpeg": 2, "webp": 3, "gif": 4, "avif": 5}
+DEFAULT_UPLOAD_WORKERS = 16
 
 
 def load_json(path, default=None):
@@ -446,57 +449,73 @@ def sync_assets(args, cfg, assets):
     image_prefix = cfg["image_prefix"]
     original_prefix = cfg["original_prefix"]
     cache_control = cfg.get("cache_control") or "public, max-age=31536000, immutable"
+    workers = max(1, int(getattr(args, "workers", None) or cfg.get("upload_workers") or DEFAULT_UPLOAD_WORKERS))
     counts = {"checked": 0, "upload": 0, "skip": 0, "fail": 0}
     failures = []
-    total = len(assets)
     prefixes = sorted({image_prefix, original_prefix})
     manifest_objects = load_manifest()
     next_manifest = {}
+    lock = threading.Lock()
 
     print("listing remote objects", flush=True)
     remote_objects = list_remote_objects(client, prefixes)
     print(f"remote objects loaded: {len(remote_objects)}", flush=True)
 
-    if total:
-        print(f"checking local assets: 0/{total}", flush=True)
-
+    # Pass 1 (in-memory, fast): diff local vs remote/manifest -> decide skip vs upload.
+    pending = []
     for kind, cid, filename, path, sha in assets:
         prefix = image_prefix if kind == "image" else original_prefix
         key = key_for(prefix, cid, filename)
         counts["checked"] += 1
         try:
             needs_upload, reason = remote_needs_upload(remote_objects, manifest_objects, key, path, sha)
-            if not needs_upload:
-                counts["skip"] += 1
-                next_manifest[key] = {"size": path.stat().st_size, "sha256": sha}
-                if args.verbose:
-                    print(f"skip {key}: {reason}")
-                continue
-            counts["upload"] += 1
-            if args.dry_run or args.check_only:
-                print(f"would upload {key}: {reason}")
-                continue
-            status, _headers, body = client.put_file(key, path, sha, cache_control)
-            if status not in (200, 201):
-                counts["fail"] += 1
-                failures.append(f"upload failed {key}: {status} {body[:200]!r}")
-            else:
-                next_manifest[key] = {"size": path.stat().st_size, "sha256": sha}
-                if args.verbose:
-                    print(f"uploaded {key}")
         except Exception as ex:
             counts["fail"] += 1
             failures.append(f"{key}: {ex}")
-        finally:
-            if total and (counts["checked"] % 250 == 0 or counts["checked"] == total):
-                print(
-                    "progress: "
-                    f"checked {counts['checked']}/{total}, "
-                    f"upload {counts['upload']}, "
-                    f"skip {counts['skip']}, "
-                    f"fail {counts['fail']}",
-                    flush=True,
-                )
+            continue
+        if not needs_upload:
+            counts["skip"] += 1
+            next_manifest[key] = {"size": path.stat().st_size, "sha256": sha}
+            if args.verbose:
+                print(f"skip {key}: {reason}")
+            continue
+        counts["upload"] += 1
+        if args.dry_run or args.check_only:
+            print(f"would upload {key}: {reason}")
+            continue
+        pending.append((key, path, sha))
+
+    # Pass 2 (parallel): upload only the files that actually need it.
+    if pending:
+        print(f"uploading {len(pending)} object(s) with {workers} parallel worker(s)", flush=True)
+        done = [0]
+
+        def _upload(item):
+            key, path, sha = item
+            try:
+                status, _headers, body = client.put_file(key, path, sha, cache_control)
+                if status not in (200, 201):
+                    with lock:
+                        counts["fail"] += 1
+                        failures.append(f"upload failed {key}: {status} {body[:200]!r}")
+                else:
+                    with lock:
+                        next_manifest[key] = {"size": path.stat().st_size, "sha256": sha}
+                    if args.verbose:
+                        print(f"uploaded {key}")
+            except Exception as ex:
+                with lock:
+                    counts["fail"] += 1
+                    failures.append(f"{key}: {ex}")
+            finally:
+                with lock:
+                    done[0] += 1
+                    n, nfail = done[0], counts["fail"]
+                if n % 250 == 0 or n == len(pending):
+                    print(f"upload progress: {n}/{len(pending)}, fail {nfail}", flush=True)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(_upload, pending))
 
     if not args.dry_run and not args.check_only and not failures:
         write_manifest(cfg, next_manifest)
@@ -522,6 +541,8 @@ def main():
     parser.add_argument("--metadata-only", action="store_true", help="Only update JSON metadata and media.json; do not contact R2.")
     parser.add_argument("--check-only", action="store_true", help="Check that configured R2 objects exist; do not upload.")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Parallel upload workers (default %d)." % DEFAULT_UPLOAD_WORKERS)
     args = parser.parse_args()
 
     need_cfg = not args.metadata_only and not args.dry_run
