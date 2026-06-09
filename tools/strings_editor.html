@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NAI Prompt 编辑器</title>
+<style>
+:root{
+  --bg:#eff2f5;--panel:#ffffff;--text:#1a1f27;--muted:#798495;
+  --line:#e0e5eb;--accent:#3b9b61;--accent-soft:#ecf7f0;
+  --accent-glow:rgba(59,155,97,.18);--tagbg:#f3f6f9;
+  --red:#e05858;--zone:#f5f7f9;
+  --font:"Noto Sans SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:"JetBrains Mono","Fira Code","Cascadia Code","Consolas",monospace;
+}
+*{box-sizing:border-box}
+::selection{background:var(--accent-soft);color:var(--accent)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:11px 18px;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.03)}
+.title{font-size:17px;font-weight:800}.title span{color:var(--accent)}
+select,input[type=search]{
+  border:1px solid var(--line);background:var(--panel);color:var(--text);
+  padding:8px 13px;font-size:13px;font-family:inherit;border-radius:10px;
+  transition:border-color .15s,box-shadow .15s
+}
+input[type=search]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);outline:none}
+input[type=search]{width:240px}
+.btn{
+  padding:7px 16px;border:1px solid var(--line);background:var(--panel);color:var(--text);
+  font-weight:600;font-size:12px;cursor:pointer;font-family:inherit;
+  transition:all .15s;border-radius:10px
+}
+.btn:hover{border-color:var(--accent);background:var(--accent-soft)}
+.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 1px 4px var(--accent-glow)}
+.btn-primary:hover{opacity:.9;box-shadow:0 2px 8px var(--accent-glow)}
+.btn-danger{border-color:var(--red);color:var(--red)}
+.btn-danger:hover{background:var(--red);color:#fff}
+.btn-sm{padding:5px 12px;font-size:11px}
+.btn-save{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.btn-save:hover{background:var(--accent);color:#fff}
+.toolbar{gap:8px;margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap}
+main{max-width:960px;margin:0 auto;padding:18px}
+.entry-row{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
+  padding:11px 15px;margin-bottom:6px;border-radius:11px;transition:all .15s;box-shadow:0 1px 2px rgba(0,0,0,.02)}
+.entry-row:hover{border-color:var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.04);transform:translateY(-1px)}
+.entry-row .index{width:32px;font-size:12px;color:var(--muted);text-align:center;flex:none;font-weight:600}
+.entry-row .etitle{flex:1;font-weight:700;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.entry-row .etags{display:flex;gap:3px;flex:none}
+.entry-row .etag{font-size:10px;padding:2px 8px;background:var(--tagbg);border-radius:7px;font-weight:500}
+.entry-row .ensfw{font-size:10px;color:var(--red);font-weight:700;flex:none;width:36px;text-align:center}
+.entry-row .eimgs{font-size:11px;color:var(--muted);flex:none;width:40px;text-align:center}
+.entry-row .btns{flex:none;display:flex;gap:4px}
+.form-overlay{position:fixed;inset:0;background:rgba(8,14,20,.62);backdrop-filter:blur(6px);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .18s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.form-panel{background:var(--panel);border:1px solid var(--line);max-width:700px;width:100%;max-height:90vh;overflow-y:auto;padding:30px;position:relative;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.18);animation:slideUp .2s cubic-bezier(.22,1,.36,1)}
+@keyframes slideUp{from{opacity:.6;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.form-panel h2{font-size:1.15rem;font-weight:800;margin:0 0 20px}
+.form-panel .close-btn{position:absolute;top:14px;right:14px;width:38px;height:38px;border:none;border-radius:10px;background:var(--tagbg);color:var(--muted);font-size:18px;cursor:pointer;display:grid;place-items:center;transition:all .15s}
+.form-panel .close-btn:hover{background:var(--red);color:#fff}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-weight:700;font-size:11px;margin-bottom:6px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.form-group input[type=text],.form-group textarea{
+  width:100%;padding:10px 13px;border:1px solid var(--line);border-radius:10px;font-size:13px;
+  font-family:inherit;background:var(--bg);color:var(--text);resize:vertical;
+  transition:border-color .15s,box-shadow .15s
+}
+.form-group input[type=text]:focus,.form-group textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);outline:none}
+.form-group textarea{min-height:80px;font-family:var(--font-mono);font-size:12px}
+.form-group textarea.comment{font-family:inherit;min-height:60px}
+.form-row{display:flex;gap:12px}.form-row .form-group{flex:1}
+.preview-imgs{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.preview-imgs .thumb{position:relative;border:1px solid var(--line);width:84px;height:84px;overflow:hidden;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.preview-imgs .thumb img{width:100%;height:100%;object-fit:cover}
+.preview-imgs .thumb .remove{position:absolute;top:0;right:0;width:22px;height:22px;background:var(--red);color:#fff;border:none;font-size:10px;cursor:pointer;display:grid;place-items:center;border-radius:0 0 0 6px;transition:background .12s}
+.preview-imgs .thumb .remove:hover{background:#c0392b}
+.upload-zone{
+  border:2px dashed var(--line);background:var(--zone);padding:26px;text-align:center;
+  cursor:pointer;margin-bottom:8px;transition:all .15s;border-radius:12px;
+  color:var(--muted);font-size:13px;font-weight:500
+}
+.upload-zone:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.empty-state{text-align:center;color:var(--muted);padding:60px 0;font-size:14px}
+.toast{position:fixed;bottom:28px;right:28px;background:var(--accent);color:#fff;padding:11px 22px;font-weight:600;z-index:99;border-radius:999px;box-shadow:0 4px 16px rgba(0,0,0,.2);font-size:13px;animation:fadeIn .2s ease}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">NAI<span>Prompt 编辑器</span></div>
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="搜索标题 / tag…" autocomplete="off">
+    <button class="btn btn-primary btn-sm" id="addBtn">+ 新增</button>
+    <button class="btn btn-save btn-sm" id="saveAllBtn">保存全部</button>
+    <span style="font-size:12px;color:var(--muted)">
+      共 <b id="total">0</b> 条 | 已修改: <b id="dirty" style="color:var(--accent)">否</b>
+    </span>
+  </div>
+</header>
+<main>
+  <div id="list"></div>
+  <div class="empty-state" id="empty" hidden>没有画师串，点「+ 新增」开始</div>
+</main>
+
+<template id="formTpl">
+  <div class="form-overlay">
+    <div class="form-panel">
+      <button class="close-btn">✕</button>
+      <h2 id="formTitle">编辑画师串</h2>
+      <div class="form-group"><label>标题</label><input type="text" id="fTitle" placeholder="给画师串起个名字" required></div>
+      <div class="form-group"><label>Prompt / 画师串正文</label><textarea id="fPrompt" placeholder="artist:xxx0.5, ..." required></textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label>标签 (逗号分隔)</label><input type="text" id="fTags" placeholder="萝莉, 日常, 可爱"></div>
+        <div class="form-group"><label>NSFW</label><div style="display:flex;align-items:center;gap:8px;padding-top:6px"><input type="checkbox" id="fNsfw"> <span style="font-size:12px;color:var(--muted)">标记为 NSFW 内容</span></div></div>
+      </div>
+      <div class="form-group"><label>评价 / 备注</label><textarea class="comment" id="fComment" placeholder="写一点个人对这条串的评价、使用心得……"></textarea></div>
+      <div class="form-group"><label>例图</label>
+        <input type="file" id="fImages" multiple accept="image/*" style="display:none">
+        <div class="upload-zone" id="uploadZone">点击或拖拽上传图片</div>
+        <div class="preview-imgs" id="previewImgs"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-primary" id="fSubmit">确认</button>
+        <button class="btn" id="fCancel">取消</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s);
+const API='/__strings__';
+
+let entries=[];
+let dirty=false;
+let editId=null;
+let uploadFiles=[];
+let removedOldImages=[];
+
+async function load(){
+  try{
+    const r=await fetch('data/strings.json?_='+Date.now());
+    if(!r.ok) throw new Error();
+    const data=await r.json();
+    entries=data.entries||[];
+    renderList();
+    $('#total').textContent=entries.length;
+  }catch(e){$('#empty').hidden=false;}
+}
+
+function renderList(filter=''){
+  const q=filter.toLowerCase();
+  let list=q?entries.filter(e=>
+    (e.title||'').toLowerCase().includes(q)||
+    (e.tags||[]).some(t=>t.toLowerCase().includes(q))||
+    (e.prompt||'').toLowerCase().includes(q)
+  ):entries;
+
+  $('#list').innerHTML=list.map((e,i)=>{
+    const tags=(e.tags||[]).slice(0,5).map(t=>`<span class="etag">${esc(t)}</span>`).join('');
+    const idx=entries.indexOf(e);
+    return `<div class="entry-row">
+      <span class="index">${idx+1}</span>
+      <span class="etitle">${esc(e.title||'无标题')}</span>
+      <span class="etags">${tags}</span>
+      ${e.nsfw?'<span class="ensfw">NSFW</span>':'<span class="ensfw"></span>'}
+      <span class="eimgs">${(e.images||[]).length}图</span>
+      <span class="btns">
+        <button class="btn btn-primary btn-sm edit-btn" data-id="${e.id}">编辑</button>
+        <button class="btn btn-sm del-btn" data-id="${e.id}">删除</button>
+      </span>
+    </div>`;
+  }).join('') || '<div class="empty-state">无匹配结果</div>';
+
+  $$('.edit-btn').forEach(b=>b.onclick=()=>openForm(b.dataset.id));
+  $$('.del-btn').forEach(b=>b.onclick=()=>{if(confirm('删除这条画师串？')){removeEntry(b.dataset.id);}});
+}
+
+let formActive=false;
+function openForm(id){
+  editId=id||null;
+  const e=id?entries.find(x=>x.id===id):null;
+  uploadFiles=[];
+  removedOldImages=[];
+  const tpl=$('#formTpl').content.firstElementChild.cloneNode(true);
+  document.body.appendChild(tpl);
+
+  $('#fTitle').value=e?e.title:'';
+  $('#fPrompt').value=e?e.prompt:'';
+  $('#fTags').value=(e&&e.tags)?e.tags.join(','):'';
+  $('#fComment').value=(e&&e.comment)||'';
+  $('#fNsfw').checked=e?!!e.nsfw:false;
+  $('#formTitle').textContent=e?'编辑画师串':'新增画师串';
+
+  if(e&&e.images){
+    renderExistingImages(e.images);
+  }
+
+  $('#fSubmit').onclick=()=>submitForm();
+  $('#fCancel').onclick=()=>tpl.remove();
+  tpl.querySelector('.close-btn').onclick=()=>tpl.remove();
+  tpl.onclick=ev=>{if(ev.target.classList.contains('form-overlay')) tpl.remove();};
+
+  const uz=$('#uploadZone');
+  uz.onclick=()=>$('#fImages').click();
+  uz.ondragover=ev=>{ev.preventDefault();uz.style.borderColor='var(--accent)';};
+  uz.ondragleave=()=>uz.style.borderColor='';
+  uz.ondrop=ev=>{ev.preventDefault();uz.style.borderColor='';
+    for(const f of ev.dataTransfer.files) if(f.type.startsWith('image/')) uploadFiles.push(f);
+    renderPreviews();
+  };
+  $('#fImages').onchange=()=>{
+    for(const f of $('#fImages').files) uploadFiles.push(f);
+    $('#fImages').value='';
+    renderPreviews();
+  };
+}
+
+function renderExistingImages(images){
+  const c=$('#previewImgs');
+  images.forEach(f=>{
+    const w=document.createElement('div');w.className='thumb';
+    const url=['images','strings',f].map(p=>encodeURIComponent(p).replace(/%2F/g,'/')).join('/');
+    w.innerHTML=`<img src="${url}" alt=""><button class="remove" data-file="${esc(f)}">×</button>`;
+    w.querySelector('.remove').onclick=ev=>{ev.stopPropagation();removedOldImages.push(f);w.remove();};
+    c.appendChild(w);
+  });
+}
+
+function renderPreviews(){
+  const c=$('#previewImgs');
+  uploadFiles.forEach((f,i)=>{
+    const w=document.createElement('div');w.className='thumb';
+    const url=URL.createObjectURL(f);
+    w.innerHTML=`<img src="${url}" alt=""><button class="remove">×</button>`;
+    w.querySelector('.remove').onclick=ev=>{ev.stopPropagation();uploadFiles.splice(i,1);renderPreviews();};
+    c.appendChild(w);
+  });
+}
+
+function submitForm(){
+  const title=$('#fTitle').value.trim();
+  const prompt=$('#fPrompt').value.trim();
+  if(!title||!prompt){alert('标题和 Prompt 不能为空');return;}
+
+  const data={
+    id:editId||('str_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)),
+    title,
+    prompt,
+    tags:$('#fTags').value.split(',').map(s=>s.trim()).filter(Boolean),
+    comment:$('#fComment').value.trim(),
+    nsfw:$('#fNsfw').checked,
+  };
+
+  if(editId){
+    const idx=entries.findIndex(e=>e.id===editId);
+    if(idx>=0){
+      let imgs=(entries[idx].images||[]).filter(f=>!removedOldImages.includes(f));
+      data.images=imgs;
+      entries[idx]=data;
+    }
+  }else{
+    data.images=[];
+    entries.push(data);
+  }
+
+  dirty=true;
+  $('#dirty').textContent='是';
+
+  if(uploadFiles.length){uploadImages(data);}else{closeForm();renderList($('#search').value);}
+}
+
+function removeEntry(id){
+  entries=entries.filter(e=>e.id!==id);
+  dirty=true;$('#dirty').textContent='是';
+  renderList($('#search').value);
+}
+
+function closeForm(){
+  const ov=document.querySelector('.form-overlay');
+  if(ov) ov.remove();
+}
+
+async function uploadImages(entry){
+  for(const f of uploadFiles){
+    const fd=new FormData();
+    fd.append('image',f);
+    fd.append('entryId',entry.id);
+    fd.append('existingImages',JSON.stringify(entry.images));
+    try{
+      const r=await fetch(API+'?action=upload',{method:'POST',body:fd});
+      const j=await r.json();
+      if(j.ok){entry.images=j.images||entry.images;}
+    }catch(e){toast('图片上传失败: '+f.name);}
+  }
+  uploadFiles=[];
+  closeForm();
+  renderList($('#search').value);
+}
+
+async function saveAll(){
+  const data={title:'NAI Prompt',entries};
+  try{
+    const r=await fetch(API+'?action=save',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(data)
+    });
+    if(r.ok){dirty=false;$('#dirty').textContent='否';toast('已保存到 strings.json');}
+    else toast('保存失败');
+  }catch(e){toast('保存失败: '+e.message);}
+}
+
+function toast(msg){
+  const old=document.querySelector('.toast');if(old)old.remove();
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},2000);
+}
+
+$('#addBtn').onclick=()=>openForm(null);
+$('#saveAllBtn').onclick=saveAll;
+let st;
+$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>renderList($('#search').value),150);};
+function $$(s,r){return[...(r||document).querySelectorAll(s)];}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+load();
+</script>
+</body>
+</html>
