@@ -296,7 +296,7 @@ function computeLayout() {
 function estimateBodyH(e, w) {
   const titleLines = Math.min(2, Math.ceil((e.title || '').length / Math.max(10, Math.floor(w / 14))));
   const tagLines = (e.tags || []).length > 0 ? 1 : 0;
-  return titleLines * 21 + tagLines * 24 + 42;
+  return titleLines * 22 + tagLines * 18 + 52;
 }
 
 let vRaf = 0;

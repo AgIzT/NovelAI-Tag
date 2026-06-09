@@ -126,7 +126,7 @@ body.dark .view-tab.on{
 .masonry.relayout{transition:height .4s cubic-bezier(.22,1,.36,1)}
 
 .card{
-  background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;
   box-shadow:var(--shadow);cursor:pointer;
   position:absolute;left:0;top:0;
   contain:layout paint style;will-change:transform;backface-visibility:hidden;
@@ -154,28 +154,28 @@ body.dark .card-img-wrap.loading::before{background:linear-gradient(110deg,trans
   transform:translate(-50%,-50%);color:var(--muted);font-size:12px;white-space:nowrap
 }
 .zoom-btn{
-  position:absolute;top:8px;right:8px;border:none;width:32px;height:32px;
+  position:absolute;top:6px;right:6px;border:none;width:28px;height:28px;
   background:rgba(0,0,0,.5);color:#fff;font-size:14px;opacity:0;
-  border-radius:8px;display:grid;place-items:center;cursor:pointer;
+  border-radius:6px;display:grid;place-items:center;cursor:pointer;
   transition:opacity .15s,background .15s;backdrop-filter:blur(4px)
 }
 .zoom-btn:hover{background:var(--accent)}
 .card-img-wrap:hover .zoom-btn{opacity:1}
 .nsfw-badge{
-  position:absolute;top:8px;left:8px;background:var(--red);color:#fff;
-  padding:2px 8px;font-size:10px;font-weight:700;border-radius:6px;
+  position:absolute;top:6px;left:6px;background:var(--red);color:#fff;
+  padding:2px 7px;font-size:10px;font-weight:700;border-radius:5px;
   box-shadow:0 1px 4px rgba(0,0,0,.25)
 }
-.card-body{padding:13px 15px 14px}
-.card-title{font-size:15px;font-weight:700;line-height:1.35;margin-bottom:9px;
+.card-body{padding:11px 13px 12px}
+.card-title{font-size:14px;font-weight:700;line-height:1.35;margin-bottom:7px;
   font-family:var(--font-serif);
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card-tags-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
-.card-tag{font-size:10.5px;padding:3px 10px;border-radius:7px;background:var(--tagbg);
+.card-tags-row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.card-tag{font-size:10px;padding:2px 8px;border-radius:5px;background:var(--tagbg);
   color:var(--muted);font-weight:500;transition:background .12s}
 .card:hover .card-tag{background:var(--tagbg-hover)}
-.card-foot{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--muted);gap:8px}
-.card-count{font-size:10px;color:var(--muted);opacity:.75}
+.card-foot{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--muted);gap:6px}
+.card-count{font-size:10px;color:var(--muted);opacity:.65}
 .card-hint{color:var(--accent);font-weight:600;opacity:0;transition:opacity .18s;font-size:10px;white-space:nowrap}
 .card:hover .card-hint{opacity:1}
 
@@ -329,7 +329,7 @@ body.dark .prompt-box{background:#0b0f17;color:#c4c9d4;border-color:rgba(255,255
   <article class="card">
     <div class="card-img-wrap" hidden>
       <img class="card-img" loading="lazy" alt="">
-      <button class="zoom-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg></button>
+      <button class="zoom-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg></button>
     </div>
     <div class="card-body">
       <div class="card-title"></div>
