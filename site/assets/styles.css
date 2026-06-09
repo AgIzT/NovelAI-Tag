@@ -86,9 +86,6 @@ button{font-family:inherit;cursor:pointer}
 
 /* ---------- 瀑布流 ---------- */
 .masonry{position:relative;min-height:1px;contain:layout paint}
-.masonry.is-relayouting{
-  transition:height .34s cubic-bezier(.22,1,.36,1);
-}
 .col{display:none}
 
 .card{
@@ -98,16 +95,16 @@ button{font-family:inherit;cursor:pointer}
 }
 .masonry.is-relayouting .card{
   transition:
-    transform .34s cubic-bezier(.22,1,.36,1),
-    width .34s cubic-bezier(.22,1,.36,1),
-    height .34s cubic-bezier(.22,1,.36,1),
+    transform .32s cubic-bezier(.22,1,.36,1),
+    width .32s cubic-bezier(.22,1,.36,1),
+    height .32s cubic-bezier(.22,1,.36,1),
     opacity .16s,
     box-shadow .12s,
     border-color .12s;
 }
 .masonry.is-relayouting .card-img-wrap,
 .masonry.is-relayouting .card-tags{
-  transition:height .34s cubic-bezier(.22,1,.36,1),background .12s;
+  transition:height .32s cubic-bezier(.22,1,.36,1),background .12s;
 }
 .card:hover{box-shadow:var(--shadow-hover);border-color:transparent}
 .card.copied{outline:2px solid var(--accent)}
@@ -203,7 +200,6 @@ body.dark .badge-neg-chip{
 .card.no-img .card-img-wrap{display:none}
 
 @media (prefers-reduced-motion: reduce){
-  .masonry.is-relayouting,
   .masonry.is-relayouting .card,
   .masonry.is-relayouting .card-img-wrap,
   .masonry.is-relayouting .card-tags{

@@ -7,8 +7,8 @@ const GAP = 16;
 const VIRTUAL_BUFFER_UP = 0.8;
 const VIRTUAL_BUFFER_DOWN = 1.4;
 const IMAGE_LOAD_DELAY = 90;
-const RELAYOUT_INTERVAL = 90;
-const RELAYOUT_ANIM_MS = 360;
+const RELAYOUT_INTERVAL = 150;
+const RELAYOUT_ANIM_MS = 320;
 const DEFAULT_IMAGE_RATIO = 1.18;
 const MAX_TAG_LINES = 6;
 const MIN_TAG_HEIGHT = 34;
@@ -325,6 +325,9 @@ function clearMasonry() {
   state.rendered = 0;
   const m = $('#masonry');
   if (m) {
+    relayoutAnimating = false;
+    clearTimeout(relayoutAnimTimer);
+    m.classList.remove('is-relayouting');
     m.innerHTML = '';
     m.style.height = '0px';
   }
@@ -422,6 +425,7 @@ let virtualRaf = 0;
 let relayoutTimer = 0;
 let relayoutAnimTimer = 0;
 let relayoutQueuedAnimate = false;
+let relayoutAnimating = false;
 let lastRelayoutAt = 0;
 function scheduleVirtualUpdate() {
   if (virtualRaf) return;
@@ -453,10 +457,10 @@ function updateVirtualCards(force = false) {
       node = makeCard(placement);
       state.nodes.set(placement.index, node);
       m.appendChild(node);
-      calibrateCardHeight(node, placement);
+      if (!relayoutAnimating) calibrateCardHeight(node, placement);
     } else if (force) {
       updateCardPosition(node, placement);
-      calibrateCardHeight(node, placement);
+      if (!relayoutAnimating) calibrateCardHeight(node, placement);
     }
   }
 
@@ -647,11 +651,13 @@ function startRelayoutAnimation() {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const m = $('#masonry');
   if (!m) return;
+  relayoutAnimating = true;
   m.classList.add('is-relayouting');
   // Make sure the transition class is active before the new transforms land.
   void m.offsetWidth;
   clearTimeout(relayoutAnimTimer);
   relayoutAnimTimer = window.setTimeout(() => {
+    relayoutAnimating = false;
     m.classList.remove('is-relayouting');
   }, RELAYOUT_ANIM_MS + 80);
 }
