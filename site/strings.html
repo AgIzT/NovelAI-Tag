@@ -77,9 +77,20 @@ body.dark .theme-btn .moon{display:block}
   height:calc(100vh - 56px);overflow-y:auto;background:var(--panel);
   border-right:1px solid var(--line);padding:14px 10px
 }
+.tree{font-size:13px}
+.tree-item{user-select:none}
+.tree-row{display:flex;align-items:center;gap:4px;padding:6px 8px;border-radius:8px;cursor:pointer;color:var(--text)}
+.tree-row:hover{background:var(--tagbg)}
+.tree-row.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.tw-arrow{width:14px;text-align:center;color:var(--muted);font-size:10px;transition:transform .15s;flex:none}
+.tree-item.collapsed>.tree-row .tw-arrow{transform:rotate(-90deg)}
+.tw-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tw-count{color:var(--muted);font-size:11px;flex:none}
+.tree-children{margin-left:14px;border-left:1px solid var(--line);padding-left:6px}
+.tree-item.collapsed>.tree-children{display:none}
 .main{flex:1;min-width:0;padding:18px 22px 80px}
 
-.search-wrap{margin-bottom:18px}
+.search-wrap{margin-bottom:16px}
 .search-wrap input{
   width:100%;padding:9px 12px;border:1px solid var(--line);background:var(--bg);color:var(--text);
   font-size:13px;outline:none;font-family:inherit;border-radius:10px;
@@ -88,26 +99,25 @@ body.dark .theme-btn .moon{display:block}
 .search-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
 .search-wrap input::placeholder{color:var(--muted)}
 
-.tag-section{margin-bottom:6px}
-.tag-section .sec-title{
-  font-size:11px;font-weight:700;color:var(--muted);margin-bottom:12px;
-  text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:6px
+.view-tabs{
+  display:inline-flex;gap:0;margin-bottom:18px;
+  background:var(--tagbg);border-radius:12px;padding:4px;
+  border:1px solid var(--line)
 }
-.tag-grid{display:flex;flex-wrap:wrap;gap:5px}
-.tag-btn{
-  padding:5px 11px;border:1px solid var(--line);background:var(--tagbg);
-  color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;
-  font-weight:500;border-radius:8px;transition:all .15s;position:relative
+.view-tab{
+  padding:7px 20px;border:none;background:transparent;color:var(--muted);
+  font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;
+  border-radius:9px;transition:all .2s cubic-bezier(.22,1,.36,1);
+  position:relative;white-space:nowrap
 }
-.tag-btn:hover{background:var(--tagbg-hover);border-color:var(--accent);transform:translateY(-1px)}
-.tag-btn.on{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 2px 8px var(--accent-glow)}
-.tag-count{font-size:10px;opacity:.5;margin-left:2px}
-
-.clear-tags-btn{font-size:10px;border:1px solid var(--line);background:transparent;color:var(--muted);
-  padding:3px 10px;cursor:pointer;font-family:inherit;border-radius:6px;transition:all .15s;
-  margin-left:auto;font-weight:500}
-.clear-tags-btn:hover{color:var(--red);border-color:var(--red)}
-.tag-hint{font-size:11px;color:var(--muted);margin-top:12px;opacity:.7}
+.view-tab:hover{color:var(--text)}
+.view-tab.on{
+  background:var(--panel);color:var(--accent);
+  box-shadow:0 1px 2px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)
+}
+body.dark .view-tab.on{
+  box-shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px rgba(0,0,0,.2)
+}
 
 .result-bar{color:var(--muted);font-size:13px;margin-bottom:18px;min-height:18px}
 .result-bar b{color:var(--accent)}
@@ -272,11 +282,11 @@ body.dark .prompt-box{background:#0b0f17;color:#c4c9d4;border-color:rgba(255,255
 <div class="container">
   <header class="topbar">
     <div class="topbar-left">
-      <button class="icon-btn menu-btn" id="menuBtn" title="标签筛选">☰</button>
+      <button class="icon-btn menu-btn" id="menuBtn" title="分类目录">☰</button>
       <div class="brand">NAI<span>Prompt</span></div>
     </div>
     <div class="topbar-right">
-      <a href="/index.html" style="text-decoration:none;font-size:12px;color:var(--muted);padding:6px 12px;border:1px solid var(--line);border-radius:8px;transition:all .15s" onmouseenter="this.style.background='var(--tagbg)';this.style.color='var(--text)'" onmouseleave="this.style.background='transparent';this.style.color='var(--muted)'">切换到法典</a>
+      <a href="/index.html" onclick="location.assign(this.href);return!1" style="text-decoration:none;font-size:12px;color:var(--muted);padding:6px 12px;border:1px solid var(--line);border-radius:8px;transition:all .15s;cursor:pointer" onmouseenter="this.style.background='var(--tagbg)';this.style.color='var(--text)'" onmouseleave="this.style.background='transparent';this.style.color='var(--muted)'">切换到法典</a>
       <button class="nsfw-btn" id="nsfwBtn" title="NSFW 内容开关">
         <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
       </button>
@@ -292,17 +302,17 @@ body.dark .prompt-box{background:#0b0f17;color:#c4c9d4;border-color:rgba(255,255
       <div class="search-wrap">
         <input type="search" id="search" placeholder="搜索标题、tag、prompt…" autocomplete="off">
       </div>
-      <div class="tag-section">
-        <div class="sec-title">
-          标签筛选
-          <button id="clearTags" class="clear-tags-btn" hidden>清除</button>
-        </div>
-        <div class="tag-grid" id="tagGrid"></div>
-        <div class="tag-hint" id="tagHint">点击标签筛选，可多选</div>
-      </div>
+      <nav id="tree" class="tree"></nav>
     </aside>
 
     <main class="main" id="main">
+      <div class="view-tabs" id="viewTabs">
+        <button class="view-tab on" data-view="all">全部</button>
+        <button class="view-tab" data-view="face">面部</button>
+        <button class="view-tab" data-view="scene">场景</button>
+        <button class="view-tab" data-view="nsfw">NSFW</button>
+        <button class="view-tab" data-view="gallery">图库</button>
+      </div>
       <div class="result-bar"><span id="resultInfo"></span></div>
       <div class="masonry" id="masonry"></div>
       <div class="empty" id="empty" hidden>

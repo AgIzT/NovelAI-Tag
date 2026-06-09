@@ -19,14 +19,18 @@ const state = {
   nodes: new Map(),
   colN: 0,
   itemW: 0,
-  activeTags: new Set(),
+  activePath: null,
+  viewMode: 'all',
   query: '',
   showNSFW: localStorage.getItem('strings-nsfw') === 'true',
   loadedImages: new Set(),
   media: null,
+  treeData: [],
 };
 
 const svgCopy = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
+function normImg(img) { return typeof img === 'string' ? { file: img, label: 'gallery' } : img; }
 
 async function init() {
   bindUI();
@@ -40,9 +44,12 @@ async function init() {
     ]);
     state.data = data;
     state.media = media;
-    state.entries = data.entries || [];
+    state.entries = (data.entries || []).map(e => ({
+      ...e,
+      images: (e.images || []).map(normImg)
+    }));
 
-    buildTagUI();
+    buildTree();
     updateNSFWTooltip();
     applyFilter({ scrollUp: true });
 
@@ -61,29 +68,102 @@ async function loadMedia() {
   return { baseUrl: '', imagePrefix: 'images', originalPrefix: 'originals', localFallback: true };
 }
 
-function buildTagUI() {
-  const all = new Set();
-  for (const e of state.entries) {
-    for (const t of e.tags || []) all.add(t);
-  }
-  const sorted = [...all].sort();
-  const grid = $('#tagGrid');
-  grid.innerHTML = sorted.map(t => {
-    const n = state.entries.filter(e => (e.tags || []).includes(t)).length;
-    return `<button class="tag-btn" data-tag="${escAttr(t)}">${escHtml(t)}<span class="tag-count">${n}</span></button>`;
-  }).join('');
+function buildTree() {
+  const categories = state.data.categories || [];
+  const root = { name: '全部', path: null, count: state.entries.length, children: [] };
 
-  $$('.tag-btn', grid).forEach(btn => {
-    btn.onclick = () => {
-      const tag = btn.dataset.tag;
-      if (state.activeTags.has(tag)) state.activeTags.delete(tag);
-      else state.activeTags.add(tag);
-      btn.classList.toggle('on', state.activeTags.has(tag));
-      updateClearBtn();
-      applyFilter({ scrollUp: true });
-    };
-  });
-  updateClearBtn();
+  const nodeMap = new Map();
+  nodeMap.set(null, root);
+
+  for (const cat of categories) {
+    const segs = String(cat).split('/').filter(Boolean);
+    let parent = root;
+    let curPath = '';
+
+    for (const seg of segs) {
+      curPath = curPath ? `${curPath}/${seg}` : seg;
+      let node = nodeMap.get(curPath);
+      if (!node) {
+        node = { name: seg, path: curPath, count: 0, children: [] };
+        parent.children.push(node);
+        nodeMap.set(curPath, node);
+      }
+      parent = node;
+    }
+  }
+
+  for (const [path, node] of nodeMap) {
+    if (!path) continue;
+    const segs = path.split('/');
+    node.count = state.entries.filter(e => {
+      const cat = e.category || [];
+      return segs.length <= cat.length && segs.every((s, i) => cat[i] === s);
+    }).length;
+  }
+
+  state.treeData = [root];
+  renderTree();
+}
+
+function renderTree() {
+  const tree = $('#tree');
+  tree.innerHTML = '';
+
+  for (const node of state.treeData) {
+    tree.appendChild(renderTreeNode(node, true));
+  }
+
+  const activeItem = tree.querySelector(`[data-path="${escAttr(state.activePath || '')}"]`);
+  if (activeItem) {
+    const row = activeItem.querySelector('.tree-row');
+    if (row) row.classList.add('active');
+  }
+}
+
+function renderTreeNode(node, expanded) {
+  const item = document.createElement('div');
+  item.className = `tree-item${expanded ? '' : ' collapsed'}`;
+  item.dataset.path = node.path || '';
+
+  const row = document.createElement('div');
+  row.className = 'tree-row';
+
+  const arrow = document.createElement('span');
+  arrow.className = 'tw-arrow';
+  arrow.textContent = node.children.length ? '▾' : '';
+
+  const name = document.createElement('span');
+  name.className = 'tw-name';
+  name.textContent = node.name;
+
+  const count = document.createElement('span');
+  count.className = 'tw-count';
+  count.textContent = node.count || '';
+
+  row.append(arrow, name, count);
+  row.onclick = (ev) => {
+    ev.stopPropagation();
+    if (node.children.length) {
+      item.classList.toggle('collapsed');
+    }
+    $$('.tree-row.active').forEach(r => r.classList.remove('active'));
+    row.classList.add('active');
+    state.activePath = node.path;
+    applyFilter({ scrollUp: true });
+  };
+
+  item.appendChild(row);
+
+  if (node.children.length) {
+    const children = document.createElement('div');
+    children.className = 'tree-children';
+    for (const child of node.children) {
+      children.appendChild(renderTreeNode(child, true));
+    }
+    item.appendChild(children);
+  }
+
+  return item;
 }
 
 function applyFilter({ scrollUp = false } = {}) {
@@ -99,11 +179,18 @@ function applyFilter({ scrollUp = false } = {}) {
     );
   }
 
-  if (state.activeTags.size > 0) {
+  if (state.activePath) {
+    const segs = state.activePath.split('/');
     list = list.filter(e => {
-      const et = new Set((e.tags || []).map(t => t.toLowerCase()));
-      return [...state.activeTags].every(t => et.has(t.toLowerCase()));
+      const cat = e.category || [];
+      return segs.length <= cat.length && segs.every((s, i) => cat[i] === s);
     });
+  }
+
+  if (state.viewMode !== 'all') {
+    list = list.filter(e =>
+      (e.images || []).some(img => (img.label || 'gallery') === state.viewMode)
+    );
   }
 
   if (!state.showNSFW) list = list.filter(e => !e.nsfw);
@@ -118,11 +205,25 @@ function applyFilter({ scrollUp = false } = {}) {
 
 function updateResultBar(n) {
   const parts = [];
+  if (state.activePath) parts.push(`分类: ${state.activePath}`);
   if (state.query) parts.push(`搜索 "${escHtml(state.query)}"`);
-  if (state.activeTags.size > 0) parts.push(`标签: ${[...state.activeTags].map(escHtml).join(' + ')}`);
+  if (state.viewMode !== 'all') {
+    const names = { face: '面部', scene: '场景', nsfw: 'NSFW', gallery: '图库' };
+    parts.push(`视图: ${names[state.viewMode] || state.viewMode}`);
+  }
   parts.push(`<b>${n}</b> 条画师串`);
   $('#resultInfo').innerHTML = parts.join(' · ');
   $('#empty').hidden = n > 0;
+}
+
+function vidx(entry) {
+  if (state.viewMode === 'all') return 0;
+  return (entry.images || []).findIndex(img => (img.label || 'gallery') === state.viewMode);
+}
+
+function vimg(entry) {
+  const idx = vidx(entry);
+  return idx >= 0 ? entry.images[idx] : null;
 }
 
 /* ---- Virtual Masonry ---- */
@@ -153,7 +254,8 @@ function computeLayout() {
   for (let i = 0; i < state.filtered.length; i++) {
     const entry = state.filtered[i];
     const col = colHeights.indexOf(Math.min(...colHeights));
-    const imgH = estimateImgH(entry, itemW);
+    const hasImg = vimg(entry) !== null;
+    const imgH = hasImg ? Math.round(itemW * DEFAULT_IMG_RATIO) : 0;
     const bodyH = estimateBodyH(entry, itemW);
     const h = Math.ceil((imgH > 0 ? imgH : 0) + bodyH);
     const left = col * (itemW + GAP);
@@ -170,10 +272,6 @@ function computeLayout() {
   m.style.height = Math.ceil(Math.max(0, totalH)) + 'px';
 }
 
-function estimateImgH(e, w) {
-  if (!(e.images && e.images.length)) return 0;
-  return Math.round(w * DEFAULT_IMG_RATIO);
-}
 function estimateBodyH(e, w) {
   const titleLines = Math.min(2, Math.ceil((e.title || '').length / Math.max(10, Math.floor(w / 14))));
   const tagLines = (e.tags || []).length > 0 ? 1 : 0;
@@ -239,8 +337,9 @@ function makeCard(p) {
     node.querySelector('.card-img-wrap')?.appendChild(badge);
   }
 
-  if (e.images && e.images.length) {
-    setupImage(node, p);
+  const img = vimg(e);
+  if (img) {
+    setupImage(node, p, img);
     const cnt = node.querySelector('.image-count');
     if (cnt) cnt.textContent = e.images.length + ' 图';
   } else {
@@ -259,31 +358,28 @@ function updateCardPos(node, p) {
   if (wrap && p.imgH) wrap.style.height = p.imgH + 'px';
 }
 
-function setupImage(node, p) {
+function setupImage(node, p, img) {
   const e = p.entry;
   const wrap = node.querySelector('.card-img-wrap');
-  const img = node.querySelector('.card-img');
-  if (!e.images || !e.images.length) return;
-
-  const file = e.images[0];
-  const url = thumbUrl(file);
+  const imgEl = node.querySelector('.card-img');
+  const url = thumbUrl(img.file);
 
   wrap.hidden = false;
   wrap.style.height = p.imgH + 'px';
   wrap.classList.add('loading');
-  img.alt = e.title;
+  imgEl.alt = e.title;
 
   const markOk = () => {
     state.loadedImages.add(url);
     wrap.classList.remove('loading', 'error');
-    img.classList.add('loaded');
+    imgEl.classList.add('loaded');
   };
 
   node._timer = setTimeout(() => {
     node._timer = 0;
-    img.src = url;
-    img.onload = markOk;
-    img.onerror = () => {
+    imgEl.src = url;
+    imgEl.onload = markOk;
+    imgEl.onerror = () => {
       wrap.classList.remove('loading');
       wrap.classList.add('error');
     };
@@ -291,7 +387,7 @@ function setupImage(node, p) {
 
   wrap.querySelector('.zoom-btn').onclick = ev => {
     ev.stopPropagation();
-    openLightbox(originalUrl(file) || url);
+    openLightbox(originalUrl(img.file) || url);
   };
 }
 
@@ -326,19 +422,26 @@ function openDetail(idx) {
   overlay.className = 'detail-overlay';
   overlay.id = 'detailOverlay';
 
-  const imagesHtml = (e.images && e.images.length) ? e.images.map(f => {
-    const isNsfw = e.nsfw && !state.showNSFW;
+  const imgs = e.images || [];
+  const imagesHtml = imgs.length ? imgs.map(img => {
+    const file = img.file || img;
+    const label = img.label || 'gallery';
+    const labelNames = { face: '面部', scene: '场景', nsfw: 'NSFW', gallery: '图库' };
     return `
-      <div class="detail-img-card" data-img="${escAttr(f)}">
+      <div class="detail-img-card" data-img="${escAttr(file)}">
         ${e.nsfw ? '<div class="nsfw-flag">NSFW</div>' : ''}
-        <img src="${thumbUrl(f)}" alt="" loading="lazy">
+        <div class="img-label-tag" style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 8px;border-radius:6px;font-weight:600;backdrop-filter:blur(4px);z-index:1">${labelNames[label] || label}</div>
+        <img src="${thumbUrl(file)}" alt="" loading="lazy">
       </div>`;
   }).join('') : '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted)">暂无例图</div>';
+
+  const catPath = (e.category || []).join('/') || '未分类';
 
   overlay.innerHTML = `
     <div class="detail-panel">
       <button class="detail-close">✕</button>
       <div class="detail-body">
+        <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px">${escHtml(catPath)}</div>
         <h2 class="detail-title">${escHtml(e.title)}</h2>
         <div class="detail-tags">${(e.tags||[]).map(t=>`<span class="detail-tag">${escHtml(t)}</span>`).join('')}</div>
 
@@ -357,7 +460,7 @@ function openDetail(idx) {
         </div>` : ''}
 
         <div class="detail-section">
-          <h4>例图 (${(e.images||[]).length})</h4>
+          <h4>例图 (${imgs.length})</h4>
           <div class="detail-images">${imagesHtml}</div>
         </div>
       </div>
@@ -397,7 +500,7 @@ function openLightbox(src) {
 let toastTimer;
 function toast(msg) {
   const t = $('#toast');
-  t.textContent = '✓ ' + msg;
+  t.textContent = '\u2713 ' + msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
@@ -414,13 +517,6 @@ function bindUI() {
     }, 180);
   };
 
-  $('#clearTags').onclick = () => {
-    state.activeTags.clear();
-    $$('.tag-btn').forEach(b => b.classList.remove('on'));
-    updateClearBtn();
-    applyFilter({ scrollUp: true });
-  };
-
   $('#nsfwBtn').onclick = () => {
     state.showNSFW = !state.showNSFW;
     localStorage.setItem('strings-nsfw', String(state.showNSFW));
@@ -428,6 +524,15 @@ function bindUI() {
     applyFilter({ scrollUp: true });
   };
   updateNSFWTooltip();
+
+  $$('#viewTabs .view-tab').forEach(btn => {
+    btn.onclick = () => {
+      $$('#viewTabs .view-tab').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      state.viewMode = btn.dataset.view;
+      applyFilter({ scrollUp: true });
+    };
+  });
 
   $('#themeBtn').onclick = () => applyTheme(!document.body.classList.contains('dark'));
   $('#menuBtn').onclick = () => $('#sidebar').classList.toggle('open');
@@ -453,13 +558,6 @@ function applyTheme(dark) {
   localStorage.setItem('strings-dark', dark ? 'true' : 'false');
 }
 
-function updateClearBtn() {
-  const hasTags = state.activeTags.size > 0;
-  const btn = $('#clearTags');
-  const hint = $('#tagHint');
-  if (btn) btn.hidden = !hasTags;
-  if (hint) hint.hidden = hasTags;
-}
 function updateNSFWBtn() {
   const btn = $('#nsfwBtn');
   btn.classList.toggle('active', state.showNSFW);

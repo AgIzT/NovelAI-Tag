@@ -13,110 +13,170 @@
   --font:"Noto Sans SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
   --font-mono:"JetBrains Mono","Fira Code","Cascadia Code","Consolas",monospace;
 }
-*{box-sizing:border-box}
+*{margin:0;padding:0;box-sizing:border-box}
 ::selection{background:var(--accent-soft);color:var(--accent)}
-body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+button{font-family:inherit;cursor:pointer}
+input,textarea,select{font-family:inherit}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
+
 header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  padding:11px 18px;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.03)}
-.title{font-size:17px;font-weight:800}.title span{color:var(--accent)}
-select,input[type=search]{
-  border:1px solid var(--line);background:var(--panel);color:var(--text);
-  padding:8px 13px;font-size:13px;font-family:inherit;border-radius:10px;
-  transition:border-color .15s,box-shadow .15s
-}
-input[type=search]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);outline:none}
-input[type=search]{width:240px}
+  padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.03)}
+.title{font-size:16px;font-weight:800;white-space:nowrap}.title span{color:var(--accent)}
 .btn{
-  padding:7px 16px;border:1px solid var(--line);background:var(--panel);color:var(--text);
-  font-weight:600;font-size:12px;cursor:pointer;font-family:inherit;
-  transition:all .15s;border-radius:10px
+  padding:7px 14px;border:1px solid var(--line);background:var(--panel);color:var(--text);
+  font-weight:600;font-size:12px;cursor:pointer;transition:all .15s;border-radius:10px;white-space:nowrap
 }
 .btn:hover{border-color:var(--accent);background:var(--accent-soft)}
 .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 1px 4px var(--accent-glow)}
-.btn-primary:hover{opacity:.9;box-shadow:0 2px 8px var(--accent-glow)}
+.btn-primary:hover{opacity:.9}
 .btn-danger{border-color:var(--red);color:var(--red)}
 .btn-danger:hover{background:var(--red);color:#fff}
 .btn-sm{padding:5px 12px;font-size:11px}
-.btn-save{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
-.btn-save:hover{background:var(--accent);color:#fff}
-.toolbar{gap:8px;margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap}
-main{max-width:960px;margin:0 auto;padding:18px}
+.spacer{flex:1}
+.status{font-size:12px;color:var(--muted);white-space:nowrap}
+
+.layout{display:flex;height:calc(100vh - 53px)}
+.sidebar{
+  flex:0 0 248px;width:248px;background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;overflow:hidden
+}
+.tree-wrap{flex:1;overflow-y:auto;padding:12px 8px}
+.tree-item{user-select:none}
+.tree-row{
+  display:flex;align-items:center;gap:4px;padding:6px 8px;border-radius:8px;cursor:pointer;color:var(--text);font-size:13px
+}
+.tree-row:hover{background:var(--tagbg)}
+.tree-row.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.tw-arrow{width:14px;text-align:center;color:var(--muted);font-size:10px;transition:transform .15s;flex:none}
+.tree-item.collapsed>.tree-row .tw-arrow{transform:rotate(-90deg)}
+.tw-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tw-count{color:var(--muted);font-size:11px;flex:none}
+.tree-children{margin-left:14px;border-left:1px solid var(--line);padding-left:6px}
+.tree-item.collapsed>.tree-children{display:none}
+
+.sb-foot{padding:10px 12px;border-top:1px solid var(--line);display:flex;gap:6px}
+.sb-foot input{
+  flex:1;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;
+  background:var(--bg);color:var(--text);transition:border-color .15s
+}
+.sb-foot input:focus{border-color:var(--accent);outline:none}
+.sb-foot input::placeholder{color:var(--muted)}
+.sb-foot button{padding:7px 10px;font-size:12px}
+
+.main{flex:1;min-width:0;overflow-y:auto;padding:16px 20px}
+.main-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.main-toolbar input[type=search]{
+  flex:1;max-width:320px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;
+  font-size:13px;background:var(--panel);color:var(--text);transition:border-color .15s
+}
+.main-toolbar input[type=search]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);outline:none}
+.main-toolbar input::placeholder{color:var(--muted)}
+.crumb{font-size:13px;color:var(--muted);white-space:nowrap}.crumb b{color:var(--text)}
+
 .entry-row{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
-  padding:11px 15px;margin-bottom:6px;border-radius:11px;transition:all .15s;box-shadow:0 1px 2px rgba(0,0,0,.02)}
-.entry-row:hover{border-color:var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.04);transform:translateY(-1px)}
-.entry-row .index{width:32px;font-size:12px;color:var(--muted);text-align:center;flex:none;font-weight:600}
+  padding:10px 14px;margin-bottom:5px;border-radius:10px;transition:all .15s}
+.entry-row:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.entry-row .idx{width:28px;font-size:12px;color:var(--muted);text-align:center;flex:none}
 .entry-row .etitle{flex:1;font-weight:700;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .entry-row .etags{display:flex;gap:3px;flex:none}
-.entry-row .etag{font-size:10px;padding:2px 8px;background:var(--tagbg);border-radius:7px;font-weight:500}
-.entry-row .ensfw{font-size:10px;color:var(--red);font-weight:700;flex:none;width:36px;text-align:center}
-.entry-row .eimgs{font-size:11px;color:var(--muted);flex:none;width:40px;text-align:center}
-.entry-row .btns{flex:none;display:flex;gap:4px}
-.form-overlay{position:fixed;inset:0;background:rgba(8,14,20,.62);backdrop-filter:blur(6px);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .18s ease}
+.entry-row .etag{font-size:10px;padding:2px 8px;background:var(--tagbg);border-radius:6px;font-weight:500}
+.entry-row .ensfw{font-size:10px;color:var(--red);font-weight:700;flex:none;width:34px;text-align:center}
+.entry-row .eimgs{font-size:11px;color:var(--muted);flex:none;width:34px;text-align:center}
+.entry-row .ebtns{flex:none;display:flex;gap:4px}
+
+.form-overlay{position:fixed;inset:0;background:rgba(8,14,20,.62);backdrop-filter:blur(6px);z-index:50;
+  display:flex;align-items:flex-start;justify-content:center;padding:30px 20px;overflow-y:auto;
+  animation:fadeIn .18s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.form-panel{background:var(--panel);border:1px solid var(--line);max-width:700px;width:100%;max-height:90vh;overflow-y:auto;padding:30px;position:relative;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.18);animation:slideUp .2s cubic-bezier(.22,1,.36,1)}
+.form-panel{background:var(--panel);border:1px solid var(--line);max-width:720px;width:100%;
+  padding:28px;position:relative;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.18);
+  animation:slideUp .2s cubic-bezier(.22,1,.36,1);margin:auto}
 @keyframes slideUp{from{opacity:.6;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-.form-panel h2{font-size:1.15rem;font-weight:800;margin:0 0 20px}
-.form-panel .close-btn{position:absolute;top:14px;right:14px;width:38px;height:38px;border:none;border-radius:10px;background:var(--tagbg);color:var(--muted);font-size:18px;cursor:pointer;display:grid;place-items:center;transition:all .15s}
+.form-panel h2{font-size:1.1rem;font-weight:800;margin:0 0 20px}
+.form-panel .close-btn{position:absolute;top:14px;right:14px;width:36px;height:36px;border:none;border-radius:10px;
+  background:var(--tagbg);color:var(--muted);font-size:16px;cursor:pointer;display:grid;place-items:center;transition:all .15s}
 .form-panel .close-btn:hover{background:var(--red);color:#fff}
-.form-group{margin-bottom:16px}
-.form-group label{display:block;font-weight:700;font-size:11px;margin-bottom:6px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.form-group input[type=text],.form-group textarea{
-  width:100%;padding:10px 13px;border:1px solid var(--line);border-radius:10px;font-size:13px;
-  font-family:inherit;background:var(--bg);color:var(--text);resize:vertical;
-  transition:border-color .15s,box-shadow .15s
+.fg{margin-bottom:14px}
+.fg label{display:block;font-weight:700;font-size:11px;margin-bottom:5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.fg input[type=text],.fg textarea{
+  width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13px;
+  background:var(--bg);color:var(--text);resize:vertical;transition:border-color .15s,box-shadow .15s
 }
-.form-group input[type=text]:focus,.form-group textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);outline:none}
-.form-group textarea{min-height:80px;font-family:var(--font-mono);font-size:12px}
-.form-group textarea.comment{font-family:inherit;min-height:60px}
-.form-row{display:flex;gap:12px}.form-row .form-group{flex:1}
-.preview-imgs{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
-.preview-imgs .thumb{position:relative;border:1px solid var(--line);width:84px;height:84px;overflow:hidden;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-.preview-imgs .thumb img{width:100%;height:100%;object-fit:cover}
-.preview-imgs .thumb .remove{position:absolute;top:0;right:0;width:22px;height:22px;background:var(--red);color:#fff;border:none;font-size:10px;cursor:pointer;display:grid;place-items:center;border-radius:0 0 0 6px;transition:background .12s}
-.preview-imgs .thumb .remove:hover{background:#c0392b}
+.fg input[type=text]:focus,.fg textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);outline:none}
+.fg textarea{min-height:80px;font-family:var(--font-mono);font-size:12px}
+.fg textarea.comment{font-family:inherit;min-height:60px}
+.frow{display:flex;gap:12px}.frow .fg{flex:1}
+
+.preview-imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.thumb{position:relative;border:1px solid var(--line);width:86px;border-radius:10px;overflow:hidden;background:var(--tagbg)}
+.thumb img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}
+.thumb .remove{position:absolute;top:0;right:0;width:20px;height:20px;background:var(--red);color:#fff;
+  border:none;font-size:10px;cursor:pointer;display:grid;place-items:center;border-radius:0 0 0 6px}
+.thumb .label-sel{width:100%;border:none;border-top:1px solid var(--line);background:var(--panel);color:var(--text);
+  font-size:10px;padding:3px 4px;text-align:center;cursor:pointer;font-family:inherit;
+  appearance:none;-webkit-appearance:none;border-radius:0 0 10px 10px}
+.thumb .label-sel:focus{outline:none;border-color:var(--accent)}
 .upload-zone{
-  border:2px dashed var(--line);background:var(--zone);padding:26px;text-align:center;
-  cursor:pointer;margin-bottom:8px;transition:all .15s;border-radius:12px;
-  color:var(--muted);font-size:13px;font-weight:500
+  border:2px dashed var(--line);background:var(--zone);padding:24px;text-align:center;
+  cursor:pointer;margin-bottom:8px;transition:all .15s;border-radius:12px;color:var(--muted);font-size:13px
 }
 .upload-zone:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
-.empty-state{text-align:center;color:var(--muted);padding:60px 0;font-size:14px}
-.toast{position:fixed;bottom:28px;right:28px;background:var(--accent);color:#fff;padding:11px 22px;font-weight:600;z-index:99;border-radius:999px;box-shadow:0 4px 16px rgba(0,0,0,.2);font-size:13px;animation:fadeIn .2s ease}
+
+.empty{text-align:center;color:var(--muted);padding:60px 0;font-size:14px}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--accent);color:#fff;padding:11px 22px;
+  font-weight:600;z-index:99;border-radius:999px;box-shadow:0 4px 16px rgba(0,0,0,.2);font-size:13px;animation:fadeIn .2s ease}
 </style>
 </head>
 <body>
 <header>
   <div class="title">NAI<span>Prompt 编辑器</span></div>
-  <div class="toolbar">
-    <input type="search" id="search" placeholder="搜索标题 / tag…" autocomplete="off">
-    <button class="btn btn-primary btn-sm" id="addBtn">+ 新增</button>
-    <button class="btn btn-save btn-sm" id="saveAllBtn">保存全部</button>
-    <span style="font-size:12px;color:var(--muted)">
-      共 <b id="total">0</b> 条 | 已修改: <b id="dirty" style="color:var(--accent)">否</b>
-    </span>
-  </div>
+  <div class="spacer"></div>
+  <button class="btn btn-primary" id="saveAllBtn">保存全部</button>
+  <span class="status">共 <b id="total">0</b> 条 · 已修改: <b id="dirty" style="color:var(--accent)">否</b></span>
 </header>
-<main>
-  <div id="list"></div>
-  <div class="empty-state" id="empty" hidden>没有画师串，点「+ 新增」开始</div>
-</main>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="tree-wrap" id="treeWrap"></div>
+    <div class="sb-foot">
+      <input type="text" id="newCatInput" placeholder="新建目录 (如: 少女/日常)">
+      <button class="btn btn-sm btn-primary" id="newCatBtn">+</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="main-toolbar">
+      <span class="crumb" id="crumb">全部</span>
+      <input type="search" id="search" placeholder="搜索标题 / tag…" autocomplete="off">
+      <button class="btn btn-primary btn-sm" id="addBtn">+ 新增条目</button>
+    </div>
+    <div id="list"></div>
+    <div class="empty" id="empty" hidden>此目录下还没有画师串</div>
+  </main>
+</div>
 
 <template id="formTpl">
   <div class="form-overlay">
     <div class="form-panel">
       <button class="close-btn">✕</button>
       <h2 id="formTitle">编辑画师串</h2>
-      <div class="form-group"><label>标题</label><input type="text" id="fTitle" placeholder="给画师串起个名字" required></div>
-      <div class="form-group"><label>Prompt / 画师串正文</label><textarea id="fPrompt" placeholder="artist:xxx0.5, ..." required></textarea></div>
-      <div class="form-row">
-        <div class="form-group"><label>标签 (逗号分隔)</label><input type="text" id="fTags" placeholder="萝莉, 日常, 可爱"></div>
-        <div class="form-group"><label>NSFW</label><div style="display:flex;align-items:center;gap:8px;padding-top:6px"><input type="checkbox" id="fNsfw"> <span style="font-size:12px;color:var(--muted)">标记为 NSFW 内容</span></div></div>
+      <div class="fg"><label>标题</label><input type="text" id="fTitle" placeholder="给画师串起个名字" required></div>
+      <div class="frow">
+        <div class="fg"><label>分类路径 (用 / 分隔层级)</label><input type="text" id="fCat" placeholder="如: 少女/日常" list="catSuggest"></div>
       </div>
-      <div class="form-group"><label>评价 / 备注</label><textarea class="comment" id="fComment" placeholder="写一点个人对这条串的评价、使用心得……"></textarea></div>
-      <div class="form-group"><label>例图</label>
+      <datalist id="catSuggest"></datalist>
+      <div class="fg"><label>Prompt / 画师串正文</label><textarea id="fPrompt" placeholder="artist:xxx0.5, ..." required></textarea></div>
+      <div class="frow">
+        <div class="fg"><label>标签 (逗号分隔)</label><input type="text" id="fTags" placeholder="萝莉, 日常, 可爱"></div>
+        <div class="fg"><label>NSFW</label><div style="display:flex;align-items:center;gap:8px;padding-top:6px"><input type="checkbox" id="fNsfw"> <span style="font-size:12px;color:var(--muted)">标记为 NSFW</span></div></div>
+      </div>
+      <div class="fg"><label>评价 / 备注</label><textarea class="comment" id="fComment" placeholder="写一点个人对这条串的评价、使用心得……"></textarea></div>
+      <div class="fg"><label>例图 (每张可选展示类别)</label>
         <input type="file" id="fImages" multiple accept="image/*" style="display:none">
-        <div class="upload-zone" id="uploadZone">点击或拖拽上传图片</div>
+        <div class="upload-zone" id="uploadZone">点击或拖拽上传图片 · 可选面部/场景/NSFW/图库展示类型</div>
         <div class="preview-imgs" id="previewImgs"></div>
       </div>
       <div style="display:flex;gap:10px;margin-top:16px">
@@ -131,69 +191,166 @@ main{max-width:960px;margin:0 auto;padding:18px}
 const $=(s,r=document)=>r.querySelector(s);
 const API='/__strings__';
 
-let entries=[];
-let dirty=false;
-let editId=null;
-let uploadFiles=[];
-let removedOldImages=[];
+let entries=[],categories=[];
+let dirty=false,editId=null,uploadFiles=[];
+let removedOld=[],activePath=[];
+let imgLabelCache={};
+
+const LABELS=['face','scene','nsfw','gallery'];
+const LABEL_NAMES={face:'面部',scene:'场景',nsfw:'NSFW',gallery:'图库'};
+
+function normImg(img){return typeof img==='string'?{file:img,label:'gallery'}:img;}
+function imgFile(img){return typeof img==='string'?img:img.file;}
 
 async function load(){
   try{
     const r=await fetch('data/strings.json?_='+Date.now());
     if(!r.ok) throw new Error();
     const data=await r.json();
-    entries=data.entries||[];
-    renderList();
+    entries=(data.entries||[]).map(e=>({...e,images:(e.images||[]).map(normImg)}));
+    categories=data.categories||collectCategories();
     $('#total').textContent=entries.length;
-  }catch(e){$('#empty').hidden=false;}
+    renderTree();renderList();
+  }catch(e){console.error(e);}
+}
+
+function collectCategories(){
+  const s=new Set();
+  for(const e of entries) if(e.category&&e.category.length) s.add(e.category.join('/'));
+  return [...s].sort();
+}
+
+function syncCategories(){
+  const s=new Set(categories);
+  for(const e of entries) if(e.category&&e.category.length) s.add(e.category.join('/'));
+  categories=[...s].sort();
+}
+
+function catPath(s){return s?(typeof s==='string'?s.split('/').filter(Boolean):s):[];}
+
+function buildTree(){
+  const root={name:'全部',path:[],children:[],count:entries.length};
+  const map={};map['']=root;
+  for(const c of categories){
+    const parts=catPath(c);
+    let cur=root,acc=[];
+    for(const p of parts){
+      acc.push(p);const key=acc.join('/');
+      if(!map[key]){
+        const node={name:p,path:[...acc],children:[],count:0};
+        cur.children.push(node);map[key]=node;
+      }
+      cur=map[key];
+    }
+  }
+  for(const e of entries){
+    const cp=e.category||[];
+    for(let i=1;i<=cp.length;i++){
+      const k=cp.slice(0,i).join('/');
+      if(map[k]) map[k].count++;
+    }
+  }
+  return root;
+}
+
+function renderTree(){
+  const root=buildTree(),wrap=$('#treeWrap');
+  wrap.innerHTML='';
+  const all=document.createElement('div');
+  all.className='tree-item';
+  all.innerHTML=`<div class="tree-row active" data-path=""><span class="tw-arrow"></span><span class="tw-name">全部</span><span class="tw-count">${root.count}</span></div>`;
+  all.querySelector('.tree-row').onclick=()=>selectPath([],all.querySelector('.tree-row'));
+  wrap.appendChild(all);
+  buildNodes(root.children,wrap,0);
+}
+
+function buildNodes(nodes,parent,depth){
+  for(const nd of nodes){
+    const item=document.createElement('div');
+    item.className='tree-item'+(depth>=1?' collapsed':'');
+    const hasKids=nd.children&&nd.children.length>0;
+    item.innerHTML=
+      `<div class="tree-row" data-path="${nd.path.join('/')}">`+
+      `<span class="tw-arrow">${hasKids?'▾':''}</span>`+
+      `<span class="tw-name">${esc(nd.name)}</span>`+
+      `<span class="tw-count">${nd.count}</span></div>`;
+    const row=item.querySelector('.tree-row');
+    if(hasKids){
+      row.querySelector('.tw-arrow').onclick=ev=>{ev.stopPropagation();item.classList.toggle('collapsed');};
+      const kids=document.createElement('div');kids.className='tree-children';
+      buildNodes(nd.children,kids,depth+1);item.appendChild(kids);
+    }
+    row.onclick=()=>{selectPath(nd.path,row);if(hasKids)item.classList.remove('collapsed');};
+    parent.appendChild(item);
+  }
+}
+
+function selectPath(path,rowEl){
+  activePath=path;renderList($('#search').value);
+  document.querySelectorAll('.tree-row.active').forEach(r=>r.classList.remove('active'));
+  rowEl.classList.add('active');
+  $('#crumb').innerHTML=path.length?path.map(s=>`<b>${esc(s)}</b>`).join(' / '):'全部';
+  $('#addBtn').textContent=path.length?`+ 新增到「${path[path.length-1]}」`:'+ 新增条目';
 }
 
 function renderList(filter=''){
   const q=filter.toLowerCase();
-  let list=q?entries.filter(e=>
+  let list=entries;
+  if(activePath.length){
+    list=list.filter(e=>activePath.every((s,i)=>(e.category||[])[i]===s));
+  }
+  if(q) list=list.filter(e=>
     (e.title||'').toLowerCase().includes(q)||
     (e.tags||[]).some(t=>t.toLowerCase().includes(q))||
     (e.prompt||'').toLowerCase().includes(q)
-  ):entries;
+  );
 
-  $('#list').innerHTML=list.map((e,i)=>{
-    const tags=(e.tags||[]).slice(0,5).map(t=>`<span class="etag">${esc(t)}</span>`).join('');
-    const idx=entries.indexOf(e);
+  $('#list').innerHTML=list.length?list.map((e,i)=>{
+    const idx=entries.indexOf(e)+1;
+    const tags=(e.tags||[]).slice(0,4).map(t=>`<span class="etag">${esc(t)}</span>`).join('');
     return `<div class="entry-row">
-      <span class="index">${idx+1}</span>
+      <span class="idx">${idx}</span>
       <span class="etitle">${esc(e.title||'无标题')}</span>
       <span class="etags">${tags}</span>
       ${e.nsfw?'<span class="ensfw">NSFW</span>':'<span class="ensfw"></span>'}
       <span class="eimgs">${(e.images||[]).length}图</span>
-      <span class="btns">
-        <button class="btn btn-primary btn-sm edit-btn" data-id="${e.id}">编辑</button>
-        <button class="btn btn-sm del-btn" data-id="${e.id}">删除</button>
+      <span class="ebtns">
+        <button class="btn btn-sm edt-btn" data-id="${e.id}">编辑</button>
+        <button class="btn btn-sm btn-danger del-btn" data-id="${e.id}">删除</button>
       </span>
     </div>`;
-  }).join('') || '<div class="empty-state">无匹配结果</div>';
+  }).join(''):'<div class="empty">无匹配结果</div>';
 
-  $$('.edit-btn').forEach(b=>b.onclick=()=>openForm(b.dataset.id));
-  $$('.del-btn').forEach(b=>b.onclick=()=>{if(confirm('删除这条画师串？')){removeEntry(b.dataset.id);}});
+  $('#empty').hidden=list.length>0;
+  document.querySelectorAll('.edt-btn').forEach(b=>b.onclick=()=>openForm(b.dataset.id));
+  document.querySelectorAll('.del-btn').forEach(b=>b.onclick=()=>{if(confirm('删除「'+entries.find(e=>e.id===b.dataset.id)?.title+'」？'))removeEntry(b.dataset.id);});
 }
 
-let formActive=false;
 function openForm(id){
   editId=id||null;
   const e=id?entries.find(x=>x.id===id):null;
-  uploadFiles=[];
-  removedOldImages=[];
+  uploadFiles=[];removedOld=[];imgLabelCache={};
   const tpl=$('#formTpl').content.firstElementChild.cloneNode(true);
   document.body.appendChild(tpl);
 
   $('#fTitle').value=e?e.title:'';
   $('#fPrompt').value=e?e.prompt:'';
+  $('#fCat').value=e&&e.category?e.category.join('/'):(activePath.join('/'));
   $('#fTags').value=(e&&e.tags)?e.tags.join(','):'';
   $('#fComment').value=(e&&e.comment)||'';
   $('#fNsfw').checked=e?!!e.nsfw:false;
   $('#formTitle').textContent=e?'编辑画师串':'新增画师串';
 
-  if(e&&e.images){
-    renderExistingImages(e.images);
+  const suggest=$('#catSuggest');
+  suggest.innerHTML=categories.map(c=>`<option value="${c}">`).join('');
+
+  if(e&&e.images&&e.images.length){
+    e.images.forEach(img=>{
+      const f=imgFile(img);
+      const label=img.label||'gallery';
+      imgLabelCache[f]=label;
+      appendThumb(f,label,!!e.images.find(x=>imgFile(x)===f&&x!==img));
+    });
   }
 
   $('#fSubmit').onclick=()=>submitForm();
@@ -206,36 +363,47 @@ function openForm(id){
   uz.ondragover=ev=>{ev.preventDefault();uz.style.borderColor='var(--accent)';};
   uz.ondragleave=()=>uz.style.borderColor='';
   uz.ondrop=ev=>{ev.preventDefault();uz.style.borderColor='';
-    for(const f of ev.dataTransfer.files) if(f.type.startsWith('image/')) uploadFiles.push(f);
-    renderPreviews();
+    for(const f of ev.dataTransfer.files) if(f.type.startsWith('image/')){
+      uploadFiles.push(f);addUploadThumb(f);
+    }
   };
   $('#fImages').onchange=()=>{
-    for(const f of $('#fImages').files) uploadFiles.push(f);
+    for(const f of $('#fImages').files){uploadFiles.push(f);addUploadThumb(f);}
     $('#fImages').value='';
-    renderPreviews();
   };
 }
 
-function renderExistingImages(images){
+function appendThumb(filename,label,isOld){
   const c=$('#previewImgs');
-  images.forEach(f=>{
-    const w=document.createElement('div');w.className='thumb';
-    const url=['images','strings',f].map(p=>encodeURIComponent(p).replace(/%2F/g,'/')).join('/');
-    w.innerHTML=`<img src="${url}" alt=""><button class="remove" data-file="${esc(f)}">×</button>`;
-    w.querySelector('.remove').onclick=ev=>{ev.stopPropagation();removedOldImages.push(f);w.remove();};
-    c.appendChild(w);
-  });
+  const w=document.createElement('div');w.className='thumb';
+  const url=['images','strings',filename].map(p=>encodeURIComponent(p).replace(/%2F/g,'/')).join('/');
+  w.innerHTML=`<img src="${url}" alt="">
+    <button class="remove" data-file="${esc(filename)}">×</button>
+    <select class="label-sel" data-file="${esc(filename)}">${LABELS.map(l=>`<option value="${l}" ${label===l?'selected':''}>${LABEL_NAMES[l]}</option>`).join('')}</select>`;
+  w.querySelector('.remove').onclick=ev=>{ev.stopPropagation();
+    if(isOld) removedOld.push(filename);
+    imgLabelCache[filename]=null;delete imgLabelCache[filename];
+    w.remove();
+  };
+  w.querySelector('.label-sel').onchange=ev=>{imgLabelCache[filename]=ev.target.value;};
+  c.appendChild(w);
 }
 
-function renderPreviews(){
+function addUploadThumb(f){
   const c=$('#previewImgs');
-  uploadFiles.forEach((f,i)=>{
-    const w=document.createElement('div');w.className='thumb';
-    const url=URL.createObjectURL(f);
-    w.innerHTML=`<img src="${url}" alt=""><button class="remove">×</button>`;
-    w.querySelector('.remove').onclick=ev=>{ev.stopPropagation();uploadFiles.splice(i,1);renderPreviews();};
-    c.appendChild(w);
-  });
+  const w=document.createElement('div');w.className='thumb';
+  const url=URL.createObjectURL(f);
+  imgLabelCache[f.name]='gallery';
+  w.innerHTML=`<img src="${url}" alt="">
+    <button class="remove">×</button>
+    <select class="label-sel" data-file="${esc(f.name)}">${LABELS.map(l=>`<option value="${l}" ${'gallery'===l?'selected':''}>${LABEL_NAMES[l]}</option>`).join('')}</select>`;
+  w.querySelector('.remove').onclick=ev=>{ev.stopPropagation();
+    uploadFiles=uploadFiles.filter(x=>x!==f);
+    imgLabelCache[f.name]=null;delete imgLabelCache[f.name];
+    w.remove();
+  };
+  w.querySelector('.label-sel').onchange=ev=>{imgLabelCache[f.name]=ev.target.value;};
+  c.appendChild(w);
 }
 
 function submitForm(){
@@ -243,37 +411,51 @@ function submitForm(){
   const prompt=$('#fPrompt').value.trim();
   if(!title||!prompt){alert('标题和 Prompt 不能为空');return;}
 
+  const catStr=$('#fCat').value.trim();
+  const cat=catPath(catStr);
+
+  const existingImages=[];
+  if(editId){
+    const orig=entries.find(e=>e.id===editId);
+    if(orig&&orig.images){
+      for(const img of orig.images){
+        const f=imgFile(img);
+        if(!removedOld.includes(f)){
+          existingImages.push({file:f,label:imgLabelCache[f]||img.label||'gallery'});
+        }
+      }
+    }
+  }
+
   const data={
     id:editId||('str_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)),
     title,
+    category:cat,
     prompt,
     tags:$('#fTags').value.split(',').map(s=>s.trim()).filter(Boolean),
     comment:$('#fComment').value.trim(),
     nsfw:$('#fNsfw').checked,
+    images:existingImages
   };
 
   if(editId){
     const idx=entries.findIndex(e=>e.id===editId);
-    if(idx>=0){
-      let imgs=(entries[idx].images||[]).filter(f=>!removedOldImages.includes(f));
-      data.images=imgs;
-      entries[idx]=data;
-    }
+    if(idx>=0) entries[idx]=data;
   }else{
-    data.images=[];
     entries.push(data);
   }
 
-  dirty=true;
-  $('#dirty').textContent='是';
+  dirty=true;$('#dirty').textContent='是';
+  syncCategories();renderTree();
 
-  if(uploadFiles.length){uploadImages(data);}else{closeForm();renderList($('#search').value);}
+  if(uploadFiles.length){uploadImages(data);}else{closeForm();renderList($('#search').value);$('#total').textContent=entries.length;}
 }
 
 function removeEntry(id){
   entries=entries.filter(e=>e.id!==id);
   dirty=true;$('#dirty').textContent='是';
-  renderList($('#search').value);
+  syncCategories();renderTree();
+  renderList($('#search').value);$('#total').textContent=entries.length;
 }
 
 function closeForm(){
@@ -287,25 +469,27 @@ async function uploadImages(entry){
     fd.append('image',f);
     fd.append('entryId',entry.id);
     fd.append('existingImages',JSON.stringify(entry.images));
+    fd.append('label',imgLabelCache[f.name]||'gallery');
     try{
       const r=await fetch(API+'?action=upload',{method:'POST',body:fd});
       const j=await r.json();
-      if(j.ok){entry.images=j.images||entry.images;}
+      if(j.ok){
+        const imgs=(j.images||[]).map(normImg);
+        const idx=entries.findIndex(e=>e.id===entry.id);
+        if(idx>=0) entries[idx].images=imgs;
+      }
     }catch(e){toast('图片上传失败: '+f.name);}
   }
   uploadFiles=[];
-  closeForm();
-  renderList($('#search').value);
+  closeForm();renderTree();
+  renderList($('#search').value);$('#total').textContent=entries.length;
 }
 
 async function saveAll(){
-  const data={title:'NAI Prompt',entries};
+  syncCategories();
+  const data={title:'NAI Prompt',author:'小雫',categories,entries:entries.map(e=>({...e,images:e.images||[]}))};
   try{
-    const r=await fetch(API+'?action=save',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(data)
-    });
+    const r=await fetch(API+'?action=save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     if(r.ok){dirty=false;$('#dirty').textContent='否';toast('已保存到 strings.json');}
     else toast('保存失败');
   }catch(e){toast('保存失败: '+e.message);}
@@ -318,12 +502,22 @@ function toast(msg){
   setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300);},2000);
 }
 
+function createCategory(){
+  const val=$('#newCatInput').value.trim();
+  if(!val){toast('请输入目录路径');return;}
+  if(categories.includes(val)){toast('目录已存在');return;}
+  categories.push(val);categories.sort();
+  renderTree();$('#newCatInput').value='';
+  toast('已添加目录: '+val);
+}
+
 $('#addBtn').onclick=()=>openForm(null);
 $('#saveAllBtn').onclick=saveAll;
+$('#newCatBtn').onclick=createCategory;
+$('#newCatInput').onkeydown=ev=>{if(ev.key==='Enter') createCategory();};
 let st;
 $('#search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>renderList($('#search').value),150);};
-function $$(s,r){return[...(r||document).querySelectorAll(s)];}
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
 load();
 </script>

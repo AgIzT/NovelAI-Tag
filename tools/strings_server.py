@@ -59,12 +59,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             ln = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(ln))
+            self._normalize_images(data)
             with LOCK:
                 with open(STRINGS_JSON, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
             self._serve_json({"ok": True})
         except Exception as ex:
             self._serve_json({"ok": False, "error": str(ex)}, 500)
+
+    def _normalize_images(self, data):
+        for e in data.get("entries", []):
+            imgs = e.get("images")
+            if not imgs:
+                continue
+            for i, img in enumerate(imgs):
+                if isinstance(img, str):
+                    imgs[i] = {"file": img, "label": "gallery"}
 
     def _handle_upload(self):
         try:
@@ -84,6 +94,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             image_data = None
             entry_id = None
             existing_images = []
+            label = "gallery"
 
             for part in parts:
                 name = part.get("name")
@@ -93,6 +104,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     entry_id = part["data"].decode("utf-8")
                 elif name == "existingImages":
                     existing_images = json.loads(part["data"].decode("utf-8"))
+                elif name == "label":
+                    label = part["data"].decode("utf-8")
 
             if not image_data or not entry_id:
                 self._serve_json({"ok": False, "error": "缺少参数"}, 400)
@@ -110,7 +123,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             im.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
             im.save(tp, "JPEG", quality=86, optimize=True)
 
-            existing_images.append(tn)
+            existing_images.append({"file": tn, "label": label})
 
             with LOCK:
                 if os.path.exists(STRINGS_JSON):
