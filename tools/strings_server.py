@@ -8,7 +8,7 @@
   POST /__strings__?action=upload → 上传图片并压缩
 用法：python tools/strings_server.py
 """
-import http.server, socketserver, json, os, io, threading, urllib.parse, time
+import http.server, socketserver, json, os, io, re, threading, urllib.parse, time
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +19,7 @@ STRINGS_INDEX = os.path.join(DATA, "strings_index.json")
 MAXDIM = 1100
 PORT = 8768
 LOCK = threading.Lock()
+SAFE_ENTRY_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -187,7 +188,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if name == "image" and "data" in part:
                     image_data = part["data"]
                 elif name == "entryId":
-                    entry_id = part["data"].decode("utf-8")
+                    entry_id = part["data"].decode("utf-8").strip()
                 elif name == "existingImages":
                     existing_images = json.loads(part["data"].decode("utf-8"))
                 elif name == "label":
@@ -197,6 +198,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             if not image_data or not entry_id:
                 self._serve_json({"ok": False, "error": "缺少参数"}, 400)
+                return
+            if not SAFE_ENTRY_ID.fullmatch(entry_id):
+                self._serve_json({"ok": False, "error": "invalid entryId"}, 400)
                 return
 
             target_file = os.path.basename(target_file)
@@ -209,7 +213,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             tdir = os.path.join(SITE, "images", "strings")
             os.makedirs(tdir, exist_ok=True)
             tn = f"{entry_id}_{len(existing_images):02d}.jpg"
-            tp = os.path.join(tdir, tn)
+            tp = os.path.abspath(os.path.join(tdir, tn))
+            base = os.path.abspath(tdir)
+            if not (tp == base or tp.startswith(base + os.sep)):
+                self._serve_json({"ok": False, "error": "invalid image path"}, 400)
+                return
 
             im = Image.open(io.BytesIO(image_data))
             if im.mode not in ("RGB", "L"):

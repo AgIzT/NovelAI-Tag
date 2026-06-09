@@ -409,7 +409,7 @@ function setupImage(node, p, img) {
 
   wrap.querySelector('.zoom-btn').onclick = ev => {
     ev.stopPropagation();
-    openLightbox(originalUrl(img.file) || url);
+    openLightbox(url);
   };
 }
 
@@ -421,17 +421,10 @@ const STRINGS_R2_BASE = 'https://pub-c1d79beb70aa4807a6803a6fdd5237f8.r2.dev';
 
 function thumbUrl(file) {
   const path = ['images', 'strings', file].map(p => encodeURIComponent(p).replace(/%2F/g, '/')).join('/');
-  if (isLocal()) return withRev(path);
-  return withRev(`${STRINGS_R2_BASE}/${path}`);
-}
-
-function originalUrl(file) {
-  const path = ['originals', 'strings', file].map(p => encodeURIComponent(p).replace(/%2F/g, '/')).join('/');
   if (isLocal()) return path;
   return `${STRINGS_R2_BASE}/${path}`;
 }
 
-function withRev(url) { return url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(); }
 function isLocal() { return ['localhost', '127.0.0.1', '::1'].includes(location.hostname) || location.protocol === 'file:'; }
 
 /* ---- Detail panel ---- */
@@ -500,7 +493,7 @@ function openDetail(idx) {
   overlay.querySelectorAll('.detail-img-card').forEach(card => {
     card.onclick = () => {
       const f = card.dataset.img;
-      openLightbox(originalUrl(f) || thumbUrl(f));
+      openLightbox(thumbUrl(f));
     };
   });
 }

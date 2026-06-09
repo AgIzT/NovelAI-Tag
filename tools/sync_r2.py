@@ -756,7 +756,7 @@ def main():
     strings_assets = collect_strings_assets()
 
     media_changed = False
-    if not args.dry_run and not MEDIA_PATH.exists():
+    if not args.dry_run:
         media_changed = write_media(cfg)
 
     print("R2 sync scan")
