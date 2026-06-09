@@ -56,25 +56,70 @@
 <div id="toast" class="toast"></div>
 
 <div id="lightbox" class="lightbox" hidden>
-  <img id="lightboxImg" alt="例图">
+  <div id="lightboxPanel" class="lightbox-panel">
+    <button id="lightboxClose" class="lightbox-close" type="button" aria-label="关闭">×</button>
+    <button id="lightboxPrev" class="lightbox-nav lightbox-prev" type="button" aria-label="上一张">‹</button>
+    <div class="lightbox-stage">
+      <img id="lightboxImg" alt="例图">
+    </div>
+    <button id="lightboxNext" class="lightbox-nav lightbox-next" type="button" aria-label="下一张">›</button>
+    <aside class="lightbox-info">
+      <div class="lightbox-head">
+        <h2 id="lightboxTitle"></h2>
+        <div id="lightboxMeta" class="lightbox-meta"></div>
+      </div>
+      <div class="lightbox-actions">
+        <button id="copyAll" type="button">复制全部</button>
+        <button id="copyRawTag" type="button">复制当前图 Raw</button>
+      </div>
+      <div class="lightbox-section">
+        <div class="section-head">
+          <div class="section-label">正向 tags</div>
+          <button id="copyPositive" type="button">复制正向</button>
+        </div>
+        <pre id="lightboxTags"></pre>
+      </div>
+      <div id="negativeBlock" class="lightbox-section">
+        <div class="section-head">
+          <div class="section-label">Negative</div>
+          <button id="copyNegative" type="button">复制负面</button>
+        </div>
+        <pre id="lightboxNegative"></pre>
+      </div>
+      <div id="noteBlock" class="lightbox-section">
+        <div class="section-label">Note</div>
+        <pre id="lightboxNote"></pre>
+      </div>
+      <div id="lightboxThumbs" class="lightbox-thumbs"></div>
+    </aside>
+  </div>
 </div>
 
 <template id="cardTpl">
   <article class="card">
     <div class="card-img-wrap" hidden>
       <img class="card-img" loading="lazy" alt="">
+      <div class="card-badges">
+        <span class="badge-neg" hidden>负面词</span>
+        <span class="badge-count" hidden><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 4.25A2.25 2.25 0 014.25 2h6.5A2.25 2.25 0 0113 4.25V5.5H9.25A3.75 3.75 0 005.5 9.25V13H4.25A2.25 2.25 0 012 10.75z"/><path d="M9.25 7A2.25 2.25 0 007 9.25v6.5A2.25 2.25 0 009.25 18h6.5A2.25 2.25 0 0018 15.75v-6.5A2.25 2.25 0 0015.75 7z"/></svg><span class="badge-count-n">1</span></span>
+      </div>
       <button class="zoom-btn" title="放大查看">🔍</button>
     </div>
     <div class="card-body">
       <div class="card-title-row">
         <h3 class="card-title"></h3>
         <span class="badge-new" hidden>NEW</span>
+        <span class="badge-neg-chip" hidden title="含负面提示词">负面</span>
         <button class="fav-btn" type="button" title="收藏" aria-label="收藏">☆</button>
       </div>
       <div class="card-tags"></div>
       <div class="card-foot">
         <span class="card-path"></span>
-        <span class="copy-hint">📋 点击复制</span>
+        <span class="card-actions">
+          <button class="mini-copy copy-negative" type="button" hidden>负面</button>
+          <button class="mini-copy copy-all" type="button" hidden>全部</button>
+          <span class="copy-hint">📋 点击复制</span>
+        </span>
       </div>
     </div>
   </article>

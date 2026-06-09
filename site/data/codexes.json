@@ -26,9 +26,14 @@
   {
     "id": "codex_3f60585d",
     "title": "涩涩法典(梦神版)",
-    "version": "2026.5.27",
+    "version": "外部源",
     "author": "梦神",
-    "entryCount": 351,
-    "imagedCount": 351
+    "entryCount": 336,
+    "imagedCount": 336,
+    "dataUrl": "https://prompt-vault-gallery.pages.dev/data/prompt-vault.json",
+    "fallbackDataUrl": "data/codex_3f60585d.json",
+    "fallbackVersion": "本地快照",
+    "assetBaseUrl": "https://prompt-vault-gallery.pages.dev",
+    "assetPathMode": "relative"
   }
 ]

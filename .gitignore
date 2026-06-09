@@ -34,6 +34,8 @@ publish.log
 # 临时转换/对比目录
 output/
 新版本待转/
+前端改造/
+chrome-profile-*/
 
 # 本地 AI 交接说明（不公开；供新会话 / 其它 AI 快速接手）
 CLAUDE.md
