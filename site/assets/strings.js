@@ -24,7 +24,6 @@ const state = {
   query: '',
   showNSFW: localStorage.getItem('strings-nsfw') === 'true',
   loadedImages: new Set(),
-  media: null,
   treeData: [],
 };
 
@@ -38,12 +37,8 @@ async function init() {
   updateNSFWBtn();
 
   try {
-    const [data, media] = await Promise.all([
-      fetch('data/strings.json?_=' + Date.now()).then(r => r.json()),
-      loadMedia(),
-    ]);
+    const data = await fetch('data/strings.json?_=' + Date.now()).then(r => r.json());
     state.data = data;
-    state.media = media;
     state.entries = (data.entries || []).map(e => ({
       ...e,
       images: (e.images || []).map(normImg)
@@ -58,14 +53,6 @@ async function init() {
     const empty = $('#empty');
     if (empty) { empty.hidden = false; const sp = empty.querySelector('span'); if (sp) sp.textContent = '数据加载失败，请检查 strings.json'; }
   }
-}
-
-async function loadMedia() {
-  try {
-    const res = await fetch('data/media.json', { cache: 'no-store' });
-    if (res.ok) return res.json();
-  } catch {}
-  return { baseUrl: '', imagePrefix: 'images', originalPrefix: 'originals', localFallback: true };
 }
 
 function buildTree() {
@@ -395,18 +382,18 @@ function cleanupCard(node) {
   if (node._timer) { clearTimeout(node._timer); node._timer = 0; }
 }
 
+const STRINGS_R2_BASE = 'https://pub-c1d79beb70aa4807a6803a6fdd5237f8.r2.dev';
+
 function thumbUrl(file) {
-  const path = [state.media.imagePrefix, 'strings', file].map(p => encodeURIComponent(p).replace(/%2F/g, '/')).join('/');
+  const path = ['images', 'strings', file].map(p => encodeURIComponent(p).replace(/%2F/g, '/')).join('/');
   if (isLocal()) return withRev(path);
-  const base = String(state.media.baseUrl || '').replace(/\/+$/, '');
-  return withRev(base ? `${base}/${path}` : path);
+  return withRev(`${STRINGS_R2_BASE}/${path}`);
 }
 
 function originalUrl(file) {
-  const path = [state.media.originalPrefix, 'strings', file].map(p => encodeURIComponent(p).replace(/%2F/g, '/')).join('/');
+  const path = ['originals', 'strings', file].map(p => encodeURIComponent(p).replace(/%2F/g, '/')).join('/');
   if (isLocal()) return path;
-  const base = String(state.media.baseUrl || '').replace(/\/+$/, '');
-  return base ? `${base}/${path}` : path;
+  return `${STRINGS_R2_BASE}/${path}`;
 }
 
 function withRev(url) { return url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(); }

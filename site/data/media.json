@@ -1,6 +1,6 @@
 {
-  "baseUrl": "https://pub-c1d79beb70aa4807a6803a6fdd5237f8.r2.dev",
-  "bucket": "nai-prompt-gallery",
+  "baseUrl": "https://pub-a66b6b5ffa0d44a89eb7dd6fa1070b58.r2.dev",
+  "bucket": "novelai-tag-assets",
   "imagePrefix": "images",
   "originalPrefix": "originals",
   "localFallback": true
