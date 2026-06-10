@@ -1,7 +1,7 @@
 'use strict';
 
 import {
-  json, err, LIMITS, IMAGE_LABELS,
+  json, err, LIMITS, IMAGE_LABELS, requireStorage,
   cleanLine, cleanText, normTags, normCategory,
 } from '../_lib.js';
 
@@ -34,7 +34,8 @@ function sniffImage(bytes) {
 const CONTENT_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 
 export async function onRequestPost({ request, env }) {
-  if (!env.STRINGS_BUCKET) return err('服务端未绑定存储桶 STRINGS_BUCKET（见配置指南）', 503);
+  const noStorage = requireStorage(env);
+  if (noStorage) return noStorage;
   if (!env.TURNSTILE_SECRET) return err('服务端未配置 TURNSTILE_SECRET（见配置指南）', 503);
 
   let form;

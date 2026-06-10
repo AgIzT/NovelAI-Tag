@@ -1,9 +1,5 @@
 'use strict';
 
-// R2 桶（主图床 novelai-tag-assets，社区数据存 community/ 前缀）的公开访问地址；
-// Pages 环境变量 STRINGS_PUBLIC_BASE 可覆盖（本地 wrangler dev 时设为 /r2，经 functions/r2/ 代理读本地模拟桶）
-const DEFAULT_PUBLIC_BASE = 'https://pub-a66b6b5ffa0d44a89eb7dd6fa1070b58.r2.dev';
-
 // 投稿字段上限（前后端一致）
 export const LIMITS = {
   title: 60,
@@ -21,8 +17,17 @@ export const LIMITS = {
 
 export const IMAGE_LABELS = ['gallery', 'face', 'scene', 'nsfw'];
 
+// 社区专用 R2 桶的公开访问地址，来自 Pages 环境变量 STRINGS_PUBLIC_BASE
+// （线上=新桶的 https://pub-….r2.dev 地址；本地 wrangler dev 在 .dev.vars 设为 /r2，经 functions/r2/ 代理读本地模拟桶）
 export function publicBase(env) {
-  return (env.STRINGS_PUBLIC_BASE || DEFAULT_PUBLIC_BASE).replace(/\/+$/, '');
+  return String(env.STRINGS_PUBLIC_BASE || '').replace(/\/+$/, '');
+}
+
+// 存储相关配置齐全则返回 null，否则返回应直接回给客户端的错误 Response
+export function requireStorage(env) {
+  if (!env.STRINGS_BUCKET) return err('服务端未绑定存储桶 STRINGS_BUCKET（见配置指南第 3 步）', 503);
+  if (!publicBase(env)) return err('服务端未配置 STRINGS_PUBLIC_BASE（新存储桶的公开地址，见配置指南第 4 步）', 503);
+  return null;
 }
 
 export function imageUrl(env, key) {

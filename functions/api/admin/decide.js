@@ -1,7 +1,7 @@
 'use strict';
 
 import {
-  json, err, requireAdmin, validId, readJson, deleteImages, rebuildCommunity,
+  json, err, requireAdmin, requireStorage, validId, readJson, deleteImages, rebuildCommunity,
   cleanLine, cleanText, normTags, normCategory, LIMITS,
 } from '../../_lib.js';
 
@@ -11,7 +11,8 @@ export async function onRequestPost(context) {
   const denied = requireAdmin(context);
   if (denied) return denied;
   const { env } = context;
-  if (!env.STRINGS_BUCKET) return err('服务端未绑定存储桶 STRINGS_BUCKET（见配置指南）', 503);
+  const noStorage = requireStorage(env);
+  if (noStorage) return noStorage;
 
   let body;
   try { body = await context.request.json(); } catch { return err('请求格式错误'); }
