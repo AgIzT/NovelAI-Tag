@@ -86,6 +86,7 @@ def save_image(cid, eid, durl):
                 e["imageHeight"] = thumb_h
                 e["original"] = ofn
                 e["assetRev"] = rev
+                e.pop("assetCodexId", None)
                 break
         d["imagedCount"] = sum(1 for e in d["entries"] if e.get("image"))
         with open(jp, "w", encoding="utf-8") as f:

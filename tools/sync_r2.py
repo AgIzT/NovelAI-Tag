@@ -227,7 +227,7 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
         for entry in codex.get("entries", []):
             image = entry.get("image")
             if not image:
-                for key in ("original", "assetRev", "imageWidth", "imageHeight"):
+                for key in ("original", "assetRev", "imageWidth", "imageHeight", "assetCodexId"):
                     if key in entry:
                         entry.pop(key, None)
                         changed = True
@@ -235,16 +235,17 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
 
             imaged += 1
             eid = entry.get("id")
-            thumb_path = THUMB_DIR / cid / image
+            asset_cid = entry.get("assetCodexId") or cid
+            thumb_path = THUMB_DIR / asset_cid / image
             if not thumb_path.exists():
-                issues.append(f"missing thumbnail: {cid}/{image}")
+                issues.append(f"missing thumbnail: {asset_cid}/{image}")
             else:
                 dims = image_dimensions(thumb_path)
                 if dims and (entry.get("imageWidth") != dims[0] or entry.get("imageHeight") != dims[1]):
                     entry["imageWidth"], entry["imageHeight"] = dims
                     changed = True
 
-            original_name, original_path, duplicate = first_original(cid, eid, entry.get("original"))
+            original_name, original_path, duplicate = first_original(asset_cid, eid, entry.get("original"))
             if duplicate:
                 issues.append(f"multiple originals for {eid}; using {original_name}")
             if original_name and original_path and original_path.exists():
@@ -252,12 +253,12 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
                     entry["original"] = original_name
                     changed = True
             elif entry.get("original"):
-                issues.append(f"missing original: {cid}/{entry['original']}")
+                issues.append(f"missing original: {asset_cid}/{entry['original']}")
             else:
                 issues.append(f"missing original for imaged entry: {eid}")
 
-            thumb_key = key_for(image_prefix, cid, image)
-            original_key = key_for(original_prefix, cid, original_name) if original_name else ""
+            thumb_key = key_for(image_prefix, asset_cid, image)
+            original_key = key_for(original_prefix, asset_cid, original_name) if original_name else ""
             thumb_sha = sha256_cached(thumb_path, thumb_key, manifest_objects, hash_stats) if thumb_path.exists() else ""
             original_sha = (
                 sha256_cached(original_path, original_key, manifest_objects, hash_stats)
@@ -271,9 +272,9 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
                     changed = True
 
             if thumb_path.exists():
-                assets.append(("image", cid, image, thumb_path, thumb_sha))
+                assets.append(("image", asset_cid, image, thumb_path, thumb_sha))
             if original_name and original_path and original_path.exists():
-                assets.append(("original", cid, original_name, original_path, original_sha))
+                assets.append(("original", asset_cid, original_name, original_path, original_sha))
 
         if codex.get("imagedCount") != imaged:
             codex["imagedCount"] = imaged
@@ -755,7 +756,7 @@ def main():
     strings_assets = collect_strings_assets()
 
     media_changed = False
-    if not args.dry_run and not MEDIA_PATH.exists():
+    if not args.dry_run:
         media_changed = write_media(cfg)
 
     print("R2 sync scan")
