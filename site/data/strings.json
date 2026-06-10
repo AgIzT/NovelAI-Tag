@@ -1,60 +1,7 @@
 {
-  "title": "NAI Prompt",
-  "author": "小雫",
-  "categories": [
-    "NSFW",
-    "少女/日常",
-    "少女/萝莉",
-    "成女"
-  ],
-  "entries": [
-    {
-      "id": "str_001",
-      "title": "海边少女 — 日常向",
-      "category": ["少女", "日常"],
-      "prompt": "artist:artistA0.5, artist:artistB0.3, {{{masterpiece}}}, best quality, 1girl, solo, looking at viewer, smile, casual clothes, outdoor, beach, ocean, soft lighting, depth of field, summer vibes",
-      "tags": ["少女", "日常", "海边", "室外"],
-      "comment": "这个串出图质量很稳定，适合日常阳光风格。\n建议配合 lighting 类 tag 一起使用，海边场景需要注意水面反射光线可能导致过曝。",
-      "nsfw": false,
-      "images": [
-        {"file": "str_mq6qykkux58g_00.jpg", "label": "gallery"},
-        {"file": "str_001_02.jpg", "label": "scene"}
-      ]
-    },
-    {
-      "id": "str_002",
-      "title": "午后时光",
-      "category": ["少女", "萝莉"],
-      "prompt": "artist:artistC0.6, {{{loli}}}, cute, small breasts, ribbon, frilled dress, indoors, window light, soft focus, afternoon, warm colors",
-      "tags": ["萝莉", "可爱", "室内"],
-      "comment": "萝莉向专用串，出图偏软萌风格。室内窗边光线出图非常有氛围感。\n注意体重词的配比可能需要根据模型微调。",
-      "nsfw": false,
-      "images": [
-        {"file": "str_mq6r138h34wp_00.jpg", "label": "face"}
-      ]
-    },
-    {
-      "id": "str_003",
-      "title": "夜宴",
-      "category": ["成女"],
-      "prompt": "artist:artistD0.4, {{{milf}}}, mature female, large breasts, elegant, evening dress, chandelier, dim lighting, wine glass, luxurious, seductive smile",
-      "tags": ["成女", "优雅", "NSFW"],
-      "comment": "成熟女性风格串，适合华丽昏暗场景。\n丰满体型出图效果很好，适合昏暗灯光氛围。",
-      "nsfw": true,
-      "images": [
-        {"file": "str_mq6s2hnh8amu_00.jpg", "label": "nsfw"}
-      ]
-    },
-    {
-      "id": "str_004",
-      "title": "静谧庭院",
-      "category": ["少女", "日常"],
-      "prompt": "artist:artistE0.5, {{{masterpiece}}}, best quality, 1girl, solo, sitting, garden, flowers, sunlight filtering through leaves, peaceful expression, white dress, butterflies",
-      "tags": ["少女", "日常", "庭院", "自然"],
-      "comment": "花园庭院风格，适合安静唯美氛围。画面偏明亮日系风格。\n建议在上午时段出图，光影层次更丰富。",
-      "nsfw": false,
-      "images": []
-    }
-  ],
+  "title": "NAI Prompt Strings",
+  "author": "",
+  "categories": [],
+  "entries": [],
   "imagedCount": 0
 }

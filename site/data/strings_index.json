@@ -1,17 +1,1 @@
-{
-  "collections": [
-    {
-      "id": "default",
-      "name": "NAI Prompt",
-      "author": "小雫",
-      "file": "strings.json"
-    },
-    {
-      "id": "str_97dd2",
-      "name": "小雫的画风串合集",
-      "author": "",
-      "file": "strings_str_97dd2.json"
-    }
-  ],
-  "imagedCount": 0
-}
+{"collections": [{"id": "default", "name": "示例合集", "author": "", "file": "strings.json"}], "imagedCount": 0}

@@ -8,27 +8,24 @@
     "imagedCount": 5033
   },
   {
-    "id": "codex_6e699406",
-    "title": "所长色色NovalAI个人法典(上)",
-    "version": "2026.5.1",
-    "author": "戒红所",
-    "entryCount": 5146,
-    "imagedCount": 4573
-  },
-  {
-    "id": "codex_8489ac52",
-    "title": "所长色色NovalAI个人法典(下)",
-    "version": "2026.5.1",
-    "author": "戒红所",
-    "entryCount": 4421,
-    "imagedCount": 4101
+    "id": "suozhang_r18",
+    "title": "所长色色NovalAI个人法典（合并版）",
+    "version": "2026.5.20",
+    "author": "一般所长",
+    "entryCount": 9868,
+    "imagedCount": 9178
   },
   {
     "id": "codex_3f60585d",
     "title": "涩涩法典(梦神版)",
-    "version": "2026.5.27",
+    "version": "外部源",
     "author": "梦神",
     "entryCount": 351,
-    "imagedCount": 351
+    "imagedCount": 351,
+    "dataUrl": "https://prompt-vault-gallery.pages.dev/data/prompt-vault.json",
+    "fallbackDataUrl": "data/codex_3f60585d.json",
+    "fallbackVersion": "本地快照",
+    "assetBaseUrl": "https://prompt-vault-gallery.pages.dev",
+    "assetPathMode": "relative"
   }
 ]

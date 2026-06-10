@@ -277,6 +277,13 @@ def build_entry_indexes(entries):
     return by_tags, by_title
 
 
+def unsafe_unique_title_fallback(title):
+    compact = norm_title(title)
+    if compact in {"\u539f\u7248", "\u53e6\u4e00\u7248", "\u9644\u5e26\u539f\u7248"}:
+        return True
+    return re.fullmatch(r"\u5176\u4ed6\u7248\u672c\d*", compact) is not None
+
+
 def match_candidates(candidates, entries):
     by_tags, by_title = build_entry_indexes(entries)
     matches = []
@@ -293,7 +300,7 @@ def match_candidates(candidates, entries):
                 matches.append(Match(narrowed[0], cand, "tags+title"))
                 continue
         title_hits = by_title.get(norm_title(cand.title), [])
-        if len(title_hits) == 1 and not re.match(r"^(其他版本|原版|另)", cand.title):
+        if len(title_hits) == 1 and not unsafe_unique_title_fallback(cand.title):
             matches.append(Match(title_hits[0], cand, "unique-title"))
             continue
         unmatched.append(cand)
