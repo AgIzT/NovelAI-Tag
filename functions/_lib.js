@@ -1,8 +1,8 @@
 'use strict';
 
-// 画风串 R2 桶的公开访问地址；Pages 环境变量 STRINGS_PUBLIC_BASE 可覆盖
-// （本地 wrangler dev 时设为 /r2，经 functions/r2/ 代理读本地模拟桶）
-const DEFAULT_PUBLIC_BASE = 'https://pub-c1d79beb70aa4807a6803a6fdd5237f8.r2.dev';
+// R2 桶（主图床 novelai-tag-assets，社区数据存 community/ 前缀）的公开访问地址；
+// Pages 环境变量 STRINGS_PUBLIC_BASE 可覆盖（本地 wrangler dev 时设为 /r2，经 functions/r2/ 代理读本地模拟桶）
+const DEFAULT_PUBLIC_BASE = 'https://pub-a66b6b5ffa0d44a89eb7dd6fa1070b58.r2.dev';
 
 // 投稿字段上限（前后端一致）
 export const LIMITS = {

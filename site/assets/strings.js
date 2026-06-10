@@ -447,7 +447,7 @@ function cleanupCard(node) {
   if (node._timer) { clearTimeout(node._timer); node._timer = 0; }
 }
 
-const STRINGS_R2_BASE = 'https://pub-c1d79beb70aa4807a6803a6fdd5237f8.r2.dev';
+const STRINGS_R2_BASE = 'https://pub-a66b6b5ffa0d44a89eb7dd6fa1070b58.r2.dev';
 
 function thumbUrl(file) {
   if (/^(https?:)?\/\//.test(file) || String(file).startsWith('data:') || String(file).startsWith('/')) return file;
