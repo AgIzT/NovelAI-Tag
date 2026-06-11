@@ -77,7 +77,7 @@ body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
   border-radius:9px;padding:9px 12px;font-size:13px;cursor:pointer;
   transition:background .12s,color .12s;
 }
-.codex-item:hover{background:var(--tagbg)}
+.codex-item:hover,.codex-item:focus-visible{background:var(--tagbg);outline:none}
 .codex-item.active{background:var(--accent-soft);color:var(--accent);font-weight:700}
 .ci-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .codex-item .ck{
@@ -466,11 +466,18 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
 
 /* ---------- 响应式 ---------- */
 @media (max-width:600px){
-  :root{--topbar-h:68px}
-  .topbar{gap:8px;padding:0 10px;top:8px;height:48px;width:calc(100% - 16px);margin:8px auto 0}
-  .topbar-actions{gap:2px}
+  :root{--topbar-h:112px}
+  .topbar{
+    flex-wrap:wrap;gap:7px 8px;align-content:center;
+    padding:7px 10px;top:8px;height:auto;min-height:48px;
+    width:calc(100% - 16px);margin:8px auto 0;border-radius:24px;
+  }
+  .topbar-actions{gap:2px;margin-left:0}
   .icon-btn,.filter-btn{width:34px;height:34px}
   .github-mark{width:21px;height:21px}
+  .nav-link,.github-btn{display:none}
+  .search-wrap{order:20;flex:0 0 100%;max-width:none}
+  #search{height:36px}
   .layout{padding:0 8px;gap:8px}
   .sidebar{
     position:fixed;z-index:25;top:var(--topbar-h);left:8px;

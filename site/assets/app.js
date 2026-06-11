@@ -78,36 +78,98 @@ function setupCodexPicker() {
   const btn = $('#codexBtn');
   const menu = $('#codexMenu');
   if (!btn || !menu) return;
-  const open = () => { menu.hidden = false; btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); };
-  const close = () => { menu.hidden = true; btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+  const items = () => [...menu.querySelectorAll('.codex-item')];
+  const activeIndex = () => Math.max(0, items().findIndex(item => item.classList.contains('active')));
+  const focusItem = index => {
+    const list = items();
+    if (!list.length) return;
+    list[(index + list.length) % list.length].focus();
+  };
+  const open = ({ focus = false, index = activeIndex() } = {}) => {
+    menu.hidden = false;
+    btn.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+    if (focus) requestAnimationFrame(() => focusItem(index));
+  };
+  const close = ({ focusButton = false } = {}) => {
+    menu.hidden = true;
+    btn.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+    if (focusButton) btn.focus();
+  };
+  const choose = item => {
+    if (!item) return;
+    close({ focusButton: true });
+    if (sel.value !== item.dataset.id) {
+      sel.value = item.dataset.id;
+      loadCodex(item.dataset.id);
+    }
+  };
   menu.innerHTML = '';
-  for (const c of state.codexes) {
+  state.codexes.forEach((c, i) => {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'codex-item';
     item.dataset.id = c.id;
+    item.id = `codexOption-${i}`;
     item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', 'false');
+    item.tabIndex = -1;
     item.innerHTML = `<span class="ci-name">${esc(c.title)}</span>` +
       '<svg class="ck" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 13 4 4L19 7"/></svg>';
-    item.onclick = () => {
-      close();
-      if (sel.value !== c.id) {
-        sel.value = c.id;
-        loadCodex(c.id);
-      }
-    };
+    item.onclick = () => choose(item);
     menu.appendChild(item);
-  }
+  });
   btn.onclick = ev => {
     ev.stopPropagation();
-    if (menu.hidden) open();
+    if (menu.hidden) open({ focus: true });
     else close();
   };
+  btn.onkeydown = ev => {
+    const list = items();
+    if (!list.length) return;
+    if (ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault();
+      if (menu.hidden) open({ focus: true });
+      else close();
+    } else if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      open({ focus: true, index: menu.hidden ? activeIndex() : activeIndex() + 1 });
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      open({ focus: true, index: menu.hidden ? activeIndex() : activeIndex() - 1 });
+    }
+  };
+  menu.onkeydown = ev => {
+    const list = items();
+    const current = list.indexOf(document.activeElement);
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      close({ focusButton: true });
+    } else if (ev.key === 'Tab') {
+      close();
+    } else if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      focusItem(current + 1);
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      focusItem(current - 1);
+    } else if (ev.key === 'Home') {
+      ev.preventDefault();
+      focusItem(0);
+    } else if (ev.key === 'End') {
+      ev.preventDefault();
+      focusItem(list.length - 1);
+    } else if (ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault();
+      choose(document.activeElement.closest('.codex-item'));
+    }
+  };
   document.addEventListener('click', ev => {
-    if (!menu.hidden && !menu.contains(ev.target)) close();
+    if (!menu.hidden && !menu.contains(ev.target) && !btn.contains(ev.target)) close();
   });
   window.addEventListener('keydown', ev => {
-    if (ev.key === 'Escape' && !menu.hidden) close();
+    if (ev.key === 'Escape' && !menu.hidden) close({ focusButton: true });
   });
 }
 
@@ -129,12 +191,16 @@ async function loadCodex(id) {
   if (seq !== codexLoadSeq) return;
   state.codex = codex;
   const c = state.codex;
+  const codexSelect = $('#codexSelect');
+  if (codexSelect) codexSelect.value = c.id;
   $('#codexTitle').textContent = c.title;
   $('#codexMeta').textContent = `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`;
   const codexBtnText = $('#codexBtnText');
   if (codexBtnText) codexBtnText.textContent = c.title;
   document.querySelectorAll('#codexMenu .codex-item').forEach(it => {
-    it.classList.toggle('active', it.dataset.id === c.id);
+    const active = it.dataset.id === c.id;
+    it.classList.toggle('active', active);
+    it.setAttribute('aria-selected', active ? 'true' : 'false');
   });
   state.activePath = [];
   state.query = '';

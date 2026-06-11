@@ -14,11 +14,11 @@
 
   <div class="codex-pick">
     <select id="codexSelect" class="codex-native" aria-hidden="true" tabindex="-1"></select>
-    <button id="codexBtn" class="codex-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+    <button id="codexBtn" class="codex-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="codexMenu">
       <span id="codexBtnText">加载中…</span>
       <svg class="codex-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
     </button>
-    <div id="codexMenu" class="codex-menu" hidden></div>
+    <div id="codexMenu" class="codex-menu" role="listbox" hidden></div>
   </div>
 
   <div class="search-wrap">
