@@ -3,22 +3,13 @@
 /* 画风串投稿弹窗（自包含模块，依赖 strings.js 里的全局 $ / escHtml / toast / isLocal） */
 (() => {
 
-// ====== 站长配置：把下面引号里的内容替换成 Cloudflare Turnstile 的 Site Key（见配置指南第 1 步） ======
-const TURNSTILE_SITEKEY = '0x4AAAAAADiQT5yadFUv3LhF';
-// 本地调试自动使用官方"永远通过"测试 Key，无需配置
-const TEST_SITEKEY = '1x00000000000000000000AA';
-
 // 与后端 functions/_lib.js 的 LIMITS 保持一致
 const LIM = { title: 60, prompt: 2000, comment: 500, submitter: 20, tags: 8, imgMax: 6, imgBytes: 3 * 1024 * 1024 };
 const LABELS = [['gallery', '图库'], ['face', '面部'], ['scene', '场景'], ['nsfw', 'NSFW']];
 
 let modal = null;
-let tsId = null;
 let files = [];   // {blob, url, label}
 let busy = false;
-
-function sitekey() { return isLocal() ? TEST_SITEKEY : TURNSTILE_SITEKEY; }
-function configured() { return isLocal() || !/请替换/.test(TURNSTILE_SITEKEY); }
 
 const CSS = `
 .sub-field{margin-bottom:14px}
@@ -46,7 +37,6 @@ const CSS = `
 .sub-err{color:var(--red);font-size:12px;flex:1;min-width:120px}
 .sub-note{font-size:11px;color:var(--muted);line-height:1.7;margin-top:6px}
 .sub-warn{font-size:12px;color:var(--red);padding:12px;border:1px dashed var(--red);border-radius:10px}
-.sub-ts{margin-top:14px;min-height:0}
 `;
 
 function buildModal() {
@@ -108,8 +98,6 @@ function buildModal() {
           <textarea id="subComment" maxlength="${LIM.comment}" style="min-height:56px" placeholder="适合什么题材、推荐权重等"></textarea>
         </div>
 
-        <div class="sub-ts" id="subTs"></div>
-
         <div class="sub-actions">
           <button class="sub-go" id="subGo">提交投稿</button>
           <div class="sub-err" id="subErr"></div>
@@ -139,26 +127,11 @@ function openModal() {
   if (!modal) buildModal();
   showErr('');
   modal.style.display = '';
-  mountTurnstile();
 }
 
 function closeModal() { modal.style.display = 'none'; }
 
 function showErr(msg) { const el = $('#subErr', modal); if (el) el.textContent = msg || ''; }
-
-function mountTurnstile() {
-  const holder = $('#subTs', modal);
-  if (!configured()) {
-    holder.innerHTML = '<div class="sub-warn">投稿功能尚未配置完成：站长需先按配置指南创建 Turnstile 并填入 Site Key。</div>';
-    return;
-  }
-  if (!window.turnstile) { setTimeout(mountTurnstile, 250); return; }
-  if (tsId !== null) { try { window.turnstile.reset(tsId); } catch {} return; }
-  tsId = window.turnstile.render(holder, {
-    sitekey: sitekey(),
-    theme: document.body.classList.contains('dark') ? 'dark' : 'light',
-  });
-}
 
 /* ---- 图片：浏览器端压缩（长边 ≤1100px JPEG，与站内缩略图规格一致） ---- */
 async function compressImage(file) {
@@ -232,12 +205,6 @@ async function doSubmit() {
   if (!title) { showErr('请填写标题'); return; }
   if (!prompt) { showErr('请填写画风串内容'); return; }
   if (!files.length) { showErr('请至少添加 1 张例图'); return; }
-  if (!configured()) { showErr('投稿功能尚未配置完成'); return; }
-
-  let token = '';
-  try { token = (window.turnstile && tsId !== null) ? window.turnstile.getResponse(tsId) : ''; } catch {}
-  if (!token) { showErr('请先完成下方的人机验证'); return; }
-
   const fd = new FormData();
   fd.append('title', title);
   fd.append('prompt', prompt);
@@ -246,7 +213,6 @@ async function doSubmit() {
   fd.append('tags', $('#subTags', modal).value.trim());
   fd.append('submitter', $('#subName', modal).value.trim());
   fd.append('nsfw', $('#subNsfw', modal).checked ? '1' : '0');
-  fd.append('cf-turnstile-response', token);
   files.forEach((im, i) => {
     fd.append('images', im.blob, `${i + 1}.jpg`);
     fd.append('labels', im.label);
@@ -266,7 +232,6 @@ async function doSubmit() {
       toast('投稿成功，审核通过后会展示在这里');
     } else {
       showErr(data.error || `提交失败（HTTP ${r.status}）`);
-      if (tsId !== null) { try { window.turnstile.reset(tsId); } catch {} }
     }
   } catch {
     showErr('网络错误，请稍后重试');

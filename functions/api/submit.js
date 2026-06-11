@@ -6,21 +6,7 @@ import {
 } from '../_lib.js';
 
 // POST /api/submit — 游客投稿（multipart 表单）
-// 流程：Turnstile 人机验证 → 字段/图片校验 → 图片与记录写入 R2 待审区
-
-async function verifyTurnstile(env, token, ip) {
-  const form = new FormData();
-  form.append('secret', env.TURNSTILE_SECRET);
-  form.append('response', token || '');
-  if (ip) form.append('remoteip', ip);
-  const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-    method: 'POST',
-    body: form,
-  });
-  if (!res.ok) return false;
-  const data = await res.json().catch(() => ({}));
-  return !!data.success;
-}
+// 流程：字段/图片校验 → 图片与记录写入 R2 待审区
 
 // 魔数嗅探：只收 JPEG / PNG / WebP
 function sniffImage(bytes) {
@@ -36,17 +22,8 @@ const CONTENT_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' 
 export async function onRequestPost({ request, env }) {
   const noStorage = requireStorage(env);
   if (noStorage) return noStorage;
-  if (!env.TURNSTILE_SECRET) return err('服务端未配置 TURNSTILE_SECRET（见配置指南）', 503);
-
   let form;
   try { form = await request.formData(); } catch { return err('请求格式错误'); }
-
-  // 人机验证
-  const token = String(form.get('cf-turnstile-response') || '');
-  const ip = request.headers.get('cf-connecting-ip') || '';
-  if (!(await verifyTurnstile(env, token, ip))) {
-    return err('人机验证未通过，请刷新页面重试', 403);
-  }
 
   // 文本字段
   const title = cleanLine(form.get('title'), LIMITS.title);
