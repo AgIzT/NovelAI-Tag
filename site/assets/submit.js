@@ -4,7 +4,7 @@
 (() => {
 
 // 与后端 functions/_lib.js 的 LIMITS 保持一致
-const LIM = { title: 60, prompt: 2000, comment: 500, submitter: 20, tags: 8, imgMax: 6, imgBytes: 3 * 1024 * 1024 };
+const LIM = { title: 60, prompt: 2000, negative: 2000, comment: 500, submitter: 20, tags: 8, imgMax: 6, imgBytes: 3 * 1024 * 1024 };
 const LABELS = [['gallery', '图库'], ['face', '面部'], ['scene', '场景'], ['nsfw', 'NSFW']];
 
 let modal = null;
@@ -62,6 +62,11 @@ function buildModal() {
         <div class="sub-field">
           <label>画风串（正向 prompt）*</label>
           <textarea id="subPrompt" class="mono" maxlength="${LIM.prompt}" placeholder="artist:xxx, {{artist:yyy}}, oil painting, impasto, ..."></textarea>
+        </div>
+
+        <div class="sub-field">
+          <label>负面 prompt（选填）</label>
+          <textarea id="subNegative" class="mono" maxlength="${LIM.negative}" placeholder="lowres, bad anatomy, extra fingers, ..."></textarea>
         </div>
 
         <div class="sub-field">
@@ -191,7 +196,7 @@ function renderPreviews() {
 }
 
 function resetForm() {
-  ['#subTitle', '#subPrompt', '#subCategory', '#subTags', '#subName', '#subComment'].forEach(s => { $(s, modal).value = ''; });
+  ['#subTitle', '#subPrompt', '#subNegative', '#subCategory', '#subTags', '#subName', '#subComment'].forEach(s => { $(s, modal).value = ''; });
   $('#subNsfw', modal).checked = false;
   files.forEach(im => URL.revokeObjectURL(im.url));
   files = [];
@@ -208,6 +213,7 @@ async function doSubmit() {
   const fd = new FormData();
   fd.append('title', title);
   fd.append('prompt', prompt);
+  fd.append('negative', $('#subNegative', modal).value.trim());
   fd.append('comment', $('#subComment', modal).value.trim());
   fd.append('category', $('#subCategory', modal).value.trim());
   fd.append('tags', $('#subTags', modal).value.trim());

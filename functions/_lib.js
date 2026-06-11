@@ -4,6 +4,7 @@
 export const LIMITS = {
   title: 60,
   prompt: 2000,
+  negative: 2000,
   comment: 500,
   submitter: 20,
   category: 60,
@@ -138,6 +139,7 @@ export function toEntry(env, rec) {
     id: rec.id,
     title: rec.title || '',
     prompt: rec.prompt || '',
+    negative: rec.negative || '',
     comment: rec.comment || '',
     tags: Array.isArray(rec.tags) ? rec.tags : [],
     category: Array.isArray(rec.category) ? rec.category : [],

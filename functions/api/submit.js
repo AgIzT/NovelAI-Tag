@@ -28,6 +28,7 @@ export async function onRequestPost({ request, env }) {
   // 文本字段
   const title = cleanLine(form.get('title'), LIMITS.title);
   const prompt = cleanText(form.get('prompt'), LIMITS.prompt);
+  const negative = cleanText(form.get('negative'), LIMITS.negative);
   const comment = cleanText(form.get('comment'), LIMITS.comment);
   const submitter = cleanLine(form.get('submitter'), LIMITS.submitter);
   const tags = normTags(form.get('tags'));
@@ -75,7 +76,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   const record = {
-    id, title, prompt, comment, tags, category, nsfw, submitter,
+    id, title, prompt, negative, comment, tags, category, nsfw, submitter,
     images: stored,
     createdAt: Date.now(),
   };

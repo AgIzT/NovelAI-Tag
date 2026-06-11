@@ -33,6 +33,7 @@ export async function onRequestPost(context) {
     const e = body.edits || {};
     if (e.title != null) rec.title = cleanLine(e.title, LIMITS.title);
     if (e.prompt != null) rec.prompt = cleanText(e.prompt, LIMITS.prompt);
+    if (e.negative != null) rec.negative = cleanText(e.negative, LIMITS.negative);
     if (e.comment != null) rec.comment = cleanText(e.comment, LIMITS.comment);
     if (e.submitter != null) rec.submitter = cleanLine(e.submitter, LIMITS.submitter);
     if (e.tags != null) rec.tags = normTags(e.tags);

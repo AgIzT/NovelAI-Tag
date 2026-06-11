@@ -90,6 +90,7 @@ async function loadCollection(col) {
     state.data = data;
     state.entries = (data.entries || []).map(e => ({
       ...e,
+      negative: e.negative || '',
       images: (e.images || []).map(normImg)
     }));
     state.activePath = null;
@@ -207,6 +208,7 @@ function applyFilter({ scrollUp = false } = {}) {
     list = list.filter(e =>
       (e.title || '').toLowerCase().includes(q) ||
       (e.prompt || '').toLowerCase().includes(q) ||
+      (e.negative || '').toLowerCase().includes(q) ||
       (e.comment || '').toLowerCase().includes(q) ||
       (e.tags || []).some(t => t.toLowerCase().includes(q))
     );
@@ -495,9 +497,18 @@ function openDetail(idx) {
           <h4>Prompt</h4>
           <div class="prompt-box">
             <span class="prompt-text">${escHtml(e.prompt)}</span>
-            <button class="copy">${svgCopy} 复制</button>
+            <button class="copy copy-positive">${svgCopy} 复制</button>
           </div>
         </div>
+
+        ${e.negative ? `
+        <div class="detail-section">
+          <h4>负面 Prompt</h4>
+          <div class="prompt-box">
+            <span class="prompt-text">${escHtml(e.negative)}</span>
+            <button class="copy copy-negative">${svgCopy} 复制</button>
+          </div>
+        </div>` : ''}
 
         ${e.comment ? `
         <div class="detail-section">
@@ -516,10 +527,17 @@ function openDetail(idx) {
 
   overlay.querySelector('.detail-close').onclick = removeDetail;
   overlay.onclick = ev => { if (ev.target === overlay) removeDetail(); };
-  overlay.querySelector('.copy').onclick = ev => {
+  overlay.querySelector('.copy-positive').onclick = ev => {
     ev.stopPropagation();
     navigator.clipboard.writeText(e.prompt).then(() => toast('已复制 Prompt'));
   };
+  const negCopy = overlay.querySelector('.copy-negative');
+  if (negCopy) {
+    negCopy.onclick = ev => {
+      ev.stopPropagation();
+      navigator.clipboard.writeText(e.negative).then(() => toast('已复制负面 Prompt'));
+    };
+  }
 
   overlay.querySelectorAll('.detail-img-card').forEach(card => {
     card.onclick = () => {

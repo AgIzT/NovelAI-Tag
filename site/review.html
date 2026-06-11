@@ -210,6 +210,7 @@ function renderPending() {
         <div class="f"><label>投稿人</label><input type="text" class="e-submitter" value="${escAttr(it.submitter)}"></div>
       </div>
       <div class="f"><label>画风串 Prompt</label><textarea class="e-prompt mono">${escHtml(it.prompt)}</textarea></div>
+      <div class="f"><label>负面 Prompt</label><textarea class="e-negative mono">${escHtml(it.negative || '')}</textarea></div>
       <div class="frow">
         <div class="f"><label>分类（/ 分级）</label><input type="text" class="e-category" value="${escAttr((it.category || []).join('/'))}"></div>
         <div class="f"><label>标签（逗号分隔）</label><input type="text" class="e-tags" value="${escAttr((it.tags || []).join(', '))}"></div>
@@ -238,6 +239,7 @@ async function decide(div, id, action) {
     body.edits = {
       title: div.querySelector('.e-title').value,
       prompt: div.querySelector('.e-prompt').value,
+      negative: div.querySelector('.e-negative').value,
       comment: div.querySelector('.e-comment').value,
       submitter: div.querySelector('.e-submitter').value,
       category: div.querySelector('.e-category').value,
