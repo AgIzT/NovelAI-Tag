@@ -47,10 +47,17 @@ body.tb-hidden .topbar{transform:translateY(-150%)}
 .nav-link:hover{background:var(--tagbg);color:var(--text)}
 .github-mark{width:22px;height:22px}
 .theme-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
+.settings-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .codex-pick select{
-  border:1px solid var(--line);background:var(--card);color:var(--text);
-  border-radius:999px;padding:7px 12px;font-size:13px;max-width:280px;
+  appearance:none;-webkit-appearance:none;
+  border:1px solid var(--line);color:var(--text);
+  background:var(--card) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="%23898fa3" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>') no-repeat right 12px center;
+  border-radius:999px;padding:8px 32px 8px 14px;font-size:13px;max-width:280px;
+  cursor:pointer;transition:border-color .12s,box-shadow .12s;
 }
+.codex-pick select:hover{border-color:var(--accent)}
+.codex-pick select:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+body.dark .codex-pick select{background-color:rgba(255,255,255,.06)}
 .search-wrap{flex:1;max-width:520px;position:relative;display:flex;align-items:center}
 .search-ico{position:absolute;left:12px;opacity:.5;font-size:13px;pointer-events:none}
 #search{
@@ -287,6 +294,7 @@ body.dark .badge-neg-chip{
   .topbar,.sidebar{
     transition:none;
   }
+  .settings-panel{animation:none}
 }
 
 /* ---------- 回到顶部 ---------- */
@@ -300,6 +308,60 @@ body.dark .badge-neg-chip{
 .back-top.show{opacity:1;visibility:visible;transform:none}
 .back-top:hover{color:var(--accent);border-color:var(--accent)}
 .back-top svg{width:20px;height:20px;stroke:currentColor;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- 设置悬浮框 ---------- */
+.settings-mask{
+  position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:20px;
+  background:rgba(15,18,30,.45);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+}
+.settings-panel{
+  position:relative;width:min(560px,94vw);max-height:min(660px,90vh);overflow-y:auto;
+  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-hover);
+  padding:22px 24px 14px;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+  animation:settingsIn .2s ease;
+}
+body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
+@keyframes settingsIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+.settings-close{
+  position:absolute;right:14px;top:14px;width:32px;height:32px;border:none;border-radius:10px;
+  background:transparent;color:var(--muted);font-size:22px;line-height:1;
+}
+.settings-close:hover{background:var(--tagbg);color:var(--text)}
+.settings-title{margin:0 0 10px;font-size:18px;font-weight:800;letter-spacing:1px}
+.settings-note{
+  margin:0 0 6px;font-size:12.5px;line-height:1.6;color:var(--accent);
+  background:var(--accent-soft);border-radius:10px;padding:9px 13px;
+}
+.settings-note b{font-weight:800}
+.set-row{display:flex;align-items:center;gap:10px;padding:13px 2px;border-bottom:1px solid var(--line)}
+.set-row:last-child{border-bottom:none}
+.set-info{flex:1;min-width:0}
+.set-name{font-size:14px;font-weight:600}
+.set-desc{font-size:12px;color:var(--muted);margin-top:2px}
+.soon{
+  flex:none;font-size:10px;font-weight:800;letter-spacing:.5px;color:var(--accent);
+  background:var(--accent-soft);border-radius:999px;padding:2px 8px;
+}
+.set-row select,.set-row input[type="range"]{
+  flex:none;width:128px;opacity:.55;cursor:not-allowed;
+  border:1px solid var(--line);background:var(--card);color:var(--text);
+  border-radius:999px;padding:6px 10px;font-size:12px;
+}
+.set-row input[type="range"]{padding:0;height:22px;border:none;background:transparent;accent-color:var(--accent)}
+.switch{position:relative;flex:none;width:40px;height:22px;opacity:.55;cursor:not-allowed}
+.switch input{position:absolute;inset:0;margin:0;opacity:0;cursor:not-allowed}
+.switch i{
+  position:absolute;inset:0;border-radius:999px;background:var(--tagbg);
+  border:1px solid var(--line);transition:background .15s,border-color .15s;
+}
+.switch i::after{
+  content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s;
+}
+.switch input:checked + i{background:var(--accent);border-color:var(--accent)}
+.switch input:checked + i::after{transform:translateX(18px)}
 
 /* ---------- toast ---------- */
 .toast{
@@ -391,9 +453,13 @@ body.dark .badge-neg-chip{
     transform:translateX(-120%);box-shadow:none;
     flex-basis:248px;width:248px;padding:14px 10px;border-color:var(--line);
   }
+  .codex-pick{flex:1;min-width:0}
+  .codex-pick select{width:100%;max-width:none}
+  .nav-link{padding:5px 8px;font-size:11px}
   .codex-banner{padding:10px 12px;gap:10px}
   .banner-cover{width:64px;height:48px}
   .banner-title{font-size:15px}
+  .settings-panel{padding:18px 16px 10px;border-radius:18px}
   .back-top{right:14px;bottom:18px;width:38px;height:38px}
   .brand{display:none}
   .lightbox{padding:10px}

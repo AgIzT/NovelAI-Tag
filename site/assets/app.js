@@ -1027,6 +1027,15 @@ function bindUI() {
     sidebar.classList.toggle('closed');
     localStorage.setItem('fadian-sidebar', sidebar.classList.contains('closed') ? 'closed' : 'open');
   };
+
+  /* 设置悬浮框：占位设置，开关三件套（按钮/遮罩/Esc） */
+  const settingsMask = $('#settings');
+  $('#settingsBtn').onclick = () => { settingsMask.hidden = false; };
+  $('#settingsClose').onclick = () => { settingsMask.hidden = true; };
+  settingsMask.onclick = ev => { if (ev.target === settingsMask) settingsMask.hidden = true; };
+  window.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && !settingsMask.hidden) settingsMask.hidden = true;
+  });
   $('#lightbox').onclick = closeLightbox;
   $('#lightboxPanel').onclick = ev => ev.stopPropagation();
   $('#lightboxClose').onclick = closeLightbox;
