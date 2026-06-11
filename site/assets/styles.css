@@ -11,7 +11,8 @@ body.dark{
   --new:#ff5e7a; --shadow:0 1px 3px rgba(0,0,0,.4); --shadow-hover:0 10px 30px rgba(0,0,0,.5);
 }
 *{box-sizing:border-box}
-html,body{margin:0}
+html{overflow-y:scroll}
+body{margin:0}
 body.tb-hidden{--topbar-h:0px}
 [hidden]{display:none!important}
 body{
