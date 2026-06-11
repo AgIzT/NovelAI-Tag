@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>投稿审核</title>
+<style>
+:root{
+  --bg:#eff2f5;--panel:#ffffff;--card:#ffffff;--text:#1a1f27;--muted:#798495;
+  --line:#e0e5eb;--accent:#3b9b61;--accent-glow:rgba(59,155,97,.18);--accent-soft:#ecf7f0;
+  --tagbg:#f3f6f9;--red:#e05858;
+  --shadow:0 1px 2px rgba(12,22,36,.06),0 3px 10px rgba(12,22,36,.035);
+  --font:"Noto Sans SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:"JetBrains Mono","Fira Code","Cascadia Code","Consolas",monospace;
+}
+body.dark{
+  --bg:#090e15;--panel:#111821;--card:#131c27;--text:#e4e9f0;--muted:#6e7d94;
+  --line:#1e2a3b;--accent:#40c572;--accent-glow:rgba(64,197,114,.20);--accent-soft:#0e2b21;
+  --tagbg:#172131;--red:#f7617c;
+  --shadow:0 1px 2px rgba(0,0,0,.35);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;min-height:100vh}
+button{font-family:inherit;cursor:pointer}
+input,textarea,select{font-family:inherit;color:var(--text)}
+
+.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;height:54px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{font-weight:800;font-size:16px}
+.brand span{color:var(--accent)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.tbtn{border:1px solid var(--line);background:transparent;color:var(--muted);font-size:12px;padding:6px 12px;border-radius:8px;transition:all .15s}
+.tbtn:hover{background:var(--tagbg);color:var(--text)}
+
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 80px}
+
+.tabs{display:inline-flex;background:var(--tagbg);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:16px}
+.tab{padding:7px 22px;border:none;background:transparent;color:var(--muted);font-size:13px;font-weight:600;border-radius:9px}
+.tab.on{background:var(--panel);color:var(--accent);box-shadow:var(--shadow)}
+
+.login{max-width:380px;margin:90px auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px;box-shadow:var(--shadow)}
+.login h2{font-size:17px;margin-bottom:6px}
+.login p{font-size:12px;color:var(--muted);margin-bottom:16px}
+.login input{width:100%;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 12px;font-size:14px;outline:none;margin-bottom:12px}
+.login input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.login button{width:100%;border:none;background:var(--accent);color:#fff;font-weight:700;font-size:14px;padding:11px;border-radius:10px}
+.login .err{color:var(--red);font-size:12px;min-height:18px;margin-top:8px}
+
+.item{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+.item-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.item-head .when{font-size:11px;color:var(--muted)}
+.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--red);color:#fff}
+.imgs{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px}
+.imgs a{flex:none}
+.imgs img{height:110px;border-radius:8px;border:1px solid var(--line);display:block}
+.imgs .lab{font-size:10px;color:var(--muted);text-align:center;margin-top:2px}
+.f{margin-bottom:10px}
+.f>label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px}
+.f input[type=text],.f textarea{width:100%;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 10px;font-size:13px;outline:none}
+.f input:focus,.f textarea:focus{border-color:var(--accent)}
+.f textarea{resize:vertical;min-height:56px;line-height:1.6}
+.f textarea.mono{font-family:var(--font-mono);font-size:12px}
+.frow{display:flex;gap:10px;flex-wrap:wrap}
+.frow .f{flex:1;min-width:140px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:6px 0}
+.chk input{accent-color:var(--red)}
+.acts{display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap}
+.ok-btn{border:none;background:var(--accent);color:#fff;font-weight:700;font-size:13px;padding:9px 26px;border-radius:9px}
+.no-btn{border:1px solid var(--red);background:transparent;color:var(--red);font-weight:600;font-size:13px;padding:8px 20px;border-radius:9px}
+.no-btn:hover{background:var(--red);color:#fff}
+.acts .msg{font-size:12px;color:var(--red);flex:1}
+
+.pub{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:10px}
+.pub img{width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none}
+.pub .info{flex:1;min-width:0}
+.pub .t{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pub .s{font-size:11px;color:var(--muted)}
+
+.empty{color:var(--muted);text-align:center;padding:70px 0;font-size:13px}
+.count{font-size:12px;color:var(--muted);margin-bottom:14px}
+.count b{color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:40px;transform:translateX(-50%);background:var(--accent);color:#fff;padding:10px 22px;border-radius:999px;font-weight:600;font-size:13px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50}
+.toast.show{opacity:1}
+[hidden]{display:none!important}
+</style>
+<script>if(localStorage.getItem('strings-dark')==='true')document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('dark'))</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">投稿<span>审核</span></div>
+  <div class="topbar-right">
+    <button class="tbtn" id="themeBtn">深/浅色</button>
+    <button class="tbtn" id="reloadBtn" hidden>刷新</button>
+    <button class="tbtn" id="logoutBtn" hidden>退出</button>
+  </div>
+</header>
+
+<div class="login" id="login" hidden>
+  <h2>管理口令</h2>
+  <p>输入 Cloudflare Pages 环境变量 ADMIN_TOKEN 设置的口令。</p>
+  <input type="password" id="tokenInput" placeholder="口令" autocomplete="current-password">
+  <button id="loginBtn">进入</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div class="wrap" id="app" hidden>
+  <div class="tabs">
+    <button class="tab on" data-tab="pending">待审</button>
+    <button class="tab" data-tab="published">已发布</button>
+  </div>
+  <div class="count" id="count"></div>
+  <div id="list"></div>
+  <div class="empty" id="empty" hidden>暂无内容</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const KEY = 'strings-admin-token';
+let tab = 'pending';
+let pendingItems = [];
+let publishedItems = [];
+
+function token() { return localStorage.getItem(KEY) || ''; }
+function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function escAttr(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: { 'authorization': 'Bearer ' + token(), ...(opts.headers || {}) },
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { logout('口令错误，请重新输入'); throw new Error('unauthorized'); }
+  if (!r.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+function logout(msg) {
+  localStorage.removeItem(KEY);
+  $('#app').hidden = true;
+  $('#reloadBtn').hidden = true;
+  $('#logoutBtn').hidden = true;
+  $('#login').hidden = false;
+  $('#loginErr').textContent = msg || '';
+}
+
+async function enter() {
+  $('#login').hidden = true;
+  $('#app').hidden = false;
+  $('#reloadBtn').hidden = false;
+  $('#logoutBtn').hidden = false;
+  await reload();
+}
+
+async function reload() {
+  $('#list').innerHTML = '<div class="empty">加载中…</div>';
+  $('#empty').hidden = true;
+  try {
+    if (tab === 'pending') {
+      const data = await api('/api/admin/pending');
+      pendingItems = data.items || [];
+      renderPending();
+    } else {
+      const r = await fetch('/api/community?_=' + Date.now());
+      const data = await r.json().catch(() => ({}));
+      publishedItems = data.entries || [];
+      renderPublished();
+    }
+  } catch (e) {
+    if (e.message !== 'unauthorized') $('#list').innerHTML = `<div class="empty">加载失败：${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderPending() {
+  const list = $('#list');
+  $('#count').innerHTML = `待审 <b>${pendingItems.length}</b> 条`;
+  list.innerHTML = '';
+  $('#empty').hidden = pendingItems.length > 0;
+  for (const it of pendingItems) {
+    const div = document.createElement('div');
+    div.className = 'item';
+    div.dataset.id = it.id;
+    const labNames = { gallery: '图库', face: '面部', scene: '场景', nsfw: 'NSFW' };
+    div.innerHTML = `
+      <div class="item-head">
+        ${it.nsfw ? '<span class="badge">NSFW</span>' : ''}
+        <span class="when">${new Date(it.createdAt || 0).toLocaleString()}</span>
+      </div>
+      <div class="imgs">${(it.images || []).map(im => `
+        <a href="${escAttr(im.file)}" target="_blank" rel="noopener">
+          <img src="${escAttr(im.file)}" loading="lazy" alt="">
+          <div class="lab">${labNames[im.label] || im.label}</div>
+        </a>`).join('')}
+      </div>
+      <div class="frow">
+        <div class="f"><label>标题</label><input type="text" class="e-title" value="${escAttr(it.title)}"></div>
+        <div class="f"><label>投稿人</label><input type="text" class="e-submitter" value="${escAttr(it.submitter)}"></div>
+      </div>
+      <div class="f"><label>画风串 Prompt</label><textarea class="e-prompt mono">${escHtml(it.prompt)}</textarea></div>
+      <div class="frow">
+        <div class="f"><label>分类（/ 分级）</label><input type="text" class="e-category" value="${escAttr((it.category || []).join('/'))}"></div>
+        <div class="f"><label>标签（逗号分隔）</label><input type="text" class="e-tags" value="${escAttr((it.tags || []).join(', '))}"></div>
+      </div>
+      <div class="f"><label>备注</label><textarea class="e-comment">${escHtml(it.comment)}</textarea></div>
+      <label class="chk"><input type="checkbox" class="e-nsfw"${it.nsfw ? ' checked' : ''}>NSFW</label>
+      <div class="acts">
+        <button class="ok-btn">✓ 通过</button>
+        <button class="no-btn">✕ 拒绝</button>
+        <span class="msg"></span>
+      </div>`;
+    div.querySelector('.ok-btn').onclick = () => decide(div, it.id, 'approve');
+    div.querySelector('.no-btn').onclick = () => decide(div, it.id, 'reject');
+    list.appendChild(div);
+  }
+}
+
+async function decide(div, id, action) {
+  if (action === 'reject' && !confirm('确认拒绝并删除这条投稿？')) return;
+  const msg = div.querySelector('.msg');
+  const btns = div.querySelectorAll('.acts button');
+  btns.forEach(b => b.disabled = true);
+  msg.textContent = '';
+  const body = { id, action };
+  if (action === 'approve') {
+    body.edits = {
+      title: div.querySelector('.e-title').value,
+      prompt: div.querySelector('.e-prompt').value,
+      comment: div.querySelector('.e-comment').value,
+      submitter: div.querySelector('.e-submitter').value,
+      category: div.querySelector('.e-category').value,
+      tags: div.querySelector('.e-tags').value,
+      nsfw: div.querySelector('.e-nsfw').checked,
+    };
+  }
+  try {
+    await api('/api/admin/decide', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    pendingItems = pendingItems.filter(x => x.id !== id);
+    div.remove();
+    $('#count').innerHTML = `待审 <b>${pendingItems.length}</b> 条`;
+    $('#empty').hidden = pendingItems.length > 0;
+    toast(action === 'approve' ? '已通过并发布' : '已拒绝');
+  } catch (e) {
+    if (e.message !== 'unauthorized') msg.textContent = e.message;
+    btns.forEach(b => b.disabled = false);
+  }
+}
+
+function renderPublished() {
+  const list = $('#list');
+  $('#count').innerHTML = `已发布 <b>${publishedItems.length}</b> 条`;
+  list.innerHTML = '';
+  $('#empty').hidden = publishedItems.length > 0;
+  for (const it of publishedItems) {
+    const div = document.createElement('div');
+    div.className = 'pub';
+    const img = (it.images || [])[0];
+    div.innerHTML = `
+      ${img ? `<a href="${escAttr(img.file)}" target="_blank" rel="noopener"><img src="${escAttr(img.file)}" loading="lazy" alt=""></a>` : ''}
+      <div class="info">
+        <div class="t">${it.nsfw ? '<span class="badge">NSFW</span> ' : ''}${escHtml(it.title)}</div>
+        <div class="s">${escHtml(it.submitter || '匿名')} · ${(it.images || []).length} 张图 · ${new Date(it.createdAt || 0).toLocaleDateString()}</div>
+      </div>
+      <button class="no-btn">下架</button>`;
+    div.querySelector('.no-btn').onclick = async () => {
+      if (!confirm(`确认下架「${it.title}」？图片与记录将被删除。`)) return;
+      try {
+        await api('/api/admin/unpublish', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: it.id }),
+        });
+        publishedItems = publishedItems.filter(x => x.id !== it.id);
+        div.remove();
+        $('#count').innerHTML = `已发布 <b>${publishedItems.length}</b> 条`;
+        $('#empty').hidden = publishedItems.length > 0;
+        toast('已下架');
+      } catch (e) {
+        if (e.message !== 'unauthorized') alert('下架失败：' + e.message);
+      }
+    };
+    list.appendChild(div);
+  }
+}
+
+/* ---- 绑定 ---- */
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    tab = btn.dataset.tab;
+    reload();
+  };
+});
+$('#reloadBtn').onclick = reload;
+$('#logoutBtn').onclick = () => logout();
+$('#themeBtn').onclick = () => {
+  const dark = !document.body.classList.contains('dark');
+  document.body.classList.toggle('dark', dark);
+  localStorage.setItem('strings-dark', dark ? 'true' : 'false');
+};
+$('#loginBtn').onclick = () => {
+  const v = $('#tokenInput').value.trim();
+  if (!v) return;
+  localStorage.setItem(KEY, v);
+  enter();
+};
+$('#tokenInput').onkeydown = ev => { if (ev.key === 'Enter') $('#loginBtn').click(); };
+
+if (token()) enter(); else $('#login').hidden = false;
+</script>
+</body>
+</html>

@@ -41,3 +41,9 @@ chrome-profile-*/
 # 本地 AI 交接说明（不公开；供新会话 / 其它 AI 快速接手）
 CLAUDE.md
 .claude/
+
+# 投稿后端本地开发（wrangler 本地模拟与假密钥，不进仓库）
+.dev.vars
+.wrangler/
+node_modules/
+投稿后端配置指南.md

@@ -260,6 +260,15 @@ body.dark .prompt-box{background:#0b0f17;color:#c4c9d4;border-color:rgba(255,255
 .empty{color:var(--muted);text-align:center;padding:100px 0}
 .empty div{font-size:2.5rem;margin-bottom:10px;opacity:.4}
 
+.submit-btn{
+  display:inline-flex;align-items:center;gap:5px;border:none;cursor:pointer;
+  background:var(--accent);color:#fff;font-size:12px;font-weight:600;
+  padding:7px 14px;border-radius:8px;font-family:inherit;white-space:nowrap;
+  transition:filter .15s,transform .15s
+}
+.submit-btn:hover{filter:brightness(1.08)}
+.submit-btn:active{transform:scale(.97)}
+
 .menu-btn{display:none}
 @media(max-width:720px){
   .menu-btn{display:grid}
@@ -273,6 +282,7 @@ body.dark .prompt-box{background:#0b0f17;color:#c4c9d4;border-color:rgba(255,255
 }
 </style>
 <script>if(localStorage.getItem('strings-dark')==='true')document.body.classList.add('dark')</script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 </head>
 <body>
 
@@ -288,6 +298,10 @@ body.dark .prompt-box{background:#0b0f17;color:#c4c9d4;border-color:rgba(255,255
       <input id="search" type="search" placeholder="搜索标题、tag、prompt…" autocomplete="off">
     </div>
     <div class="topbar-right">
+      <button class="submit-btn" id="submitOpenBtn" title="分享你的画风串">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        投稿
+      </button>
       <a href="/index.html" style="text-decoration:none;font-size:12px;color:var(--muted);padding:6px 12px;border:1px solid var(--line);border-radius:8px;transition:all .15s;cursor:pointer" onmouseenter="this.style.background='var(--tagbg)';this.style.color='var(--text)'" onmouseleave="this.style.background='transparent';this.style.color='var(--muted)'">切换到法典</a>
       <button class="nsfw-btn" id="nsfwBtn" title="NSFW 内容开关">
         <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
@@ -343,5 +357,6 @@ body.dark .prompt-box{background:#0b0f17;color:#c4c9d4;border-color:rgba(255,255
 </template>
 
 <script src="assets/strings.js"></script>
+<script src="assets/submit.js"></script>
 </body>
 </html>

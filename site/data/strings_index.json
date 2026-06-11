@@ -1,1 +1,1 @@
-{"collections": [{"id": "default", "name": "示例合集", "author": "", "file": "strings.json"}], "imagedCount": 0}
+{"collections": [{"id": "community", "name": "社区画风串", "author": "", "dataUrl": "/api/community", "file": "strings.json"}], "imagedCount": 0}

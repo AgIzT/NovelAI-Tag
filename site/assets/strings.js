@@ -51,7 +51,7 @@ async function init() {
       if (state.collections[ci]) {
         state.activeCollection = state.collections[ci];
         localStorage.setItem('strings-collection', state.activeCollection.id);
-        loadCollection(state.activeCollection.file);
+        loadCollection(state.activeCollection);
       }
     };
 
@@ -63,7 +63,7 @@ async function init() {
     }
     sel.value = String(idx2);
     state.activeCollection = state.collections[idx2];
-    await loadCollection(state.activeCollection.file);
+    await loadCollection(state.activeCollection);
 
   } catch (e) {
     console.error(e);
@@ -72,9 +72,21 @@ async function init() {
   }
 }
 
-async function loadCollection(file) {
+async function loadCollection(col) {
+  const fetchJson = async url => {
+    const r = await fetch(url + (url.includes('?') ? '&' : '?') + '_=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  };
+  // 在线数据（社区投稿 API）优先，失败回退本地快照 —— 同 app.js 外部源模式
+  let data = null;
+  if (col.dataUrl) {
+    try { data = await fetchJson(col.dataUrl); }
+    catch (e) { console.warn('在线数据加载失败，回退本地文件', e); }
+  }
   try {
-    const data = await fetch('data/' + file + '?_=' + Date.now()).then(r => r.json());
+    if (!data && col.file) data = await fetchJson('data/' + col.file);
+    if (!data) throw new Error('no data source');
     state.data = data;
     state.entries = (data.entries || []).map(e => ({
       ...e,
@@ -85,7 +97,7 @@ async function loadCollection(file) {
     updateNSFWTooltip();
     applyFilter({ scrollUp: true });
   } catch (e) {
-    console.error('Failed to load', file, e);
+    console.error('Failed to load collection', col, e);
   }
 }
 
@@ -435,9 +447,10 @@ function cleanupCard(node) {
   if (node._timer) { clearTimeout(node._timer); node._timer = 0; }
 }
 
-const STRINGS_R2_BASE = 'https://pub-c1d79beb70aa4807a6803a6fdd5237f8.r2.dev';
+const STRINGS_R2_BASE = 'https://pub-a66b6b5ffa0d44a89eb7dd6fa1070b58.r2.dev';
 
 function thumbUrl(file) {
+  if (/^(https?:)?\/\//.test(file) || String(file).startsWith('data:') || String(file).startsWith('/')) return file;
   const path = ['images', 'strings', file].map(p => encodeURIComponent(p).replace(/%2F/g, '/')).join('/');
   if (isLocal()) return path;
   return `${STRINGS_R2_BASE}/${path}`;
@@ -474,7 +487,7 @@ function openDetail(idx) {
     <div class="detail-panel">
       <button class="detail-close">✕</button>
       <div class="detail-body">
-        <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px">${escHtml(catPath)}</div>
+        <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px">${escHtml(catPath)}${e.submitter ? `<span style="color:var(--muted);font-weight:500"> · 投稿人 ${escHtml(e.submitter)}</span>` : ''}</div>
         <h2 class="detail-title">${escHtml(e.title)}</h2>
         <div class="detail-tags">${(e.tags||[]).map(t=>`<span class="detail-tag">${escHtml(t)}</span>`).join('')}</div>
 
