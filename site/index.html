@@ -132,14 +132,17 @@
 <div id="toast" class="toast"></div>
 
 <div id="lightbox" class="lightbox" hidden>
-  <div id="lightboxPanel" class="lightbox-panel">
-    <button id="lightboxClose" class="lightbox-close" type="button" aria-label="关闭">×</button>
-    <button id="lightboxPrev" class="lightbox-nav lightbox-prev" type="button" aria-label="上一张">‹</button>
-    <div class="lightbox-stage">
-      <img id="lightboxImg" alt="例图">
-    </div>
-    <button id="lightboxNext" class="lightbox-nav lightbox-next" type="button" aria-label="下一张">›</button>
-    <aside class="lightbox-info">
+  <button id="lightboxClose" class="lb-circle lightbox-close" type="button" aria-label="关闭">×</button>
+  <button id="lightboxPrev" class="lb-circle lightbox-nav lightbox-prev" type="button" aria-label="上一张">‹</button>
+  <button id="lightboxNext" class="lb-circle lightbox-nav lightbox-next" type="button" aria-label="下一张">›</button>
+  <div class="lightbox-stage" id="lightboxStage">
+    <img id="lightboxImg" alt="例图">
+  </div>
+  <div id="lightboxThumbs" class="lightbox-thumbs" hidden></div>
+  <button id="lightboxFold" class="lb-fold" type="button" title="收起 / 展开信息栏" aria-label="收起或展开信息栏">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+  </button>
+  <aside class="lightbox-info" id="lightboxInfo">
       <div class="lightbox-head">
         <h2 id="lightboxTitle"></h2>
         <div id="lightboxMeta" class="lightbox-meta"></div>
@@ -166,9 +169,7 @@
         <div class="section-label">Note</div>
         <pre id="lightboxNote"></pre>
       </div>
-      <div id="lightboxThumbs" class="lightbox-thumbs"></div>
     </aside>
-  </div>
 </div>
 
 <template id="cardTpl">

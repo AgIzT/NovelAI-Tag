@@ -852,7 +852,7 @@ function setupImage(node, placement) {
 
   wrap.querySelector('.zoom-btn').onclick = ev => {
     ev.stopPropagation();
-    openLightbox(e, 0);
+    openLightbox(e, 0, wrap.querySelector('.card-img'));
   };
 }
 
@@ -947,8 +947,77 @@ function toggleFav(e, btn) {
   if (state.onlyFav) applyFilter({ resetScroll: true });
 }
 
-/* ---------------- 灯箱 ---------------- */
-function openLightbox(entry, index = 0) {
+/* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
+let lbSeq = 0;
+let lbCloseTimer = 0;
+let lbSourceImg = null;
+
+function prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function applyFlyRect(el, rect, radius) {
+  el.style.left = rect.left + 'px';
+  el.style.top = rect.top + 'px';
+  el.style.width = rect.width + 'px';
+  el.style.height = rect.height + 'px';
+  el.style.borderRadius = radius + 'px';
+}
+
+function makeFlyClone(src, rect) {
+  const clone = document.createElement('img');
+  clone.className = 'lb-fly';
+  clone.alt = '';
+  clone.src = src;
+  applyFlyRect(clone, rect, 14);
+  document.body.appendChild(clone);
+  void clone.offsetWidth;
+  return clone;
+}
+
+function clearFlyClones() {
+  document.querySelectorAll('.lb-fly').forEach(n => n.remove());
+}
+
+function fitStageRect(ratio) {
+  const box = $('#lightboxStage').getBoundingClientRect();
+  if (!box.width || !box.height) return { left: 0, top: 0, width: 0, height: 0 };
+  let w = box.width;
+  let h = ratio > 0 ? w / ratio : box.height;
+  if (h > box.height) {
+    h = box.height;
+    w = h * ratio;
+  }
+  return {
+    left: box.left + (box.width - w) / 2,
+    top: box.top + (box.height - h) / 2,
+    width: w,
+    height: h,
+  };
+}
+
+function flyIn(sourceEl) {
+  const lb = $('#lightbox');
+  const from = sourceEl.getBoundingClientRect();
+  if (!from.width || !from.height) return;
+  const ratio = sourceEl.naturalWidth / sourceEl.naturalHeight;
+  const target = fitStageRect(ratio);
+  if (!target.width) return;
+  lb.classList.add('flying');
+  const clone = makeFlyClone(sourceEl.currentSrc || sourceEl.src, from);
+  requestAnimationFrame(() => applyFlyRect(clone, target, 14));
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clone.remove();
+    lb.classList.remove('flying');
+  };
+  clone.addEventListener('transitionend', finish, { once: true });
+  window.setTimeout(finish, 480);
+}
+
+function openLightbox(entry, index = 0, sourceEl = null) {
   const images = entryImages(entry);
   if (!images.length) return;
   state.lightbox = {
@@ -956,14 +1025,62 @@ function openLightbox(entry, index = 0) {
     images,
     index: clamp(index, 0, images.length - 1),
   };
+  lbSourceImg = sourceEl && sourceEl.tagName === 'IMG' ? sourceEl : null;
+  const lb = $('#lightbox');
+  clearTimeout(lbCloseTimer);
+  clearFlyClones();
+  lb.classList.remove('flying');
+  lb.classList.toggle('folded', localStorage.getItem('fadian-lbinfo') === 'folded');
+  lb.classList.toggle('has-thumbs', images.length > 1);
   renderLightbox();
-  $('#lightbox').hidden = false;
+  lb.hidden = false;
+  void lb.offsetWidth;
+  lb.classList.add('is-open');
+  if (lbSourceImg && lbSourceImg.naturalWidth && !prefersReducedMotion()) flyIn(lbSourceImg);
 }
 
 function closeLightbox() {
-  $('#lightbox').hidden = true;
-  $('#lightboxImg').src = '';
-  state.lightbox = { entry: null, images: [], index: 0 };
+  const lb = $('#lightbox');
+  if (lb.hidden) return;
+  clearTimeout(lbCloseTimer);
+  const done = () => {
+    lb.hidden = true;
+    lb.classList.remove('is-open', 'flying');
+    clearFlyClones();
+    const img = $('#lightboxImg');
+    img.onerror = null;
+    img.removeAttribute('src');
+    state.lightbox = { entry: null, images: [], index: 0 };
+    lbSourceImg = null;
+  };
+  if (prefersReducedMotion()) {
+    lb.classList.remove('is-open');
+    done();
+    return;
+  }
+  const img = $('#lightboxImg');
+  const src = lbSourceImg;
+  const flying = lb.classList.contains('flying');
+  lb.classList.remove('is-open');
+  if (!flying && src && src.isConnected && img.naturalWidth) {
+    const from = img.getBoundingClientRect();
+    const to = src.getBoundingClientRect();
+    if (from.width && to.width && to.bottom > -40 && to.top < window.innerHeight + 40) {
+      const clone = makeFlyClone(img.currentSrc || img.src, from);
+      lb.classList.add('flying');
+      requestAnimationFrame(() => applyFlyRect(clone, to, 12));
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        done();
+      };
+      clone.addEventListener('transitionend', finish, { once: true });
+      lbCloseTimer = window.setTimeout(finish, 460);
+      return;
+    }
+  }
+  lbCloseTimer = window.setTimeout(done, 270);
 }
 
 function stepLightbox(delta) {
@@ -978,16 +1095,33 @@ function renderLightbox() {
   const e = lb.entry;
   const item = lb.images[lb.index];
   if (!e || !item) return;
+  const seq = ++lbSeq;
   const img = $('#lightboxImg');
+  const thumbSrc = imageItemUrl('image', e, item);
+  const origSrc = imageItemUrl('original', e, item);
   img.onerror = () => {
-    const fallbackSrc = imageItemUrl('image', e, item);
-    if (fallbackSrc && fallbackSrc !== img.src && img.dataset.fallbackTried !== '1') {
-      img.dataset.fallbackTried = '1';
-      img.src = fallbackSrc;
+    if (seq !== lbSeq) return;
+    if (origSrc && img.src !== origSrc) img.src = origSrc;
+  };
+  /* 垫底加载：先上缓存缩略图，原图加载完成后无感替换 */
+  const showImage = () => {
+    if (seq !== lbSeq) return;
+    img.src = thumbSrc || origSrc;
+    img.classList.remove('dip');
+    if (origSrc && origSrc !== thumbSrc) {
+      const pre = new Image();
+      pre.onload = () => {
+        if (seq === lbSeq && state.lightbox.entry === e) img.src = origSrc;
+      };
+      pre.src = origSrc;
     }
   };
-  img.dataset.fallbackTried = '';
-  img.src = imageItemUrl('original', e, item) || imageItemUrl('image', e, item);
+  if (img.src) {
+    img.classList.add('dip');
+    window.setTimeout(showImage, 90);
+  } else {
+    showImage();
+  }
 
   $('#lightboxTitle').textContent = e.title;
   $('#lightboxMeta').textContent = `${lb.index + 1} / ${lb.images.length} · ${e.path.join(' › ')}`;
@@ -1011,18 +1145,28 @@ function renderLightbox() {
   const thumbs = $('#lightboxThumbs');
   thumbs.innerHTML = '';
   thumbs.hidden = lb.images.length < 2;
-  lb.images.forEach((image, i) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'lightbox-thumb' + (i === lb.index ? ' active' : '');
-    btn.textContent = String(i + 1);
-    btn.onclick = ev => {
-      ev.stopPropagation();
-      lb.index = i;
-      renderLightbox();
-    };
-    thumbs.appendChild(btn);
-  });
+  if (!thumbs.hidden) {
+    lb.images.forEach((image, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lightbox-thumb' + (i === lb.index ? ' active' : '');
+      btn.title = `第 ${i + 1} 张`;
+      const ti = document.createElement('img');
+      ti.alt = '';
+      ti.loading = 'lazy';
+      ti.src = imageItemUrl('image', e, image) || imageItemUrl('original', e, image);
+      btn.appendChild(ti);
+      btn.onclick = ev => {
+        ev.stopPropagation();
+        if (lb.index === i) return;
+        lb.index = i;
+        renderLightbox();
+      };
+      thumbs.appendChild(btn);
+    });
+    const act = thumbs.querySelector('.lightbox-thumb.active');
+    if (act) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 }
 
 function isLocalOrigin() {
@@ -1151,8 +1295,15 @@ function bindUI() {
   window.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && !settingsMask.hidden) settingsMask.hidden = true;
   });
-  $('#lightbox').onclick = closeLightbox;
-  $('#lightboxPanel').onclick = ev => ev.stopPropagation();
+  $('#lightbox').onclick = ev => {
+    if (ev.target.id === 'lightbox' || ev.target.id === 'lightboxStage') closeLightbox();
+  };
+  $('#lightboxFold').onclick = ev => {
+    ev.stopPropagation();
+    const lbEl = $('#lightbox');
+    lbEl.classList.toggle('folded');
+    localStorage.setItem('fadian-lbinfo', lbEl.classList.contains('folded') ? 'folded' : 'open');
+  };
   $('#lightboxClose').onclick = closeLightbox;
   $('#lightboxPrev').onclick = ev => { ev.stopPropagation(); stepLightbox(-1); };
   $('#lightboxNext').onclick = ev => { ev.stopPropagation(); stepLightbox(1); };
