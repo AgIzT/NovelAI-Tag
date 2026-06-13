@@ -554,7 +554,7 @@ function renderBannerAbout(c, banner) {
   btn.className = 'banner-about-btn';
   btn.title = '关于本法典';
   btn.setAttribute('aria-label', '关于本法典');
-  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4.6a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6ZM13.3 17.4h-2.6v-6.6h2.6Z"/></svg>';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><path d="M12 11v4.5"/><path d="M12 8.25h.01"/></svg>';
 
   const pop = document.createElement('div');
   pop.className = 'banner-pop';

@@ -48,7 +48,7 @@ body.tb-hidden .topbar{transform:translateY(-150%)}
 .github-mark{width:22px;height:22px}
 .theme-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .settings-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
-.about-btn svg{width:20px;height:20px;fill:currentColor}
+.about-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .codex-pick{position:relative;flex:none}
 .codex-native{display:none}
 .codex-btn{
@@ -181,7 +181,7 @@ body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
   display:grid;place-items:center;transition:color .12s,border-color .12s;
 }
 .banner-about-btn:hover,.banner-about-btn.open{color:var(--accent);border-color:var(--accent)}
-.banner-about-btn svg{width:18px;height:18px;fill:currentColor}
+.banner-about-btn svg{display:block;width:17px;height:17px;stroke:currentColor;fill:none}
 .banner-pop{
   position:absolute;right:12px;top:46px;z-index:20;width:min(280px,calc(100% - 24px));
   background:var(--glass);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
