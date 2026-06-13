@@ -48,6 +48,7 @@ body.tb-hidden .topbar{transform:translateY(-150%)}
 .github-mark{width:22px;height:22px}
 .theme-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .settings-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
+.about-btn svg{width:20px;height:20px;fill:currentColor}
 .codex-pick{position:relative;flex:none}
 .codex-native{display:none}
 .codex-btn{
@@ -131,16 +132,7 @@ body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
   width:228px;flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
-.sb-foot{width:228px;flex:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
-.sb-foot-link{
-  display:flex;align-items:center;gap:7px;text-decoration:none;
-  color:var(--accent);font-size:12.5px;font-weight:600;
-  border:1px solid var(--line);border-radius:10px;padding:8px 10px;
-  background:var(--accent-soft);transition:border-color .12s;
-}
-.sb-foot-link:hover{border-color:var(--accent)}
-.sb-foot-link svg{width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:2;fill:none}
-.sb-foot-link span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-foot{width:228px;flex:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
 .sb-tip{
   display:flex;align-items:flex-start;gap:8px;text-align:left;width:100%;
   border:none;background:var(--tagbg);border-radius:10px;padding:9px 11px;
@@ -189,7 +181,7 @@ body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
   display:grid;place-items:center;transition:color .12s,border-color .12s;
 }
 .banner-about-btn:hover,.banner-about-btn.open{color:var(--accent);border-color:var(--accent)}
-.banner-about-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:2;fill:none}
+.banner-about-btn svg{width:18px;height:18px;fill:currentColor}
 .banner-pop{
   position:absolute;right:12px;top:46px;z-index:20;width:min(280px,calc(100% - 24px));
   background:var(--glass);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
@@ -444,9 +436,7 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
 .switch input:checked + i{background:var(--accent);border-color:var(--accent)}
 .switch input:checked + i::after{transform:translateX(18px)}
 
-/* 关于本站（设置框内） */
-.about-block{border-top:1px solid var(--line);margin-top:8px;padding-top:14px}
-.about-h{font-size:14px;font-weight:800;margin:0 0 8px}
+/* 关于本站面板 */
 .about-intro{font-size:12.5px;color:var(--muted);line-height:1.65;margin:0 0 6px}
 .about-sub{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin:14px 0 7px}
 .about-links{display:flex;flex-direction:column;gap:7px}

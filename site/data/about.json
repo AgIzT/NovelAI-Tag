@@ -1,7 +1,6 @@
 {
   "intro": "把社区整理的 NovelAI 提示词「法典」做成图为主的可视化图鉴，照着例图选词、一点即复制。",
   "links": [
-    { "label": "所长 AI 教学站", "url": "#", "desc": "NovelAI 入门到进阶教程（待填真实链接）" },
     { "label": "NovelAI 官网", "url": "https://novelai.net", "desc": "官方生成站" }
   ],
   "credits": [

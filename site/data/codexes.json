@@ -8,11 +8,7 @@
     "imagedCount": 5033,
     "source": "戒红所 · 所长常规法典",
     "contributors": [
-      { "name": "戒红所", "role": "法典原作者" },
-      { "name": "（示例）配图整理", "role": "例图收集" }
-    ],
-    "links": [
-      { "label": "所长 AI 教学站", "url": "#" }
+      { "name": "戒红所", "role": "法典原作者" }
     ]
   },
   {

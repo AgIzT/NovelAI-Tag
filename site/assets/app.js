@@ -554,7 +554,7 @@ function renderBannerAbout(c, banner) {
   btn.className = 'banner-about-btn';
   btn.title = '关于本法典';
   btn.setAttribute('aria-label', '关于本法典');
-  btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4.6a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6ZM13.3 17.4h-2.6v-6.6h2.6Z"/></svg>';
 
   const pop = document.createElement('div');
   pop.className = 'banner-pop';
@@ -646,19 +646,8 @@ function setupAbout() {
     }
   }
 
-  /* 侧栏底：常驻友链 + 轮播贴士 */
+  /* 侧栏底：轮播贴士 */
   const foot = $('#sbFoot');
-  const footLink = $('#sbFootLink');
-  if (footLink && links.length && links[0].label) {
-    const l = links[0];
-    const real = l.url && l.url !== '#';
-    footLink.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>' +
-      `<span>${esc(l.label)}</span>`;
-    if (real) { footLink.href = l.url; footLink.removeAttribute('aria-disabled'); }
-    else { footLink.removeAttribute('href'); footLink.title = '链接待补充'; }
-    footLink.hidden = false;
-  }
   const tipText = $('#sbTipText');
   if (foot && tipText && tips.length) {
     tipIndex = Math.floor(Math.random() * tips.length);
@@ -1475,13 +1464,19 @@ function bindUI() {
     localStorage.setItem('fadian-sidebar', sidebar.classList.contains('closed') ? 'closed' : 'open');
   };
 
-  /* 设置悬浮框：占位设置，开关三件套（按钮/遮罩/Esc） */
+  /* 设置 / 关于 悬浮框：开关三件套（按钮/遮罩/Esc） */
   const settingsMask = $('#settings');
+  const aboutMask = $('#about');
   $('#settingsBtn').onclick = () => { settingsMask.hidden = false; };
   $('#settingsClose').onclick = () => { settingsMask.hidden = true; };
   settingsMask.onclick = ev => { if (ev.target === settingsMask) settingsMask.hidden = true; };
+  $('#aboutBtn').onclick = () => { aboutMask.hidden = false; };
+  $('#aboutClose').onclick = () => { aboutMask.hidden = true; };
+  aboutMask.onclick = ev => { if (ev.target === aboutMask) aboutMask.hidden = true; };
   window.addEventListener('keydown', ev => {
-    if (ev.key === 'Escape' && !settingsMask.hidden) settingsMask.hidden = true;
+    if (ev.key !== 'Escape') return;
+    if (!settingsMask.hidden) settingsMask.hidden = true;
+    if (!aboutMask.hidden) aboutMask.hidden = true;
   });
   $('#lightbox').onclick = ev => {
     if (ev.target.id === 'lightbox' || ev.target.id === 'lightboxStage') closeLightbox();
