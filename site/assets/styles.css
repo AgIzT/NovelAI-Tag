@@ -45,6 +45,12 @@ body.tb-hidden .topbar{transform:translateY(-150%)}
 .topbar-actions{margin-left:auto;display:flex;align-items:center;gap:4px;flex:none}
 .nav-link{text-decoration:none;font-size:12px;color:var(--muted);padding:6px 12px;border:1px solid var(--line);border-radius:8px;transition:all .15s;white-space:nowrap;cursor:pointer;display:inline-block}
 .nav-link:hover{background:var(--tagbg);color:var(--text)}
+.tool-btn{
+  border:1px solid var(--line);background:var(--card);color:var(--text);
+  border-radius:8px;padding:6px 12px;font-size:12px;line-height:1.45;
+  transition:background .15s,color .15s,border-color .15s;white-space:nowrap;
+}
+.tool-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 .github-mark{width:20px;height:20px}
 .theme-btn svg{width:21px;height:21px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .settings-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
@@ -437,6 +443,45 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
 .switch input:checked + i{background:var(--accent);border-color:var(--accent)}
 .switch input:checked + i::after{transform:translateX(18px)}
 
+/* Prompt 格式转换 */
+.converter-panel{width:min(720px,94vw)}
+.converter-ratio{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  margin:12px 0 6px;color:var(--muted);font-size:13px;
+}
+.converter-ratio input{
+  width:92px;height:34px;border:1px solid var(--line);border-radius:8px;
+  padding:0 10px;background:var(--card);color:var(--text);
+}
+.converter-ratio-preview{
+  flex:1 1 260px;min-width:min(100%,260px);color:var(--accent);
+  background:var(--accent-soft);border-radius:8px;padding:6px 10px;
+  font-size:12px;line-height:1.45;
+}
+.converter-hint{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.55}
+.converter-panel textarea{
+  width:100%;min-height:112px;resize:vertical;border:1px solid var(--line);
+  border-radius:8px;padding:10px;outline:none;background:var(--card);color:var(--text);
+  line-height:1.55;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+.converter-panel textarea:focus,.converter-ratio input:focus{
+  border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);
+}
+.converter-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.converter-actions button{
+  min-height:36px;border:1px solid var(--line);border-radius:8px;padding:0 12px;
+  background:var(--card);color:var(--text);font-weight:800;
+}
+.converter-actions button:hover{
+  border-color:var(--accent);background:var(--accent-soft);color:var(--accent);
+}
+.converter-actions .convert-primary{
+  background:var(--accent);border-color:var(--accent);color:#fff;
+}
+.converter-actions .convert-primary:hover{
+  background:var(--accent);color:#fff;filter:brightness(1.06);
+}
+
 /* 关于本站面板 */
 .about-intro{font-size:12.5px;color:var(--muted);line-height:1.65;margin:0 0 6px}
 .about-sub{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin:14px 0 7px}
@@ -538,8 +583,9 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.18)}
 #copyPositive{background:var(--accent)}
 #copyNegative{background:var(--new)}
+#copySd,#copyNovelAi{background:var(--accent-soft);color:var(--accent);border:1px solid var(--line);box-shadow:none}
 #copyAll,#copyRawTag{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
-#copyAll:hover,#copyRawTag:hover{background:var(--tagbg-hover);filter:none}
+#copySd:hover,#copyNovelAi:hover,#copyAll:hover,#copyRawTag:hover{background:var(--tagbg-hover);filter:none}
 .lightbox-section{margin-top:12px}
 .section-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
 .section-label{font-size:12px;font-weight:700;color:var(--muted)}
@@ -594,6 +640,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .topbar-actions{gap:2px;margin-left:0}
   .icon-btn,.filter-btn{width:34px;height:34px}
   .github-mark{width:20px;height:20px}
+  .tool-btn{height:34px;padding:0 9px;font-size:11px}
   .nav-link,.github-btn{display:none}
   .search-wrap{order:20;flex:0 0 100%;max-width:none}
   #search{height:36px}

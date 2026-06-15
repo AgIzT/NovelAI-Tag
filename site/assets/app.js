@@ -13,6 +13,9 @@ const DEFAULT_IMAGE_RATIO = 1.18;
 const MAX_TAG_LINES = 6;
 const MIN_TAG_HEIGHT = 34;
 const MAX_TAG_HEIGHT = 114;
+const DEFAULT_PROMPT_WEIGHT_RATIO = 0.5;
+const NAI_BRACE_STEP = 0.1;
+const MAX_BRACE_OUTPUT = 6;
 
 const state = {
   codex: null,        // 当前法典数据
@@ -1085,6 +1088,221 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 1600);
 }
 
+/* ---------------- Prompt 格式转换 ---------------- */
+function openConverter() {
+  const mask = $('#converter');
+  mask.hidden = false;
+  $('#converterRatio').value = String(promptWeightRatio());
+  updateConverterRatioPreview();
+  requestAnimationFrame(() => $('#converterInput').focus());
+}
+
+function closeConverter() {
+  $('#converter').hidden = true;
+}
+
+function promptWeightRatio() {
+  const stored = Number(localStorage.getItem('fadian-prompt-weight-ratio'));
+  return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_PROMPT_WEIGHT_RATIO;
+}
+
+function saveConverterRatio() {
+  const input = $('#converterRatio');
+  const value = Number(input.value);
+  const ratio = Number.isFinite(value) && value > 0 ? value : DEFAULT_PROMPT_WEIGHT_RATIO;
+  input.value = String(ratio);
+  localStorage.setItem('fadian-prompt-weight-ratio', String(ratio));
+  updateConverterRatioPreview(ratio);
+  return ratio;
+}
+
+function updateConverterRatioPreview(ratio = promptWeightRatio()) {
+  const preview = $('#converterRatioPreview');
+  if (!preview) return;
+  const positive = 1 + NAI_BRACE_STEP * ratio;
+  const negative = 1 - NAI_BRACE_STEP * ratio;
+  preview.textContent = `1 : ${formatPromptWeight(ratio)} · {tag} = (tag:${formatPromptWeight(positive)}) · [tag] = (tag:${formatPromptWeight(negative)})`;
+}
+
+function hasSdWeightedBlock(input) {
+  for (let index = 0; index < input.length; index += 1) {
+    const openChar = input[index];
+    if (openChar !== '(' && openChar !== '（') continue;
+    const closeChar = openChar === '(' ? ')' : '）';
+    let depth = 0;
+    for (let cursor = index; cursor < input.length; cursor += 1) {
+      if (input[cursor] === openChar) depth += 1;
+      else if (input[cursor] === closeChar) {
+        depth -= 1;
+        if (depth === 0) {
+          const inner = input.slice(index + 1, cursor);
+          const splitIndex = inner.lastIndexOf(':');
+          const weight = Number(inner.slice(splitIndex + 1).trim());
+          if (splitIndex > 0 && Number.isFinite(weight)) return true;
+          index = cursor;
+          break;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function runPromptConversion() {
+  const ratio = saveConverterRatio();
+  const input = $('#converterInput').value;
+  const direction = hasSdWeightedBlock(input) ? 'novelai' : 'sd';
+  const output = direction === 'sd'
+    ? convertNovelAiToSd(input, ratio)
+    : convertSdToNovelAi(input, ratio);
+  const outputBox = $('#converterOutput');
+  outputBox.value = output;
+  outputBox.placeholder = direction === 'sd' ? 'SD 格式转换结果' : 'NovelAI 格式转换结果';
+}
+
+async function copyConvertedPrompt(text, direction) {
+  if (!text) {
+    toast('Prompt 为空');
+    return;
+  }
+  const converted =
+    direction === 'sd'
+      ? convertNovelAiToSd(text, promptWeightRatio())
+      : convertSdToNovelAi(text, promptWeightRatio());
+  await copyText(converted, direction === 'sd' ? '已转为 SD 格式并复制' : '已转为 NovelAI 格式并复制');
+}
+
+function formatPromptWeight(value) {
+  return value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function findNovelAiBlock(input, index, openChar, count) {
+  const closeChar = openChar === '{' ? '}' : ']';
+  let depth = count;
+  let cursor = index + count;
+
+  while (cursor < input.length) {
+    const char = input[cursor];
+    if (char === openChar) {
+      let run = 0;
+      while (input[cursor + run] === openChar) run += 1;
+      depth += run;
+      cursor += run;
+      continue;
+    }
+    if (char === closeChar) {
+      let run = 0;
+      while (input[cursor + run] === closeChar) run += 1;
+      if (run >= depth) {
+        const nestedClosers = Math.max(0, depth - count);
+        return { contentStart: index + count, contentEnd: cursor + nestedClosers, endIndex: cursor + depth };
+      }
+      depth -= run;
+      cursor += run;
+      continue;
+    }
+    cursor += 1;
+  }
+
+  return null;
+}
+
+function convertNovelAiToSd(input, ratio = DEFAULT_PROMPT_WEIGHT_RATIO) {
+  let output = '';
+  let index = 0;
+
+  while (index < input.length) {
+    const numeric = input.slice(index).match(/^([+-]?\d+(?:\.\d+)?)::/);
+    if (numeric) {
+      const contentStart = index + numeric[0].length;
+      const contentEnd = input.indexOf('::', contentStart);
+      if (contentEnd >= 0) {
+        const weight = Number(numeric[1]);
+        const sdWeight = 1 + (weight - 1) * ratio;
+        output += `(${input.slice(contentStart, contentEnd).trim()}:${formatPromptWeight(sdWeight)})`;
+        index = contentEnd + 2;
+        continue;
+      }
+    }
+
+    const char = input[index];
+    if (char === '{' || char === '[') {
+      let count = 0;
+      while (input[index + count] === char) count += 1;
+      const block = findNovelAiBlock(input, index, char, count);
+      if (block) {
+        const direction = char === '{' ? 1 : -1;
+        const sdWeight = 1 + direction * count * NAI_BRACE_STEP * ratio;
+        const content = convertNovelAiToSd(input.slice(block.contentStart, block.contentEnd), ratio).trim();
+        output += `(${content}:${formatPromptWeight(sdWeight)})`;
+        index = block.endIndex;
+        continue;
+      }
+    }
+
+    output += input[index];
+    index += 1;
+  }
+
+  return output;
+}
+
+function convertSdToNovelAi(input, ratio = DEFAULT_PROMPT_WEIGHT_RATIO) {
+  let output = '';
+  let index = 0;
+
+  while (index < input.length) {
+    const openChar = input[index];
+    if (openChar === '(' || openChar === '（') {
+      const closeChar = openChar === '(' ? ')' : '）';
+      let depth = 0;
+      let end = -1;
+      for (let cursor = index; cursor < input.length; cursor += 1) {
+        if (input[cursor] === openChar) depth += 1;
+        else if (input[cursor] === closeChar) {
+          depth -= 1;
+          if (depth === 0) {
+            end = cursor;
+            break;
+          }
+        }
+      }
+
+      if (end >= 0) {
+        const inner = input.slice(index + 1, end);
+        const splitIndex = inner.lastIndexOf(':');
+        const weight = Number(inner.slice(splitIndex + 1).trim());
+        if (splitIndex > 0 && Number.isFinite(weight)) {
+          const content = inner.slice(0, splitIndex).trim();
+          const naiWeight = 1 + (weight - 1) / ratio;
+          const positiveSteps = Math.round((naiWeight - 1) / NAI_BRACE_STEP);
+          const negativeSteps = Math.round((1 - naiWeight) / NAI_BRACE_STEP);
+          const useBraces =
+            positiveSteps > 0 &&
+            positiveSteps <= MAX_BRACE_OUTPUT &&
+            Math.abs(naiWeight - (1 + positiveSteps * NAI_BRACE_STEP)) < 0.0001;
+          const useBrackets =
+            negativeSteps > 0 &&
+            negativeSteps <= MAX_BRACE_OUTPUT &&
+            Math.abs(naiWeight - (1 - negativeSteps * NAI_BRACE_STEP)) < 0.0001;
+          output += useBraces
+            ? `${'{'.repeat(positiveSteps)}${content}${'}'.repeat(positiveSteps)}`
+            : useBrackets
+              ? `${'['.repeat(negativeSteps)}${content}${']'.repeat(negativeSteps)}`
+              : `${formatPromptWeight(naiWeight)}::${content}::`;
+          index = end + 1;
+          continue;
+        }
+      }
+    }
+
+    output += input[index];
+    index += 1;
+  }
+
+  return output;
+}
+
 /* ---------------- 收藏 ---------------- */
 function favKey(e) { return state.codex.id + ':' + e.id; }
 function toggleFav(e, btn) {
@@ -1316,6 +1534,8 @@ function renderLightbox() {
   $('#copyNegative').onclick = ev => { ev.stopPropagation(); copyText(e.negative, `已复制负面：${e.title}`); };
   $('#copyAll').hidden = !e.negative;
   $('#copyAll').onclick = ev => { ev.stopPropagation(); copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`); };
+  $('#copySd').onclick = ev => { ev.stopPropagation(); copyConvertedPrompt(e.tags, 'sd'); };
+  $('#copyNovelAi').onclick = ev => { ev.stopPropagation(); copyConvertedPrompt(e.tags, 'novelai'); };
   $('#copyRawTag').hidden = !item.rawTag;
   $('#copyRawTag').onclick = ev => { ev.stopPropagation(); copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`); };
 
@@ -1470,12 +1690,22 @@ function bindUI() {
   /* 设置 / 关于 悬浮框：开关三件套（按钮/遮罩/Esc） */
   const settingsMask = $('#settings');
   const aboutMask = $('#about');
+  const converterMask = $('#converter');
   $('#settingsBtn').onclick = () => { settingsMask.hidden = false; };
   $('#settingsClose').onclick = () => { settingsMask.hidden = true; };
   settingsMask.onclick = ev => { if (ev.target === settingsMask) settingsMask.hidden = true; };
   $('#aboutBtn').onclick = () => { aboutMask.hidden = false; };
   $('#aboutClose').onclick = () => { aboutMask.hidden = true; };
   aboutMask.onclick = ev => { if (ev.target === aboutMask) aboutMask.hidden = true; };
+  $('#converterRatio').value = String(promptWeightRatio());
+  updateConverterRatioPreview();
+  $('#converterBtn').onclick = openConverter;
+  $('#converterClose').onclick = closeConverter;
+  converterMask.onclick = ev => { if (ev.target === converterMask) closeConverter(); };
+  $('#converterRatio').oninput = () => updateConverterRatioPreview(Number($('#converterRatio').value) || DEFAULT_PROMPT_WEIGHT_RATIO);
+  $('#converterRatio').onchange = saveConverterRatio;
+  $('#convertPrompt').onclick = runPromptConversion;
+  $('#copyConverted').onclick = () => copyText($('#converterOutput').value, '已复制转换结果');
   document.addEventListener('click', ev => {
     const openBtn = document.querySelector('.banner-about-btn.open');
     const openPop = document.querySelector('.banner-pop:not([hidden])');
@@ -1487,6 +1717,7 @@ function bindUI() {
     if (ev.key !== 'Escape') return;
     if (!settingsMask.hidden) settingsMask.hidden = true;
     if (!aboutMask.hidden) aboutMask.hidden = true;
+    if (!converterMask.hidden) closeConverter();
     closeBannerAbout();
   });
   $('#lightbox').onclick = ev => {
