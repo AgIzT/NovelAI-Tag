@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -384,7 +385,7 @@ def install_error_capture(cdp: CDP) -> None:
     cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": source})
 
 
-def run_suite(base_url: str, out_dir: Path, cdp: CDP) -> list[dict]:
+def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[dict]:
     base = base_url.rstrip("/") + "/"
     results: list[dict] = []
     cdp.command("Page.enable")
@@ -474,6 +475,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP) -> list[dict]:
             raise CheckFailed("Lightbox title is empty")
         shot = screenshot(cdp, out_dir, "deep-link-lightbox")
         cdp.eval("document.querySelector('#lightboxClose')?.click()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "deep-link lightbox close")
+        wait_for(cdp, "!new URL(location.href).searchParams.has('entry')", "deep-link URL normalization")
+        data["closedUrl"] = cdp.eval("location.href")
         check_no_errors(cdp)
         return {**data, "screenshot": shot}
 
@@ -485,8 +489,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP) -> list[dict]:
         wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open')", "random lightbox", timeout=8)
         settle(cdp, 350)
         data = cdp.eval("({title: document.querySelector('#lightboxTitle')?.textContent || '', toast: document.querySelector('#toast')?.textContent || ''})")
-        if "随机到了" not in data["toast"]:
-            raise CheckFailed("Random explore toast was not shown")
+        if not data["toast"] or (data["title"] and data["title"] not in data["toast"]):
+            raise CheckFailed(f"Random explore toast was not shown: {data}")
         cdp.eval("document.querySelector('#lightboxClose')?.click()")
         check_no_errors(cdp)
         return data
@@ -637,7 +641,334 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP) -> list[dict]:
         shot = screenshot(cdp, out_dir, "mobile-home")
         return {**data, "screenshot": shot}
 
-    for name, func in [
+    def mobile_atlas_history():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        navigate(cdp, base + "?codex=suozhang")
+        cdp.eval("localStorage.setItem('fadian-nsfw-ok','0'); localStorage.setItem('fadian-onboarding-v1-done','1'); localStorage.setItem('fadian-sidebar','closed')")
+        cdp.command("Page.reload", {"ignoreCache": True})
+        wait_for(cdp, "history.state?.page === 'atlas' && document.querySelectorAll('.card').length >= 1", "managed atlas history")
+        initial = cdp.eval("({length:history.length,id:history.state.id,url:location.href})")
+        initial_scroll = cdp.eval("Math.min(500, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
+        cdp.eval(f"scrollTo(0,{int(initial_scroll)})")
+        settle(cdp, 220)
+
+        # Escape closes the mobile codex picker exactly once and restores focus.
+        cdp.eval("document.querySelector('#codexBtn')?.click()")
+        wait_for(cdp, "!document.querySelector('#codexMenu')?.hidden && history.state?.layers?.at(-1)?.id === 'codex-menu'", "codex menu history layer")
+        cdp.eval("""
+(() => {
+  const item = document.querySelector('#codexMenu .codex-item');
+  if (!item) throw new Error('No codex menu item was found');
+  item.focus();
+  item.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
+  return true;
+})()
+""")
+        wait_for(cdp, "document.querySelector('#codexMenu')?.hidden && document.activeElement?.id === 'codexBtn' && history.state?.id === " + js_string(initial["id"]), "codex menu Escape focus return")
+
+        # Selecting the already-active directory only closes the sidebar; it
+        # must not leave an identical child route in browser history.
+        cdp.eval("document.querySelector('#menuBtn')?.click()")
+        wait_for(cdp, "history.state?.layers?.at(-1)?.id === 'mobile-sidebar'", "sidebar history layer for active category")
+        cdp.eval("""
+(() => {
+  const row = document.querySelector('#tree .tree-row.active');
+  if (!row) throw new Error('No active atlas category was found');
+  row.click();
+  return true;
+})()
+""")
+        wait_for(cdp, "document.querySelector('#sidebar')?.classList.contains('closed') && history.state?.id === " + js_string(initial["id"]), "active category avoids duplicate history")
+        cdp.eval(f"scrollTo(0,{int(initial_scroll)})")
+        settle(cdp, 220)
+        initial_scroll = cdp.eval("Math.round(scrollY)") or 0
+
+        cdp.eval("document.querySelector('#menuBtn')?.click()")
+        wait_for(cdp, "history.state?.layers?.at(-1)?.id === 'mobile-sidebar'", "sidebar history layer")
+        cdp.eval("""
+(() => {
+  const row = [...document.querySelectorAll('#tree .tree-row[data-path]')].find(node => node.dataset.path);
+  if (!row) throw new Error('No non-root atlas category was found');
+  row.click();
+  return true;
+})()
+""")
+        wait_for(cdp, "document.querySelector('#sidebar')?.classList.contains('closed') && history.state?.route?.path?.length > 0", "category consumes sidebar")
+        category_state = cdp.eval("({length:history.length,id:history.state.id,parentId:history.state.parentId,path:history.state.route.path,layers:history.state.layers})")
+        if category_state["id"] == initial["id"] or category_state["parentId"] != initial["id"] or category_state["layers"]:
+            raise CheckFailed(f"Sidebar/category history depth is wrong: {category_state}")
+
+        # Return to the initial list, then verify detail push/forward and scroll restoration.
+        cdp.eval("history.back()")
+        wait_for(cdp, "history.state?.id === " + js_string(initial["id"]), "category back navigation")
+        if initial_scroll > 80:
+            wait_for(cdp, f"Math.abs(scrollY - {int(initial_scroll)}) < 90", "category scroll restoration", timeout=8)
+        wait_for(cdp, "document.querySelectorAll('.zoom-btn').length >= 1", "atlas zoom controls")
+        scroll_target = cdp.eval("Math.min(700, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
+        cdp.eval(f"scrollTo(0,{int(scroll_target)})")
+        settle(cdp, 260)
+        before_detail = cdp.eval("({length:history.length,y:Math.round(scrollY),saved:history.state.scrollY,id:history.state.id})")
+        cdp.eval("document.querySelector('.zoom-btn')?.click()")
+        wait_for(cdp, "history.state?.transition === 'detail' && document.querySelector('#lightbox')?.classList.contains('is-open')", "atlas detail history")
+        detail = cdp.eval("({length:history.length,id:history.state.id,parentId:history.state.parentId,thumbs:document.querySelectorAll('#lightboxThumbs button').length,url:location.href})")
+        if detail["id"] == before_detail["id"] or detail["parentId"] != before_detail["id"]:
+            raise CheckFailed(f"Opening an atlas entry did not create a child history record: {detail}")
+        if detail["thumbs"] > 1:
+            cdp.eval("document.querySelectorAll('#lightboxThumbs button')[1]?.click()")
+            settle(cdp, 120)
+            if cdp.eval("history.length") != detail["length"]:
+                raise CheckFailed("Atlas image paging increased history depth")
+
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.id === " + js_string(before_detail["id"]), "atlas detail back")
+        if not cdp.eval("matchMedia('(prefers-reduced-motion: reduce)').matches") and cdp.eval("document.querySelector('#lightbox')?.hidden"):
+            raise CheckFailed("Atlas detail back skipped the lightbox close animation")
+        if before_detail["y"] > 80:
+            try:
+                wait_for(cdp, f"Math.abs(scrollY - {before_detail['y']}) < 90", "atlas scroll restoration", timeout=8)
+            except CheckFailed as exc:
+                scroll_debug = cdp.eval("({y:Math.round(scrollY),saved:history.state?.scrollY,height:document.documentElement.scrollHeight,errors:window.__qaErrors||[]})")
+                raise CheckFailed(f"{exc}; before={before_detail}; after={scroll_debug}") from exc
+        cdp.eval("history.forward()")
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.transition === 'detail'", "atlas detail forward")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "atlas detail closes again")
+        wait_for(cdp, "document.querySelector('#lightbox')?.hidden", "atlas detail close animation finishes", timeout=2)
+
+        # Filter changes made inside settings belong to the underlying route
+        # and must survive when the settings history layer closes.
+        cdp.eval("document.querySelector('#settingsBtn')?.click()")
+        wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show')", "settings filter layer")
+        cdp.eval("document.querySelector('#onlyImaged')?.click()")
+        wait_for(cdp, "document.querySelector('#onlyImaged')?.checked && history.state?.route?.onlyImaged === true", "settings filter route update")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#settings')?.classList.contains('show') && document.querySelector('#onlyImaged')?.checked && history.state?.route?.onlyImaged === true", "settings filter survives close")
+        cdp.eval("document.querySelector('#settingsBtn')?.click(); document.querySelector('#onlyImaged')?.click()")
+        wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show') && !document.querySelector('#onlyImaged')?.checked && history.state?.route?.onlyImaged === false", "settings filter reset")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#settings')?.classList.contains('show') && history.state?.route?.onlyImaged === false", "reset filter survives close")
+
+        # Settings -> NSFW confirmation is a nested pair of returnable layers.
+        cdp.eval("document.querySelector('#settingsBtn')?.click()")
+        wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show')", "settings layer")
+        cdp.eval("document.querySelector('#nsfwToggle')?.click()")
+        wait_for(cdp, "document.querySelector('#nsfwConfirm')?.classList.contains('show')", "nested NSFW layer")
+        nested_length = cdp.eval("history.length")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#nsfwConfirm')?.classList.contains('show') && document.querySelector('#settings')?.classList.contains('show')", "nested confirm back")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#settings')?.classList.contains('show')", "settings back")
+
+        cdp.eval("document.querySelector('#settingsBtn')?.click(); document.querySelector('#nsfwToggle')?.click()")
+        wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show') && document.querySelector('#nsfwConfirm')?.classList.contains('show')", "rapid-back nested layers")
+        cdp.eval("history.back(); setTimeout(() => history.back(), 10); true")
+        wait_for(cdp, "!document.querySelector('#nsfwConfirm')?.classList.contains('show') && !document.querySelector('#settings')?.classList.contains('show')", "rapid consecutive back", timeout=8)
+
+        # Mobile search uses one layer record plus one stable result record.
+        cdp.eval("document.querySelector('#mobileSearchBtn')?.click()")
+        wait_for(cdp, "document.body.classList.contains('search-mode')", "mobile search layer")
+        cdp.eval("""
+(() => {
+  const input = document.querySelector('#search');
+  input.value = 'hair';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:'hair'}));
+})()
+""")
+        wait_for(cdp, "history.state?.sessionId && history.state?.route?.q === 'hair'", "first mobile search")
+        search_length = cdp.eval("history.length")
+        cdp.eval("""
+(() => {
+  const input = document.querySelector('#search');
+  input.value = 'hair long';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:' long'}));
+})()
+""")
+        wait_for(cdp, "history.state?.route?.q === 'hair long'", "continuous mobile search")
+        cdp.eval("document.querySelector('#onlyImaged')?.click()")
+        settle(cdp, 180)
+        if cdp.eval("history.length") != search_length:
+            raise CheckFailed("Continuous search/filtering increased atlas history depth")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.body.classList.contains('search-mode') && history.state?.route?.q === 'hair long'", "first search back")
+        cdp.eval("history.back()")
+        wait_for(cdp, "history.state?.route?.q === ''", "second search back")
+
+        # Reload adopts the persisted managed record: identity and scroll
+        # position survive pull-to-refresh instead of resetting to the top.
+        reload_scroll = cdp.eval("Math.min(600, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
+        cdp.eval(f"scrollTo(0,{int(reload_scroll)})")
+        settle(cdp, 260)
+        saved_id = cdp.eval("history.state.id")
+        cdp.command("Page.reload", {})
+        wait_for(cdp, "history.state?.page === 'atlas' && document.querySelectorAll('.card').length >= 1", "atlas reload keeps managed state")
+        if cdp.eval("history.state.id") != saved_id:
+            raise CheckFailed("Reload did not adopt the persisted managed history record")
+        if reload_scroll > 80:
+            wait_for(cdp, f"Math.abs(scrollY - {int(reload_scroll)}) < 90", "reload scroll restoration", timeout=8)
+
+        # A recent-entry detail may switch list context (query cleared, path
+        # changed) in a single record; back must restore the previous context
+        # instead of only closing the lightbox.
+        cdp.eval("document.querySelector('#mobileSearchBtn')?.click()")
+        wait_for(cdp, "document.body.classList.contains('search-mode')", "recent-entry search layer")
+        cdp.eval("""
+(() => {
+  const input = document.querySelector('#search');
+  input.value = 'hair';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:'hair'}));
+})()
+""")
+        wait_for(cdp, "history.state?.route?.q === 'hair'", "recent-entry search context")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.body.classList.contains('search-mode') && history.state?.route?.q === 'hair'", "recent-entry search layer closed")
+        cdp.eval("document.querySelector('#historyBtn')?.click()")
+        wait_for(cdp, "document.querySelectorAll('#recentList .recent-item').length >= 1", "recent entries panel")
+        cdp.eval("document.querySelector('#recentList .recent-item')?.click()")
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.transition === 'detail' && history.state?.route?.q === ''", "recent entry detail record")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.route?.q === 'hair' && document.querySelector('#search')?.value === 'hair'", "recent entry back restores context")
+        check_no_errors(cdp)
+        return {
+            "initialLength": initial["length"],
+            "categoryLength": category_state["length"],
+            "detailLength": detail["length"],
+            "nestedLength": nested_length,
+            "searchLength": search_length,
+            "scrollY": before_detail["y"],
+            "reloadScroll": reload_scroll,
+        }
+
+    def community_history():
+        clear_errors(cdp)
+        navigate(cdp, base + "strings.html")
+        cdp.eval("localStorage.setItem('community-only-favorites','false'); localStorage.setItem('strings-nsfw','false')")
+        cdp.command("Page.reload", {"ignoreCache": True})
+        try:
+            wait_for(cdp, "history.state?.page === 'community' && document.querySelectorAll('.community-card').length >= 1", "managed community history", timeout=12)
+        except CheckFailed as exc:
+            boot = cdp.eval("({ready:document.readyState,state:history.state,cards:document.querySelectorAll('.community-card').length,errors:window.__qaErrors||[],text:document.querySelector('#resultInfo')?.textContent||''})")
+            raise CheckFailed(f"{exc}; boot={boot}") from exc
+        initial = cdp.eval("({length:history.length,id:history.state.id,url:location.href,path:location.pathname})")
+        initial_scroll = cdp.eval("Math.min(250, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
+        cdp.eval(f"scrollTo(0,{int(initial_scroll)})")
+        settle(cdp, 200)
+
+        cdp.eval("""
+(() => {
+  const category = document.querySelector('.community-card .card-meta span')?.textContent?.trim();
+  const chip = [...document.querySelectorAll('#categoryRail .category-chip')].find(node => node.textContent.trim() === category);
+  if (!chip) throw new Error(`No category chip for ${category}`);
+  chip.click();
+})()
+""")
+        wait_for(cdp, "history.state?.route?.category && document.querySelectorAll('.community-card').length >= 1", "community category route")
+        category_state = cdp.eval("({length:history.length,id:history.state.id,parentId:history.state.parentId})")
+        category_length = category_state["length"]
+        if category_state["id"] == initial["id"] or category_state["parentId"] != initial["id"]:
+            raise CheckFailed(f"Community category did not create a child history record: {category_state}")
+
+        cdp.eval("""
+(() => {
+  const input = document.querySelector('#search');
+  input.value = 'sample';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:'sample'}));
+})()
+""")
+        wait_for(cdp, "history.state?.route?.q === 'sample' && history.state?.sessionId", "community first search")
+        search_state = cdp.eval("({length:history.length,id:history.state.id,parentId:history.state.parentId})")
+        search_length = search_state["length"]
+        cdp.eval("""
+(() => {
+  const input = document.querySelector('#search');
+  input.value = 'sample composition';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:' composition'}));
+})()
+""")
+        wait_for(cdp, "history.state?.route?.q === 'sample composition'", "community continuous search")
+        if cdp.eval("history.length") != search_length:
+            raise CheckFailed("Continuous community search increased history depth")
+
+        # Persistent safety/favorite filters replace the current record and never touch the URL.
+        cdp.eval("document.querySelector('#nsfwBtn')?.click(); document.querySelector('#favFilterBtn')?.click(); document.querySelector('#favFilterBtn')?.click()")
+        settle(cdp, 180)
+        if cdp.eval("history.length") != search_length:
+            raise CheckFailed("Community filters increased history depth")
+        if cdp.eval("location.href") != initial["url"]:
+            raise CheckFailed("Community route/filter state changed the address bar")
+
+        # The strings.html list context lives only in history.state; reload must
+        # restore category/search from the persisted managed record.
+        cdp.command("Page.reload", {})
+        wait_for(cdp, "history.state?.page === 'community' && document.querySelector('#search')?.value === 'sample composition'", "community reload restores context", timeout=12)
+        if cdp.eval("history.state?.route?.q") != "sample composition":
+            raise CheckFailed("Community reload lost the search query")
+        if not cdp.eval("history.state?.route?.category"):
+            raise CheckFailed("Community reload lost the active category")
+        if cdp.eval("history.length") != search_length:
+            raise CheckFailed("Community reload changed history depth")
+
+        cdp.eval("document.querySelector('.community-card')?.click()")
+        wait_for(cdp, "history.state?.transition === 'detail' && document.querySelector('#detailMask')?.classList.contains('show')", "community detail route")
+        detail_state = cdp.eval("({length:history.length,id:history.state.id,parentId:history.state.parentId})")
+        detail_length = detail_state["length"]
+        if detail_state["id"] == search_state["id"] or detail_state["parentId"] != search_state["id"]:
+            raise CheckFailed(f"Community detail did not create a child history record: {detail_state}")
+        thumbs = cdp.eval("document.querySelectorAll('[data-image-index]').length") or 0
+        if thumbs > 1:
+            cdp.eval("document.querySelectorAll('[data-image-index]')[1].click()")
+            settle(cdp, 100)
+            if cdp.eval("history.length") != detail_length:
+                raise CheckFailed("Community image paging increased history depth")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#detailMask')?.classList.contains('show') && history.state?.route?.q === 'sample composition'", "community detail back")
+
+        # Form DOM survives same-document back/forward.
+        cdp.eval("document.querySelector('#submitOpenBtn')?.click()")
+        wait_for(cdp, "document.querySelector('#submitMask')?.classList.contains('show')", "community submit layer")
+        cdp.eval("document.querySelector('#subTitle').value='history draft'")
+        submit_length = cdp.eval("history.length")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#submitMask')?.classList.contains('show')", "community submit back")
+        cdp.eval("history.forward()")
+        wait_for(cdp, "document.querySelector('#submitMask')?.classList.contains('show') && document.querySelector('#subTitle')?.value === 'history draft'", "community submit forward preserves form")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#submitMask')?.classList.contains('show')", "community submit closes again")
+
+        cdp.eval("document.querySelector('[data-favorites-backup-open]')?.click()")
+        wait_for(cdp, "document.querySelector('#favoritesBackupPanel')?.classList.contains('show')", "community backup layer")
+        if cdp.eval("location.href") != initial["url"]:
+            raise CheckFailed("Community modal state changed the address bar")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.classList.contains('show')", "community backup back")
+
+        # Drain only managed parents; the following back must be the one that leaves strings.html.
+        drained = 0
+        while cdp.eval("Boolean(history.state?.parentId)"):
+            current_id = cdp.eval("history.state.id")
+            cdp.eval("history.back()")
+            wait_for(cdp, "history.state?.id !== " + js_string(current_id), "drain community history")
+            if cdp.eval("location.pathname") != initial["path"]:
+                raise CheckFailed("Community page exited before managed records were exhausted")
+            drained += 1
+            if drained > 12:
+                raise CheckFailed("Community managed history did not terminate")
+        if initial_scroll > 80:
+            wait_for(cdp, f"Math.abs(scrollY - {int(initial_scroll)}) < 70", "community scroll restoration", timeout=8)
+        check_no_errors(cdp)
+        cdp.eval("setTimeout(() => history.back(), 0); true")
+        wait_for(cdp, "location.pathname !== '/strings.html'", "leave community after managed history", timeout=10)
+        return {
+            "initialLength": initial["length"],
+            "categoryLength": category_length,
+            "searchLength": search_length,
+            "detailLength": detail_length,
+            "submitLength": submit_length,
+            "drainedRecords": drained,
+            "urlStayed": initial["url"],
+        }
+
+    checks = [
         ("desktop home renders", desktop_load),
         ("search highlights text", search_highlight),
         ("author search syntax", author_search),
@@ -650,7 +981,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP) -> list[dict]:
         ("favorites view opens backup dialog", favorites_backup_entry),
         ("NSFW toggle locks back", nsfw_toggle),
         ("mobile home renders", mobile_home),
-    ]:
+        ("mobile atlas back stack", mobile_atlas_history),
+        ("community internal back stack", community_history),
+    ]
+    if only:
+        needle = only.casefold()
+        checks = [(name, func) for name, func in checks if needle in name.casefold()]
+        if not checks:
+            raise CheckFailed(f"No UI check matched --only={only!r}")
+    for name, func in checks:
         run_check(results, name, func)
     return results
 
@@ -697,6 +1036,7 @@ def main() -> int:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Preview base URL, default http://localhost:8766/")
     parser.add_argument("--out-dir", default="", help="Output directory. Defaults to output/ui-regression/<timestamp>")
     parser.add_argument("--keep-browser", action="store_true", help="Keep Chrome running after checks")
+    parser.add_argument("--only", default="", help="Run checks whose names contain this text")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir) if args.out_dir else ROOT / "output" / "ui-regression" / now_stamp()
@@ -711,14 +1051,14 @@ def main() -> int:
         chrome_proc = start_chrome(out_dir, port)
         ws_url = page_ws_url(port)
         cdp = CDP(ws_url)
-        results = run_suite(base_url, out_dir, cdp)
+        results = run_suite(base_url, out_dir, cdp, only=args.only)
         write_report(out_dir, base_url, results)
         log("")
         log(f"Report: {out_dir / 'report.md'}")
         log("Result: " + ("PASS" if all(r["ok"] for r in results) else "FAIL"))
         return 0 if all(r["ok"] for r in results) else 1
     except Exception as exc:
-        (out_dir / "fatal.txt").write_text(str(exc), encoding="utf-8")
+        (out_dir / "fatal.txt").write_text(traceback.format_exc(), encoding="utf-8")
         log(f"[FATAL] {exc}")
         log(f"Output: {out_dir}")
         return 1

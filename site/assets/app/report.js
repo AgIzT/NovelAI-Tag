@@ -39,7 +39,7 @@ export function setupReport() {
   $('#feedbackCopyFallback')?.addEventListener('click', copyFallbackText);
 }
 
-export function openReportDialog({ source = 'global', entry = null, imageIndex = 0, defaultType = '', imageError = false, trigger = document.activeElement } = {}) {
+export function openReportDialog({ source = 'global', entry = null, imageIndex = 0, defaultType = '', imageError = false, trigger = document.activeElement, historyMode = 'push' } = {}) {
   const mask = $('#feedbackPanel');
   if (!mask) return;
   currentTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
@@ -49,7 +49,7 @@ export function openReportDialog({ source = 'global', entry = null, imageIndex =
   const context = buildFeedbackContext({ source, entry, imageIndex, imageError });
   currentPayload = { type, description: '', contact: '', context, honeypot: '' };
   resetFeedbackForm(type, context);
-  openMask(mask, currentTrigger);
+  openMask(mask, currentTrigger, { historyMode });
 }
 
 export function buildFeedbackContext({ source = 'global', entry = null, imageIndex = 0, imageError = false } = {}) {

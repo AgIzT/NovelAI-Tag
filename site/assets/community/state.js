@@ -7,5 +7,8 @@ export const state = {
   query: '',
   showNSFW: localStorage.getItem('strings-nsfw') === 'true',
   onlyFavorites: localStorage.getItem('community-only-favorites') === 'true',
+  activeEntryId: '',
+  activeImageIndex: 0,
+  searchHistorySessionId: '',
   loading: true,
 };

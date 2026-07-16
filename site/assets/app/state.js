@@ -101,6 +101,7 @@ export const state = {
   itemWidth: 0,
   activePath: [],     // 选中的目录路径
   searchReturnPath: [],
+  searchHistorySessionId: '',
   query: '',
   searchPlan: null,
   searchScope: DEFAULT_SEARCH_SCOPE,

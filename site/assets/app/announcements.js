@@ -9,14 +9,14 @@ let announcements = [];
 let loaded = false;
 let loadingPromise = null;
 
-export function setupAnnouncements({ closeMore = () => {}, trigger = null } = {}) {
+export function setupAnnouncements({ closeMore = () => {}, trigger = null, historyMode = () => 'push' } = {}) {
   const mask = $('#announcementsPanel');
   const btn = $('#announcementsBtn');
   if (!mask || !btn) return;
   btn.addEventListener('click', async () => {
     closeMore();
     await loadAnnouncements();
-    openAnnouncementsPanel(trigger || btn);
+    openAnnouncementsPanel(trigger || btn, { historyMode: historyMode() });
   });
   $('#announcementsClose')?.addEventListener('click', () => closeMask(mask));
   mask.addEventListener('click', ev => { if (ev.target === mask) closeMask(mask); });
@@ -50,13 +50,13 @@ export async function loadAnnouncements() {
   return loadingPromise;
 }
 
-export function openAnnouncementsPanel(trigger = document.activeElement) {
+export function openAnnouncementsPanel(trigger = document.activeElement, { historyMode = 'push' } = {}) {
   const mask = $('#announcementsPanel');
   if (!mask) return;
   renderAnnouncements();
   markVisibleAnnouncementsRead();
   updateAnnouncementBadge();
-  openMask(mask, trigger);
+  openMask(mask, trigger, { historyMode });
 }
 
 export function updateAnnouncementBadge() {

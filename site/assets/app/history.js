@@ -7,6 +7,7 @@ import { toast } from './feedback.js';
 import { findCodexMeta } from './data.js';
 import { FAVORITES_CODEX_ID } from './fav-codex.js';
 import { SITE_SEARCH_CODEX_ID } from './site-search.js';
+import { isHistoryRestoreToken } from './browser-history.js';
 
 const historyActions = {
   loadCodex: async () => {},
@@ -229,7 +230,7 @@ export function applyBrowseControls(snapshot) {
   if (onlyFav) onlyFav.checked = state.onlyFav;
 }
 
-export function applyBrowseState(snapshot) {
+export function applyBrowseState(snapshot, options = {}) {
   state.activePath = snapshot.path || [];
   state.query = snapshot.q || '';
   const search = $('#search');
@@ -238,23 +239,34 @@ export function applyBrowseState(snapshot) {
   historyActions.renderTree();
   suppressBrowseStateSave();
   historyActions.applyFilter({ resetScroll: true });
-  syncUrlState({ replace: true, entry: snapshot.entryId || '', saveBrowse: false });
+  syncUrlState({
+    historyMode: options.historyMode || 'replace',
+    transition: options.transition || (snapshot.entryId ? 'detail' : 'route'),
+    consumeLayer: Boolean(options.consumeLayer),
+    entry: snapshot.entryId || '',
+    saveBrowse: false,
+  });
 }
 
-function restoreBrowseScroll(top) {
+let browseScrollRestoreSeq = 0;
+export function restoreBrowseScroll(top, { token } = {}) {
+  const seq = ++browseScrollRestoreSeq;
   const target = Math.max(0, Number(top) || 0);
   let attempts = 0;
   const run = () => {
+    if (seq !== browseScrollRestoreSeq) return;
+    if (token !== undefined && !isHistoryRestoreToken(token)) return;
     window.scrollTo({ top: target, left: 0, behavior: 'auto' });
     historyActions.updateVirtualCards(true);
     updateScrollProgress();
     attempts += 1;
-    if (attempts < 6) window.setTimeout(run, attempts < 2 ? 140 : 220);
+    const reached = Math.abs(Math.max(0, window.scrollY) - target) <= 3;
+    if (!reached && attempts < 6) window.setTimeout(run, attempts < 2 ? 140 : 220);
   };
   window.setTimeout(run, 160);
 }
 
-export async function resumeLastBrowse() {
+export async function resumeLastBrowse(options = {}) {
   const snapshot = state.lastBrowse;
   if (!snapshot) return;
   if (isHiddenR18gHistoryItem(snapshot)) {
@@ -268,40 +280,43 @@ export async function resumeLastBrowse() {
     : (snapshot.codexId === SITE_SEARCH_CODEX_ID ? (state.browseCodex?.id || firstUnlockedCodex()?.id || '') : snapshot.codexId);
   const meta = findCodexMeta(requestedCodexId);
   const targetId = meta?.id || requestedCodexId || firstUnlockedCodex()?.id || snapshot.codexId;
+  const finalHistory = {
+    historyMode: options.historyMode || 'push',
+    transition: snapshot.entryId ? 'detail' : 'route',
+    consumeLayer: Boolean(options.consumeLayer),
+    saveBrowse: false,
+  };
   if (meta && isCodexLocked(meta)) {
     showNsfwLockedHint();
     return;
   }
   if (wantsFavorites) {
     if (!state.codex || state.codex.id !== targetId || state.favoritesView) {
-      await historyActions.loadCodex(targetId, { replaceUrl: true, saveBrowse: false });
+      await historyActions.loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
     }
     applyBrowseControls({ ...snapshot, favoritesView: true });
     await historyActions.openFavoritesView({
       urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', favorites: true },
-      replaceUrl: true,
-      saveBrowse: false,
+      ...finalHistory,
     });
   } else if (wantsSiteSearch) {
     if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
-      await historyActions.loadCodex(targetId, { replaceUrl: true, saveBrowse: false });
+      await historyActions.loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
     }
     applyBrowseControls({ ...snapshot, favoritesView: false, onlyFav: false });
     await historyActions.openSiteSearchView({
       urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', scope: 'site' },
-      replaceUrl: true,
-      saveBrowse: false,
+      ...finalHistory,
     });
   } else if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
     applyBrowseControls(snapshot);
     await historyActions.loadCodex(targetId, {
       urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '' },
-      replaceUrl: true,
-      saveBrowse: false,
+      ...finalHistory,
     });
   } else {
     applyBrowseControls(snapshot);
-    applyBrowseState(snapshot);
+    applyBrowseState(snapshot, finalHistory);
     if (snapshot.entryId) window.setTimeout(() => historyActions.openEntryDeepLink(snapshot.entryId), 120);
   }
   if (!snapshot.entryId) {
@@ -310,7 +325,7 @@ export async function resumeLastBrowse() {
   toast('已恢复上次浏览位置');
 }
 
-export async function openRecentEntry(item) {
+export async function openRecentEntry(item, options = {}) {
   if (!item?.codexId || !item.entryId) return;
   if (isHiddenR18gHistoryItem(item)) {
     showR18gLockedHint();
@@ -323,11 +338,16 @@ export async function openRecentEntry(item) {
     return;
   }
   const urlState = { codex: targetId, path: item.path || [], q: '', entry: item.entryId };
+  const finalHistory = {
+    historyMode: options.historyMode || 'push',
+    transition: 'detail',
+    consumeLayer: Boolean(options.consumeLayer),
+  };
   if (!state.codex || state.codex.id !== targetId || state.siteSearchView) {
     state.onlyFav = false;
     state.onlyImaged = false;
     applyBrowseControls({ onlyFav: false, onlyImaged: false });
-    await historyActions.loadCodex(targetId, { urlState, replaceUrl: true });
+    await historyActions.loadCodex(targetId, { urlState, ...finalHistory });
   } else {
     state.query = '';
     state.activePath = item.path || [];
@@ -339,7 +359,7 @@ export async function openRecentEntry(item) {
     updateSearchClear();
     historyActions.renderTree();
     historyActions.applyFilter({ resetScroll: true });
-    syncUrlState({ replace: true, entry: item.entryId });
+    syncUrlState({ ...finalHistory, entry: item.entryId });
     window.setTimeout(() => historyActions.openEntryDeepLink(item.entryId), 120);
   }
 }

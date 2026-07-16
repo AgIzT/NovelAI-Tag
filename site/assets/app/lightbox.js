@@ -9,6 +9,7 @@ import { findCodexMeta } from './data.js';
 import { entryImages, imageItemUrl } from './media.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { openReportDialog } from './report.js';
+import { goBackFrom } from './browser-history.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -121,17 +122,28 @@ export function flyIn(sourceEl) {
   window.setTimeout(finish, 480);
 }
 
-export function openLightbox(entry, index = 0, sourceEl = null) {
+export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
+  const parentScrollY = Math.max(0, window.scrollY || 0);
   if (isR18gBlocked(entry)) { showR18gLockedHint(); return; }  // 深链/最近记录等绕过路径的兜底拦截
   if (isEntryAccessBlocked(entry)) { showNsfwLockedHint(); return; }
   const images = entryImages(entry);
   if (!images.length) return;
-  recordRecentEntry(entry);
+  if (options.recordRecent !== false) recordRecentEntry(entry);
   state.lightbox = {
     entry,
     images,
     index: clamp(index, 0, images.length - 1),
   };
+  /* Commit before rendering: thumbnail scrollIntoView/focus work inside the fixed
+     overlay and may move the document, but the parent list record must retain
+     the exact pre-detail scroll position. */
+  syncUrlState({
+    entry: entry.id,
+    historyMode: options.historyMode || 'push',
+    transition: 'detail',
+    consumeLayer: Boolean(options.consumeLayer),
+    parentScrollY,
+  });
   lbSourceImg = sourceEl && sourceEl.tagName === 'IMG' ? sourceEl : null;
   const lb = $('#lightbox');
   clearTimeout(lbCloseTimer);
@@ -149,16 +161,17 @@ export function openLightbox(entry, index = 0, sourceEl = null) {
   }
   void lb.offsetWidth;
   lb.classList.add('is-open');
-  syncUrlState({ entry: entry.id });
   lbFocusReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   window.setTimeout(() => $('#lightboxClose')?.focus(), 0);
   if (lbSourceImg && lbSourceImg.naturalWidth && !prefersReducedMotion()) flyIn(lbSourceImg);
 }
 
-export function closeLightbox() {
+export function closeLightbox(options = {}) {
   const lb = $('#lightbox');
   if (lb.hidden) return;
-  syncUrlState({ entry: '' });
+  const historyMode = options.historyMode || 'back';
+  if (historyMode === 'back' && goBackFrom('detail')) return;
+  syncUrlState({ entry: '', historyMode: historyMode === 'none' ? 'none' : 'replace' });
   lbSeq++;
   clearTimeout(lbCloseTimer);
   const done = () => {
@@ -174,6 +187,11 @@ export function closeLightbox() {
     if (lbFocusReturn?.isConnected) lbFocusReturn.focus();
     lbFocusReturn = null;
   };
+  if (options.immediate) {
+    lb.classList.remove('is-open');
+    done();
+    return;
+  }
   if (prefersReducedMotion()) {
     lb.classList.remove('is-open');
     done();
@@ -209,6 +227,7 @@ export function stepLightbox(delta) {
   if (!lb.entry || lb.images.length < 2) return;
   lb.index = (lb.index + delta + lb.images.length) % lb.images.length;
   renderLightbox();
+  syncUrlState({ entry: lb.entry.id, historyMode: 'replace' });
 }
 
 export function preloadImage(url) {
@@ -349,6 +368,7 @@ export function renderLightbox() {
         if (lb.index === i) return;
         lb.index = i;
         renderLightbox();
+        syncUrlState({ entry: lb.entry.id, historyMode: 'replace', transition: 'detail' });
       };
       thumbs.appendChild(btn);
     });

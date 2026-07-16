@@ -4,6 +4,13 @@ import { isCodexLocked, showNsfwLockedHint, isEntryAccessBlocked, isEntryNsfw, i
 import { codexStatusLabel, codexStatusClass, codexStatusTitle } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
+import {
+  closeHistoryLayer,
+  forgetHistoryLayer,
+  openHistoryLayer,
+  registerHistoryLayer,
+  topHistoryLayerId,
+} from './browser-history.js';
 
 /* 选择器类型图标（描边 SVG，跟随 currentColor） */
 const TYPE_ICONS = {
@@ -68,28 +75,49 @@ export function setupCodexPicker() {
     target?.focus();
   };
   const isMobile = () => window.matchMedia('(max-width: 600px)').matches;
-  const open = ({ focus = false } = {}) => {
+  const openDirect = ({ focus = false } = {}) => {
     renderMenu();
     menu.hidden = false;
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
     if (focus) requestAnimationFrame(focusPreferredItem);
   };
-  const close = ({ focusButton = false } = {}) => {
+  const closeDirect = ({ focusButton = false } = {}) => {
     menu.hidden = true;
     btn.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
     if (focusButton) btn.focus();
   };
+  registerHistoryLayer('codex-menu', {
+    isOpen: () => !menu.hidden,
+    open: () => openDirect(),
+    close: () => closeDirect({ focusButton: true }),
+  });
+  const open = ({ focus = false, historyMode = 'push' } = {}) => {
+    const replaceLayer = isMobile() && topHistoryLayerId() === 'banner-about';
+    if (replaceLayer) closeBannerAbout();
+    openDirect({ focus });
+    if (isMobile() && historyMode !== 'none') {
+      openHistoryLayer('codex-menu', { mode: replaceLayer ? 'replace' : historyMode });
+    }
+  };
+  const close = ({ focusButton = false, historyMode = 'back' } = {}) => {
+    if (isMobile() && historyMode !== 'none' && closeHistoryLayer('codex-menu')) return;
+    closeDirect({ focusButton });
+    if (isMobile() && historyMode !== 'none') forgetHistoryLayer('codex-menu');
+  };
 
   const chooseCodex = c => {
     if (!c) return;
     if (isCodexLocked(c)) { showNsfwLockedHint(); return; }
-    close({ focusButton: true });
-    if (state.favoritesView || state.siteSearchView || sel.value !== c.id) {
-      sel.value = c.id;
-      codexUiActions.loadCodex(c.id);
+    const changed = state.favoritesView || state.siteSearchView || sel.value !== c.id;
+    if (!changed) {
+      close({ focusButton: true });
+      return;
     }
+    close({ focusButton: true, historyMode: 'none' });
+    sel.value = c.id;
+    codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer: isMobile() });
   };
 
   /* 类型清单：每类带真实法典 real[] 与是否占位 soon */
@@ -262,6 +290,7 @@ export function setupCodexPicker() {
     const current = list.indexOf(document.activeElement);
     if (ev.key === 'Escape') {
       ev.preventDefault();
+      ev.stopPropagation();
       close({ focusButton: true });
     } else if (ev.key === 'Tab') {
       close();
@@ -287,6 +316,11 @@ export function setupCodexPicker() {
   });
   let resizeRaf = 0;
   window.addEventListener('resize', () => {
+    if (!isMobile() && !menu.hidden) {
+      closeDirect();
+      forgetHistoryLayer('codex-menu');
+      return;
+    }
     if (menu.hidden) return;
     cancelAnimationFrame(resizeRaf);
     resizeRaf = requestAnimationFrame(renderMenu);
@@ -524,14 +558,29 @@ export function buildNodes(nodes, parent, prefix, depth) {
 }
 
 export function selectPath(path, rowEl) {
+  const parentScrollY = Math.max(0, window.scrollY || 0);
+  const isMobile = window.innerWidth <= 600;
+  const routeChanged = !samePath(state.activePath, path) || (!state.siteSearchView && Boolean(state.query.trim()));
+  if (!routeChanged) {
+    if (isMobile && closeHistoryLayer('mobile-sidebar')) return;
+    if (isMobile) {
+      $('#sidebar').classList.add('closed');
+      localStorage.setItem('fadian-sidebar', 'closed');
+      forgetHistoryLayer('mobile-sidebar');
+    }
+    return;
+  }
   document.querySelectorAll('.tree-row.active').forEach(r => r.classList.remove('active'));
   rowEl.classList.add('active');
-  if (window.innerWidth <= 600) $('#sidebar').classList.add('closed');
+  if (isMobile) {
+    $('#sidebar').classList.add('closed');
+    localStorage.setItem('fadian-sidebar', 'closed');
+  }
   if (state.siteSearchView) {
     // 全站搜索：点目录 = 保留搜索词，把结果收窄到该来源法典/分类（点「全部」回到全站）
     state.activePath = path;
     codexUiActions.applyFilter({ resetScroll: true, transition: 'filter' });
-    codexUiActions.syncUrlState();
+    codexUiActions.syncUrlState({ historyMode: 'push', transition: 'route', consumeLayer: true, parentScrollY });
     return;
   }
   state.activePath = path;
@@ -539,7 +588,7 @@ export function selectPath(path, rowEl) {
   $('#search').value = '';
   updateSearchClear();
   codexUiActions.applyFilter({ resetScroll: true, transition: 'filter' });
-  codexUiActions.syncUrlState();
+  codexUiActions.syncUrlState({ historyMode: 'push', transition: 'route', consumeLayer: true, parentScrollY });
 }
 
 /* 面包屑点击：按路径找到目录行，展开祖先并选中 */
@@ -842,11 +891,33 @@ function positionOpenBannerPop() {
   if (openPop && banner) positionBannerPop(openPop, banner);
 }
 
-export function closeBannerAbout() {
+function closeBannerAboutDirect() {
   const openBtn = document.querySelector('.banner-about-btn.open');
   const openPop = document.querySelector('.banner-pop:not([hidden])');
   if (openPop) openPop.hidden = true;
   if (openBtn) openBtn.classList.remove('open');
+}
+
+function openBannerAboutDirect() {
+  const btn = document.querySelector('.banner-about-btn');
+  const pop = document.querySelector('.banner-pop');
+  const banner = btn?.closest('.codex-banner');
+  if (!btn || !pop || !banner) return;
+  positionBannerPop(pop, banner);
+  pop.hidden = false;
+  btn.classList.add('open');
+}
+
+registerHistoryLayer('banner-about', {
+  isOpen: () => Boolean(document.querySelector('.banner-pop:not([hidden])')),
+  open: openBannerAboutDirect,
+  close: closeBannerAboutDirect,
+});
+
+export function closeBannerAbout({ historyMode = 'none' } = {}) {
+  if (historyMode === 'back' && closeHistoryLayer('banner-about')) return;
+  closeBannerAboutDirect();
+  if (historyMode !== 'none') forgetHistoryLayer('banner-about');
 }
 
 export function renderBannerAbout(c, banner) {
@@ -894,11 +965,16 @@ export function renderBannerAbout(c, banner) {
   btn.onclick = ev => {
     ev.stopPropagation();
     const show = pop.hidden;
-    closeBannerAbout();
+    if (!show) {
+      closeBannerAbout({ historyMode: 'back' });
+      return;
+    }
+    closeBannerAboutDirect();
     if (show) {
       positionBannerPop(pop, banner);
       pop.hidden = false;
       btn.classList.add('open');
+      openHistoryLayer('banner-about');
     }
   };
 

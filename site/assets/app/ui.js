@@ -4,7 +4,7 @@ import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from
 import { toast } from './feedback.js';
 import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, updateCodexPickerState } from './codex-ui.js';
-import { syncUrlState } from './router.js';
+import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls } from './lightbox.js';
@@ -12,6 +12,16 @@ import { openMask, closeMask, trapFocus } from './modal.js';
 import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
 import { setupOnboarding } from './onboarding.js';
+import {
+  closeHistoryLayer,
+  forgetHistoryLayer,
+  getManagedHistoryEntry,
+  goBackFrom,
+  openHistoryLayer,
+  registerHistoryLayer,
+  scheduleHistoryScrollCheckpoint,
+  topHistoryLayerId,
+} from './browser-history.js';
 
 const THEME_ICONS = {
   moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z"/></svg>',
@@ -74,7 +84,7 @@ export function bindUI() {
   const searchScopeBtn = $('#searchScopeBtn');
   const mobileSearchBtn = $('#mobileSearchBtn');
   const mobileQuery = window.matchMedia('(max-width:600px)');
-  const setSearchMode = (on, { focus = false, restoreButton = false } = {}) => {
+  const applySearchMode = (on, { focus = false, restoreButton = false } = {}) => {
     const shouldOpen = on && mobileQuery.matches;
     document.body.classList.toggle('search-mode', shouldOpen);
     if (shouldOpen) {
@@ -85,6 +95,45 @@ export function bindUI() {
       if (restoreButton) mobileSearchBtn?.focus();
     }
   };
+  registerHistoryLayer('mobile-search', {
+    isOpen: () => document.body.classList.contains('search-mode'),
+    open: () => applySearchMode(true),
+    close: () => applySearchMode(false),
+  });
+  const setSearchMode = (on, { focus = false, restoreButton = false, historyMode = on ? 'push' : 'back' } = {}) => {
+    if (!mobileQuery.matches) {
+      applySearchMode(false, { restoreButton });
+      return;
+    }
+    const replaceLayer = on && topHistoryLayerId() === 'banner-about';
+    if (replaceLayer) closeBannerAbout();
+    if (!on && historyMode !== 'none' && closeHistoryLayer('mobile-search')) return;
+    applySearchMode(on, { focus, restoreButton });
+    if (historyMode === 'none') return;
+    if (on) openHistoryLayer('mobile-search', { mode: replaceLayer || historyMode === 'replace' ? 'replace' : 'push' });
+    else forgetHistoryLayer('mobile-search');
+  };
+  const nextSearchSessionId = () => `search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const applySearchInput = async value => {
+    const parentScrollY = Math.max(0, window.scrollY || 0);
+    const previous = state.query.trim();
+    state.query = String(value || '');
+    const next = state.query.trim();
+    if (!next && previous && !mobileQuery.matches && goBackFrom('search')) return;
+    const firstQuery = Boolean(next && !previous);
+    if (firstQuery) state.searchHistorySessionId = nextSearchSessionId();
+    const layered = firstQuery && mobileQuery.matches && topHistoryLayerId() === 'mobile-search';
+    const historyMode = firstQuery ? (layered ? 'none' : 'push') : 'replace';
+    await uiActions.applySearch({
+      resetScroll: true,
+      transition: next ? 'search' : 'route',
+      historyMode,
+      sessionId: state.searchHistorySessionId || getManagedHistoryEntry()?.sessionId || undefined,
+      parentScrollY,
+    });
+    if (layered) beginAtlasLayeredSearch(state.searchHistorySessionId);
+    if (!next && !getManagedHistoryEntry()?.sessionId) state.searchHistorySessionId = '';
+  };
   updateSearchScopeControl();
   if (searchScopeBtn) {
     searchScopeBtn.onclick = () => {
@@ -92,9 +141,14 @@ export function bindUI() {
       localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, state.searchScope);
       updateSearchScopeControl();
       if (state.query.trim()) {
-        void uiActions.applySearch({ resetScroll: true, transition: 'filter' });
+        void uiActions.applySearch({
+          resetScroll: true,
+          transition: 'search',
+          historyMode: 'replace',
+          sessionId: state.searchHistorySessionId || getManagedHistoryEntry()?.sessionId || undefined,
+        });
       } else {
-        syncUrlState();
+        syncUrlState({ historyMode: 'replace' });
       }
       searchInput.focus();
     };
@@ -103,20 +157,24 @@ export function bindUI() {
   searchExit?.addEventListener('click', () => setSearchMode(false, { restoreButton: true }));
   if (mobileQuery.addEventListener) {
     mobileQuery.addEventListener('change', ev => {
-      if (!ev.matches) setSearchMode(false);
+      if (!ev.matches) {
+        applySearchMode(false);
+        forgetHistoryLayer('mobile-search');
+        forgetHistoryLayer('mobile-sidebar');
+      }
     });
   }
   searchInput.oninput = e => {
     updateSearchClear();
     clearTimeout(st);
     st = setTimeout(() => {
-      state.query = e.target.value;
-      if (state.query.trim()) {
+      const value = e.target.value;
+      if (value.trim()) {
         if (!state.siteSearchView) document.querySelectorAll('.tree-row.active').forEach(r => r.classList.remove('active'));   // 全站搜索保留目录收窄的高亮
       } else if (!state.siteSearchView) {
         renderTree();
       }
-      void uiActions.applySearch({ resetScroll: true });
+      void applySearchInput(value);
     }, 180);
   };
   if (searchClear) {
@@ -124,21 +182,23 @@ export function bindUI() {
       if (!searchInput.value) return;
       clearTimeout(st);
       searchInput.value = '';
-      state.query = '';
       updateSearchClear();
-      if (!state.siteSearchView) renderTree();
-      void uiActions.applySearch({ resetScroll: true, transition: 'filter' });
+      void applySearchInput('');
       searchInput.focus();
     };
   }
 
-  $('#onlyImaged').onchange = e => { state.onlyImaged = e.target.checked; uiActions.applyFilter({ resetScroll: true, transition: 'filter' }); };
+  $('#onlyImaged').onchange = e => {
+    state.onlyImaged = e.target.checked;
+    uiActions.applyFilter({ resetScroll: true, transition: 'filter' });
+    syncUrlState({ historyMode: 'replace' });
+  };
   $('#onlyFav').onchange = e => {
     if (e.target.checked) {
       uiActions.openFavoritesView();
     } else {
       const target = state.browseCodex?.id || firstUnlockedCodex()?.id || state.codex?.id;
-      if (target) uiActions.loadCodex(target, { replaceUrl: true });
+      if (target) uiActions.loadCodex(target, { historyMode: 'push', transition: 'route' });
     }
   };
 
@@ -207,27 +267,59 @@ export function bindUI() {
   if (savedSidebar === 'closed' || (savedSidebar === null && window.innerWidth <= 600)) {
     sidebar.classList.add('closed');
   }
+  const setSidebarOpenDirect = open => {
+    sidebar.classList.toggle('closed', !open);
+    localStorage.setItem('fadian-sidebar', open ? 'open' : 'closed');
+  };
+  registerHistoryLayer('mobile-sidebar', {
+    isOpen: () => mobileQuery.matches && !sidebar.classList.contains('closed'),
+    open: () => setSidebarOpenDirect(true),
+    close: () => setSidebarOpenDirect(false),
+  });
   $('#menuBtn').onclick = () => {
-    sidebar.classList.toggle('closed');
-    localStorage.setItem('fadian-sidebar', sidebar.classList.contains('closed') ? 'closed' : 'open');
+    const opening = sidebar.classList.contains('closed');
+    if (mobileQuery.matches && !opening && closeHistoryLayer('mobile-sidebar')) return;
+    const replaceLayer = mobileQuery.matches && opening && topHistoryLayerId() === 'banner-about';
+    if (replaceLayer) closeBannerAbout();
+    setSidebarOpenDirect(opening);
+    if (!mobileQuery.matches) return;
+    if (opening) openHistoryLayer('mobile-sidebar', { mode: replaceLayer ? 'replace' : 'push' });
+    else forgetHistoryLayer('mobile-sidebar');
   };
 
   const moreBtn = $('#moreBtn');
   const moreMenu = $('#moreMenu');
   const moreItems = () => [...moreMenu.querySelectorAll('.more-item')];
-  const closeMore = ({ focusButton = false } = {}) => {
+  const closeMoreDirect = ({ focusButton = false } = {}) => {
     if (!moreMenu || moreMenu.hidden) return;
     moreMenu.hidden = true;
     moreBtn.classList.remove('open');
     moreBtn.setAttribute('aria-expanded', 'false');
     if (focusButton) moreBtn.focus();
   };
-  const openMore = ({ focus = false } = {}) => {
+  const openMoreDirect = ({ focus = false } = {}) => {
     closeBannerAbout();
     moreMenu.hidden = false;
     moreBtn.classList.add('open');
     moreBtn.setAttribute('aria-expanded', 'true');
     if (focus) requestAnimationFrame(() => moreItems()[0]?.focus());
+  };
+  registerHistoryLayer('more-menu', {
+    isOpen: () => mobileQuery.matches && !moreMenu.hidden,
+    open: () => openMoreDirect(),
+    close: () => closeMoreDirect(),
+  });
+  const closeMore = ({ focusButton = false, historyMode = 'back' } = {}) => {
+    if (mobileQuery.matches && historyMode !== 'none' && closeHistoryLayer('more-menu')) return;
+    closeMoreDirect({ focusButton });
+    if (mobileQuery.matches && historyMode !== 'none') forgetHistoryLayer('more-menu');
+  };
+  const openMore = ({ focus = false, historyMode = 'push' } = {}) => {
+    const replaceLayer = mobileQuery.matches && topHistoryLayerId() === 'banner-about';
+    openMoreDirect({ focus });
+    if (mobileQuery.matches && historyMode !== 'none') {
+      openHistoryLayer('more-menu', { mode: replaceLayer ? 'replace' : historyMode });
+    }
   };
   if (moreBtn && moreMenu) {
     moreBtn.onclick = ev => {
@@ -255,13 +347,20 @@ export function bindUI() {
     });
   }
   setupReport();
-  setupAnnouncements({ closeMore });
+  setupAnnouncements({
+    closeMore: () => closeMore({ historyMode: 'none' }),
+    historyMode: () => mobileQuery.matches ? 'replace' : 'push',
+  });
   setupOnboarding();
   const globalReportBtn = $('#globalReportBtn');
   if (globalReportBtn) {
     globalReportBtn.onclick = () => {
-      closeMore();
-      openReportDialog({ source: 'global', trigger: moreBtn || globalReportBtn });
+      closeMore({ historyMode: 'none' });
+      openReportDialog({
+        source: 'global',
+        trigger: moreBtn || globalReportBtn,
+        historyMode: mobileQuery.matches ? 'replace' : 'push',
+      });
     };
   }
 
@@ -288,11 +387,11 @@ export function bindUI() {
     updateCodexPickerState();
     if (!state.allowNsfw && isNsfwCodex(state.codex)) {
       const fallback = firstUnlockedCodex();
-      if (fallback) uiActions.loadCodex(fallback.id, { replaceUrl: true });
+      if (fallback) uiActions.loadCodex(fallback.id, { historyMode: 'replace' });
     } else if (state.siteSearchView) {
-      uiActions.openSiteSearchView({ replaceUrl: true });   // 全站搜索按整本锁态构建：NSFW 开关后重建索引
+      uiActions.openSiteSearchView({ historyMode: 'replace' });   // 全站搜索按整本锁态构建：NSFW 开关后重建索引
     } else if (state.favoritesView) {
-      uiActions.openFavoritesView({ replaceUrl: true });   // 收藏视图按锁态构建：开关 NSFW 后重建，让 NSFW 法典的收藏浮现/隐藏
+      uiActions.openFavoritesView({ historyMode: 'replace' });   // 收藏视图按锁态构建：开关 NSFW 后重建，让 NSFW 法典的收藏浮现/隐藏
     } else if (state.codex) {
       renderTree();
       renderCodexHeader();
@@ -404,17 +503,23 @@ export function bindUI() {
     r18gMask.onkeydown = ev => trapFocus(ev, r18gMask);
   }
   updateR18gToggleState();
-  $('#shortcutBtn').onclick = () => { closeMore(); openMask(shortcutMask, moreBtn); };
+  const openFromMore = (mask, trigger = moreBtn) => {
+    const topLayer = topHistoryLayerId();
+    const replaceLayer = topLayer === 'more-menu' || topLayer === 'banner-about';
+    closeMore({ historyMode: 'none' });
+    if (topLayer === 'banner-about') closeBannerAbout();
+    openMask(mask, trigger, { historyMode: replaceLayer ? 'replace' : 'push' });
+  };
+  $('#shortcutBtn').onclick = () => openFromMore(shortcutMask);
   $('#shortcutClose').onclick = () => closeMask(shortcutMask);
   shortcutMask.onclick = ev => { if (ev.target === shortcutMask) closeMask(shortcutMask); };
   shortcutMask.onkeydown = ev => trapFocus(ev, shortcutMask);
-  $('#historyBtn').onclick = () => { closeMore(); renderHistoryPanel(); openMask(historyMask, moreBtn); };
+  $('#historyBtn').onclick = () => { renderHistoryPanel(); openFromMore(historyMask); };
   $('#historyClose').onclick = () => closeMask(historyMask);
   historyMask.onclick = ev => { if (ev.target === historyMask) closeMask(historyMask); };
   historyMask.onkeydown = ev => trapFocus(ev, historyMask);
   $('#resumeBrowse').onclick = async () => {
-    closeMask(historyMask);
-    await resumeLastBrowse();
+    await resumeLastBrowse({ historyMode: 'push', consumeLayer: true });
   };
   $('#clearRecent').onclick = () => {
     state.recentEntries = [];
@@ -422,15 +527,14 @@ export function bindUI() {
     renderHistoryPanel();
   };
   document.addEventListener('openRecentEntry', async ev => {
-    closeMask(historyMask);
-    await openRecentEntry(ev.detail);
+    await openRecentEntry(ev.detail, { historyMode: 'push', consumeLayer: true });
   });
   const settingsBtn = $('#settingsBtn');
-  if (settingsBtn) settingsBtn.onclick = () => { closeMore(); openMask(settingsMask, settingsBtn); };
+  if (settingsBtn) settingsBtn.onclick = () => openFromMore(settingsMask, settingsBtn);
   $('#settingsClose').onclick = () => closeMask(settingsMask);
   settingsMask.onclick = ev => { if (ev.target === settingsMask) closeMask(settingsMask); };
   settingsMask.onkeydown = ev => trapFocus(ev, settingsMask);
-  $('#aboutBtn').onclick = () => { closeMore(); openMask(aboutMask, moreBtn); };
+  $('#aboutBtn').onclick = () => openFromMore(aboutMask);
   $('#aboutClose').onclick = () => closeMask(aboutMask);
   aboutMask.onclick = ev => { if (ev.target === aboutMask) closeMask(aboutMask); };
   aboutMask.onkeydown = ev => trapFocus(ev, aboutMask);
@@ -440,15 +544,16 @@ export function bindUI() {
   document.addEventListener('openCodexArchive', ev => {
     renderCodexArchive();
     const opener = document.querySelector('.banner-about-btn') || ev.detail?.trigger || document.activeElement;
+    const replaceLayer = topHistoryLayerId() === 'banner-about';
     closeBannerAbout();
-    openMask(archiveMask, opener);
+    openMask(archiveMask, opener, { historyMode: replaceLayer ? 'replace' : 'push' });
   });
   document.addEventListener('click', ev => {
     const openBtn = document.querySelector('.banner-about-btn.open');
     const openPop = document.querySelector('.banner-pop:not([hidden])');
     if (!openBtn || !openPop) return;
     if (openBtn.contains(ev.target) || openPop.contains(ev.target)) return;
-    closeBannerAbout();
+    closeBannerAbout({ historyMode: 'back' });
   });
   window.addEventListener('keydown', ev => {
     if (ev.key !== 'Escape') return;
@@ -467,16 +572,16 @@ export function bindUI() {
       cancelR18gConfirm();
       return;
     }
-    closeMore({ focusButton: !moreMenu.hidden });
-    if (!settingsMask.hidden) closeMask(settingsMask);
-    if (!shortcutMask.hidden) closeMask(shortcutMask);
-    if (!historyMask.hidden) closeMask(historyMask);
-    if (!aboutMask.hidden) closeMask(aboutMask);
-    if (!archiveMask.hidden) closeMask(archiveMask);
-    if (announcementsMask && !announcementsMask.hidden) closeMask(announcementsMask);
-    if (feedbackMask && !feedbackMask.hidden) closeMask(feedbackMask);
-    if (onboardingMask && !onboardingMask.hidden) closeMask(onboardingMask);
-    closeBannerAbout();
+    if (!moreMenu.hidden) { closeMore({ focusButton: true }); return; }
+    if (!settingsMask.hidden) { closeMask(settingsMask); return; }
+    if (!shortcutMask.hidden) { closeMask(shortcutMask); return; }
+    if (!historyMask.hidden) { closeMask(historyMask); return; }
+    if (!aboutMask.hidden) { closeMask(aboutMask); return; }
+    if (!archiveMask.hidden) { closeMask(archiveMask); return; }
+    if (announcementsMask && !announcementsMask.hidden) { closeMask(announcementsMask); return; }
+    if (feedbackMask && !feedbackMask.hidden) { closeMask(feedbackMask); return; }
+    if (onboardingMask && !onboardingMask.hidden) { closeMask(onboardingMask); return; }
+    closeBannerAbout({ historyMode: 'back' });
   });
   bindLightboxControls({ mobileQuery });
 
@@ -504,6 +609,7 @@ export function bindUI() {
     floatActions?.classList.toggle('has-backtop', showBackTop);
     updateScrollProgress();
     scheduleBrowseStateSave();
+    scheduleHistoryScrollCheckpoint();
     if (Math.abs(dy) < 4) return;
     if (document.activeElement === searchInput) { setTopbarHidden(false); return; }
     if (mobileQuery.matches && !sidebar.classList.contains('closed')) { setTopbarHidden(false); return; }
@@ -511,7 +617,9 @@ export function bindUI() {
   }, { passive: true });
   searchInput.addEventListener('focus', () => {
     setTopbarHidden(false);
-    if (mobileQuery.matches) document.body.classList.add('search-mode');
+    if (mobileQuery.matches && !document.body.classList.contains('search-mode')) {
+      setSearchMode(true);
+    }
   });
   const typingTarget = () => {
     const el = document.activeElement;

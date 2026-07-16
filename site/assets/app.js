@@ -11,14 +11,15 @@ import { setupFavoritesBackup, subscribeFavoritesChanges } from './app/favorites
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
-import { openLightbox } from './app/lightbox.js';
+import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
-import { readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
+import { captureAtlasRoute, configureAtlasHistory, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
-import { normalizeRecentEntries, normalizeLastBrowse, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
+import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
+import { isHistoryRestoreToken } from './app/browser-history.js';
 
 let codexLoadSeq = 0;
 let favoritesBackupBound = false;
@@ -29,6 +30,7 @@ const setOnlyFavControl = checked => {
   if (onlyFav) onlyFav.checked = state.onlyFav;
 };
 const virtualView = () => state.favoritesView || state.siteSearchView;
+const historyModeFor = (options, fallback = 'push') => options.historyMode || fallback;
 const urlSearchScope = urlState => {
   if (!urlState) return state.searchScope;
   if (urlState.scope) return normalizeSearchScope(urlState.scope);
@@ -43,6 +45,7 @@ const applyUrlSearchScope = urlState => {
 export async function init() {
   const initSkeletonToken = 'init';
   try {
+    configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
     setLoading('');
     const savedFavs = safeJsonParse(localStorage.getItem(ATLAS_FAVORITES_STORAGE_KEY), []);
@@ -85,12 +88,13 @@ export async function init() {
       const initialUrlState = wantsFavorites
         ? null
         : (wantsSiteSearch ? { ...state.pendingUrlState, q: '' } : state.pendingUrlState);
-      await loadCodex(initialId, { urlState: initialUrlState, replaceUrl: true, saveBrowse: false });
+      await loadCodex(initialId, { urlState: initialUrlState, historyMode: 'none', saveBrowse: false });
       if (wantsFavorites) {
-        await openFavoritesView({ urlState: state.pendingUrlState, replaceUrl: true, saveBrowse: false });
+        await openFavoritesView({ urlState: state.pendingUrlState, historyMode: 'none', saveBrowse: false });
       } else if (wantsSiteSearch) {
-        await openSiteSearchView({ urlState: state.pendingUrlState, replaceUrl: true, saveBrowse: false });
+        await openSiteSearchView({ urlState: state.pendingUrlState, historyMode: 'none', saveBrowse: false });
       }
+      initializeAtlasHistory(captureAtlasRoute(state.pendingUrlState.entry || ''));
       maybeShowOnboarding();
     } else {
       hideSkeleton(initSkeletonToken);
@@ -122,7 +126,7 @@ async function syncAtlasFavoritesFromStorage() {
         q: state.query,
         scope: state.searchScope,
       },
-      replaceUrl: true,
+      historyMode: 'replace',
       saveBrowse: false,
     });
     return;
@@ -131,6 +135,7 @@ async function syncAtlasFavoritesFromStorage() {
 }
 
 export async function loadCodex(id, options = {}) {
+  const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (id === FAVORITES_CODEX_ID) return openFavoritesView(options);
   if (id === SITE_SEARCH_CODEX_ID) return openSiteSearchView(options);
   const meta = findCodexMeta(id) || { id };
@@ -138,7 +143,7 @@ export async function loadCodex(id, options = {}) {
     showNsfwLockedHint();
     const fallback = firstUnlockedCodex();
     if (fallback && fallback.id !== meta.id) {
-      return loadCodex(fallback.id, { ...options, urlState: null, replaceUrl: true });
+      return loadCodex(fallback.id, { ...options, urlState: null, historyMode: 'replace' });
     }
     setLoading('需要在设置中开启 NSFW 法典展示后才能查看');
     return;
@@ -183,7 +188,14 @@ export async function loadCodex(id, options = {}) {
       renderCodexHeader();
       if (options.saveBrowse === false) suppressBrowseStateSave(2000);
       applyFilter({ resetScroll: true });
-      syncUrlState({ replace: options.replaceUrl !== false, entry: urlState?.entry || '', saveBrowse: options.saveBrowse !== false });
+      syncUrlState({
+        historyMode: historyModeFor(options),
+        transition: options.transition || 'route',
+        consumeLayer: Boolean(options.consumeLayer),
+        parentScrollY,
+        entry: urlState?.entry || '',
+        saveBrowse: options.saveBrowse !== false,
+      });
       if (urlState?.entry) {
         window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
       }
@@ -216,6 +228,7 @@ export async function loadCodex(id, options = {}) {
 }
 
 export async function openFavoritesView(options = {}) {
+  const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   const baseCodex = state.codex && !virtualView()
     ? state.codex
     : state.browseCodex;
@@ -223,7 +236,7 @@ export async function openFavoritesView(options = {}) {
   else {
     const fallback = firstUnlockedCodex();
     if (fallback) {
-      await loadCodex(fallback.id, { replaceUrl: true, saveBrowse: false });
+      await loadCodex(fallback.id, { historyMode: 'replace', saveBrowse: false });
     }
   }
 
@@ -267,7 +280,14 @@ export async function openFavoritesView(options = {}) {
       renderCodexHeader();
       if (options.saveBrowse === false) suppressBrowseStateSave(2000);
       applyFilter({ resetScroll: true });
-      syncUrlState({ replace: options.replaceUrl !== false, entry: urlState?.entry || '', saveBrowse: options.saveBrowse !== false });
+      syncUrlState({
+        historyMode: historyModeFor(options),
+        transition: options.transition || 'route',
+        consumeLayer: Boolean(options.consumeLayer),
+        parentScrollY,
+        entry: urlState?.entry || '',
+        saveBrowse: options.saveBrowse !== false,
+      });
       if (urlState?.entry) {
         window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
       }
@@ -296,6 +316,7 @@ export async function openFavoritesView(options = {}) {
 }
 
 export async function openSiteSearchView(options = {}) {
+  const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   const baseCodex = state.codex && !virtualView()
     ? state.codex
     : state.browseCodex;
@@ -303,7 +324,7 @@ export async function openSiteSearchView(options = {}) {
   else {
     const fallback = firstUnlockedCodex();
     if (fallback) {
-      await loadCodex(fallback.id, { replaceUrl: true, saveBrowse: false });
+      await loadCodex(fallback.id, { historyMode: 'replace', saveBrowse: false });
     }
   }
   if (!state.browseCodex) return;
@@ -349,7 +370,14 @@ export async function openSiteSearchView(options = {}) {
       renderCodexHeader();
       if (options.saveBrowse === false) suppressBrowseStateSave(2000);
       applyFilter({ resetScroll: true });
-      syncUrlState({ replace: options.replaceUrl !== false, entry: urlState?.entry || '', saveBrowse: options.saveBrowse !== false });
+      syncUrlState({
+        historyMode: historyModeFor(options),
+        transition: options.transition || 'route',
+        consumeLayer: Boolean(options.consumeLayer),
+        parentScrollY,
+        entry: urlState?.entry || '',
+        saveBrowse: options.saveBrowse !== false,
+      });
       if (urlState?.entry) {
         window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
       }
@@ -378,6 +406,7 @@ export async function openSiteSearchView(options = {}) {
 }
 
 export function exitSiteSearchView(options = {}) {
+  const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (!state.siteSearchView) {
     applyFilter(options);
     return;
@@ -402,20 +431,27 @@ export function exitSiteSearchView(options = {}) {
   renderTree();
   renderCodexHeader();
   applyFilter(options);
-  syncUrlState({ replace: options.replaceUrl !== false, saveBrowse: options.saveBrowse !== false });
+  syncUrlState({
+    historyMode: historyModeFor(options),
+    transition: options.transition || 'route',
+    consumeLayer: Boolean(options.consumeLayer),
+    parentScrollY,
+    saveBrowse: options.saveBrowse !== false,
+  });
 }
 
 export async function applySearch(options = {}) {
+  const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (state.favoritesView) {
     applyFilter(options);
-    syncUrlState({ replace: options.replaceUrl !== false, saveBrowse: options.saveBrowse !== false });
+    syncUrlState({ historyMode: historyModeFor(options, 'replace'), transition: options.transition, sessionId: options.sessionId, parentScrollY, saveBrowse: options.saveBrowse !== false });
     return;
   }
   if (state.searchScope === 'site' && state.query.trim()) {
     if (!state.siteSearchView) await openSiteSearchView(options);
     else {
       applyFilter(options);
-      syncUrlState({ replace: options.replaceUrl !== false, saveBrowse: options.saveBrowse !== false });
+      syncUrlState({ historyMode: historyModeFor(options, 'replace'), transition: options.transition, sessionId: options.sessionId, parentScrollY, saveBrowse: options.saveBrowse !== false });
     }
     return;
   }
@@ -424,7 +460,7 @@ export async function applySearch(options = {}) {
     return;
   }
   applyFilter(options);
-  syncUrlState({ replace: options.replaceUrl !== false, saveBrowse: options.saveBrowse !== false });
+  syncUrlState({ historyMode: historyModeFor(options, 'replace'), transition: options.transition, sessionId: options.sessionId, parentScrollY, saveBrowse: options.saveBrowse !== false });
 }
 
 export function applyFilter(options = {}) {
@@ -485,12 +521,113 @@ function normalizeRoutePath(tree, path) {
   return normalized;
 }
 
+async function applyAtlasHistoryRoute(route = {}, context = {}) {
+  const currentRestore = () => context.token === undefined || isHistoryRestoreToken(context.token);
+  const requestedMeta = findCodexMeta(route.codex);
+  const requestedId = requestedMeta?.id || route.codex;
+  const targetLocked = Boolean(requestedMeta && isCodexLocked(requestedMeta));
+  const targetUnknown = Boolean(route.codex && !requestedMeta);
+  const browseMeta = findCodexMeta(state.browseCodex?.id);
+  const fallbackId = (browseMeta && !isCodexLocked(browseMeta) ? browseMeta.id : '') || firstUnlockedCodex()?.id || state.codex?.id;
+  const targetId = targetLocked || targetUnknown ? fallbackId : (requestedId || fallbackId);
+  if (!targetId) return;
+  const targetEntry = String(route.entry || '');
+  /* 快速路径仅限“详情覆盖在同一列表之上”的返回：最近浏览/恢复上次浏览推的
+     detail 记录可能同时切换法典、目录或清空搜索，列表上下文不一致时必须走
+     下面的完整恢复，否则底层列表会停留在错误状态。 */
+  const listContextOf = value => JSON.stringify({ ...(value || {}), entry: '', imageIndex: 0 });
+  const closingOwnDetail = Boolean(
+    !targetEntry &&
+    state.lightbox.entry &&
+    context.departing?.transition === 'detail' &&
+    context.departing?.parentId === context.target?.id &&
+    listContextOf(context.departing?.route) === listContextOf(route),
+  );
+  if (closingOwnDetail) {
+    state.searchHistorySessionId = String(context.target?.sessionId || '');
+    closeLightbox({ historyMode: 'none' });
+    return;
+  }
+  const urlState = {
+    codex: targetId,
+    favorites: Boolean(route.favorites),
+    scope: route.siteSearch ? 'site' : (route.scope || 'codex'),
+    path: Array.isArray(route.path) ? route.path : [],
+    q: String(route.q || ''),
+    entry: '',
+  };
+  state.suppressUrlSync = true;
+  state.searchHistorySessionId = String(context.target?.sessionId || '');
+  suppressBrowseStateSave(2000);
+  try {
+    state.onlyImaged = Boolean(route.onlyImaged);
+    const onlyImaged = $('#onlyImaged');
+    if (onlyImaged) onlyImaged.checked = state.onlyImaged;
+    state.searchReturnPath = Array.isArray(route.searchReturnPath) ? [...route.searchReturnPath] : [];
+
+    if (route.favorites) {
+      if (!state.browseCodex || state.browseCodex.id !== targetId || (!state.favoritesView && state.codex?.id !== targetId)) {
+        await loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
+        if (!currentRestore()) return;
+      }
+      await openFavoritesView({ urlState, historyMode: 'none', saveBrowse: false });
+      if (!currentRestore()) return;
+    } else if (route.siteSearch) {
+      if (!state.browseCodex || state.browseCodex.id !== targetId || (!state.siteSearchView && state.codex?.id !== targetId)) {
+        await loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
+        if (!currentRestore()) return;
+      }
+      await openSiteSearchView({ urlState, historyMode: 'none', saveBrowse: false });
+      if (!currentRestore()) return;
+    } else if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
+      await loadCodex(targetId, { urlState, historyMode: 'none', saveBrowse: false });
+      if (!currentRestore()) return;
+    } else {
+      state.searchScope = route.scope === 'site' ? 'site' : 'codex';
+      updateSearchScopeControl();
+      const nextPath = normalizeRoutePath(state.codex.tree, urlState.path);
+      state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
+      state.query = urlState.q;
+      const search = $('#search');
+      if (search) search.value = state.query;
+      updateSearchClear();
+      renderTree();
+      applyFilter({ resetScroll: true, transition: 'none' });
+    }
+
+    if (!currentRestore()) return;
+    if (state.lightbox.entry && state.lightbox.entry.id !== targetEntry) {
+      closeLightbox({ historyMode: 'none', immediate: true });
+    }
+    const lightboxOpen = $('#lightbox')?.classList.contains('is-open');
+    if (targetEntry && (state.lightbox.entry?.id !== targetEntry || !lightboxOpen)) {
+      const opened = openEntryDeepLink(targetEntry, { imageIndex: Math.max(0, Number(route.imageIndex) || 0) });
+      if (!opened) {
+        return targetLocked
+          ? captureAtlasRoute('')
+          : { ...route, entry: '', imageIndex: 0 };
+      }
+    }
+    state.searchReturnPath = Array.isArray(route.searchReturnPath) ? [...route.searchReturnPath] : [];
+    const normalizedRoute = captureAtlasRoute(targetEntry);
+    const canonicalRequested = requestedMeta?.id || requestedId;
+    const pathChanged = !targetEntry && JSON.stringify(normalizedRoute.path) !== JSON.stringify(urlState.path);
+    if (targetLocked || targetUnknown || pathChanged || (canonicalRequested && normalizedRoute.codex !== canonicalRequested)) {
+      return normalizedRoute;
+    }
+  } finally {
+    if (currentRestore()) state.suppressUrlSync = false;
+  }
+}
+
 setRouterActions({
   onUrlSync: scheduleBrowseStateSave,
   renderTree,
   applyFilter,
   openLightbox,
   updateVirtualCards,
+  applyHistoryRoute: applyAtlasHistoryRoute,
+  restoreHistoryScroll: restoreBrowseScroll,
 });
 
 setCodexUiActions({

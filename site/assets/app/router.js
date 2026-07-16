@@ -3,6 +3,13 @@ import { $ } from './utils.js';
 import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
+import {
+  beginLayeredSearch,
+  commitHistoryRoute,
+  configureBrowserHistory,
+  initializeBrowserHistory,
+  isRestoringHistory,
+} from './browser-history.js';
 
 const routerActions = {
   onUrlSync: () => {},
@@ -10,6 +17,8 @@ const routerActions = {
   applyFilter: () => {},
   openLightbox: () => {},
   updateVirtualCards: () => {},
+  applyHistoryRoute: async () => {},
+  restoreHistoryScroll: async () => {},
 };
 
 export function setRouterActions(actions = {}) {
@@ -33,29 +42,81 @@ export function readUrlState() {
   };
 }
 
-export function syncUrlState({ replace = true, entry, saveBrowse = true } = {}) {
-  if (state.suppressUrlSync || !state.codex) return;
+export function captureAtlasRoute(entryOverride) {
+  const routeCodex = (state.favoritesView || state.siteSearchView) ? (state.browseCodex?.id || state.codex?.id || '') : (state.codex?.id || '');
+  return {
+    codex: routeCodex,
+    favorites: Boolean(state.favoritesView),
+    siteSearch: Boolean(state.siteSearchView),
+    scope: state.searchScope,
+    path: [...(state.activePath || [])],
+    searchReturnPath: [...(state.searchReturnPath || [])],
+    q: state.query.trim(),
+    entry: entryOverride === undefined ? (state.lightbox.entry?.id || '') : String(entryOverride || ''),
+    imageIndex: Math.max(0, Number(state.lightbox.index) || 0),
+    onlyImaged: Boolean(state.onlyImaged),
+  };
+}
+
+export function atlasUrlForRoute(route) {
   const params = new URLSearchParams();
-  const routeCodex = (state.favoritesView || state.siteSearchView) ? (state.browseCodex?.id || state.codex.id) : state.codex.id;
-  params.set('codex', routeCodex);
-  if (state.favoritesView) params.set('fav', '1');
-  const q = state.query.trim();
+  if (route.codex) params.set('codex', route.codex);
+  if (route.favorites) params.set('fav', '1');
+  const q = String(route.q || '').trim();
   if (q) {
     params.set('q', q);
-    params.set('scope', state.siteSearchView || state.searchScope === 'site' ? 'site' : 'codex');
-    if (state.siteSearchView) {
-      for (const seg of state.activePath) params.append('path', seg);   // 全站搜索的目录收窄进 URL，可分享/恢复
+    params.set('scope', route.siteSearch || route.scope === 'site' ? 'site' : 'codex');
+    if (route.siteSearch) {
+      for (const seg of route.path || []) params.append('path', seg);
     }
+  } else {
+    for (const seg of route.path || []) params.append('path', seg);
   }
-  else if (state.activePath.length) {
-    for (const seg of state.activePath) params.append('path', seg);
-  }
+  if (route.entry) params.set('entry', route.entry);
+  const query = params.toString();
+  return `${location.pathname}${query ? `?${query}` : ''}`;
+}
+
+export function configureAtlasHistory() {
+  configureBrowserHistory({
+    page: 'atlas',
+    captureRoute: captureAtlasRoute,
+    urlForRoute: atlasUrlForRoute,
+    applyRoute: (route, context) => routerActions.applyHistoryRoute(route, context),
+    restoreScroll: (top, context) => routerActions.restoreHistoryScroll(top, context),
+    isEmptySearchRoute: route => !String(route?.q || '').trim(),
+  });
+}
+
+export function initializeAtlasHistory(route) {
+  return initializeBrowserHistory({ route });
+}
+
+export function syncUrlState(options = {}) {
+  const {
+    entry,
+    saveBrowse = true,
+    transition,
+    sessionId,
+    consumeLayer = false,
+    parentScrollY,
+  } = options;
+  const historyMode = options.historyMode || 'replace';
+  if (state.suppressUrlSync || !state.codex) return;
   const entryId = entry === undefined ? (state.lightbox.entry?.id || '') : entry;
-  if (entryId) params.set('entry', entryId);
-  const next = `${location.pathname}?${params.toString()}`;
-  if (next === location.pathname + location.search && !location.hash) return;
-  history[replace ? 'replaceState' : 'pushState'](null, '', next);
+  commitHistoryRoute({
+    mode: historyMode,
+    transition,
+    sessionId,
+    consumeLayer,
+    parentScrollY,
+    route: captureAtlasRoute(entryId),
+  });
   if (saveBrowse) routerActions.onUrlSync(entryId);
+}
+
+export function beginAtlasLayeredSearch(sessionId) {
+  return beginLayeredSearch('mobile-search', sessionId, captureAtlasRoute());
 }
 
 function decodeLegacyPathParam(value) {
@@ -71,8 +132,8 @@ function decodeLegacyPathParam(value) {
     .filter(Boolean);
 }
 
-export function openEntryDeepLink(entryId) {
-  if (!state.codex || !entryId) return;
+export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
+  if (!state.codex || !entryId) return false;
   const candidates = [entryId];
   for (const alias of state.codex.aliases || []) {
     if (entryId.startsWith(`${alias}-`)) {
@@ -80,16 +141,19 @@ export function openEntryDeepLink(entryId) {
     }
   }
   const entry = state.codex.entries.find(e => candidates.includes(e.id));
-  if (!entry) return;
+  if (!entry) {
+    syncUrlState({ historyMode: 'replace', entry: '' });
+    return false;
+  }
   if (isR18gBlocked(entry)) {
     showR18gLockedHint();
     syncUrlState({ entry: '' });
-    return;
+    return false;
   }
   if (isEntryAccessBlocked(entry)) {
     showNsfwLockedHint();
     syncUrlState({ entry: '' });
-    return;
+    return false;
   }
   if (!state.query && !state.activePath.length && entry.path?.length) {
     state.activePath = entry.path;
@@ -106,9 +170,14 @@ export function openEntryDeepLink(entryId) {
   if (hasEntryImage(entry)) {
     const node = index >= 0 ? state.nodes.get(index) : null;
     const img = node?.querySelector('.card-img');
-    routerActions.openLightbox(entry, 0, img || null);
+    routerActions.openLightbox(entry, imageIndex, img || null, {
+      historyMode: 'none',
+      recordRecent: !isRestoringHistory(),
+    });
+    return true;
   } else {
     toast('这个词条还没有例图');
     syncUrlState({ entry: '' });
+    return false;
   }
 }

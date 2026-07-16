@@ -1,4 +1,10 @@
 import { prefersReducedMotion } from './utils.js';
+import {
+  closeHistoryLayer,
+  forgetHistoryLayer,
+  openHistoryLayer,
+  registerHistoryLayer,
+} from './browser-history.js';
 
 const maskTimers = new WeakMap();
 const maskOpeners = new WeakMap();
@@ -33,7 +39,7 @@ export function trapFocus(ev, root) {
   }
 }
 
-export function openMask(mask, trigger = document.activeElement) {
+function openMaskDirect(mask, trigger = document.activeElement) {
   if (!mask) return;
   clearTimeout(maskTimers.get(mask));
   if (trigger instanceof HTMLElement) maskOpeners.set(mask, trigger);
@@ -43,7 +49,7 @@ export function openMask(mask, trigger = document.activeElement) {
   focusFirstIn(mask);
 }
 
-export function closeMask(mask) {
+function closeMaskDirect(mask) {
   if (!mask) return;
   mask.classList.remove('show');
   const restoreFocus = () => {
@@ -61,6 +67,31 @@ export function closeMask(mask) {
       restoreFocus();
     }
   }, 240));
+}
+
+function registerMaskHistory(mask) {
+  if (!mask?.id) return;
+  registerHistoryLayer(mask.id, {
+    isOpen: () => mask.classList.contains('show'),
+    open: () => openMaskDirect(mask),
+    close: () => closeMaskDirect(mask),
+  });
+}
+
+export function openMask(mask, trigger = document.activeElement, { historyMode = 'push' } = {}) {
+  if (!mask) return;
+  registerMaskHistory(mask);
+  openMaskDirect(mask, trigger);
+  if (historyMode !== 'none' && mask.id) {
+    openHistoryLayer(mask.id, { mode: historyMode === 'replace' ? 'replace' : 'push' });
+  }
+}
+
+export function closeMask(mask, { historyMode = 'back' } = {}) {
+  if (!mask) return;
+  if (historyMode !== 'none' && mask.id && closeHistoryLayer(mask.id)) return;
+  closeMaskDirect(mask);
+  if (historyMode !== 'none' && mask.id) forgetHistoryLayer(mask.id);
 }
 
 export function isMaskOpen(mask) {

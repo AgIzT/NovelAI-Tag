@@ -1,12 +1,18 @@
 import { COMMUNITY_CATEGORIES, DEFAULT_COMMUNITY_CATEGORY } from './community/constants.js';
 import { loadCommunityData } from './community/api.js';
-import { openCommunityDetail, initDetailDialog } from './community/detail.js';
+import { closeCommunityDetail, openCommunityDetail, initDetailDialog } from './community/detail.js';
 import { initSubmitDialog, openSubmitDialog } from './community/submit.js';
 import { state } from './community/state.js';
-import { applyCommunityFilters, initCommunityUI, syncAfterLoad } from './community/ui.js';
+import { applyCommunityFilters, applyCommunityRoute, initCommunityUI, syncAfterLoad } from './community/ui.js';
 import { reloadFavorites } from './community/favorites.js';
 import { $ } from './community/utils.js';
 import { setupFavoritesBackup, subscribeFavoritesChanges } from './app/favorites-backup.js';
+import {
+  configureCommunityHistory,
+  initializeCommunityHistory,
+  restoreCommunityHistorySnapshot,
+  setCommunityRouterActions,
+} from './community/router.js';
 
 window.COMMUNITY_CATEGORIES = COMMUNITY_CATEGORIES;
 window.DEFAULT_COMMUNITY_CATEGORY = DEFAULT_COMMUNITY_CATEGORY;
@@ -38,7 +44,8 @@ async function loadAndRender() {
   }
 }
 
-function init() {
+async function init() {
+  configureCommunityHistory();
   initDetailDialog();
   initSubmitDialog({ onSubmitted: () => {} });
   initCommunityUI({
@@ -46,6 +53,12 @@ function init() {
     openSubmit: openSubmitDialog,
   });
   setupFavoritesBackup();
+  setCommunityRouterActions({
+    applyListRoute: applyCommunityRoute,
+    findEntry: id => state.entries.find(entry => String(entry.id) === String(id)) || null,
+    openDetail: openCommunityDetail,
+    closeDetail: closeCommunityDetail,
+  });
   if (!favoritesBackupBound) {
     favoritesBackupBound = true;
     subscribeFavoritesChanges('community', () => {
@@ -53,7 +66,9 @@ function init() {
       syncAfterLoad();
     });
   }
-  loadAndRender();
+  await loadAndRender();
+  await restoreCommunityHistorySnapshot();
+  initializeCommunityHistory();
 }
 
-init();
+init().catch(error => console.error('[community] initialization failed', error));

@@ -1,5 +1,11 @@
 import { openMask, closeMask, trapFocus } from './modal.js';
 import {
+  closeHistoryLayer,
+  forgetHistoryLayer,
+  openHistoryLayer,
+  registerHistoryLayer,
+} from './browser-history.js';
+import {
   ATLAS_FAVORITES_STORAGE_KEY,
   COMMUNITY_FAVORITES_STORAGE_KEY,
   FAVORITES_BACKUP_LIMITS,
@@ -200,9 +206,22 @@ export function setupFavoritesBackup(options = {}) {
   };
 
   const selectedMode = () => modeInputs.find(input => input.checked)?.value === 'replace' ? 'replace' : 'merge';
-  const showReplaceConfirm = visible => {
+  const replaceLayerId = 'favorites-replace-confirm';
+  const showReplaceConfirmDirect = visible => {
     if (replaceConfirm) replaceConfirm.hidden = !visible;
     replaceBackground.forEach(element => { element.inert = Boolean(visible); });
+  };
+  registerHistoryLayer(replaceLayerId, {
+    isOpen: () => Boolean(replaceConfirm && !replaceConfirm.hidden),
+    open: () => showReplaceConfirmDirect(true),
+    close: () => showReplaceConfirmDirect(false),
+  });
+  const showReplaceConfirm = (visible, { historyMode = visible ? 'push' : 'back' } = {}) => {
+    if (!visible && historyMode === 'back' && closeHistoryLayer(replaceLayerId)) return;
+    showReplaceConfirmDirect(visible);
+    if (historyMode === 'none') return;
+    if (visible) openHistoryLayer(replaceLayerId, { mode: historyMode === 'replace' ? 'replace' : 'push' });
+    else forgetHistoryLayer(replaceLayerId);
   };
 
   const renderPlan = mode => {
@@ -247,7 +266,7 @@ export function setupFavoritesBackup(options = {}) {
     parsedBackup = null;
     plans = null;
     if (preview) preview.hidden = true;
-    showReplaceConfirm(false);
+    showReplaceConfirm(false, { historyMode: 'forget' });
     if (summary) summary.replaceChildren();
     if (restoreButton) {
       restoreButton.dataset.noop = '1';

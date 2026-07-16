@@ -1,13 +1,16 @@
 import { updateScrollProgress } from '../app/utils.js';
 import { toast } from '../app/feedback.js';
+import { goBackFrom, scheduleHistoryScrollCheckpoint } from '../app/browser-history.js';
 import { COMMUNITY_CATEGORIES } from './constants.js';
 import { favoriteCountForEntries, isFavorite, toggleFavorite } from './favorites.js';
+import { currentCommunityHistorySession, syncCommunityHistory } from './router.js';
 import { state } from './state.js';
 import { $, $$ } from './utils.js';
 import { renderCategoryRail, renderEmptyState, renderGrid, renderResultBar } from './render.js';
 
 let openDetail = null;
 let openSubmit = null;
+const nextSearchSessionId = () => `community-search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 export function initCommunityUI(handlers = {}) {
   openDetail = handlers.openDetail || null;
@@ -65,6 +68,7 @@ export function applyCommunityFilters({ scrollTop = false } = {}) {
       localStorage.setItem('strings-nsfw', 'true');
       updateNSFWButton();
       applyCommunityFilters({ scrollTop: true });
+      syncCommunityHistory({ historyMode: 'replace' });
     },
   });
 
@@ -78,26 +82,43 @@ function handleToggleFavorite(entry) {
   toast(active ? '已收藏' : '已取消收藏');
   updateFavoriteButton();
   applyCommunityFilters();
+  syncCommunityHistory({ historyMode: 'replace' });
 }
 
 function selectCategory(category) {
-  state.activeCategory = COMMUNITY_CATEGORIES.includes(category) ? category : null;
+  const parentScrollY = Math.max(0, window.scrollY || 0);
+  const next = COMMUNITY_CATEGORIES.includes(category) ? category : null;
+  const changed = state.activeCategory !== next;
+  state.activeCategory = next;
   applyCommunityFilters({ scrollTop: true });
+  syncCommunityHistory({ historyMode: changed ? 'push' : 'replace', transition: 'route', parentScrollY });
 }
 
 function clearSearch() {
+  const parentScrollY = Math.max(0, window.scrollY || 0);
+  const hadQuery = Boolean(state.query.trim());
   state.query = '';
+  state.searchHistorySessionId = '';
   const input = $('#search');
   if (input) input.value = '';
+  const clear = $('#searchClear');
+  if (clear) clear.hidden = true;
+  if (hadQuery && goBackFrom('search')) return;
   applyCommunityFilters({ scrollTop: true });
+  syncCommunityHistory({ historyMode: 'replace', transition: 'route', sessionId: null, parentScrollY });
 }
 
 function showAll() {
+  const parentScrollY = Math.max(0, window.scrollY || 0);
   state.activeCategory = null;
   state.query = '';
+  state.searchHistorySessionId = '';
   const input = $('#search');
   if (input) input.value = '';
+  const clear = $('#searchClear');
+  if (clear) clear.hidden = true;
   applyCommunityFilters({ scrollTop: true });
+  syncCommunityHistory({ historyMode: 'push', transition: 'route', sessionId: null, parentScrollY });
 }
 
 function showFavoritesAll() {
@@ -105,6 +126,7 @@ function showFavoritesAll() {
   localStorage.setItem('community-only-favorites', 'false');
   updateFavoriteButton();
   applyCommunityFilters({ scrollTop: true });
+  syncCommunityHistory({ historyMode: 'replace' });
 }
 
 function bindFocusSearch() {
@@ -122,9 +144,26 @@ function bindSearch() {
   input.addEventListener('input', () => {
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
+      const parentScrollY = Math.max(0, window.scrollY || 0);
+      const previous = state.query.trim();
       state.query = input.value;
+      const next = state.query.trim();
       if (clear) clear.hidden = !input.value;
+      if (!next && previous && goBackFrom('search')) {
+        state.searchHistorySessionId = '';
+        return;
+      }
+      const firstQuery = Boolean(next && !previous);
+      if (firstQuery) state.searchHistorySessionId = nextSearchSessionId();
       applyCommunityFilters({ scrollTop: true });
+      syncCommunityHistory({
+        historyMode: firstQuery ? 'push' : 'replace',
+        transition: next ? 'search' : 'route',
+        sessionId: next
+          ? (state.searchHistorySessionId || currentCommunityHistorySession() || undefined)
+          : null,
+        parentScrollY,
+      });
     }, 140);
   });
   clear?.addEventListener('click', clearSearch);
@@ -136,6 +175,7 @@ function bindNsfw() {
     localStorage.setItem('strings-nsfw', String(state.showNSFW));
     updateNSFWButton();
     applyCommunityFilters({ scrollTop: true });
+    syncCommunityHistory({ historyMode: 'replace' });
   });
 }
 
@@ -145,6 +185,7 @@ function bindFavorites() {
     localStorage.setItem('community-only-favorites', String(state.onlyFavorites));
     updateFavoriteButton();
     applyCommunityFilters({ scrollTop: true });
+    syncCommunityHistory({ historyMode: 'replace' });
   });
   updateFavoriteButton();
 }
@@ -178,12 +219,28 @@ function bindTheme() {
 
 function bindScrollProgress() {
   updateScrollProgress();
-  window.addEventListener('scroll', updateScrollProgress, { passive: true });
+  window.addEventListener('scroll', () => {
+    updateScrollProgress();
+    scheduleHistoryScrollCheckpoint();
+  }, { passive: true });
   window.addEventListener('resize', updateScrollProgress, { passive: true });
 }
 
 export function syncAfterLoad() {
   updateNSFWButton();
+  updateFavoriteButton();
+  applyCommunityFilters();
+}
+
+export function applyCommunityRoute(route, context = {}) {
+  state.activeCategory = COMMUNITY_CATEGORIES.includes(route?.category) ? route.category : null;
+  state.query = String(route?.q || '');
+  state.onlyFavorites = Boolean(route?.onlyFavorites);
+  state.searchHistorySessionId = context.target?.sessionId || '';
+  const input = $('#search');
+  if (input) input.value = state.query;
+  const clear = $('#searchClear');
+  if (clear) clear.hidden = !state.query;
   updateFavoriteButton();
   applyCommunityFilters();
 }

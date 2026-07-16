@@ -1,6 +1,9 @@
 import { closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
 import { toast } from '../app/feedback.js';
+import { goBackFrom } from '../app/browser-history.js';
 import { createLikeButton } from './likes.js';
+import { syncCommunityHistory } from './router.js';
+import { state } from './state.js';
 import { $, copyText, escAttr, escHtml, imageUrl } from './utils.js';
 
 let detailMask;
@@ -27,17 +30,40 @@ export function initDetailDialog() {
   });
 }
 
-export function openCommunityDetail(entry, imageIndex = 0) {
+export function openCommunityDetail(entry, imageIndex = 0, options = {}) {
   if (!detailMask || !detailBody || !entry) return;
+  const parentScrollY = Math.max(0, window.scrollY || 0);
   activeEntry = entry;
   activeImageIndex = Math.max(0, Math.min(imageIndex, (entry.images || []).length - 1));
+  state.activeEntryId = String(entry.id || '');
+  state.activeImageIndex = activeImageIndex;
   renderDetail();
-  openMask(detailMask);
+  openMask(detailMask, options.trigger || document.activeElement, { historyMode: 'none' });
+  const historyMode = options.historyMode || 'push';
+  if (historyMode !== 'none') {
+    syncCommunityHistory({
+      historyMode,
+      transition: 'detail',
+      consumeLayer: Boolean(options.consumeLayer),
+      entry: state.activeEntryId,
+      imageIndex: activeImageIndex,
+      parentScrollY,
+    });
+  }
 }
 
-export function closeCommunityDetail() {
-  if (!detailMask || !isMaskOpen(detailMask)) return;
-  closeMask(detailMask);
+export function closeCommunityDetail(options = {}) {
+  if (!detailMask) return;
+  const historyMode = options.historyMode || 'back';
+  if (historyMode !== 'none' && goBackFrom('detail')) return;
+  if (isMaskOpen(detailMask)) closeMask(detailMask, { historyMode: 'none' });
+  activeEntry = null;
+  activeImageIndex = 0;
+  state.activeEntryId = '';
+  state.activeImageIndex = 0;
+  if (historyMode !== 'none') {
+    syncCommunityHistory({ historyMode: 'replace', transition: 'route', entry: '', imageIndex: 0 });
+  }
 }
 
 function renderDetail() {
@@ -108,7 +134,14 @@ function renderDetail() {
   detailBody.querySelectorAll('[data-image-index]').forEach(button => {
     button.addEventListener('click', () => {
       activeImageIndex = Number(button.dataset.imageIndex) || 0;
+      state.activeImageIndex = activeImageIndex;
       renderDetail();
+      syncCommunityHistory({
+        historyMode: 'replace',
+        transition: 'detail',
+        entry: state.activeEntryId,
+        imageIndex: activeImageIndex,
+      });
     });
   });
   detailBody.querySelectorAll('[data-copy]').forEach(button => {
