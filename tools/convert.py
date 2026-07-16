@@ -194,6 +194,22 @@ def expand_special_entries(entries):
             })
     return out
 
+
+def split_compiler_oc_marker(text):
+    """Return (tag body, marker) for the title-less compiler OC blocks."""
+    match = re.match(r"^(.*?)[（(](本体|服装)[）)]\s*$", (text or "").strip())
+    if not match:
+        return None
+    return match.group(1).strip(), match.group(2)
+
+
+def is_compiler_oc_path(path):
+    """Recognize heading variants such as 编纂者OC and 编纂者oc二则."""
+    if not path:
+        return False
+    name = re.sub(r"\s+", "", str(path[-1])).casefold()
+    return name.startswith("编纂者oc")
+
 def load_existing_entries(cid):
     jp = os.path.join(DATA_DIR, cid + ".json")
     if not os.path.exists(jp):
@@ -208,32 +224,10 @@ def load_existing_entries(cid):
 def norm_tags(t):
     return re.sub(r"\s+", " ", (t or "").replace("\u00a0", " ")).strip()
 
-def tag_match_score(new_tags, old_tags):
-    new = norm_tags(new_tags)
-    old = norm_tags(old_tags)
-    if not new or not old:
-        return 0
-    if new == old:
-        return 1000000
-    if old.startswith(new):
-        return 800000 + len(new)
-    if new.startswith(old):
-        return 700000 + len(old)
-
-    n = 0
-    for a, b in zip(new, old):
-        if a != b:
-            break
-        n += 1
-    return n
-
-def is_generic_variant_title(title):
-    title = (title or "").strip().rstrip("：:")
-    return title == "原版" or re.match(r"^其他版本\d*$", title) is not None
-
-def assign_stable_ids(cid, items):
-    """复用旧 JSON 中的 id，避免修解析规则后把已配图词条整体错位。"""
-    old_entries = load_existing_entries(cid)
+def assign_stable_ids(cid, items, old_entries=None):
+    """Globally match old entries before assigning IDs, so insertions cannot steal images."""
+    if old_entries is None:
+        old_entries = load_existing_entries(cid)
     if not old_entries:
         final = []
         for i, item in enumerate(items, 1):
@@ -241,7 +235,28 @@ def assign_stable_ids(cid, items):
             final.append({**item, "id": eid, **image_metadata(cid, eid)})
         return final
 
-    old_by_key = defaultdict(list)
+    # Import lazily: codex_update_match's CLI also imports this module to reuse
+    # the DOCX parser, while its pure matching core has no dependency on us.
+    from codex_update_match import match_entries
+
+    match_result = match_entries(old_entries, items)
+    blocking_issues = [
+        issue for issue in match_result["validationIssues"]
+        if issue.get("kind") in {
+            "missing_old_ids", "duplicate_old_ids", "empty_old_tags", "empty_new_tags",
+        }
+    ]
+    if blocking_issues:
+        raise ValueError(f"stable ID input validation failed: {blocking_issues}")
+    if match_result["review"]:
+        raise ValueError(
+            "stable ID matching is ambiguous; run tools/codex_update_match.py and review its report"
+        )
+
+    matched_old_by_new = {
+        match["new"]["index"]: old_entries[match["old"]["index"]]
+        for match in match_result["matches"]
+    }
     old_ids = set()
     max_n = 0
     id_re = re.compile(r"^" + re.escape(cid) + r"-(\d+)$")
@@ -252,8 +267,6 @@ def assign_stable_ids(cid, items):
             m = id_re.match(oid)
             if m:
                 max_n = max(max_n, int(m.group(1)))
-        key = (tuple(old.get("path", [])), old.get("title", ""))
-        old_by_key[key].append(old)
 
     used = set()
     next_n = max_n + 1
@@ -267,25 +280,8 @@ def assign_stable_ids(cid, items):
                 return eid
 
     final = []
-    for item in items:
-        key = (tuple(item["path"]), item["title"])
-        best = None
-        best_score = -1
-        candidates = old_by_key.get(key, [])
-        for old in candidates:
-            oid = old.get("id")
-            if not oid or oid in used:
-                continue
-            score = tag_match_score(item["tags"], old.get("tags", ""))
-            if score > best_score:
-                best = old
-                best_score = score
-
-        # Generic titles appear many times in one path. If their tags are unrelated,
-        # mint a new id instead of carrying an old image onto a different variant.
-        if best is not None and is_generic_variant_title(item["title"]) and best_score < 32:
-            best = None
-
+    for index, item in enumerate(items):
+        best = matched_old_by_new.get(index)
         eid = best.get("id") if best is not None else fresh_id()
         used.add(eid)
         final.append({**item, "id": eid, **image_metadata(cid, eid, best)})
@@ -344,8 +340,13 @@ def local_asset_rev(cid, image, original):
         path = os.path.join(root, cid, fn)
         if not os.path.exists(path):
             continue
-        st = os.stat(path)
-        h.update(f"{fn}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+        file_hash = hashlib.sha256()
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                file_hash.update(chunk)
+        # Keep this identical to sync_r2.rev_from_hashes: assetRev is derived
+        # from content hashes, not filenames or mtimes.
+        h.update(file_hash.hexdigest().encode("ascii"))
         found = True
     return h.hexdigest()[:16] if found else None
 
@@ -363,11 +364,18 @@ def image_dimensions(cid, image, old=None):
     h = old.get("imageHeight")
     return (w, h) if w and h else None
 
-def image_metadata(cid, eid, old=None):
+def image_metadata(cid, eid, old=None, refresh_asset_rev=False):
     old = old or {}
     image = find_image(cid, eid) or old.get("image")
     original = find_original(cid, eid) or old.get("original")
-    asset_rev = local_asset_rev(cid, image, original) or old.get("assetRev")
+    same_asset_names = (
+        image == old.get("image")
+        and original == old.get("original")
+    )
+    if same_asset_names and old.get("assetRev") and not refresh_asset_rev:
+        asset_rev = old["assetRev"]
+    else:
+        asset_rev = local_asset_rev(cid, image, original) or old.get("assetRev")
     meta = {"image": image}
     dims = image_dimensions(cid, image, old)
     if dims:
@@ -673,7 +681,7 @@ def convert_mengshen_docx(path, cid, title, ver, author, doc):
         parts = image_parts_by_key.get(key, [])
         if parts:
             save_embedded_image(cid, item["id"], parts)
-            item.update(image_metadata(cid, item["id"], item))
+            item.update(image_metadata(cid, item["id"], item, refresh_asset_rev=True))
         else:
             for k in ("image", "imageWidth", "imageHeight", "original", "assetRev"):
                 item.pop(k, None)
@@ -712,19 +720,11 @@ def convert_mengshen_docx(path, cid, title, ver, author, doc):
         "id": cid, "title": title, "version": ver, "author": author,
         "entryCount": len(final), "imagedCount": imaged, "reviewCount": len(review)}
 
-def convert(path, cid):
-    stem = os.path.splitext(os.path.basename(path))[0]
-    title, ver, author = parse_meta(stem)
-    meta = META_OVERRIDES.get(cid, {})
-    title = meta.get("title", title)
-    author = meta.get("author", author)
-    doc = Document(path)
-
-    if "梦神" in stem and "涩涩法典" in stem:
-        return convert_mengshen_docx(path, cid, title, ver, author, doc)
-
+def parse_standard_docx_items(doc):
+    """Parse a regular codex DOCX into entry-shaped items without writing files."""
     cats = [None, None, None, None]
     entries, cur = [], None
+    compiler_oc_counts = defaultdict(int)
     seen_toc = False
     for p in doc.paragraphs:
         if p.style.name.startswith("toc"):
@@ -747,6 +747,42 @@ def convert(path, cid):
             cur = None
             continue
         for t in lines:
+            if is_compiler_oc_path(path_now):
+                marked = split_compiler_oc_marker(t)
+                if marked is not None:
+                    body, marker = marked
+                    current_is_empty_named_oc = bool(
+                        cur
+                        and cur.get("path") == path_now
+                        and not cur.get("tags")
+                        and re.match(r"^编纂者OC\(\d+\)$", cur.get("title", ""))
+                    )
+                    if marker == "本体" and not current_is_empty_named_oc:
+                        path_key = tuple(path_now)
+                        compiler_oc_counts[path_key] += 1
+                        cur = {
+                            "title": f"编纂者OC({compiler_oc_counts[path_key]})",
+                            "path": path_now,
+                            "tags": [],
+                            "isNew": is_pink(p),
+                        }
+                        entries.append(cur)
+                    elif cur is None or cur.get("path") != path_now:
+                        path_key = tuple(path_now)
+                        compiler_oc_counts[path_key] += 1
+                        cur = {
+                            "title": f"编纂者OC({compiler_oc_counts[path_key]})",
+                            "path": path_now,
+                            "tags": [],
+                            "isNew": is_pink(p),
+                        }
+                        entries.append(cur)
+                    if body:
+                        cur["tags"].append(body)
+                    if is_pink(p):
+                        cur["isNew"] = True
+                    continue
+
             term = dictionary_term(t) if is_dictionary_path(path_now) else None
             if term is not None:
                 cur = {"title": t, "path": path_now, "tags": [term], "isNew": is_pink(p)}
@@ -768,7 +804,7 @@ def convert(path, cid):
             # note: 丢弃
 
     # 仅保留有 tag 的词条；合并 tag 行；复用旧 id；探测配图
-    items, review = [], []
+    items = []
     for e in expand_special_entries(entries):
         if not e["tags"]:
             continue
@@ -780,15 +816,37 @@ def convert(path, cid):
             "isNew": e["isNew"],
         })
 
-    final = assign_stable_ids(cid, items)
-    for item in final:
+    return items
+
+
+def collect_standard_review_items(items):
+    """Collect heuristic parser warnings for already-normalized standard entries."""
+    review = []
+    for item in items:
         block = item["tags"]
         is_dict = is_dictionary_path(item["path"])
-        # 可疑：tag 块里没有任何逗号/:: → 可能是误判
         if (not is_dict) and ("," not in block) and ("，" not in block) and ("::" not in block):
             review.append(item)
         elif (not is_dict) and len(item["title"]) > 30:
             review.append(item)
+    return review
+
+
+def convert(path, cid):
+    stem = os.path.splitext(os.path.basename(path))[0]
+    title, ver, author = parse_meta(stem)
+    meta = META_OVERRIDES.get(cid, {})
+    title = meta.get("title", title)
+    author = meta.get("author", author)
+    doc = Document(path)
+
+    if "梦神" in stem and "涩涩法典" in stem:
+        return convert_mengshen_docx(path, cid, title, ver, author, doc)
+
+    items = parse_standard_docx_items(doc)
+
+    final = assign_stable_ids(cid, items)
+    review = collect_standard_review_items(final)
 
     tree = build_tree(final)
     imaged = sum(1 for e in final if e["image"])
@@ -871,29 +929,27 @@ def load_existing_index():
 def codex_summary_from_file(path, meta_keys):
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    if "entries" not in data:
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("entries"), list)
+        or not isinstance(data.get("id"), str)
+        or not data["id"].strip()
+        or not isinstance(data.get("entryCount"), int)
+    ):
         return None
     return {k: data.get(k) for k in meta_keys}, data
 
 def keep_about_fields(old_meta, new_meta):
     if not isinstance(old_meta, dict):
         return new_meta
-    merged = {
-        k: old_meta[k]
-        for k in ("source", "contributors", "links")
-        if k in old_meta
-    }
+    merged = dict(old_meta)
     merged.update(new_meta)
     return merged
 
 def merge_kept_index_meta(old_meta, file_meta):
     if not isinstance(old_meta, dict):
         return file_meta
-    if old_meta.get("dataUrl"):
-        return old_meta
-    merged = dict(old_meta)
-    merged.update(file_meta)
-    return merged
+    return dict(old_meta)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -944,9 +1000,10 @@ def main():
         if cid == "codexes" or cid in produced:
             continue
         try:
-            summary, kept = codex_summary_from_file(jf, META_KEYS)
-            if summary is None:         # 不是法典数据文件，跳过
+            result = codex_summary_from_file(jf, META_KEYS)
+            if result is None:         # 不是法典数据文件，跳过
                 continue
+            summary, kept = result
             kept_by_id[cid] = (summary, kept)
         except Exception as ex:
             print(f"[SKIP] {os.path.basename(jf)}: {ex}")
@@ -980,6 +1037,7 @@ def main():
 
     with io.open(os.path.join(DATA_DIR, "codexes.json"), "w", encoding="utf-8") as f:
         json.dump(index, f, ensure_ascii=False, indent=2)
+        f.write("\n")
     print(f"[DONE] {len(index)} codex(es) -> site/data/")
 
     if args.archive_sources:

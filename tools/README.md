@@ -7,6 +7,8 @@
 | 文件 | 用途 | 默认是否改数据 |
 | --- | --- | --- |
 | `convert.py` | 把 `法典源/*.docx` 转成 `site/data/*.json`。支持 `--archive-sources` 在转换成功后归档源文件。 | 会改 JSON；带 `--archive-sources` 会移动源文件 |
+| `codex_update_match.py` | 新旧法典增量匹配预演：回放旧 Word、区分新增/修改/减少/歧义，并验证稳定 ID/配图不会错位。 | 只读正式数据；报告写入 `output/` |
+| `suozhang_r18_merge_match.py` | 所长色色上下册专用流程：先按历史规则逻辑合并，再对合并结果做全局增量匹配；门禁通过后可 `--apply`。 | 默认只读；带 `--apply` 才写正式数据与索引 |
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图，生成缩略图和原图引用。 | 默认只预览；带 `--apply` 才写入 |
 | `import_docx_codex.py` | 导入结构较特殊、带内嵌图片的 Word 法典。 | 默认只出报告；带 `--apply` 才写入 |
 | `sync_r2.py` | 同步 `site/images/` 和 `originals/` 到 Cloudflare R2，并维护媒体配置。 | 默认会上传；`--dry-run` 只检查 |
@@ -22,6 +24,28 @@
 | `strings_server.py` + `strings_editor.html` | 画师串/字符串编辑器，默认端口 `8768`。 | 通过页面操作才会写入 |
 | `import_mengshen_pack.py` | 导入梦神整理图包。 | 默认只预览；带 `--apply` 才写入 |
 | `__pycache__/` | Python 自动生成缓存。 | 可忽略 |
+
+## 法典增量匹配预演
+
+更新已有 Word 法典前，先用旧版 Word 做回放基线，再审计新版：
+
+```bat
+python tools\codex_update_match.py "D:\path\新版本.docx" --codex-id suozhang --baseline-docx "D:\path\旧版本.docx" --out-dir "output\所长常规-匹配测试"
+python tools\test_codex_update_match.py
+```
+
+报告会把完全一致、tag 修改、标题/目录变动、明确新增、明确减少和待人工复核分开。只有基线完整回放、歧义为 0，才应继续正式转换。新增 ID 永远从历史最大值之后分配，不复用已减少条目的 ID。
+
+### 所长色色合并版
+
+色色版不能分别完成上下册匹配后再拼接；条目可能跨册移动，必须先合并候选，再做一次全局匹配：
+
+```bat
+python tools\suozhang_r18_merge_match.py "D:\path\新版上册.docx" "D:\path\新版下册.docx" --baseline-upper "D:\path\旧版上册.docx" --baseline-lower "D:\path\旧版下册.docx" --out-dir "output\所长色色-匹配测试"
+python tools\test_suozhang_r18_merge_match.py
+```
+
+历史合并规则固定为：完整保留上册；仅移除下册与上册重复的「编纂者常用画师组」；保留下册「编纂者oc二则」。工具会先验证下册画师组确实是上册画师组的精确子集，并把两种 OC 标题下没有独立中文标题的本体/服装块拆成独立卡片。最终门禁以合并后的全局报告为准；分册报告只作诊断。默认命令不会改写正式数据；确认报告后给同一命令追加 `--apply`，才会写入 `site/data/suozhang_r18.json` 并只刷新 `codexes.json` 中该书的版本和计数。
 
 ## sd_metadata_inspector.py
 
