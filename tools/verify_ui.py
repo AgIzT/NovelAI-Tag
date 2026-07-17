@@ -749,6 +749,29 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("history.back()")
         wait_for(cdp, "!document.querySelector('#settings')?.classList.contains('show') && history.state?.route?.onlyImaged === false", "reset filter survives close")
 
+        # Closing an overlay must not move the list at all (no flash to top):
+        # record every scroll change while the settings layer closes via back.
+        flash_scroll = cdp.eval("Math.min(500, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
+        cdp.eval(f"scrollTo(0,{int(flash_scroll)})")
+        settle(cdp, 400)
+        cdp.eval(f"scrollTo(0,{int(flash_scroll)})")   # re-assert after masonry relayout settles
+        settle(cdp, 260)
+        flash_base = cdp.eval("Math.round(scrollY)") or 0
+        if flash_base > 120:
+            cdp.eval("window.__scrollFlash = []; window.__scrollFlashOn = true; addEventListener('scroll', () => { if (window.__scrollFlashOn) window.__scrollFlash.push(Math.round(scrollY)); })")
+            cdp.eval("document.querySelector('#settingsBtn')?.click()")
+            wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show')", "flash check settings open")
+            cdp.eval("history.back()")
+            wait_for(cdp, "!document.querySelector('#settings')?.classList.contains('show')", "flash check settings closed")
+            settle(cdp, 450)
+            cdp.eval("window.__scrollFlashOn = false")
+            flash_log = cdp.eval("window.__scrollFlash || []") or []
+            flash_now = cdp.eval("Math.round(scrollY)") or 0
+            if any(v < flash_base - 90 for v in flash_log):
+                raise CheckFailed(f"Closing the settings layer scrolled the list (flash to top): base={flash_base}, log={flash_log}")
+            if abs(flash_now - flash_base) > 5:
+                raise CheckFailed(f"Scroll position drifted after closing the settings layer: base={flash_base}, now={flash_now}, log={flash_log}")
+
         # Settings -> NSFW confirmation is a nested pair of returnable layers.
         cdp.eval("document.querySelector('#settingsBtn')?.click()")
         wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show')", "settings layer")

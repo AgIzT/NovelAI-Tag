@@ -92,7 +92,7 @@ export function bindUI() {
       if (focus) requestAnimationFrame(() => searchInput.focus());
     } else {
       searchInput.blur();
-      if (restoreButton) mobileSearchBtn?.focus();
+      if (restoreButton) mobileSearchBtn?.focus({ preventScroll: true });
     }
   };
   registerHistoryLayer('mobile-search', {
@@ -295,7 +295,7 @@ export function bindUI() {
     moreMenu.hidden = true;
     moreBtn.classList.remove('open');
     moreBtn.setAttribute('aria-expanded', 'false');
-    if (focusButton) moreBtn.focus();
+    if (focusButton) moreBtn.focus({ preventScroll: true });
   };
   const openMoreDirect = ({ focus = false } = {}) => {
     closeBannerAbout();
