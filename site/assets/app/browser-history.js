@@ -9,6 +9,7 @@ let restoreToken = 0;
 let currentEntry = null;
 let scrollTimer = 0;
 let idCounter = 0;
+let reloadCollapse = null;
 const layerRegistry = new Map();
 
 const cloneValue = value => {
@@ -19,6 +20,24 @@ const cloneValue = value => {
 
 const nextId = () => `${Date.now().toString(36)}-${(++idCounter).toString(36)}`;
 const layerIds = entry => Array.isArray(entry?.layers) ? entry.layers.map(layer => layer?.id).filter(Boolean) : [];
+const hasDetailRoute = route => Boolean(String(route?.entry || ''));
+
+/* 刷新会重建 DOM：浮层必然消失；共创广场也有意只恢复详情下方的列表。
+   若仍保留这类 transient 子记录，首次 Back 只会走到一个与当前画面相同的
+   父记录。初始化完成后先把它们折叠到最近的可见父记录，避免留下幽灵 Back。 */
+function discardedTransientOnReload(previous, restoredRoute) {
+  return Boolean(
+    previous?.parentId &&
+    (
+      layerIds(previous).length > 0 ||
+      (
+        previous.transition === 'detail' &&
+        hasDetailRoute(previous.route) &&
+        !hasDetailRoute(restoredRoute)
+      )
+    )
+  );
+}
 
 export function createManagedHistoryEntry({
   page,
@@ -123,6 +142,7 @@ export function configureBrowserHistory(options = {}) {
   restoring = false;
   pendingBack = false;
   currentEntry = null;
+  reloadCollapse = null;
   if ('scrollRestoration' in win.history) win.history.scrollRestoration = 'manual';
   win.addEventListener('popstate', handlePopState);
   win.addEventListener('pagehide', checkpointHistoryScroll);
@@ -140,19 +160,30 @@ export function initializeBrowserHistory({ transition = 'initial', route: routeO
      滚动位置）：沿用其身份、transition 与 scrollY，让返回链和滚动恢复跨重载
      存活。浮层在重载后必然全部关闭，故 layers 一律清空。 */
   const previous = persistedHistoryState();
+  const route = routeOverride === undefined ? captureRoute() : cloneValue(routeOverride);
+  const shouldCollapse = discardedTransientOnReload(previous, route);
   currentEntry = createManagedHistoryEntry({
     page: config.page,
     id: previous?.id,
     parentId: previous?.parentId ?? null,
     transition: previous?.transition || transition,
     sessionId: previous?.sessionId ?? null,
-    route: routeOverride === undefined ? captureRoute() : cloneValue(routeOverride),
+    route,
     layers: [],
     scrollY: previous ? previous.scrollY : currentScrollY(),
   });
   initialized = true;
   writeState('replace', currentEntry);
   if (previous && previous.scrollY > 0) config.restoreScroll?.(previous.scrollY, {});
+  if (shouldCollapse) {
+    reloadCollapse = {
+      departingId: currentEntry.id,
+      parentId: currentEntry.parentId,
+      route: cloneValue(currentEntry.route),
+      scrollY: currentEntry.scrollY,
+    };
+    scheduleReloadCollapse();
+  }
   return cloneValue(currentEntry);
 }
 
@@ -356,6 +387,19 @@ function requestHistoryBack() {
   browserWindow().history.back();
 }
 
+function scheduleReloadCollapse() {
+  const collapse = reloadCollapse;
+  if (!collapse) return;
+  browserWindow().queueMicrotask(() => {
+    if (reloadCollapse !== collapse) return;
+    if (currentEntry?.id !== collapse.departingId) {
+      reloadCollapse = null;
+      return;
+    }
+    if (!pendingBack) requestHistoryBack();
+  });
+}
+
 export function goBackFrom(transition) {
   if (!canGoBackFrom(transition)) return false;
   if (!pendingBack) requestHistoryBack();
@@ -384,6 +428,37 @@ async function handlePopState(event) {
   let target = cloneValue(event.state);
   const departingLayers = layerIds(departing);
   const targetLayers = layerIds(target);
+  if (reloadCollapse) {
+    const collapse = reloadCollapse;
+    const collapsingExpectedParent = Boolean(
+      departing?.id === collapse.departingId &&
+      departing?.parentId === target.id &&
+      collapse.parentId === target.id,
+    );
+    if (collapsingExpectedParent) {
+      const continueCollapsing = discardedTransientOnReload(target, collapse.route);
+      target = replaceManagedHistoryEntry(target, {
+        route: collapse.route,
+        layers: [],
+        scrollY: collapse.scrollY,
+      });
+      writeState('replace', target);
+      reconcileLayers([]);
+      if (continueCollapsing) {
+        reloadCollapse = {
+          departingId: target.id,
+          parentId: target.parentId,
+          route: cloneValue(target.route),
+          scrollY: target.scrollY,
+        };
+        scheduleReloadCollapse();
+      } else {
+        reloadCollapse = null;
+      }
+      return;
+    }
+    reloadCollapse = null;
+  }
   const closingDirectLayer = Boolean(
     departing?.parentId === target.id &&
     departingLayers.length > targetLayers.length,

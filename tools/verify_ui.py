@@ -830,6 +830,23 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if reload_scroll > 80:
             wait_for(cdp, f"Math.abs(scrollY - {int(reload_scroll)}) < 90", "reload scroll restoration", timeout=8)
 
+        # A layer that disappears during reload must be collapsed before the
+        # user presses Back; otherwise the first Back only consumes an
+        # invisible child record and appears broken.
+        reload_layer_parent = cdp.eval("history.state.id")
+        cdp.eval("document.querySelector('#settingsBtn')?.click()")
+        wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show') && history.state?.layers?.at(-1)?.id === 'settings'", "reload ghost settings layer")
+        reload_layer_length = cdp.eval("history.length")
+        cdp.command("Page.reload", {})
+        wait_for(
+            cdp,
+            "!document.querySelector('#settings')?.classList.contains('show') && history.state?.id === " + js_string(reload_layer_parent),
+            "reload collapses discarded settings layer",
+            timeout=12,
+        )
+        if cdp.eval("history.length") != reload_layer_length:
+            raise CheckFailed("Collapsing the discarded settings layer changed physical history depth")
+
         # A recent-entry detail may switch list context (query cleared, path
         # changed) in a single record; back must restore the previous context
         # instead of only closing the lightbox.
@@ -945,6 +962,23 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed("Community image paging increased history depth")
         cdp.eval("history.back()")
         wait_for(cdp, "!document.querySelector('#detailMask')?.classList.contains('show') && history.state?.route?.q === 'sample composition'", "community detail back")
+
+        # Community details are intentionally not reopened after reload. Their
+        # now-invisible child record must be folded back to the list parent
+        # during initialization instead of consuming the user's next Back.
+        discarded_detail_parent = cdp.eval("history.state.id")
+        cdp.eval("document.querySelector('.community-card')?.click()")
+        wait_for(cdp, "history.state?.transition === 'detail' && document.querySelector('#detailMask')?.classList.contains('show')", "community detail before reload collapse")
+        discarded_detail_length = cdp.eval("history.length")
+        cdp.command("Page.reload", {})
+        wait_for(
+            cdp,
+            "!document.querySelector('#detailMask')?.classList.contains('show') && history.state?.id === " + js_string(discarded_detail_parent) + " && !history.state?.route?.entry",
+            "community reload collapses discarded detail",
+            timeout=12,
+        )
+        if cdp.eval("history.length") != discarded_detail_length:
+            raise CheckFailed("Collapsing the discarded community detail changed physical history depth")
 
         # Form DOM survives same-document back/forward.
         cdp.eval("document.querySelector('#submitOpenBtn')?.click()")

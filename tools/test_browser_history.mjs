@@ -235,7 +235,7 @@ assert.equal(replaced.parentId, entry.parentId);
   assert.equal(env.window.history.state.route.imageIndex, 0);
 }
 
-// Reload adoption: a managed record persisted in history.state keeps its
+// Reload adoption: a visible route record persisted in history.state keeps its
 // identity, transition, and scroll across re-init, so back navigation and
 // scroll restoration survive a page reload / cross-document return.
 {
@@ -252,7 +252,7 @@ assert.equal(replaced.parentId, entry.parentId);
   configureBrowserHistory(options);
   const initial = initializeBrowserHistory();
   route = { view: 'category', q: '' };
-  commitHistoryRoute({ mode: 'push', transition: 'detail' });
+  commitHistoryRoute({ mode: 'push', transition: 'route' });
   const before = getManagedHistoryEntry();
   win.scrollY = 320;
   checkpointHistoryScroll();
@@ -261,7 +261,7 @@ assert.equal(replaced.parentId, entry.parentId);
   const adopted = initializeBrowserHistory();
   assert.equal(adopted.id, before.id);
   assert.equal(adopted.parentId, initial.id);
-  assert.equal(adopted.transition, 'detail');
+  assert.equal(adopted.transition, 'route');
   assert.equal(adopted.scrollY, 320);
   assert.equal(restored, 320);
   assert.deepEqual(adopted.layers, []);
@@ -269,6 +269,119 @@ assert.equal(replaced.parentId, entry.parentId);
   win.history.back();
   await tick();
   assert.equal(getManagedHistoryEntry().id, initial.id);
+}
+
+// Reload discards transient layer UI. Initialization therefore walks back to
+// the nearest visible parent before the user can press Back, carrying route
+// changes and scroll through nested layers without replaying the route.
+{
+  const win = new FakeWindow();
+  win.history.entries = [
+    { state: null, url: '/before.html' },
+    { state: null, url: '/page.html' },
+  ];
+  win.history.index = 1;
+  let route = { view: 'all', q: '', onlyImaged: false };
+  const calls = { applyRoute: 0, restoreScroll: 0 };
+  const options = {
+    window: win,
+    page: 'atlas',
+    captureRoute: () => route,
+    applyRoute: async () => { calls.applyRoute += 1; },
+    restoreScroll: async top => { calls.restoreScroll += 1; win.scrollY = top; },
+  };
+  let settingsOpen = false;
+  let confirmOpen = false;
+  configureBrowserHistory(options);
+  registerHistoryLayer('reload-settings', {
+    isOpen: () => settingsOpen,
+    open: () => { settingsOpen = true; },
+    close: () => { settingsOpen = false; },
+  });
+  registerHistoryLayer('reload-confirm', {
+    isOpen: () => confirmOpen,
+    open: () => { confirmOpen = true; },
+    close: () => { confirmOpen = false; },
+  });
+  const initial = initializeBrowserHistory();
+  settingsOpen = true;
+  openHistoryLayer('reload-settings');
+  confirmOpen = true;
+  openHistoryLayer('reload-confirm');
+  route = { view: 'all', q: '', onlyImaged: true };
+  win.scrollY = 320;
+  commitHistoryRoute({ mode: 'replace' });
+  checkpointHistoryScroll();
+
+  // Simulated DOM reload: both overlays are gone, while session history stays.
+  settingsOpen = false;
+  confirmOpen = false;
+  configureBrowserHistory(options);
+  const adopted = initializeBrowserHistory();
+  assert.equal(adopted.parentId != null, true);
+  await tick();
+  assert.equal(win.history.index, 1);
+  assert.equal(getManagedHistoryEntry().id, initial.id);
+  assert.deepEqual(getManagedHistoryEntry().layers, []);
+  assert.equal(getManagedHistoryEntry().route.onlyImaged, true);
+  assert.equal(getManagedHistoryEntry().scrollY, 320);
+  assert.equal(calls.applyRoute, 0);
+  assert.equal(calls.restoreScroll, 1);
+
+  // The first user Back now reaches the previous document, not a ghost layer.
+  win.history.back();
+  assert.equal(win.history.index, 0);
+}
+
+// A detail intentionally not restored after reload (community list policy) is
+// collapsed, while a detail that remains visible (atlas deep link) is retained.
+{
+  const win = new FakeWindow();
+  win.history.entries = [
+    { state: null, url: '/before.html' },
+    { state: null, url: '/page.html' },
+  ];
+  win.history.index = 1;
+  let route = { view: 'all', q: '', entry: '', imageIndex: 0 };
+  const applied = [];
+  const options = {
+    window: win,
+    page: 'community',
+    captureRoute: () => route,
+    applyRoute: async value => { applied.push(value); },
+  };
+  configureBrowserHistory(options);
+  const list = initializeBrowserHistory();
+  route = { view: 'all', q: '', entry: 'post-1', imageIndex: 2 };
+  commitHistoryRoute({ mode: 'push', transition: 'detail' });
+
+  route = { view: 'all', q: '', entry: '', imageIndex: 0 };
+  configureBrowserHistory(options);
+  initializeBrowserHistory();
+  await tick();
+  assert.equal(win.history.index, 1);
+  assert.equal(getManagedHistoryEntry().id, list.id);
+  assert.equal(applied.length, 0);
+
+  const atlasWin = new FakeWindow();
+  let atlasRoute = { view: 'all', q: '', entry: '', imageIndex: 0 };
+  const atlasOptions = {
+    window: atlasWin,
+    page: 'atlas',
+    captureRoute: () => atlasRoute,
+    applyRoute: async () => undefined,
+  };
+  configureBrowserHistory(atlasOptions);
+  initializeBrowserHistory();
+  atlasRoute = { view: 'all', q: '', entry: 'entry-1', imageIndex: 2 };
+  commitHistoryRoute({ mode: 'push', transition: 'detail' });
+  configureBrowserHistory(atlasOptions);
+  atlasRoute = { view: 'all', q: '', entry: 'entry-1', imageIndex: 0 };
+  const visibleDetail = initializeBrowserHistory();
+  await tick();
+  assert.equal(atlasWin.history.index, 1);
+  assert.equal(getManagedHistoryEntry().id, visibleDetail.id);
+  assert.equal(getManagedHistoryEntry().transition, 'detail');
 }
 
 // While a back() is still in flight, further close requests are treated as
