@@ -47,6 +47,7 @@ export function normalizeLastBrowse(value) {
     path: Array.isArray(value.path) ? value.path.map(String) : [],
     q: String(value.q || ''),
     onlyImaged: Boolean(value.onlyImaged),
+    onlyNew: Boolean(value.onlyNew),
     onlyFav: Boolean(value.onlyFav),
     favoritesView: Boolean(value.favoritesView || value.favMode || value.onlyFav || value.codexId === FAVORITES_CODEX_ID),
     siteSearchView: Boolean(value.siteSearchView || value.searchView || value.codexId === SITE_SEARCH_CODEX_ID),
@@ -104,6 +105,7 @@ export function currentBrowseSnapshot(entryId = state.lightbox.entry?.id || '') 
     path: state.activePath || [],
     q: state.query.trim(),
     onlyImaged: Boolean(state.onlyImaged),
+    onlyNew: Boolean(state.onlyNew),
     onlyFav: favoritesView,
     entryId,
     scrollY: Math.max(0, Math.round(window.scrollY || 0)),
@@ -142,9 +144,10 @@ export function browseDesc(snapshot) {
     if (snapshot.path?.length) return `全站搜索 · ${snapshot.path.join(' › ')}`;
     return `全站搜索 · ${formatRecentTime(snapshot.at)}`;
   }
-  if (snapshot.q) return `${snapshot.codexTitle} · 搜索 “${snapshot.q}”`;
-  if (snapshot.path?.length) return `${snapshot.codexTitle} · ${snapshot.path.join(' › ')}`;
-  return `${snapshot.codexTitle} · ${formatRecentTime(snapshot.at)}`;
+  const codexContext = `${snapshot.codexTitle}${snapshot.onlyNew ? ' · 本次更新' : ''}`;
+  if (snapshot.q) return `${codexContext} · 搜索 “${snapshot.q}”`;
+  if (snapshot.path?.length) return `${codexContext} · ${snapshot.path.join(' › ')}`;
+  return `${codexContext} · ${formatRecentTime(snapshot.at)}`;
 }
 
 export function formatRecentTime(ts) {
@@ -223,6 +226,10 @@ export function renderHistoryPanel() {
 
 export function applyBrowseControls(snapshot) {
   state.onlyImaged = Boolean(snapshot.onlyImaged);
+  const newFilterMeta = findCodexMeta(snapshot.codexId);
+  state.onlyNew = Boolean(
+    snapshot.onlyNew && !snapshot.favoritesView && !snapshot.siteSearchView && newFilterMeta?.newFilterLabel
+  );
   state.onlyFav = Boolean(snapshot.favoritesView || snapshot.onlyFav);
   const onlyImaged = $('#onlyImaged');
   const onlyFav = $('#onlyFav');
@@ -311,7 +318,7 @@ export async function resumeLastBrowse(options = {}) {
   } else if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
     applyBrowseControls(snapshot);
     await historyActions.loadCodex(targetId, {
-      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '' },
+      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', onlyNew: Boolean(snapshot.onlyNew) },
       ...finalHistory,
     });
   } else {

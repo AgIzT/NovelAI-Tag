@@ -78,13 +78,14 @@ function renderAnnouncements() {
   }
   list.innerHTML = items.map(item => `
     <article class="announcement-item level-${esc(item.level)}">
-      <div class="announcement-icon" aria-hidden="true">${levelIcon(item.level)}</div>
+      <div class="announcement-icon" data-icon="${esc(item.icon || item.level)}" aria-hidden="true">${announcementIcon(item.icon, item.level)}</div>
       <div class="announcement-main">
         <div class="announcement-title-row">
           <h3>${esc(item.title)}</h3>
           <time datetime="${esc(item.date)}">${esc(formatAnnouncementTime(item.date))}</time>
         </div>
-        <p>${esc(item.body)}</p>
+        ${item.lead ? `<p class="announcement-lead"><strong>${esc(item.lead)}</strong></p>` : ''}
+        <p class="announcement-body">${esc(item.body)}</p>
         ${item.link ? `<a class="announcement-link" href="${esc(item.link)}" target="_blank" rel="noopener">查看详情</a>` : ''}
       </div>
     </article>
@@ -112,9 +113,11 @@ function normalizeAnnouncements(data) {
     .map(item => ({
       id: String(item?.id || '').trim(),
       title: String(item?.title || '').trim(),
+      lead: String(item?.lead || '').trim(),
       body: String(item?.body || '').trim(),
       date: String(item?.date || '').trim(),
       level: ['info', 'warning', 'success'].includes(String(item?.level || '')) ? String(item.level) : 'info',
+      icon: ['feedback', 'collaboration'].includes(String(item?.icon || '')) ? String(item.icon) : '',
       active: item?.active !== false,
       link: normalizeLink(item?.link),
     }))
@@ -142,8 +145,30 @@ function formatAnnouncementTime(dateText) {
   return formatRecentTime(ts);
 }
 
-function levelIcon(level) {
-  if (level === 'warning') return '!';
-  if (level === 'success') return 'ok';
-  return 'i';
+function announcementIcon(icon, level) {
+  if (icon === 'feedback') return `
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+      <path d="m9 11 2 2 4-4"></path>
+    </svg>`;
+  if (icon === 'collaboration') return `
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+      <circle cx="9" cy="7" r="4"></circle>
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+    </svg>`;
+  if (level === 'warning') return `
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path d="M10.3 3.7 2.4 17.5A2 2 0 0 0 4.1 20h15.8a2 2 0 0 0 1.7-2.5L13.7 3.7a2 2 0 0 0-3.4 0z"></path>
+      <path d="M12 9v4"></path><path d="M12 17h.01"></path>
+    </svg>`;
+  if (level === 'success') return `
+    <svg viewBox="0 0 24 24" focusable="false">
+      <circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path>
+    </svg>`;
+  return `
+    <svg viewBox="0 0 24 24" focusable="false">
+      <circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><path d="M12 8h.01"></path>
+    </svg>`;
 }

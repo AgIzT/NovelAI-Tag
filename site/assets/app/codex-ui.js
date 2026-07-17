@@ -612,11 +612,32 @@ export function selectPathByPath(path) {
 }
 
 
+function updateNewFilterControl() {
+  const btn = $('#newUpdateFilterBtn');
+  if (!btn) return;
+  const meta = (!state.favoritesView && !state.siteSearchView && state.codex)
+    ? state.codexes.find(item => item.id === state.codex.id || (item.aliases || []).includes(state.codex.id))
+    : null;
+  const label = String(meta?.newFilterLabel || '').trim();
+  const count = label ? state.codex.entries.filter(entry => entry.isNew === true).length : 0;
+  const enabled = Boolean(label && count);
+  btn.hidden = !enabled;
+  btn.setAttribute('aria-pressed', enabled && state.onlyNew ? 'true' : 'false');
+  if (!enabled) return;
+  $('#newUpdateFilterLabel').textContent = label;
+  $('#newUpdateFilterCount').textContent = String(count);
+  btn.title = state.onlyNew
+    ? '退出本次更新筛选，恢复之前的“只看有图”状态'
+    : '只看本次更新标记的词条（包含未配图）';
+  btn.setAttribute('aria-label', `NEW ${label} · ${count}${state.onlyNew ? '，当前已开启' : '，点击筛选'}`);
+}
+
 export function updateResultBar() {
   const n = state.list.length;
   const box = $('#resultInfo');
   const favoritesBackupButton = $('#favoritesViewBackupBtn');
   if (favoritesBackupButton) favoritesBackupButton.hidden = !state.favoritesView;
+  updateNewFilterControl();
   box.innerHTML = '';
   const q = state.query.trim();
 
@@ -656,6 +677,7 @@ export function updateResultBar() {
     t = `${scope}${state.searchPlan?.isSyntax ? '筛选' : '搜索'} “${esc(q)}”：<b>${n}</b> 条结果`;
   }
   else if (state.favoritesView) t = `收藏：<b>${n}</b> 条`;
+  else if (state.onlyNew) t = `本次更新：<b>${n}</b> 条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
   else if (state.activePath.length) t = `<b>${n}</b> 条`;
   else t = `共 <b>${n}</b> 条词条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
   count.innerHTML = t;
@@ -672,7 +694,7 @@ export function updateEmptyState(n) {
   if (n > 0) return;
 
   const q = state.query.trim();
-  const hasFilter = state.onlyImaged || state.onlyFav || state.activePath.length || q;
+  const hasFilter = state.onlyImaged || state.onlyNew || state.onlyFav || state.activePath.length || q;
   let title = '这里还没有词条';
   let desc = '换个分类或稍后再来看看。';
   const actions = [];
@@ -688,6 +710,14 @@ export function updateEmptyState(n) {
   } else if (state.favoritesView && !state.onlyImaged && !state.activePath.length) {
     title = '收藏夹还是空的';
     desc = '逛任意法典时点卡片右上角的星标，收藏就会集中到这里。';
+  } else if (state.onlyNew) {
+    title = state.activePath.length ? '这个分类没有本次更新' : '本次更新暂无可显示词条';
+    desc = state.activePath.length
+      ? '可以查看全书的本次更新，或从上方分类继续筛选。'
+      : '退出本次更新筛选后，可以继续浏览全部词条。';
+    actions.push(state.activePath.length
+      ? { label: '查看全书更新', action: 'show-all-updates' }
+      : { label: '退出本次更新', action: 'exit-update-filter' });
   } else if (state.onlyFav) {
     title = '收藏夹还是空的';
     desc = '先在卡片右上角点星标收藏。';
@@ -726,6 +756,11 @@ export function handleEmptyAction(action) {
     state.onlyImaged = false;
     const onlyImaged = $('#onlyImaged');
     if (onlyImaged) onlyImaged.checked = false;
+  } else if (action === 'show-all-updates') {
+    state.activePath = [];
+    renderTree();
+  } else if (action === 'exit-update-filter') {
+    state.onlyNew = false;
   } else if (action === 'show-all') {
     state.query = '';
     state.activePath = [];

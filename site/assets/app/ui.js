@@ -193,6 +193,15 @@ export function bindUI() {
     uiActions.applyFilter({ resetScroll: true, transition: 'filter' });
     syncUrlState({ historyMode: 'replace' });
   };
+  const newUpdateFilterBtn = $('#newUpdateFilterBtn');
+  if (newUpdateFilterBtn) {
+    newUpdateFilterBtn.onclick = () => {
+      if (newUpdateFilterBtn.hidden) return;
+      state.onlyNew = !state.onlyNew;
+      uiActions.applyFilter({ resetScroll: true, transition: 'filter' });
+      syncUrlState({ historyMode: 'replace' });
+    };
+  }
   $('#onlyFav').onchange = e => {
     if (e.target.checked) {
       uiActions.openFavoritesView();

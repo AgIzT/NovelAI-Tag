@@ -30,6 +30,10 @@ const setOnlyFavControl = checked => {
   if (onlyFav) onlyFav.checked = state.onlyFav;
 };
 const virtualView = () => state.favoritesView || state.siteSearchView;
+const codexSupportsNewFilter = codex => {
+  const meta = findCodexMeta(codex?.id);
+  return Boolean(meta?.newFilterLabel && codex?.entries?.some(entry => entry.isNew === true));
+};
 const historyModeFor = (options, fallback = 'push') => options.historyMode || fallback;
 const urlSearchScope = urlState => {
   if (!urlState) return state.searchScope;
@@ -176,6 +180,7 @@ export async function loadCodex(id, options = {}) {
       const urlState = options.urlState && (!options.urlState.codex || options.urlState.codex === c.id || (c.aliases || []).includes(options.urlState.codex))
         ? options.urlState
         : null;
+      state.onlyNew = Boolean(urlState?.onlyNew && codexSupportsNewFilter(c));
       applyUrlSearchScope(urlState);
       const nextPath = normalizeRoutePath(c.tree, urlState?.path || []);
       state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
@@ -253,6 +258,7 @@ export async function openFavoritesView(options = {}) {
       primeResourceHints({ codexes: [codex] });
       state.favoritesView = true;
       state.siteSearchView = false;
+      state.onlyNew = false;
       state.searchReturnPath = [];
       setOnlyFavControl(true);
       state.codex = codex;
@@ -343,6 +349,7 @@ export async function openSiteSearchView(options = {}) {
       primeResourceHints({ codexes: state.codexes });
       state.favoritesView = false;
       state.siteSearchView = true;
+      state.onlyNew = false;
       setOnlyFavControl(false);
       state.codex = codex;
       const c = state.codex;
@@ -415,6 +422,7 @@ export function exitSiteSearchView(options = {}) {
   if (!codex) return;
   state.siteSearchView = false;
   state.favoritesView = false;
+  state.onlyNew = false;
   state.codex = codex;
   const c = state.codex;
   const codexSelect = $('#codexSelect');
@@ -477,7 +485,8 @@ export function applyFilter(options = {}) {
   } else if (state.activePath.length) {
     list = byActivePath(list);
   }
-  if (state.onlyImaged) list = list.filter(hasEntryImage);
+  if (state.onlyNew) list = list.filter(e => e.isNew === true);
+  if (state.onlyImaged && !state.onlyNew) list = list.filter(hasEntryImage);
   if (state.favoritesView) list = list.filter(isFav);   // 收藏视图里取消收藏即时消卡
   list = list.filter(e => !isEntryAccessBlocked(e));  // NSFW/R18G 条目级访问控制
   state.list = list;
@@ -555,6 +564,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
     path: Array.isArray(route.path) ? route.path : [],
     q: String(route.q || ''),
     entry: '',
+    onlyNew: Boolean(route.onlyNew),
   };
   state.suppressUrlSync = true;
   state.searchHistorySessionId = String(context.target?.sessionId || '');
@@ -583,6 +593,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
       await loadCodex(targetId, { urlState, historyMode: 'none', saveBrowse: false });
       if (!currentRestore()) return;
     } else {
+      state.onlyNew = Boolean(route.onlyNew && codexSupportsNewFilter(state.codex));
       state.searchScope = route.scope === 'site' ? 'site' : 'codex';
       updateSearchScopeControl();
       const nextPath = normalizeRoutePath(state.codex.tree, urlState.path);

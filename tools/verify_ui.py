@@ -128,6 +128,20 @@ def first_imaged_entry_id(codex_id: str) -> str:
     raise RuntimeError(f"No imaged entry was found in {data_path}")
 
 
+def new_filter_config(codex_id: str) -> tuple[str, int]:
+    index_path = ROOT / "site" / "data" / "codexes.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    meta = next((item for item in index if item.get("id") == codex_id), None)
+    if not meta or not str(meta.get("newFilterLabel") or "").strip():
+        raise RuntimeError(f"No newFilterLabel is configured for {codex_id}")
+    data_path = ROOT / "site" / "data" / f"{codex_id}.json"
+    data = json.loads(data_path.read_text(encoding="utf-8"))
+    count = sum(1 for entry in data.get("entries", []) if entry.get("isNew") is True)
+    if count <= 0:
+        raise RuntimeError(f"No isNew entries were found in {data_path}")
+    return str(meta["newFilterLabel"]).strip(), count
+
+
 class WebSocket:
     def __init__(self, ws_url: str):
         parsed = urllib.parse.urlparse(ws_url)
@@ -393,6 +407,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     cdp.command("Log.enable")
     install_error_capture(cdp)
     entry_id = first_imaged_entry_id("suozhang")
+    new_label, new_count = new_filter_config("suozhang")
+    r18_new_label, r18_new_count = new_filter_config("suozhang_r18")
 
     def desktop_load():
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
@@ -405,6 +421,114 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         shot = screenshot(cdp, out_dir, "desktop-home")
         return {**info, "screenshot": shot}
+
+    def announcements_panel():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "app before announcements")
+        cdp.eval("document.querySelector('#announcementsBtn')?.click()")
+        wait_for(cdp, "!document.querySelector('#announcementsPanel')?.hidden && document.querySelectorAll('.announcement-item').length >= 4", "announcements panel", timeout=12)
+        settle(cdp, 280)
+        data = cdp.eval("""
+(() => {
+  const panel = document.querySelector('#announcementsPanel .announcements-panel');
+  const items = [...document.querySelectorAll('.announcement-item')];
+  return {
+    count: items.length,
+    titles: items.slice(0, 2).map(item => item.querySelector('h3')?.textContent.trim() || ''),
+    leads: items.slice(0, 2).map(item => item.querySelector('.announcement-lead strong')?.textContent.trim() || ''),
+    icons: items.slice(0, 2).map(item => item.querySelector('.announcement-icon')?.dataset.icon || ''),
+    iconSvgs: items.slice(0, 2).filter(item => item.querySelector('.announcement-icon svg')).length,
+    firstBody: items[0]?.querySelector('.announcement-body')?.textContent || '',
+    secondBody: items[1]?.querySelector('.announcement-body')?.textContent || '',
+    horizontalOverflow: panel ? panel.scrollWidth > panel.clientWidth + 1 : true,
+  };
+})()
+""")
+        if data["titles"] != ["关于反馈", "关于共享与合作"]:
+            raise CheckFailed(f"New announcements are missing or out of order: {data}")
+        if data["leads"] != ["每一条反馈我们都会看。", "如果你手里有自己的法典 / 图包 / tag 收集，欢迎共享。"]:
+            raise CheckFailed(f"Announcement leads did not retain emphasis: {data}")
+        if data["icons"] != ["feedback", "collaboration"] or data["iconSvgs"] != 2:
+            raise CheckFailed(f"Announcement icons did not render: {data}")
+        if "附上出问题的页面和你当时的操作" not in data["firstBody"] or "不会将其用于任何商业用途" not in data["secondBody"]:
+            raise CheckFailed(f"Announcement body text is incomplete: {data}")
+        if data["horizontalOverflow"]:
+            raise CheckFailed("Announcements panel has horizontal overflow")
+        shot = screenshot(cdp, out_dir, "announcements-feedback-collaboration")
+        cdp.eval("document.querySelector('#announcementsClose')?.click()")
+        wait_for(cdp, "document.querySelector('#announcementsPanel')?.hidden === true", "close announcements")
+        check_no_errors(cdp)
+        return {**data, "screenshot": shot}
+
+    def new_update_filter():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "!document.querySelector('#newUpdateFilterBtn')?.hidden", "regular NEW update button")
+        expected = f"NEW {new_label} · {new_count}"
+        initial = cdp.eval("({text:document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g,' ').trim()||'',pressed:document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed')})")
+        if initial["text"] != expected or initial["pressed"] != "false":
+            raise CheckFailed(f"Regular NEW update button mismatch: expected={expected!r}, actual={initial}")
+
+        # The dedicated update view includes unpictured NEW entries without
+        # destroying the user's existing only-imaged preference.
+        cdp.eval("document.querySelector('#onlyImaged').click()")
+        wait_for(cdp, "document.querySelector('#onlyImaged')?.checked", "only-imaged before NEW filter")
+        cdp.eval("document.querySelector('#newUpdateFilterBtn').click()")
+        wait_for(cdp, "document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'true' && new URL(location.href).searchParams.get('new') === '1'", "NEW update filter active")
+        settle(cdp, 420)
+        active = cdp.eval("""
+(() => {
+  const cards = [...document.querySelectorAll('.card')];
+  return {
+    text: document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\s+/g, ' ').trim() || '',
+    result: document.querySelector('#resultInfo')?.textContent || '',
+    onlyImaged: Boolean(document.querySelector('#onlyImaged')?.checked),
+    cards: cards.length,
+    newCards: cards.filter(card => card.querySelector('.badge-new')?.hidden === false).length,
+    url: location.href,
+  };
+})()
+""")
+        if active["text"] != expected or str(new_count) not in active["result"]:
+            raise CheckFailed(f"Regular NEW update result mismatch: expected={expected!r}, actual={active}")
+        if not active["onlyImaged"] or active["cards"] <= 0 or active["newCards"] != active["cards"]:
+            raise CheckFailed(f"NEW update filter did not override only-imaged cleanly: {active}")
+        shot = screenshot(cdp, out_dir, "new-update-filter")
+
+        cdp.eval("document.querySelector('#newUpdateFilterBtn').click()")
+        wait_for(cdp, "document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'false' && !new URL(location.href).searchParams.has('new') && document.querySelector('#onlyImaged')?.checked", "NEW update filter exit")
+        if "本次更新" in (cdp.eval("document.querySelector('#resultInfo')?.textContent || ''") or ""):
+            raise CheckFailed("Exiting the NEW update filter did not restore the previous only-imaged view")
+
+        # Direct URLs survive reload and make the update view linkable.
+        cdp.eval("document.querySelector('#newUpdateFilterBtn').click()")
+        wait_for(cdp, "new URL(location.href).searchParams.get('new') === '1'", "NEW update URL")
+        cdp.command("Page.reload", {"ignoreCache": True})
+        wait_for(cdp, "document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'true' && document.querySelector('#resultInfo')?.textContent.includes('本次更新')", "NEW update reload", timeout=12)
+
+        # The same data switch is enabled independently for the R18 codex.
+        cdp.eval("localStorage.setItem('fadian-nsfw-ok','1'); localStorage.removeItem('fadian-r18g-ok')")
+        navigate(cdp, base + "?codex=suozhang_r18&new=1")
+        wait_for(cdp, "document.body.classList.contains('nsfw-unlocked') && document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'true'", "R18 NEW update filter", timeout=12)
+        r18_expected = f"NEW {r18_new_label} · {r18_new_count}"
+        r18_text = cdp.eval("document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g,' ').trim() || ''")
+        if r18_text != r18_expected:
+            raise CheckFailed(f"R18 NEW update button mismatch: expected={r18_expected!r}, actual={r18_text!r}")
+
+        # Removing the index field is sufficient to withdraw the entry; an
+        # unsupported codex never exposes the generic control.
+        cdp.eval("localStorage.removeItem('fadian-nsfw-ok'); localStorage.removeItem('fadian-r18g-ok')")
+        navigate(cdp, base + "?codex=composition_style&new=1")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "codex without NEW update entry")
+        if not cdp.eval("document.querySelector('#newUpdateFilterBtn')?.hidden === true"):
+            raise CheckFailed("A codex without newFilterLabel exposed the NEW update button")
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "regular codex after NEW checks")
+        check_no_errors(cdp)
+        return {**active, "r18Text": r18_text, "unsupportedHidden": True, "screenshot": shot}
 
     def search_highlight():
         clear_errors(cdp)
@@ -634,9 +758,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "mobile cards")
         settle(cdp, 500)
-        data = cdp.eval("({cards: document.querySelectorAll('.card').length, mobileSearch: !!document.querySelector('#mobileSearchBtn'), result: document.querySelector('#resultInfo')?.textContent || ''})")
+        data = cdp.eval("({cards: document.querySelectorAll('.card').length, mobileSearch: !!document.querySelector('#mobileSearchBtn'), result: document.querySelector('#resultInfo')?.textContent || '', update: document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g,' ').trim() || '', overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth})")
         if not data["mobileSearch"]:
             raise CheckFailed("Mobile search button missing")
+        if data["update"] != f"NEW {new_label} · {new_count}" or data["overflow"] > 1:
+            raise CheckFailed(f"Mobile NEW update control is missing or overflowed: {data}")
         check_no_errors(cdp)
         shot = screenshot(cdp, out_dir, "mobile-home")
         return {**data, "screenshot": shot}
@@ -1027,6 +1153,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
     checks = [
         ("desktop home renders", desktop_load),
+        ("announcements render", announcements_panel),
+        ("NEW update filter", new_update_filter),
         ("search highlights text", search_highlight),
         ("author search syntax", author_search),
         ("copy card shows feedback", copy_card_feedback),

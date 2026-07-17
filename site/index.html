@@ -150,6 +150,12 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div id="chipRail" class="chip-rail"></div>
     <div class="result-bar">
       <span id="resultInfo"></span>
+      <button id="newUpdateFilterBtn" class="new-update-filter-btn" type="button" aria-pressed="false" hidden>
+        <span class="new-update-filter-mark">NEW</span>
+        <span id="newUpdateFilterLabel"></span>
+        <span aria-hidden="true">·</span>
+        <strong id="newUpdateFilterCount">0</strong>
+      </button>
       <button id="favoritesViewBackupBtn" class="favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
         <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
         <span>备份与恢复</span>
