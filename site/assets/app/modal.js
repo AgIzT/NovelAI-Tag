@@ -54,7 +54,9 @@ function closeMaskDirect(mask) {
   mask.classList.remove('show');
   const restoreFocus = () => {
     const opener = maskOpeners.get(mask);
-    if (opener?.isConnected) opener.focus();
+    /* preventScroll：开启按钮都是顶栏/浮动等视口锚定元素，无需滚动页面去
+       "露出"它；顶栏自动隐藏时浏览器的 scroll-into-view 反而会把列表拉走。 */
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
   };
   if (prefersReducedMotion()) {
     mask.hidden = true;

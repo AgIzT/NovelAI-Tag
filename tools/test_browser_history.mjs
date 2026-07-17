@@ -311,4 +311,45 @@ assert.equal(replaced.parentId, entry.parentId);
   assert.equal(layerOpen, false);
 }
 
+// A pure layer close only reconciles overlays: no route replay, no scroll
+// restore — the page must not flash to the top when a dialog closes.
+{
+  const win = new FakeWindow();
+  let route = { view: 'all', q: '' };
+  const calls = { applyRoute: 0, restoreScroll: 0 };
+  configureBrowserHistory({
+    window: win,
+    page: 'atlas',
+    captureRoute: () => route,
+    applyRoute: async () => { calls.applyRoute += 1; },
+    restoreScroll: async () => { calls.restoreScroll += 1; },
+  });
+  let dialogOpen = false;
+  registerHistoryLayer('flash-dialog', {
+    isOpen: () => dialogOpen,
+    open: () => { dialogOpen = true; },
+    close: () => { dialogOpen = false; },
+  });
+  const initial = initializeBrowserHistory();
+  win.scrollY = 260;
+  dialogOpen = true;
+  openHistoryLayer('flash-dialog');
+
+  win.history.back();
+  await tick();
+  assert.equal(dialogOpen, false);
+  assert.equal(calls.applyRoute, 0);
+  assert.equal(calls.restoreScroll, 0);
+  assert.equal(win.scrollY, 260);
+  assert.equal(getManagedHistoryEntry().id, initial.id);
+
+  // A real route pop still replays the route and restores scroll.
+  route = { view: 'category', q: '' };
+  commitHistoryRoute({ mode: 'push', transition: 'route' });
+  win.history.back();
+  await tick();
+  assert.equal(calls.applyRoute, 1);
+  assert.equal(calls.restoreScroll, 1);
+}
+
 console.log('browser history tests passed');

@@ -86,7 +86,7 @@ export function setupCodexPicker() {
     menu.hidden = true;
     btn.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
-    if (focusButton) btn.focus();
+    if (focusButton) btn.focus({ preventScroll: true });
   };
   registerHistoryLayer('codex-menu', {
     isOpen: () => !menu.hidden,

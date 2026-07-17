@@ -405,9 +405,13 @@ async function handlePopState(event) {
       browserWindow().queueMicrotask(() => requestHistoryBack());
       return;
     }
-  } else {
-    currentEntry = target;
+    /* 纯关浮层：route 已继承自离开记录，界面本来就与之一致。只收敛浮层，
+       跳过路由重放与滚动恢复——否则列表会先被 resetScroll 跳到顶部、再被
+       延迟的滚动恢复弹回原位，产生肉眼可见的闪屏。 */
+    reconcileLayers(target.layers);
+    return;
   }
+  currentEntry = target;
 
   const token = ++restoreToken;
   restoring = true;

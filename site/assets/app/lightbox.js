@@ -184,7 +184,7 @@ export function closeLightbox(options = {}) {
     img.removeAttribute('src');
     state.lightbox = { entry: null, images: [], index: 0 };
     lbSourceImg = null;
-    if (lbFocusReturn?.isConnected) lbFocusReturn.focus();
+    if (lbFocusReturn?.isConnected) lbFocusReturn.focus({ preventScroll: true });
     lbFocusReturn = null;
   };
   if (options.immediate) {
