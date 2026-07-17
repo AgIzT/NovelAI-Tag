@@ -39,6 +39,7 @@ export function readUrlState() {
     path,
     q: params.get('q') || '',
     entry: params.get('entry') || hash.get('entry') || '',
+    onlyNew: params.get('new') === '1',
   };
 }
 
@@ -55,6 +56,7 @@ export function captureAtlasRoute(entryOverride) {
     entry: entryOverride === undefined ? (state.lightbox.entry?.id || '') : String(entryOverride || ''),
     imageIndex: Math.max(0, Number(state.lightbox.index) || 0),
     onlyImaged: Boolean(state.onlyImaged),
+    onlyNew: Boolean(state.onlyNew),
   };
 }
 
@@ -62,6 +64,7 @@ export function atlasUrlForRoute(route) {
   const params = new URLSearchParams();
   if (route.codex) params.set('codex', route.codex);
   if (route.favorites) params.set('fav', '1');
+  if (route.onlyNew) params.set('new', '1');
   const q = String(route.q || '').trim();
   if (q) {
     params.set('q', q);
