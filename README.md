@@ -2,7 +2,7 @@
 ![alt text](image.png)
 
 ## 📚简介
-[在线访问 → novelai-tag.pages.dev](https://novelai-tag.pages.dev/)
+[在线访问 → novelai.quicktagcloud.com](https://novelai.quicktagcloud.com/)
 
 把社区大佬整理的 NovelAI 提示词「法典」做成 **图为主、点一下就复制** 的网页图鉴。
 定位：**忠实复刻**这些法典，让萌新和休闲用户照着例图选词、一键复制到 NovelAI——而不是又一个 tag 商店。
