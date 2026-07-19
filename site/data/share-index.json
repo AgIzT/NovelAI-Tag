@@ -129,13 +129,29 @@
       "id": "mengshen_pack",
       "aliases": [],
       "shareable": true,
-      "title": "社区整理图包",
+      "title": "梦神整理社区图包",
       "selectorTitle": "",
       "type": "pack",
       "entryCount": 1686,
       "shareCount": 666,
       "cover": {
         "url": "https://assets.quicktagcloud.com/images/mengshen_pack/mengshen_pack-0259.jpg?v=a4fbaa67f4bb359c",
+        "width": 753,
+        "height": 1100,
+        "alt": "常规 0001"
+      }
+    },
+    "community_ai_misc": {
+      "id": "community_ai_misc",
+      "aliases": [],
+      "shareable": true,
+      "title": "社区AI杂图",
+      "selectorTitle": "",
+      "type": "pack",
+      "entryCount": 5173,
+      "shareCount": 2348,
+      "cover": {
+        "url": "https://assets.quicktagcloud.com/images/community_ai_misc/community_ai_misc-0001.jpg?v=2b8f91fce89e3135",
         "width": 753,
         "height": 1100,
         "alt": "常规 0001"

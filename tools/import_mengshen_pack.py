@@ -446,7 +446,7 @@ def main():
     codex = {
         "id": CODEX_ID,
         "type": "pack",
-        "title": "社区整理图包",
+        "title": "梦神整理社区图包",
         "version": "2026.6.27",
         "author": "梦神整理",
         "entryCount": len(entries),

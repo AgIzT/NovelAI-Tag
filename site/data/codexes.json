@@ -188,7 +188,7 @@
   {
     "id": "mengshen_pack",
     "type": "pack",
-    "title": "社区整理图包",
+    "title": "梦神整理社区图包",
     "version": "2026.6.27",
     "author": "梦神整理",
     "entryCount": 1686,
@@ -203,6 +203,24 @@
       {
         "name": "社区贡献者",
         "role": "原图与参数收集"
+      }
+    ],
+    "links": []
+  },
+  {
+    "id": "community_ai_misc",
+    "type": "pack",
+    "title": "社区AI杂图",
+    "version": "2026.7.20",
+    "author": "社区贡献者",
+    "entryCount": 5173,
+    "imagedCount": 5173,
+    "hasOriginal": true,
+    "source": "社区贡献者 · AI杂图（带元数据）-N4.5最终版",
+    "contributors": [
+      {
+        "name": "社区贡献者",
+        "role": "原图与参数收集 / 人工分类"
       }
     ],
     "links": []
