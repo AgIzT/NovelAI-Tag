@@ -55,15 +55,19 @@
     "type": "string",
     "title": "NovelAI4.5画师串词典",
     "version": "2026.7.10",
-    "author": "PieDriver",
-    "entryCount": 200,
-    "imagedCount": 200,
+    "author": "PieDriver / 梦神",
+    "entryCount": 458,
+    "imagedCount": 458,
     "hasOriginal": true,
-    "source": "PieDriver · W.O.F_画风",
+    "source": "PieDriver · W.O.F_画风 / 梦神 · NAI4.5F画风合集",
     "contributors": [
       {
         "name": "PieDriver",
         "role": "词条整理 / 配图数据提供"
+      },
+      {
+        "name": "梦神",
+        "role": "NAI4.5F 画风合集 · 词条整理 / 配图数据提供"
       }
     ]
   },
@@ -187,8 +191,8 @@
     "title": "社区整理图包",
     "version": "2026.6.27",
     "author": "梦神整理",
-    "entryCount": 1944,
-    "imagedCount": 1944,
+    "entryCount": 1686,
+    "imagedCount": 1686,
     "hasOriginal": true,
     "source": "梦神整理 · 社区收集原图包",
     "contributors": [

@@ -231,7 +231,11 @@ def update_index(codex: dict[str, Any]) -> None:
 def validate_import(codex_id: str) -> dict[str, Any]:
     data_path = DATA_DIR / f"{codex_id}.json"
     data = json.loads(data_path.read_text(encoding="utf-8"))
-    entries = data.get("entries") or []
+    entries = [
+        entry
+        for entry in (data.get("entries") or [])
+        if entry.get("path") == ["W.O.F_画风"]
+    ]
     ids: set[str] = set()
     checked_images = 0
     mismatches: list[str] = []

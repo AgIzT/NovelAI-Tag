@@ -18,6 +18,8 @@ DATA_DIR = ROOT / "site" / "data"
 THUMB_ROOT = ROOT / "site" / "images"
 ORIG_ROOT = ROOT / "originals"
 CODEX_ID = "mengshen_pack"
+MOVED_TARGET_ID = "artist_nai45_strings"
+MOVED_CHAPTER = "梦神NAI4.5F画风合集"
 MAXDIM = 1100
 
 TOP_ORDER = [
@@ -384,6 +386,17 @@ def main():
     source = args.source
     if not source.is_dir():
         raise SystemExit(f"Source folder not found: {source}")
+    moved_target_path = DATA_DIR / f"{MOVED_TARGET_ID}.json"
+    if args.apply and moved_target_path.is_file():
+        moved_target = json.loads(moved_target_path.read_text(encoding="utf-8"))
+        if any(
+            entry.get("path") and entry["path"][0] == MOVED_CHAPTER
+            for entry in moved_target.get("entries", [])
+        ):
+            raise SystemExit(
+                f"{MOVED_CHAPTER} has moved to {MOVED_TARGET_ID}; "
+                "update the split import flow intentionally before reapplying this legacy importer"
+            )
 
     entries = []
     skipped = []
