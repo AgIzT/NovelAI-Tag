@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 
 const coreFile = new URL('../site/assets/app/favorites-backup-core.js', import.meta.url);
 const migrationFile = new URL('../site/assets/app/favorites-origin-migration.js', import.meta.url);
+const rescueFile = new URL('../site/_favorites-migration-202607.html', import.meta.url);
 const coreSource = await readFile(coreFile, 'utf8');
 const coreDataUrl = `data:text/javascript;base64,${Buffer.from(coreSource).toString('base64')}`;
 const migrationSource = (await readFile(migrationFile, 'utf8')).replace(
@@ -20,9 +22,12 @@ const {
 } = await import(coreDataUrl);
 
 const {
+  FAVORITES_MIGRATION_CACHE_BUSTER_PARAM,
+  FAVORITES_MIGRATION_CACHE_BUSTER_VALUE,
   FAVORITES_MIGRATION_MARKER_KEY,
   FAVORITES_MIGRATION_MESSAGES,
   FAVORITES_MIGRATION_VERSION,
+  buildFavoritesMigrationUrl,
   createFavoritesMigrationNonce,
   createFavoritesMigrationRestore,
   isTrustedFavoritesMigrationEvent,
@@ -30,6 +35,56 @@ const {
   setupFavoritesOriginMigration,
   shouldShowFavoritesMigrationBanner,
 } = migration;
+
+const builtMigrationUrl = buildFavoritesMigrationUrl({
+  origin: 'https://old.example',
+  path: '/_favorites-migration-202607.html?targetOrigin=https%3A%2F%2Fnew.example',
+  nonce: 'nonce-only-in-fragment',
+});
+const parsedMigrationUrl = new URL(builtMigrationUrl);
+assert.equal(
+  parsedMigrationUrl.searchParams.get(FAVORITES_MIGRATION_CACHE_BUSTER_PARAM),
+  FAVORITES_MIGRATION_CACHE_BUSTER_VALUE,
+);
+assert.equal(parsedMigrationUrl.searchParams.get('targetOrigin'), 'https://new.example');
+assert.equal(parsedMigrationUrl.searchParams.has('nonce'), false);
+assert.equal(parsedMigrationUrl.hash, '#nonce=nonce-only-in-fragment');
+
+// 已被旧 301 送到 .com 的同名救援页会自动换缓存键重试旧 origin，且保留 nonce。
+const rescueSource = await readFile(rescueFile, 'utf8');
+const rescueScript = rescueSource.match(/<script>\s*([\s\S]*?)<\/script>/)?.[1];
+assert.ok(rescueScript, 'missing rescue inline script');
+let retriedRescueUrl = '';
+const wrongOriginHref = 'https://novelai.quicktagcloud.com/_favorites-migration-202607.html#nonce=retry-nonce';
+const wrongOriginUrl = new URL(wrongOriginHref);
+runInNewContext(rescueScript, {
+  URL,
+  URLSearchParams,
+  location: {
+    href: wrongOriginHref,
+    origin: wrongOriginUrl.origin,
+    hostname: wrongOriginUrl.hostname,
+    pathname: wrongOriginUrl.pathname,
+    search: wrongOriginUrl.search,
+    hash: wrongOriginUrl.hash,
+    replace(value) {
+      retriedRescueUrl = String(value);
+    },
+  },
+  document: {
+    getElementById() {
+      return {
+        hidden: false,
+        textContent: '',
+        classList: { toggle() {} },
+      };
+    },
+  },
+});
+assert.equal(
+  retriedRescueUrl,
+  'https://novelai-tag.pages.dev/_favorites-migration-202607.html?bridge=20260721#nonce=retry-nonce',
+);
 
 const codexes = [
   { id: 'alpha', aliases: ['old_alpha'] },
@@ -354,6 +409,7 @@ assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), originalC
   };
   let changed = 0;
   let refreshed = 0;
+  let openedTarget = '';
   const controller = setupFavoritesOriginMigration({
     window: windowApi,
     document: documentApi,
@@ -368,8 +424,9 @@ assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), originalC
       changed += 1;
     },
     refreshCounts: async () => { refreshed += 1; },
-    openWindow: () => {
+    openWindow: target => {
       assert.equal(windowApi.messageListenerCount, 1);
+      openedTarget = target;
       return popup;
     },
     timeoutMs: 1000,
@@ -377,10 +434,14 @@ assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), originalC
   assert.equal(documentApi.banner.hidden, false);
   assert.equal(
     documentApi.fallback.href,
-    'https://old.example/_favorites-migration-202607.html',
+    'https://old.example/_favorites-migration-202607.html?bridge=20260721',
   );
   await controller.start();
   const nonce = '000102030405060708090a0b0c0d0e0f';
+  assert.equal(
+    openedTarget,
+    `https://old.example/_favorites-migration-202607.html?bridge=20260721#nonce=${nonce}`,
+  );
 
   dispatchMessage(windowApi, {
     origin: 'https://evil.example',

@@ -724,7 +724,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("Favorites backup entry did not open the shared dialog")
         if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "一键找回":
             raise CheckFailed("Favorites backup dialog is missing the permanent pages.dev migration entry")
-        if not data["migrationFallback"].endswith("/_favorites-migration-202607.html"):
+        fallback_url = urllib.parse.urlparse(data["migrationFallback"])
+        fallback_query = urllib.parse.parse_qs(fallback_url.query)
+        if (
+            fallback_url.netloc != "novelai-tag.pages.dev"
+            or fallback_url.path != "/_favorites-migration-202607.html"
+            or fallback_query.get("bridge") != ["20260721"]
+        ):
             raise CheckFailed("Favorites migration fallback does not target the rescue page")
         cdp.eval("document.querySelector('#favoritesBackupClose')?.click(); localStorage.removeItem('fadian-favs')")
         check_no_errors(cdp)
@@ -1131,7 +1137,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         })""")
         if migration_entry["title"] != "从旧 pages.dev 找回" or migration_entry["button"] != "一键找回":
             raise CheckFailed("Community backup dialog is missing the permanent pages.dev migration entry")
-        if not migration_entry["fallback"].endswith("/_favorites-migration-202607.html"):
+        fallback_url = urllib.parse.urlparse(migration_entry["fallback"])
+        fallback_query = urllib.parse.parse_qs(fallback_url.query)
+        if (
+            fallback_url.netloc != "novelai-tag.pages.dev"
+            or fallback_url.path != "/_favorites-migration-202607.html"
+            or fallback_query.get("bridge") != ["20260721"]
+        ):
             raise CheckFailed("Community migration fallback does not target the rescue page")
         if cdp.eval("location.href") != initial["url"]:
             raise CheckFailed("Community modal state changed the address bar")

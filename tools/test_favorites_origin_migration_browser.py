@@ -17,6 +17,7 @@ from verify_ui import CDP, find_free_port, page_ws_url, start_chrome, wait_for
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
 RESCUE_PATH = "/_favorites-migration-202607.html"
+RESCUE_CACHE_BUSTER = "20260721"
 MARKER_KEY = "novelai-tag-favorites-origin-migration-v1"
 ATLAS_KEY = "fadian-favs"
 COMMUNITY_KEY = "community-favorites-v1"
@@ -249,6 +250,18 @@ def run() -> None:
 
         navigate(cdp, f"{new_origin}/__migration-harness.html")
         wait_for(cdp, "window.__migrationReady === true", "migration harness")
+        fallback_url = cdp.eval(
+            "document.querySelector('[data-favorites-migration-fallback]').href"
+        )
+        fallback_query = urllib.parse.parse_qs(urllib.parse.urlparse(fallback_url).query)
+        check(
+            fallback_query.get("bridge") == [RESCUE_CACHE_BUSTER],
+            f"fallback URL lacks 301-cache bypass: {fallback_url!r}",
+        )
+        check(
+            fallback_query.get("targetOrigin") == [new_origin],
+            f"fallback URL lost target origin: {fallback_url!r}",
+        )
         set_storage(
             cdp,
             json.dumps(["alpha:alpha-existing", "beta:beta-new-domain"]),

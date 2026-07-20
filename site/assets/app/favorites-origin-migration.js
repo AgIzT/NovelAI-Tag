@@ -11,6 +11,8 @@ export const FAVORITES_MIGRATION_VERSION = 1;
 export const FAVORITES_MIGRATION_PATH = '/_favorites-migration-202607.html';
 export const FAVORITES_MIGRATION_OLD_ORIGIN = 'https://novelai-tag.pages.dev';
 export const FAVORITES_MIGRATION_NEW_ORIGIN = 'https://novelai.quicktagcloud.com';
+export const FAVORITES_MIGRATION_CACHE_BUSTER_PARAM = 'bridge';
+export const FAVORITES_MIGRATION_CACHE_BUSTER_VALUE = '20260721';
 export const FAVORITES_MIGRATION_MARKER_KEY = 'novelai-tag-favorites-origin-migration-v1';
 export const FAVORITES_MIGRATION_BANNER_END = Date.parse('2026-11-01T00:00:00+08:00');
 
@@ -48,6 +50,22 @@ export function createFavoritesMigrationNonce(cryptoApi = globalThis.crypto) {
   const bytes = new Uint8Array(16);
   cryptoApi.getRandomValues(bytes);
   return [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
+export function buildFavoritesMigrationUrl({
+  origin = FAVORITES_MIGRATION_OLD_ORIGIN,
+  path = FAVORITES_MIGRATION_PATH,
+  nonce = '',
+} = {}) {
+  const url = new URL(path, origin);
+  // 上线切换期间访问过救援路径的浏览器可能永久缓存旧 301。
+  // 使用不含用户数据的版本参数创建新的 HTTP 缓存键；安全 nonce 仍只放 fragment。
+  url.searchParams.set(
+    FAVORITES_MIGRATION_CACHE_BUSTER_PARAM,
+    FAVORITES_MIGRATION_CACHE_BUSTER_VALUE,
+  );
+  if (nonce) url.hash = new URLSearchParams({ nonce }).toString();
+  return url.toString();
 }
 
 export function readFavoritesMigrationMarker(storage) {
@@ -181,7 +199,10 @@ export function setupFavoritesOriginMigration(options = {}) {
   });
   banners.forEach(element => { element.hidden = !showBanner; });
   fallbackLinks.forEach(link => {
-    link.href = `${oldOrigin}${migrationPath}`;
+    link.href = buildFavoritesMigrationUrl({
+      origin: oldOrigin,
+      path: migrationPath,
+    });
   });
 
   const setFeedback = message => {
@@ -320,8 +341,11 @@ export function setupFavoritesOriginMigration(options = {}) {
     };
     windowApi.addEventListener('message', onMessage);
 
-    const hash = new URLSearchParams({ nonce }).toString();
-    const target = `${oldOrigin}${migrationPath}#${hash}`;
+    const target = buildFavoritesMigrationUrl({
+      origin: oldOrigin,
+      path: migrationPath,
+      nonce,
+    });
     let popup;
     try {
       popup = (options.openWindow || windowApi.open.bind(windowApi))(

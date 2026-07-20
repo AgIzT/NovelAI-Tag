@@ -64,6 +64,8 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
   const VERSION = 1;
   const OLD_ORIGIN = 'https://novelai-tag.pages.dev';
   const NEW_ORIGIN = 'https://novelai.quicktagcloud.com';
+  const CACHE_BUSTER_PARAM = 'bridge';
+  const CACHE_BUSTER_VALUE = '20260721';
   const FORMAT = 'novelai-tag-favorites';
   const ATLAS_KEY = 'fadian-favs';
   const COMMUNITY_KEY = 'community-favorites-v1';
@@ -82,12 +84,25 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
   const byId = id => document.getElementById(id);
   const status = byId('status');
   const downloadBtn = byId('downloadBtn');
+  const currentUrl = new URL(location.href);
   const localHost = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
-  const requestedTarget = new URL(location.href).searchParams.get('targetOrigin') || '';
+  const requestedTarget = currentUrl.searchParams.get('targetOrigin') || '';
   const localTargetAllowed = /^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(requestedTarget);
   const targetOrigin = localHost && localTargetAllowed ? requestedTarget : NEW_ORIGIN;
   const originAllowed = location.origin === OLD_ORIGIN || localHost;
   const nonce = new URLSearchParams(location.hash.slice(1)).get('nonce') || '';
+
+  // 若浏览器永久缓存了上线切换期间的旧 301，会先落到新域的同名页面。
+  // 自动换用一个从未参与旧 301 的查询缓存键重试；保留 fragment 中的安全 nonce。
+  if (location.origin === NEW_ORIGIN
+    && currentUrl.searchParams.get(CACHE_BUSTER_PARAM) !== CACHE_BUSTER_VALUE) {
+    const retryUrl = new URL(location.pathname, OLD_ORIGIN);
+    retryUrl.search = location.search;
+    retryUrl.searchParams.set(CACHE_BUSTER_PARAM, CACHE_BUSTER_VALUE);
+    retryUrl.hash = location.hash;
+    location.replace(retryUrl.toString());
+    return;
+  }
 
   function setStatus(message, error = false) {
     status.textContent = message;
