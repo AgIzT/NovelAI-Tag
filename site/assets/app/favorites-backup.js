@@ -16,6 +16,7 @@ import {
   readStoredFavorites,
   serializeFavoritesBackup,
 } from './favorites-backup-core.js';
+import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
 
 const CHANGE_EVENT = 'novelai-tag:favorites-changed';
 
@@ -437,5 +438,13 @@ export function setupFavoritesBackup(options = {}) {
 
   subscribeFavoritesChanges('atlas', refreshCounts);
   subscribeFavoritesChanges('community', refreshCounts);
+  setupFavoritesOriginMigration({
+    getCodexes: resolveCodexes,
+    onChanged: scopes => emitFavoritesChanged(scopes),
+    refreshCounts,
+    onStatus: setStatus,
+    onError: setError,
+    onBusy: setBusy,
+  });
   refreshCounts().catch(error => console.error(error));
 }

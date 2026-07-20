@@ -717,11 +717,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("document.querySelector('#favoritesViewBackupBtn').click()")
         wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.hidden", "favorites backup dialog")
         settle(cdp, 250)
-        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', normalHidden: " + ("true" if normal_hidden else "false") + "})")
+        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', migrationTitle: document.querySelector('#favoritesMigrationTitle')?.textContent || '', migrationButton: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '', migrationFallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '', normalHidden: " + ("true" if normal_hidden else "false") + "})")
         if not data["normalHidden"]:
             raise CheckFailed("Favorites backup entry was visible outside the favorites view")
         if "备份与恢复" not in data["button"] or data["dialog"] != "收藏备份与恢复":
             raise CheckFailed("Favorites backup entry did not open the shared dialog")
+        if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "一键找回":
+            raise CheckFailed("Favorites backup dialog is missing the permanent pages.dev migration entry")
+        if not data["migrationFallback"].endswith("/_favorites-migration-202607.html"):
+            raise CheckFailed("Favorites migration fallback does not target the rescue page")
         cdp.eval("document.querySelector('#favoritesBackupClose')?.click(); localStorage.removeItem('fadian-favs')")
         check_no_errors(cdp)
         return data
@@ -1120,6 +1124,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
         cdp.eval("document.querySelector('[data-favorites-backup-open]')?.click()")
         wait_for(cdp, "document.querySelector('#favoritesBackupPanel')?.classList.contains('show')", "community backup layer")
+        migration_entry = cdp.eval("""({
+          title: document.querySelector('#favoritesMigrationTitle')?.textContent || '',
+          button: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '',
+          fallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '',
+        })""")
+        if migration_entry["title"] != "从旧 pages.dev 找回" or migration_entry["button"] != "一键找回":
+            raise CheckFailed("Community backup dialog is missing the permanent pages.dev migration entry")
+        if not migration_entry["fallback"].endswith("/_favorites-migration-202607.html"):
+            raise CheckFailed("Community migration fallback does not target the rescue page")
         if cdp.eval("location.href") != initial["url"]:
             raise CheckFailed("Community modal state changed the address bar")
         cdp.eval("history.back()")

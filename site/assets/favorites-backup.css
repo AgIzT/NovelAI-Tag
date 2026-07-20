@@ -4,7 +4,27 @@
 .favorites-backup-mask[hidden],
 .favorites-replace-confirm[hidden],
 .favorites-import-preview[hidden],
-.favorites-backup-error[hidden]{display:none!important}
+.favorites-backup-error[hidden],
+.favorites-migration-banner[hidden],
+.favorites-migration-feedback[hidden],
+[data-favorites-migration-feedback][hidden]{display:none!important}
+
+.favorites-migration-banner{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  margin:0 0 14px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));
+  border-radius:16px;background:linear-gradient(135deg,var(--accent-soft),color-mix(in srgb,var(--card) 90%,transparent));
+  color:var(--text);box-shadow:0 10px 28px color-mix(in srgb,var(--accent) 10%,transparent);
+}
+.favorites-migration-banner-copy{min-width:0}
+.favorites-migration-banner-copy b{display:block;font-size:14px}
+.favorites-migration-banner-copy span{display:block;margin-top:3px;color:var(--muted);font-size:12px;line-height:1.55}
+.favorites-migration-banner-copy small{display:block;margin-top:5px;color:var(--accent);font-size:11.5px;line-height:1.45}
+.favorites-migration-banner-actions{flex:none;display:flex;align-items:center;gap:8px}
+.favorites-migration-banner button{
+  min-height:42px;border-radius:11px;padding:9px 13px;font:800 12.5px/1.25 var(--font-ui);cursor:pointer;
+}
+.favorites-migration-dismiss{border:1px solid var(--line);background:var(--card);color:var(--muted)}
+.favorites-migration-dismiss:hover{border-color:var(--accent);color:var(--accent)}
 
 .favorites-backup-mask{
   position:fixed;inset:0;z-index:140;display:grid;place-items:center;padding:20px;
@@ -60,7 +80,8 @@
 .favorites-backup-secondary,
 .favorites-backup-danger,
 .favorites-backup-entry button,
-.favorites-backup-result-btn{
+.favorites-backup-result-btn,
+.favorites-migration-banner button{
   min-height:44px;border-radius:12px;padding:9px 15px;font:800 13px/1.25 var(--font-ui);
   cursor:pointer;transition:background .15s,border-color .15s,color .15s,translate .15s,box-shadow .15s,opacity .15s;
 }
@@ -129,6 +150,16 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 .favorites-backup-stat b{display:block;font-size:12px}
 .favorites-backup-stat span{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.55}
 .favorites-backup-warning{color:var(--accent);font-weight:750}
+.favorites-migration-section{
+  border-color:color-mix(in srgb,var(--accent) 28%,var(--line));
+  background:linear-gradient(135deg,color-mix(in srgb,var(--accent-soft) 55%,var(--card)),var(--card));
+}
+.favorites-migration-feedback{margin:10px 0 0;color:var(--accent);font-size:12px;line-height:1.55}
+.favorites-migration-fallback{
+  display:inline-block;margin-top:10px;color:var(--muted);font-size:11.5px;line-height:1.45;text-decoration:underline;
+  text-decoration-color:color-mix(in srgb,var(--muted) 45%,transparent);text-underline-offset:3px;
+}
+.favorites-migration-fallback:hover{color:var(--accent);text-decoration-color:currentColor}
 
 .favorites-restore-modes{min-width:0;margin:13px 0 0;padding:0;border:0}
 .favorites-restore-modes legend{padding:0;margin-bottom:7px;color:var(--muted);font-size:11px;font-weight:800}
@@ -205,6 +236,9 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 .favorites-backup-result-btn{min-height:44px;border-radius:999px;padding-inline:15px}
 
 @media(max-width:520px){
+  .favorites-migration-banner{align-items:stretch;flex-direction:column;gap:10px;padding:13px}
+  .favorites-migration-banner-actions{width:100%}
+  .favorites-migration-banner-actions .favorites-backup-primary{flex:1}
   .favorites-backup-mask{align-items:end;padding:8px}
   .favorites-backup-dialog{max-height:calc(100dvh - 16px);border-radius:20px 20px 12px 12px}
   .favorites-backup-header{padding:17px 54px 14px 16px}
@@ -223,6 +257,8 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 }
 
 @media(max-width:390px){
+  .favorites-migration-banner-actions{align-items:stretch;flex-direction:column}
+  .favorites-migration-banner-actions button{width:100%}
   .favorites-backup-entry{align-items:stretch;flex-direction:column}
   .favorites-backup-entry button{width:100%}
   label.favorites-backup-file{grid-template-columns:34px minmax(0,1fr);column-gap:9px;padding-inline:10px}
@@ -243,5 +279,6 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
   .favorites-backup-danger,
   label.favorites-backup-file,
   .favorites-backup-entry button,
-  .favorites-backup-result-btn{transition:none!important}
+  .favorites-backup-result-btn,
+  .favorites-migration-banner button{transition:none!important}
 }

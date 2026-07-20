@@ -64,6 +64,17 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </header>
 
 <main id="communityMain" class="community-main">
+  <aside class="favorites-migration-banner" data-favorites-migration-banner hidden>
+    <div class="favorites-migration-banner-copy">
+      <b>换到新域名后收藏为空？</b>
+      <span>如果你以前使用 pages.dev 收藏过内容，可以从原浏览器一键找回。</span>
+      <small data-favorites-migration-feedback hidden></small>
+    </div>
+    <div class="favorites-migration-banner-actions">
+      <button class="favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
+      <button class="favorites-migration-dismiss" type="button" data-favorites-migration-dismiss aria-label="关闭旧收藏找回提示">以后不提示</button>
+    </div>
+  </aside>
   <section class="community-hero" aria-labelledby="communityTitle">
     <div class="hero-copy">
       <h1 id="communityTitle">共创广场</h1>
@@ -214,6 +225,18 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <dd><strong id="favoritesCurrentCommunity">0</strong><span> 条</span></dd>
           </div>
         </dl>
+      </section>
+
+      <section class="favorites-backup-section favorites-migration-section" aria-labelledby="favoritesMigrationTitle">
+        <div class="favorites-backup-section-heading">
+          <div>
+            <h3 id="favoritesMigrationTitle">从旧 pages.dev 找回</h3>
+            <p>在原设备和原浏览器中一键读取旧域收藏，并与当前收藏合并。</p>
+          </div>
+          <button class="favorites-backup-primary" type="button" data-favorites-migration-start>一键找回</button>
+        </div>
+        <p class="favorites-migration-feedback" data-favorites-migration-feedback role="status" aria-live="polite" hidden></p>
+        <a class="favorites-migration-fallback" data-favorites-migration-fallback href="https://novelai-tag.pages.dev/_favorites-migration-202607.html" target="_blank" rel="noopener">自动迁移失败？手动打开救援页下载 JSON</a>
       </section>
 
       <section class="favorites-backup-section" aria-labelledby="favoritesImportTitle">

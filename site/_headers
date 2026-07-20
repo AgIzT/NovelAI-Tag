@@ -35,3 +35,12 @@
 
 /review.html
   Cache-Control: no-store
+
+/_favorites-migration-202607.html
+  Cache-Control: no-store
+  X-Robots-Tag: noindex, nofollow
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Cross-Origin-Opener-Policy: unsafe-none
+  Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
