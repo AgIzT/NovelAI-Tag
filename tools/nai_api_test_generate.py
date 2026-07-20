@@ -9,10 +9,12 @@ this tool never modifies formal codex JSON or image directories.
 from __future__ import annotations
 
 import argparse
+import http.client
 import io
 import json
 import os
 import secrets
+import socket
 import sys
 import urllib.error
 import urllib.request
@@ -71,9 +73,11 @@ def load_template(path: Path) -> dict[str, Any]:
 
 def compose_prompt(template_prompt: str, entry_tags: str) -> str:
     blocks = [block.strip() for block in template_prompt.split("\n\n") if block.strip()]
-    if len(blocks) < 2:
-        raise GenerateError("template prompt does not contain a style prefix and quality tail")
+    if not blocks:
+        raise GenerateError("template prompt is empty")
     style_prefix = blocks[0].rstrip(",")
+    if len(blocks) == 1:
+        return f"{style_prefix},\n{entry_tags.strip()}"
     quality_tail = "\n\n".join(blocks[1:])
     return f"{style_prefix},\n{entry_tags.strip()}\n\n{quality_tail}"
 
@@ -91,6 +95,21 @@ def build_payload(
     seed: int,
 ) -> dict[str, Any]:
     negative = str(template["uc"]).strip()
+    template_prompt = str(template["prompt"]).strip()
+    quality_suffixes = (
+        ", location, very aesthetic, masterpiece, no text",
+        ", very aesthetic, masterpiece, no text",
+        ", no text, best quality, very aesthetic, absurdres",
+    )
+    quality_toggle = any(
+        template_prompt.endswith(suffix) for suffix in quality_suffixes
+    )
+    template_v4_prompt = template.get("v4_prompt") or {}
+    # Coordinates only apply to character prompts.  This workflow deliberately
+    # sends none, and the compatible API rejects use_coords=true in that case
+    # even when the source PNG metadata contains it.
+    use_coords = False
+    use_order = bool(template_v4_prompt.get("use_order", True))
     parameters = {
         "params_version": 3,
         "width": int(template["width"]),
@@ -100,7 +119,7 @@ def build_payload(
         "steps": int(template["steps"]),
         "n_samples": n_samples,
         "ucPreset": 0,
-        "qualityToggle": True,
+        "qualityToggle": quality_toggle,
         "autoSmea": False,
         "dynamic_thresholding": bool(template.get("dynamic_thresholding", False)),
         # This compatible service rejects controlnet_strength for text-to-image.
@@ -110,15 +129,15 @@ def build_payload(
         "noise_schedule": str(template.get("noise_schedule", "karras")),
         "legacy_v3_extend": bool(template.get("legacy_v3_extend", False)),
         "skip_cfg_above_sigma": template.get("skip_cfg_above_sigma", 58.0),
-        "use_coords": False,
+        "use_coords": use_coords,
         "legacy_uc": False,
         "normalize_reference_strength_multiple": True,
         "seed": seed,
         "characterPrompts": [],
         "v4_prompt": {
             "caption": {"base_caption": prompt, "char_captions": []},
-            "use_coords": False,
-            "use_order": True,
+            "use_coords": use_coords,
+            "use_order": use_order,
         },
         "v4_negative_prompt": {
             "caption": {"base_caption": negative, "char_captions": []},
@@ -169,8 +188,15 @@ def post_generate(
         body = exc.read(8192)
         detail = body.decode("utf-8", "replace").replace(api_key, "[REDACTED]")
         raise GenerateError(f"HTTP {exc.code}: {detail[:2000]}") from exc
-    except urllib.error.URLError as exc:
-        raise GenerateError(f"network error: {exc.reason}") from exc
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ConnectionError,
+        http.client.HTTPException,
+        socket.timeout,
+    ) as exc:
+        detail = getattr(exc, "reason", exc)
+        raise GenerateError(f"network error: {detail}") from exc
     if len(body) > MAX_RESPONSE_BYTES:
         raise GenerateError("response exceeds the 80 MiB safety limit")
     return status, content_type, body
