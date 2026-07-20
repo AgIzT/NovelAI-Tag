@@ -1,0 +1,2 @@
+# Keep the public rescue URL on the old origin instead of Pages' automatic .html -> extensionless 308.
+/_favorites-migration-202607.html /_favorites-migration-202607 200
