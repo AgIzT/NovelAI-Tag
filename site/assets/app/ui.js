@@ -685,8 +685,18 @@ export function bindUI() {
     };
   }
 
+  /* 手机滑动松手时地址栏伸缩会触发纯高度 resize：列数与卡宽都没变，全量重排只会让卡片
+     被打回估算高度再弹回实测高度（一缩一伸的乱晃感）。只有宽度变了才值得重排；
+     纯高度变化只需刷新虚拟渲染范围（与下方 ResizeObserver 的 2px 宽度守卫同一思路）。 */
+  let lastWindowWidth = window.innerWidth;
   window.addEventListener('resize', () => {
-    scheduleRelayout(true);
+    const width = window.innerWidth;
+    if (Math.abs(width - lastWindowWidth) >= 2) {
+      lastWindowWidth = width;
+      scheduleRelayout(true);
+    } else {
+      scheduleVirtualUpdate();
+    }
     updateScrollProgress();
   }, { passive: true });
 
