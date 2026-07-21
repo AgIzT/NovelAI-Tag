@@ -89,6 +89,9 @@ assert.equal(
 const codexes = [
   { id: 'alpha', aliases: ['old_alpha'] },
   { id: 'beta' },
+  { id: 'artist_nai45_strings' },
+  { id: 'mengshen_pack' },
+  { id: 'suozhang_r18' },
 ];
 
 class MemoryStorage {
@@ -319,6 +322,46 @@ const empty = createFavoritesMigrationRestore({
 });
 assert.equal(empty.plan.stats.all.incoming, 0);
 assert.deepEqual(empty.result, merged.result);
+
+// 旧域 payload 中的历史归属键会在合并时改挂当前法典；再次迁移不会重复新增。
+const ownerMigrationStorage = new MemoryStorage({
+  [ATLAS_FAVORITES_STORAGE_KEY]: JSON.stringify([
+    'artist_nai45_strings:mengshen_pack-0001',
+  ]),
+  [COMMUNITY_FAVORITES_STORAGE_KEY]: '[]',
+});
+const ownerMigrationMessage = payload('owner-migration', {
+  atlasKeys: [
+    'mengshen_pack:mengshen_pack-0001',
+    'mengshen_pack:mengshen_pack-0259',
+    'codex_6e699406:codex_6e699406-0042',
+    'codex_8489ac52:codex_8489ac52-0042',
+  ],
+  communityIds: [],
+});
+const ownerMigrated = createFavoritesMigrationRestore({
+  message: ownerMigrationMessage,
+  nonce: 'owner-migration',
+  storage: ownerMigrationStorage,
+  codexes,
+});
+assert.deepEqual(ownerMigrated.result.atlasKeys, [
+  'artist_nai45_strings:mengshen_pack-0001',
+  'mengshen_pack:mengshen_pack-0259',
+  'suozhang_r18:codex_6e699406-0042',
+  'suozhang_r18:codex_8489ac52-0042',
+]);
+assert.equal(ownerMigrated.plan.stats.atlas.added, 3);
+assert.equal(ownerMigrated.plan.stats.atlas.duplicate, 1);
+const ownerRepeated = createFavoritesMigrationRestore({
+  message: ownerMigrationMessage,
+  nonce: 'owner-migration',
+  storage: ownerMigrationStorage,
+  codexes,
+});
+assert.equal(ownerRepeated.plan.stats.atlas.added, 0);
+assert.equal(ownerRepeated.plan.stats.atlas.duplicate, 4);
+assert.deepEqual(ownerRepeated.result, ownerMigrated.result);
 
 // 畸形消息、字段限制、数量上限和 2 MiB 上限全部在写入前拒绝。
 expectCode('INVALID_MIGRATION_MESSAGE', () => createFavoritesMigrationRestore({

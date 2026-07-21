@@ -9,7 +9,9 @@ const {
   ATLAS_FAVORITES_STORAGE_KEY,
   COMMUNITY_FAVORITES_STORAGE_KEY,
   FavoritesBackupError,
+  atlasFavoriteStorageKeys,
   canonicalizeAtlasFavorite,
+  canonicalizeAtlasStorageKey,
   commitFavoritesRestore,
   createCodexLookup,
   createFavoritesBackup,
@@ -22,6 +24,11 @@ const {
 const codexes = [
   { id: 'alpha', aliases: ['old_alpha'] },
   { id: 'beta' },
+];
+const ownerMigrationCodexes = [
+  { id: 'artist_nai45_strings' },
+  { id: 'mengshen_pack' },
+  { id: 'suozhang_r18' },
 ];
 const exportedAt = '2026-07-10T00:00:00.000Z';
 
@@ -97,6 +104,63 @@ assert.deepEqual(
 assert.deepEqual(
   canonicalizeAtlasFavorite({ codexId: 'old_alpha', entryId: 'shared' }, codexes),
   { codexId: 'alpha', entryId: 'shared' },
+);
+assert.deepEqual(
+  atlasFavoriteStorageKeys({ codexId: 'alpha', entryId: 'alpha-42' }, codexes),
+  ['alpha:alpha-42', 'old_alpha:old_alpha-42'],
+);
+assert.deepEqual(
+  atlasFavoriteStorageKeys({ codexId: 'alpha', entryId: 'shared' }, codexes),
+  ['alpha:shared', 'old_alpha:shared'],
+);
+
+// 章节/法典合并后的旧归属键会改挂到当前法典，但词条 id 原样保留。
+for (const entryId of ['mengshen_pack-0001', 'mengshen_pack-0258']) {
+  assert.deepEqual(
+    canonicalizeAtlasFavorite({ codexId: 'mengshen_pack', entryId }, ownerMigrationCodexes),
+    { codexId: 'artist_nai45_strings', entryId },
+  );
+}
+assert.deepEqual(
+  canonicalizeAtlasFavorite(
+    { codexId: 'mengshen_pack', entryId: 'mengshen_pack-0259' },
+    ownerMigrationCodexes,
+  ),
+  { codexId: 'mengshen_pack', entryId: 'mengshen_pack-0259' },
+);
+for (const sourceCodexId of ['codex_6e699406', 'codex_8489ac52']) {
+  const entryId = `${sourceCodexId}-0042`;
+  assert.deepEqual(
+    canonicalizeAtlasFavorite({ codexId: sourceCodexId, entryId }, ownerMigrationCodexes),
+    { codexId: 'suozhang_r18', entryId },
+  );
+}
+assert.deepEqual(
+  canonicalizeAtlasStorageKey(
+    'mengshen_pack:mengshen_pack-0001',
+    ownerMigrationCodexes,
+  ),
+  { codexId: 'artist_nai45_strings', entryId: 'mengshen_pack-0001' },
+);
+assert.deepEqual(
+  atlasFavoriteStorageKeys(
+    { codexId: 'artist_nai45_strings', entryId: 'mengshen_pack-0001' },
+    ownerMigrationCodexes,
+  ),
+  [
+    'artist_nai45_strings:mengshen_pack-0001',
+    'mengshen_pack:mengshen_pack-0001',
+  ],
+);
+assert.deepEqual(
+  atlasFavoriteStorageKeys(
+    { codexId: 'suozhang_r18', entryId: 'codex_6e699406-0042' },
+    ownerMigrationCodexes,
+  ),
+  [
+    'suozhang_r18:codex_6e699406-0042',
+    'codex_6e699406:codex_6e699406-0042',
+  ],
 );
 
 // UTF-8 BOM、额外字段、文件内重复项，以及未知法典保留与计数。
@@ -194,6 +258,77 @@ assert.deepEqual(readStoredFavorites(readStorage, codexes), {
 });
 readStorage.values.set(ATLAS_FAVORITES_STORAGE_KEY, '{broken');
 assert.deepEqual(readStoredFavorites(readStorage, codexes).atlasKeys, []);
+
+// 现存旧键读取时归一并与新键去重，未迁出的 mengshen_pack-0259 保持原归属。
+const ownerMigrationStorage = new MemoryStorage({
+  [ATLAS_FAVORITES_STORAGE_KEY]: JSON.stringify([
+    'mengshen_pack:mengshen_pack-0001',
+    'artist_nai45_strings:mengshen_pack-0001',
+    'mengshen_pack:mengshen_pack-0259',
+    'codex_6e699406:codex_6e699406-0042',
+    'codex_8489ac52:codex_8489ac52-0042',
+  ]),
+  [COMMUNITY_FAVORITES_STORAGE_KEY]: '[]',
+});
+assert.deepEqual(readStoredFavorites(ownerMigrationStorage, ownerMigrationCodexes).atlasKeys, [
+  'artist_nai45_strings:mengshen_pack-0001',
+  'mengshen_pack:mengshen_pack-0259',
+  'suozhang_r18:codex_6e699406-0042',
+  'suozhang_r18:codex_8489ac52-0042',
+]);
+
+// 重复恢复同一条旧归属收藏是幂等的。
+const ownerMigrationBackup = createFavoritesBackup({
+  atlasKeys: ['mengshen_pack:mengshen_pack-0001'],
+  codexes: ownerMigrationCodexes,
+  exportedAt,
+});
+const ownerMigrationPlan = createFavoritesRestorePlan({
+  backup: ownerMigrationBackup,
+  currentAtlasKeys: ['artist_nai45_strings:mengshen_pack-0001'],
+  mode: 'merge',
+  codexes: ownerMigrationCodexes,
+});
+assert.equal(ownerMigrationPlan.stats.atlas.added, 0);
+assert.equal(ownerMigrationPlan.stats.atlas.duplicate, 1);
+assert.deepEqual(ownerMigrationPlan.next.atlas, [
+  { codexId: 'artist_nai45_strings', entryId: 'mengshen_pack-0001' },
+]);
+
+// 永久兼容表必须和当前真实数据对齐：258 条全命中，旧图包剩余项全不误迁。
+const realCodexes = JSON.parse(await readFile(new URL('../site/data/codexes.json', import.meta.url), 'utf8'));
+const artistStrings = JSON.parse(await readFile(new URL('../site/data/artist_nai45_strings.json', import.meta.url), 'utf8'));
+const mengshenPack = JSON.parse(await readFile(new URL('../site/data/mengshen_pack.json', import.meta.url), 'utf8'));
+const suozhangR18 = JSON.parse(await readFile(new URL('../site/data/suozhang_r18.json', import.meta.url), 'utf8'));
+const movedMengshenEntries = artistStrings.entries.filter(entry => entry.id.startsWith('mengshen_pack-'));
+assert.equal(movedMengshenEntries.length, 258);
+for (const entry of movedMengshenEntries) {
+  assert.deepEqual(
+    canonicalizeAtlasFavorite(
+      { codexId: 'mengshen_pack', entryId: entry.id },
+      realCodexes,
+    ),
+    { codexId: 'artist_nai45_strings', entryId: entry.id },
+  );
+}
+for (const entry of mengshenPack.entries) {
+  assert.deepEqual(
+    canonicalizeAtlasFavorite(
+      { codexId: 'mengshen_pack', entryId: entry.id },
+      realCodexes,
+    ),
+    { codexId: 'mengshen_pack', entryId: entry.id },
+  );
+}
+for (const entry of suozhangR18.entries) {
+  const sourceCodexId = entry.id.startsWith('codex_6e699406-')
+    ? 'codex_6e699406'
+    : 'codex_8489ac52';
+  assert.deepEqual(
+    canonicalizeAtlasFavorite({ codexId: sourceCodexId, entryId: entry.id }, realCodexes),
+    { codexId: 'suozhang_r18', entryId: entry.id },
+  );
+}
 
 // 双键提交成功后才返回最终运行态快照。
 const successStorage = new MemoryStorage();

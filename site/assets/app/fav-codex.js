@@ -2,6 +2,10 @@ import { state } from './state.js';
 import { fetchCodex, findCodexMeta, buildTreeFromEntries } from './data.js';
 import { isCodexLocked } from './access.js';
 import { hasEntryImage, entryImages, assetUrl } from './media.js';
+import {
+  FavoritesBackupError,
+  canonicalizeAtlasStorageKey,
+} from './favorites-backup-core.js';
 
 /* 全部收藏视图：把全部法典的收藏合并成一份临时数据，复用瀑布流/灯箱/搜索/目录树。
    词条克隆时：图片地址预解析成绝对 URL（含外部源法典也能跨书显示）、path 前面插入来源法典名
@@ -23,23 +27,19 @@ function favoritesViewMeta() {
   };
 }
 
-function parseFavKey(key) {
-  const i = String(key).indexOf(':');
-  if (i <= 0) return null;
-  return { codexId: key.slice(0, i), entryId: key.slice(i + 1) };
-}
-
-/* 旧收藏可能挂在别名法典 id 下（千藤/梦神有 aliases），归一到正主 id 再分组 */
+/* 旧收藏可能挂在别名法典或已迁移章节下，统一归一到当前正主后再分组。 */
 function canonicalizeFavKey(key) {
-  const parsed = parseFavKey(key);
-  if (!parsed) return null;
-  const meta = findCodexMeta(parsed.codexId);
-  if (!meta) return { ...parsed, meta: null, key };
-  let entryId = parsed.entryId;
-  if (meta.id !== parsed.codexId && entryId.startsWith(`${parsed.codexId}-`)) {
-    entryId = meta.id + entryId.slice(parsed.codexId.length);
+  try {
+    const normalized = canonicalizeAtlasStorageKey(key, state.codexes);
+    return {
+      ...normalized,
+      meta: findCodexMeta(normalized.codexId) || null,
+      key,
+    };
+  } catch (error) {
+    if (error instanceof FavoritesBackupError) return null;
+    throw error;
   }
-  return { codexId: meta.id, entryId, meta, key };
 }
 
 function collectFavGroups() {

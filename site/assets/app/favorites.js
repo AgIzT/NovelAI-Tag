@@ -1,7 +1,10 @@
 import { state } from './state.js';
 import { toast } from './feedback.js';
 import { findCodexMeta } from './data.js';
-import { ATLAS_FAVORITES_STORAGE_KEY } from './favorites-backup-core.js';
+import {
+  ATLAS_FAVORITES_STORAGE_KEY,
+  atlasFavoriteStorageKeys,
+} from './favorites-backup-core.js';
 
 const favoriteActions = { applyFilter: () => {}, refreshFavoritesView: () => {} };
 
@@ -16,14 +19,10 @@ function ownerCodex(e) {
 }
 
 export function favKeys(e, codex = ownerCodex(e)) {
-  const keys = [`${codex.id}:${e.id}`];
-  for (const alias of codex.aliases || []) {
-    const aliasEntryId = e.id.startsWith(`${codex.id}-`)
-      ? `${alias}${e.id.slice(codex.id.length)}`
-      : e.id;
-    keys.push(`${alias}:${aliasEntryId}`);
-  }
-  return keys;
+  return atlasFavoriteStorageKeys(
+    { codexId: codex.id, entryId: e.id },
+    state.codexes,
+  );
 }
 
 export function favKey(e) { return favKeys(e)[0]; }

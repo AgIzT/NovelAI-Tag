@@ -710,18 +710,35 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "favorite source cards")
         normal_hidden = cdp.eval("document.querySelector('#favoritesViewBackupBtn')?.hidden === true")
-        cdp.eval(f"localStorage.setItem('fadian-favs', JSON.stringify(['suozhang:{entry_id}']))")
-        navigate(cdp, base + "?codex=suozhang&fav=1")
+        favorite_keys = json.dumps([
+            f"suozhang:{entry_id}",
+            "mengshen_pack:mengshen_pack-0001",
+            "codex_6e699406:codex_6e699406-0001",
+        ])
+        cdp.eval(
+            "localStorage.setItem('fadian-nsfw-ok', '1'); "
+            f"localStorage.setItem('fadian-favs', JSON.stringify({favorite_keys}))"
+        )
+        navigate(cdp, base + "?codex=artist_nai45_strings&fav=1")
         wait_for(cdp, "!document.querySelector('#favoritesViewBackupBtn')?.hidden", "favorites backup entry", timeout=10)
-        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "favorite cards", timeout=10)
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 3", "favorite cards", timeout=15)
         cdp.eval("document.querySelector('#favoritesViewBackupBtn').click()")
         wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.hidden", "favorites backup dialog")
         settle(cdp, 250)
-        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', migrationTitle: document.querySelector('#favoritesMigrationTitle')?.textContent || '', migrationButton: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '', migrationFallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '', normalHidden: " + ("true" if normal_hidden else "false") + "})")
+        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', migrationTitle: document.querySelector('#favoritesMigrationTitle')?.textContent || '', migrationButton: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '', migrationFallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '', result: document.querySelector('#resultInfo')?.textContent || '', cards: [...document.querySelectorAll('.card')].map(card => ({title: card.querySelector('.card-title')?.textContent || '', path: card.querySelector('.card-path')?.textContent || '', favorite: card.querySelector('.fav-btn')?.textContent || ''})), normalHidden: " + ("true" if normal_hidden else "false") + "})")
         if not data["normalHidden"]:
             raise CheckFailed("Favorites backup entry was visible outside the favorites view")
         if "备份与恢复" not in data["button"] or data["dialog"] != "收藏备份与恢复":
             raise CheckFailed("Favorites backup entry did not open the shared dialog")
+        if data["atlas"] != "3" or "收藏：3 条" not in data["result"]:
+            raise CheckFailed(f"Historical favorite owners did not render all three cards: {data!r}")
+        dream_card = next((card for card in data["cards"] if card["title"] == "梦神NAI4.5F画风合集 0001"), None)
+        if not dream_card or not dream_card["path"].startswith("NovelAI4.5画师串词典 ›"):
+            raise CheckFailed(f"Moved mengshen favorite did not resolve to artist strings: {data['cards']!r}")
+        if not any(card["path"].startswith("所长色色NovalAI个人法典（合并版） ›") for card in data["cards"]):
+            raise CheckFailed(f"Legacy suozhang favorite did not resolve to the merged codex: {data['cards']!r}")
+        if any(card["favorite"] != "★" for card in data["cards"]):
+            raise CheckFailed(f"Resolved historical favorites lost their active star: {data['cards']!r}")
         if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "一键找回":
             raise CheckFailed("Favorites backup dialog is missing the permanent pages.dev migration entry")
         fallback_url = urllib.parse.urlparse(data["migrationFallback"])
@@ -732,7 +749,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             or fallback_query.get("bridge") != ["20260721"]
         ):
             raise CheckFailed("Favorites migration fallback does not target the rescue page")
-        cdp.eval("document.querySelector('#favoritesBackupClose')?.click(); localStorage.removeItem('fadian-favs')")
+        cdp.eval("document.querySelector('#favoritesBackupClose')?.click(); localStorage.removeItem('fadian-favs'); localStorage.removeItem('fadian-nsfw-ok')")
         check_no_errors(cdp)
         return data
 

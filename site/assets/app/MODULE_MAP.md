@@ -17,9 +17,9 @@ This file records the first split of `site/assets/app.js`. It is meant to keep l
 | `media.js` | image availability, asset paths, rev/cache bust URLs | none | `state.js`, `utils.js` | none |
 | `copy.js` | `copyEntry`, `copyText`, prompt conversion/building | `NAI_WEIGHT_BASE` | `state.js`, `feedback.js`, `history.js` | none |
 | `favorites.js` | `setFavoritesActions`, `favKey`, `favKeys`, `isFav`, `toggleFav`, `saveFavs` | `favoriteActions` | `state.js`, `feedback.js`, `data.js`, `favorites-backup-core.js` | `applyFilter`, `refreshFavoritesView` |
-| `favorites-backup-core.js` | versioned backup schema, alias normalization, merge/replace planning, two-key commit/rollback | none | none | none |
+| `favorites-backup-core.js` | versioned backup schema, alias/entry-owner normalization, key variants, merge/replace planning, two-key commit/rollback | permanent favorite-owner migration table | none | none |
 | `favorites-backup.js` | `setupFavoritesBackup`, `subscribeFavoritesChanges` | dialog state, codex index promise | `favorites-backup-core.js`, `modal.js`, `browser-history.js` | page-provided codex index; emits scoped favorite-change events |
-| `fav-codex.js` | `FAVORITES_CODEX_ID`, `buildFavoritesCodex` | none | `state.js`, `data.js`, `access.js`, `media.js` | none |
+| `fav-codex.js` | `FAVORITES_CODEX_ID`, `buildFavoritesCodex` | none | `state.js`, `data.js`, `access.js`, `media.js`, `favorites-backup-core.js` | none |
 | `site-search.js` | `SITE_SEARCH_CODEX_ID`, `buildSiteSearchCodex` | none | `state.js`, `data.js`, `access.js`, `media.js` | none |
 | `report.js` | `setupReport`, `openReportDialog`, feedback context packing | `currentPayload`, `currentTrigger` | `state.js`, `utils.js`, `feedback.js`, `modal.js`, `media.js` | none |
 | `announcements.js` | `setupAnnouncements`, `loadAnnouncements`, `openAnnouncementsPanel`, badge update | `announcements`, loading flags | `utils.js`, `modal.js`, `history.js` | none |

@@ -10,6 +10,29 @@ export const FAVORITES_BACKUP_LIMITS = Object.freeze({
   maxCommunityIdLength: 256,
 });
 
+// 永久兼容表：词条保留原 id、但归属法典发生变化时，旧 localStorage 键仍须指向新正主。
+// 这与整本法典 aliases 不同：mengshen_pack 仍存在，只迁走了 0001-0258 这一段。
+export const ATLAS_FAVORITE_OWNER_MIGRATIONS = Object.freeze([
+  Object.freeze({
+    sourceCodexId: 'mengshen_pack',
+    targetCodexId: 'artist_nai45_strings',
+    entryIdPrefix: 'mengshen_pack-',
+    entryNumberMin: 1,
+    entryNumberMax: 258,
+    entryNumberWidth: 4,
+  }),
+  Object.freeze({
+    sourceCodexId: 'codex_6e699406',
+    targetCodexId: 'suozhang_r18',
+    entryIdPrefix: 'codex_6e699406-',
+  }),
+  Object.freeze({
+    sourceCodexId: 'codex_8489ac52',
+    targetCodexId: 'suozhang_r18',
+    entryIdPrefix: 'codex_8489ac52-',
+  }),
+]);
+
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f-\u009f]/;
 
 export class FavoritesBackupError extends Error {
@@ -128,9 +151,31 @@ function toCodexLookup(codexesOrLookup) {
   return createCodexLookup(codexesOrLookup || []);
 }
 
+function migrationMatchesEntryId(migration, entryId) {
+  if (!entryId.startsWith(migration.entryIdPrefix)) return false;
+  if (!Number.isInteger(migration.entryNumberMin)) return true;
+  const suffix = entryId.slice(migration.entryIdPrefix.length);
+  return suffix.length === migration.entryNumberWidth
+    && /^\d+$/.test(suffix)
+    && Number(suffix) >= migration.entryNumberMin
+    && Number(suffix) <= migration.entryNumberMax;
+}
+
+function findFavoriteOwnerMigration(item, lookup) {
+  const migration = ATLAS_FAVORITE_OWNER_MIGRATIONS.find(candidate => (
+    candidate.sourceCodexId === item.codexId
+    && migrationMatchesEntryId(candidate, item.entryId)
+  ));
+  if (!migration) return null;
+  return lookup.byAnyId.get(migration.targetCodexId) || null;
+}
+
 export function canonicalizeAtlasFavorite(favorite, codexesOrLookup = []) {
   const item = validateAtlasItem(favorite);
   const lookup = toCodexLookup(codexesOrLookup);
+  const migratedOwner = findFavoriteOwnerMigration(item, lookup);
+  if (migratedOwner) return { codexId: migratedOwner.id, entryId: item.entryId };
+
   const meta = lookup.byAnyId.get(item.codexId);
   if (!meta) return item;
 
@@ -140,6 +185,30 @@ export function canonicalizeAtlasFavorite(favorite, codexesOrLookup = []) {
     entryId = meta.id + entryId.slice(item.codexId.length);
   }
   return { codexId: meta.id, entryId };
+}
+
+export function atlasFavoriteStorageKeys(favorite, codexesOrLookup = []) {
+  const lookup = toCodexLookup(codexesOrLookup);
+  const canonical = canonicalizeAtlasFavorite(favorite, lookup);
+  const keys = new Set([atlasStorageKey(canonical)]);
+  const meta = lookup.byAnyId.get(canonical.codexId);
+
+  for (const alias of meta?.aliases || []) {
+    const aliasEntryId = canonical.entryId.startsWith(`${meta.id}-`)
+      ? alias + canonical.entryId.slice(meta.id.length)
+      : canonical.entryId;
+    keys.add(atlasStorageKey({ codexId: alias, entryId: aliasEntryId }));
+  }
+
+  for (const migration of ATLAS_FAVORITE_OWNER_MIGRATIONS) {
+    if (
+      migration.targetCodexId === canonical.codexId
+      && migrationMatchesEntryId(migration, canonical.entryId)
+    ) {
+      keys.add(atlasStorageKey({ codexId: migration.sourceCodexId, entryId: canonical.entryId }));
+    }
+  }
+  return [...keys];
 }
 
 function normalizeAtlasItems(values, lookup) {
@@ -152,14 +221,19 @@ function normalizeAtlasItems(values, lookup) {
 }
 
 function parseAtlasStorageKey(value, index) {
+  const label = index >= 0 ? `本地法典收藏第 ${index + 1} 项` : '本地法典收藏';
   if (typeof value !== 'string') {
-    fail('INVALID_ATLAS_ITEM', `本地法典收藏第 ${index + 1} 项必须是字符串`);
+    fail('INVALID_ATLAS_ITEM', `${label}必须是字符串`);
   }
   const separator = value.indexOf(':');
   if (separator <= 0 || separator === value.length - 1) {
-    fail('INVALID_ATLAS_ITEM', `本地法典收藏第 ${index + 1} 项格式无效`);
+    fail('INVALID_ATLAS_ITEM', `${label}格式无效`);
   }
   return validateAtlasItem({ codexId: value.slice(0, separator), entryId: value.slice(separator + 1) }, index);
+}
+
+export function canonicalizeAtlasStorageKey(value, codexesOrLookup = []) {
+  return canonicalizeAtlasFavorite(parseAtlasStorageKey(value, -1), codexesOrLookup);
 }
 
 function normalizeAtlasStorageKeys(values, lookup) {
