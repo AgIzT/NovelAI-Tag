@@ -76,9 +76,26 @@ def paragraph_style(p):
     return style.attrib.get(f"{{{NS['w']}}}val", "") if style is not None else ""
 
 
+def paragraph_content_nodes(p):
+    """Yield this paragraph's descendants without entering nested paragraphs.
+
+    Word text boxes embed their own ``w:p`` elements below the surrounding body
+    paragraph. ``load_paragraphs`` enumerates both levels, so descending into a
+    nested paragraph here would emit the same text or image twice.
+    """
+    stack = list(reversed(list(p)))
+    paragraph_tag = f"{{{NS['w']}}}p"
+    while stack:
+        node = stack.pop()
+        if node.tag == paragraph_tag:
+            continue
+        yield node
+        stack.extend(reversed(list(node)))
+
+
 def paragraph_text(p):
     chunks = []
-    for node in p.iter():
+    for node in paragraph_content_nodes(p):
         tag = node.tag
         if tag == f"{{{NS['w']}}}t":
             chunks.append(node.text or "")
@@ -91,7 +108,9 @@ def paragraph_text(p):
 
 def paragraph_blips(p, rels):
     out = []
-    for blip in p.findall(".//a:blip", NS):
+    for blip in paragraph_content_nodes(p):
+        if blip.tag != f"{{{NS['a']}}}blip":
+            continue
         rid = blip.attrib.get(f"{{{NS['r']}}}embed") or blip.attrib.get(f"{{{NS['r']}}}link")
         if rid and rid in rels:
             out.append(rels[rid])
