@@ -4,7 +4,9 @@ import { entryImages, hasEntryImage } from './media.js';
 import { isFav } from './favorites.js';
 
 export function searchableText(e) {
-  return [e.title, e.tags, e.negative, e.note, e.rawTags, ...(e.path || [])]
+  const characterText = (e.characterPrompts || [])
+    .flatMap(item => [item.label, item.prompt, item.negative]);
+  return [e.title, e.tags, e.negative, ...characterText, e.note, e.rawTags, ...(e.path || [])]
     .join('\n')
     .toLowerCase();
 }

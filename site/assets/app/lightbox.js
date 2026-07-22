@@ -253,6 +253,50 @@ export function preloadLightboxNeighbors() {
   }
 }
 
+export function renderCharacterPrompts(entry) {
+  const block = $('#characterPromptsBlock');
+  const container = $('#lightboxCharacterPrompts');
+  if (!block || !container) return;
+  const prompts = Array.isArray(entry?.characterPrompts) ? entry.characterPrompts : [];
+  container.replaceChildren();
+  block.hidden = !prompts.length;
+  if (!prompts.length) return;
+
+  const addPromptBox = (parent, labelText, prompt, message) => {
+    if (!String(prompt || '').trim()) return;
+    const head = document.createElement('div');
+    head.className = 'section-head';
+    const label = document.createElement('div');
+    label.className = 'section-label';
+    label.textContent = labelText;
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = `复制 ${labelText}`;
+    copy.onclick = ev => {
+      ev.stopPropagation();
+      copyText(prompt, `${message}：${entry.title}`, copy);
+    };
+    head.append(label, copy);
+    const content = document.createElement('pre');
+    renderHighlightedText(content, prompt, currentHighlightTerms());
+    parent.append(head, content);
+  };
+
+  for (const item of prompts) {
+    const prompt = document.createElement('section');
+    prompt.className = 'character-prompt';
+    const label = String(item.label || 'char').trim() || 'char';
+    addPromptBox(prompt, label, item.prompt, `已复制 ${label}`);
+    if (String(item.negative || '').trim()) {
+      const negative = document.createElement('div');
+      negative.className = 'character-prompt-negative';
+      addPromptBox(negative, `${label} Negative`, item.negative, `已复制 ${label} 负面`);
+      prompt.appendChild(negative);
+    }
+    container.appendChild(prompt);
+  }
+}
+
 export function renderLightbox() {
   const lb = state.lightbox;
   const e = lb.entry;
@@ -307,6 +351,7 @@ export function renderLightbox() {
   const hasPositive = Boolean(String(e.tags || '').trim());
   if (hasPositive) renderHighlightedText($('#lightboxTags'), e.tags || '', currentHighlightTerms());
   else $('#lightboxTags').textContent = '暂无站内可复制 tags；可尝试将原图拖入 NovelAI 读取。';
+  renderCharacterPrompts(e);
   $('#lightboxNegative').textContent = e.negative || '';
   $('#lightboxNote').textContent = e.note || '';
   $('#negativeBlock').hidden = !e.negative;
@@ -316,7 +361,7 @@ export function renderLightbox() {
   $('#copyPositive').onclick = ev => { ev.stopPropagation(); copyText(e.tags, `已复制正向：${e.title}`); };
   $('#copyNegative').hidden = !e.negative;
   $('#copyNegative').onclick = ev => { ev.stopPropagation(); copyText(e.negative, `已复制负面：${e.title}`); };
-  $('#copyAll').hidden = !e.negative;
+  $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
   $('#copyAll').onclick = ev => { ev.stopPropagation(); copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`); };
   $('#copyRawTag').hidden = !item.rawTag;
   $('#copyRawTag').onclick = ev => { ev.stopPropagation(); copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`); };

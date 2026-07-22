@@ -22,7 +22,9 @@
 | --- | --- | --- |
 | `imgserver.py` + `pei.html` | `配图工具.bat` 背后的本地配图编辑器，默认端口 `8767`。 | 通过页面操作才会写入 |
 | `strings_server.py` + `strings_editor.html` | 画师串/字符串编辑器，默认端口 `8768`。 | 通过页面操作才会写入 |
-| `import_mengshen_pack.py` | 导入梦神整理图包。 | 默认只预览；带 `--apply` 才写入 |
+| `import_mengshen_pack.py` | 梦神整理图包的历史来源适配器。 | 默认只预览；当前章节迁移态禁止重放 `--apply` |
+| `import_community_ai_misc.py` | 导入并验证社区 AI 杂图。 | 默认审计；`--apply` 首次写入；`--validate` 验证现状 |
+| `backfill_pack_character_prompts.py` | 从当前两本图包引用的原图幂等回填 NAI V4 角色提示词。 | 默认预演；确认无缺失 / 解析错误后带 `--apply` |
 | `__pycache__/` | Python 自动生成缓存。 | 可忽略 |
 
 ## 法典增量匹配预演

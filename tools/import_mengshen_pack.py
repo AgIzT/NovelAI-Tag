@@ -146,6 +146,33 @@ def parse_json(value):
     return None
 
 
+def v4_caption_parts(payload, key):
+    node = payload.get(key) if isinstance(payload, dict) else None
+    caption = node.get("caption") if isinstance(node, dict) else None
+    caption = caption if isinstance(caption, dict) else {}
+    base = str(caption.get("base_caption") or "").strip()
+    characters = []
+    for item in caption.get("char_captions") or []:
+        characters.append(str(item.get("char_caption") or "").strip() if isinstance(item, dict) else "")
+    return base, characters
+
+
+def character_prompts_from_payload(payload):
+    _, positive = v4_caption_parts(payload, "v4_prompt")
+    _, negative = v4_caption_parts(payload, "v4_negative_prompt")
+    out = []
+    for index in range(max(len(positive), len(negative))):
+        prompt = positive[index] if index < len(positive) else ""
+        uc = negative[index] if index < len(negative) else ""
+        if not prompt and not uc:
+            continue
+        item = {"label": f"char{index + 1}", "prompt": prompt}
+        if uc:
+            item["negative"] = uc
+        out.append(item)
+    return out
+
+
 def extract_from_object(obj):
     prompt = ""
     negative = ""
@@ -163,16 +190,24 @@ def extract_from_object(obj):
             negative = comment["uc"]
         if not negative and isinstance(comment.get("negative_prompt"), str):
             negative = comment["negative_prompt"]
-    return prompt.strip(), negative.strip(), comment or {}
+    payload = comment or obj
+    base_prompt, _ = v4_caption_parts(payload, "v4_prompt")
+    base_negative, _ = v4_caption_parts(payload, "v4_negative_prompt")
+    return (
+        base_prompt or prompt.strip(),
+        base_negative or negative.strip(),
+        comment or {},
+        character_prompts_from_payload(payload),
+    )
 
 
 def extract_metadata(path):
     if path.suffix.lower() != ".png":
-        return "", "", {}, "none"
+        return "", "", {}, [], "none"
     try:
         buf = path.read_bytes()
     except Exception:
-        return "", "", {}, "unreadable"
+        return "", "", {}, [], "unreadable"
 
     rows = {}
     for name, data in read_chunks(buf):
@@ -185,14 +220,14 @@ def extract_metadata(path):
         if item:
             rows[item[0]] = item[1]
     if rows:
-        prompt, negative, comment = extract_from_object(rows)
-        return prompt, negative, comment, "text"
+        prompt, negative, comment, character_prompts = extract_from_object(rows)
+        return prompt, negative, comment, character_prompts, "text"
 
     stealth = extract_stealth_pngcomp(path)
     if stealth:
-        prompt, negative, comment = extract_from_object(stealth)
-        return prompt, negative, comment or stealth, "stealth"
-    return "", "", {}, "none"
+        prompt, negative, comment, character_prompts = extract_from_object(stealth)
+        return prompt, negative, comment or stealth, character_prompts, "stealth"
+    return "", "", {}, [], "none"
 
 
 def sampler_label(value):
@@ -412,7 +447,7 @@ def main():
     serial = 1
     path_counts = {}
     for top, class_dir, src in iter_image_sources(source):
-        prompt, negative, params, metadata_kind = extract_metadata(src)
+        prompt, negative, params, character_prompts, metadata_kind = extract_metadata(src)
         no_prompt = not bool(prompt)
         is_webp = src.suffix.lower() == ".webp"
         if no_prompt and not is_webp:
@@ -435,6 +470,7 @@ def main():
             "path": entry_path,
             "tags": prompt,
             "negative": negative,
+            **({"characterPrompts": character_prompts} if character_prompts else {}),
             "note": format_note(params or {}, metadata_kind, no_prompt=no_prompt),
             "rating": rating,
             "id": entry_id,

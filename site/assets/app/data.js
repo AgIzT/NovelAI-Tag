@@ -107,11 +107,30 @@ export function normalizeEntry(entry, codex, index) {
     path: Array.isArray(entry.path) ? entry.path : [],
     tags: String(entry.tags || entry.rawTags || ''),
     negative: String(entry.negative || ''),
+    characterPrompts: normalizeCharacterPrompts(entry.characterPrompts),
     note: String(entry.note || ''),
     image: entry.image || primary?.path || '',
     original: entry.original || primary?.original || primary?.path || '',
     images,
   };
+}
+
+export function normalizeCharacterPrompts(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  value.forEach((raw, index) => {
+    const item = typeof raw === 'string' ? { prompt: raw } : raw;
+    if (!item || typeof item !== 'object') return;
+    const prompt = String(item.prompt || item.positive || item.char_caption || '').trim();
+    const negative = String(item.negative || item.uc || '').trim();
+    if (!prompt && !negative) return;
+    out.push({
+      label: String(item.label || `char${index + 1}`).trim() || `char${index + 1}`,
+      prompt,
+      negative,
+    });
+  });
+  return out;
 }
 
 export function normalizeImageList(entry) {

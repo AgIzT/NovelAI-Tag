@@ -409,6 +409,21 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     entry_id = first_imaged_entry_id("suozhang")
     new_label, new_count = new_filter_config("suozhang")
     r18_new_label, r18_new_count = new_filter_config("suozhang_r18")
+    pack_data = json.loads((ROOT / "site" / "data" / "community_ai_misc.json").read_text(encoding="utf-8"))
+    pack_entries = pack_data.get("entries") or []
+    multi_character_entry = next(
+        entry for entry in pack_entries
+        if entry.get("rating") == "safe" and len(entry.get("characterPrompts") or []) >= 2
+    )
+    negative_character_entry = next(
+        entry for entry in pack_entries
+        if entry.get("rating") == "safe"
+        and any(item.get("negative") for item in entry.get("characterPrompts") or [])
+    )
+    no_character_entry = next(
+        entry for entry in pack_entries
+        if entry.get("rating") == "safe" and not entry.get("characterPrompts")
+    )
 
     def desktop_load():
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
@@ -588,6 +603,70 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("Copy did not record a recent entry")
         check_no_errors(cdp)
         return data
+
+    def pack_character_prompts():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        multi_id = urllib.parse.quote(multi_character_entry["id"])
+        navigate(cdp, base + f"?codex=community_ai_misc&entry={multi_id}")
+        expected = multi_character_entry["characterPrompts"]
+        wait_for(
+            cdp,
+            f"document.querySelector('#lightbox')?.classList.contains('is-open') && document.querySelectorAll('#lightboxCharacterPrompts .character-prompt').length === {len(expected)}",
+            "multi-character prompt boxes",
+            timeout=12,
+        )
+        settle(cdp, 350)
+        data = cdp.eval("""
+(() => {
+  const items = [...document.querySelectorAll('#lightboxCharacterPrompts .character-prompt')];
+  const info = document.querySelector('#lightboxInfo');
+  return {
+    hidden: document.querySelector('#characterPromptsBlock')?.hidden,
+    labels: items.map(item => item.querySelector(':scope > .section-head .section-label')?.textContent || ''),
+    prompts: items.map(item => item.querySelector(':scope > pre')?.textContent || ''),
+    copyAllHidden: document.querySelector('#copyAll')?.hidden,
+    horizontalOverflow: info ? info.scrollWidth > info.clientWidth + 1 : true,
+  };
+})()
+""")
+        expected_labels = [item["label"] for item in expected]
+        expected_prompts = [item.get("prompt", "") for item in expected]
+        if data["hidden"] or data["labels"] != expected_labels or data["prompts"] != expected_prompts:
+            raise CheckFailed(f"Character prompt boxes do not match pack data: expected={expected_labels}, actual={data}")
+        if data["copyAllHidden"] or data["horizontalOverflow"]:
+            raise CheckFailed(f"Character prompt actions overflowed or copy-all stayed hidden: {data}")
+        cdp.eval("document.querySelector('#lightboxCharacterPrompts .character-prompt > .section-head button')?.click()")
+        wait_for(cdp, "document.querySelector('#toast')?.textContent.includes('已复制 char1')", "character prompt copy toast")
+        data["toast"] = cdp.eval("document.querySelector('#toast')?.textContent || ''")
+        shot = screenshot(cdp, out_dir, "pack-character-prompts")
+
+        negative_id = urllib.parse.quote(negative_character_entry["id"])
+        navigate(cdp, base + f"?codex=community_ai_misc&entry={negative_id}")
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open') && !!document.querySelector('.character-prompt-negative')", "character negative prompt box", timeout=12)
+        negative_labels = cdp.eval("[...document.querySelectorAll('.character-prompt-negative .section-label')].map(node => node.textContent)")
+        expected_negative_labels = [
+            f"{item['label']} Negative"
+            for item in negative_character_entry["characterPrompts"]
+            if item.get("negative")
+        ]
+        if negative_labels != expected_negative_labels:
+            raise CheckFailed(f"Character negative labels do not match pack data: {negative_labels}")
+
+        no_character_id = urllib.parse.quote(no_character_entry["id"])
+        navigate(cdp, base + f"?codex=community_ai_misc&entry={no_character_id}")
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open')", "entry without character prompts", timeout=12)
+        if not cdp.eval("document.querySelector('#characterPromptsBlock')?.hidden === true && document.querySelectorAll('#lightboxCharacterPrompts .character-prompt').length === 0"):
+            raise CheckFailed("Character prompt block stayed visible on an entry without character prompts")
+        check_no_errors(cdp)
+        return {
+            **data,
+            "multiEntry": multi_character_entry["id"],
+            "negativeEntry": negative_character_entry["id"],
+            "emptyEntry": no_character_entry["id"],
+            "negativeLabels": negative_labels,
+            "screenshot": shot,
+        }
 
     def deep_link_lightbox():
         clear_errors(cdp)
@@ -1200,6 +1279,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("search highlights text", search_highlight),
         ("author search syntax", author_search),
         ("copy card shows feedback", copy_card_feedback),
+        ("pack character prompts render", pack_character_prompts),
         ("entry deep-link opens lightbox", deep_link_lightbox),
         ("random explore opens lightbox", random_explore),
         ("resume last browse", resume_browse),

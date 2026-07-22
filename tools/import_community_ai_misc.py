@@ -72,6 +72,27 @@ def clean_text(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
+def clean_character_prompts(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, str]] = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            continue
+        prompt = clean_text(raw.get("prompt"))
+        negative = clean_text(raw.get("negative"))
+        if not prompt and not negative:
+            continue
+        item = {
+            "label": clean_text(raw.get("label")) or f"char{index + 1}",
+            "prompt": prompt,
+        }
+        if negative:
+            item["negative"] = negative
+        out.append(item)
+    return out
+
+
 def sampler_label(value: Any) -> str:
     labels = {
         "k_euler_ancestral": "Euler A",
@@ -129,6 +150,7 @@ def scan_one(task: dict[str, Any]) -> dict[str, Any]:
         "sourceType": "unknown",
         "prompt": "",
         "negative": "",
+        "characterPrompts": [],
         "note": "",
         "promptTagCount": 0,
         "sha256": "",
@@ -152,6 +174,7 @@ def scan_one(task: dict[str, Any]) -> dict[str, Any]:
         result["sourceType"] = clean_text(meta.source_type) or "unknown"
         result["prompt"] = clean_text(meta.prompt)
         result["negative"] = clean_text(meta.negative)
+        result["characterPrompts"] = clean_character_prompts(meta.character_prompts)
         result["note"] = metadata_note(meta)
         result["promptTagCount"] = len(split_prompt_tags(result["prompt"]))
     except Exception as exc:
@@ -234,6 +257,8 @@ def validation_one(task: dict[str, Any]) -> dict[str, Any]:
         issues.append("prompt_mismatch")
     if clean_text(meta.negative) != clean_text(entry.get("negative")):
         issues.append("negative_mismatch")
+    if clean_character_prompts(meta.character_prompts) != clean_character_prompts(entry.get("characterPrompts")):
+        issues.append("character_prompts_mismatch")
     try:
         with Image.open(thumb) as image:
             if image.size != (entry.get("imageWidth"), entry.get("imageHeight")):
@@ -574,6 +599,7 @@ def apply_import(results: list[dict[str, Any]], workers: int) -> dict[str, Any]:
             "path": row["path"],
             "tags": row["prompt"],
             "negative": row["negative"],
+            **({"characterPrompts": row["characterPrompts"]} if row["characterPrompts"] else {}),
             "note": row["note"],
             "rating": row["rating"],
             "id": row["entryId"],

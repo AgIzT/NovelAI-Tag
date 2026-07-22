@@ -120,5 +120,18 @@ export async function copyText(text, message, node, options = {}) {
 }
 
 export function combinedPrompt(e) {
-  return e.negative ? `${e.tags}\n\nNegative:\n${e.negative}` : e.tags;
+  const sections = [];
+  if (String(e.tags || '').trim()) sections.push(String(e.tags).trim());
+  for (const item of e.characterPrompts || []) {
+    if (String(item.prompt || '').trim()) {
+      sections.push(`${item.label || 'char'}:\n${String(item.prompt).trim()}`);
+    }
+  }
+  if (String(e.negative || '').trim()) sections.push(`Negative:\n${String(e.negative).trim()}`);
+  for (const item of e.characterPrompts || []) {
+    if (String(item.negative || '').trim()) {
+      sections.push(`${item.label || 'char'} Negative:\n${String(item.negative).trim()}`);
+    }
+  }
+  return sections.join('\n\n');
 }

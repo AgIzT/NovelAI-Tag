@@ -1289,6 +1289,18 @@ a.lightbox-credit:hover{text-decoration:underline}
   color:var(--text);font:12px/1.55 var(--font-prompt);
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
+.character-prompts{display:grid;gap:9px;margin-top:7px}
+.character-prompt{
+  padding:9px;border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:12px;background:color-mix(in srgb,var(--tagbg) 64%,transparent);
+}
+.character-prompt .section-head{margin-bottom:6px}
+.character-prompt .section-label{color:var(--accent);font-family:var(--font-prompt)}
+.character-prompt > .section-head button{background:var(--accent);color:#fff}
+.character-prompt pre{max-height:145px;background:var(--glass)}
+.character-prompt-negative{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+.character-prompt-negative .section-label{color:var(--new)}
+.character-prompt-negative .section-head button{background:var(--new);color:#fff}
 .lightbox-thumbs{
   position:absolute;left:50%;bottom:18px;translate:-50% 0;z-index:3;cursor:default;
   display:flex;gap:7px;max-width:72vw;overflow-x:auto;padding:7px;

@@ -17,7 +17,7 @@ import struct
 import sys
 import unicodedata
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -37,6 +37,7 @@ class Metadata:
     negative: str
     fields: dict[str, Any]
     chunks: list[dict[str, str]]
+    character_prompts: list[dict[str, str]] = field(default_factory=list)
 
 
 def decode_text(data: bytes) -> str:
@@ -110,16 +111,36 @@ def split_webui_parameters(text: str) -> tuple[str, str, str]:
     return prompt.strip(), negative.strip(), ("Steps: " + other).strip() if sep else ""
 
 
-def nai_v4_caption_text(data: dict[str, Any], key: str) -> str:
+def nai_v4_caption_parts(data: dict[str, Any], key: str) -> tuple[str, list[str]]:
     caption = (((data.get(key) or {}).get("caption") or {}) if isinstance(data.get(key), dict) else {})
-    parts: list[str] = []
-    base = caption.get("base_caption")
-    if base:
-        parts.append(str(base))
+    base = str(caption.get("base_caption") or "").strip()
+    characters: list[str] = []
     for item in caption.get("char_captions") or []:
-        if isinstance(item, dict) and item.get("char_caption"):
-            parts.append(str(item["char_caption"]))
+        value = str(item.get("char_caption") or "").strip() if isinstance(item, dict) else ""
+        characters.append(value)
+    return base, characters
+
+
+def nai_v4_caption_text(data: dict[str, Any], key: str) -> str:
+    base, characters = nai_v4_caption_parts(data, key)
+    parts = [base, *(value for value in characters if value)]
     return "\n".join(parts).strip()
+
+
+def nai_v4_character_prompts(data: dict[str, Any]) -> list[dict[str, str]]:
+    _, positive = nai_v4_caption_parts(data, "v4_prompt")
+    _, negative = nai_v4_caption_parts(data, "v4_negative_prompt")
+    out: list[dict[str, str]] = []
+    for index in range(max(len(positive), len(negative))):
+        prompt = positive[index] if index < len(positive) else ""
+        uc = negative[index] if index < len(negative) else ""
+        if not prompt and not uc:
+            continue
+        item = {"label": f"char{index + 1}", "prompt": prompt}
+        if uc:
+            item["negative"] = uc
+        out.append(item)
+    return out
 
 
 def _json_text(value: Any) -> str:
@@ -132,17 +153,19 @@ def metadata_from_png_chunks(path: Path, chunks: list[dict[str, str]]) -> Metada
     fields = {c["keyword"]: c["text"] for c in chunks}
     prompt = ""
     negative = ""
+    character_prompts: list[dict[str, str]] = []
     source_type = fields.get("Software") or fields.get("Source") or "png"
     comment = fields.get("Comment")
     if comment:
         try:
             comment_json = json.loads(comment)
             fields["CommentJson"] = comment_json
-            prompt = nai_v4_caption_text(comment_json, "v4_prompt") or str(comment_json.get("prompt") or "")
+            prompt = nai_v4_caption_parts(comment_json, "v4_prompt")[0] or str(comment_json.get("prompt") or "")
             negative = (
-                nai_v4_caption_text(comment_json, "v4_negative_prompt")
+                nai_v4_caption_parts(comment_json, "v4_negative_prompt")[0]
                 or str(comment_json.get("uc") or comment_json.get("negative_prompt") or "")
             )
+            character_prompts = nai_v4_character_prompts(comment_json)
             source_type = "NovelAI" if fields.get("Software") == "NovelAI" else source_type
         except Exception:
             pass
@@ -153,7 +176,15 @@ def metadata_from_png_chunks(path: Path, chunks: list[dict[str, str]]) -> Metada
         prompt, negative, other = split_webui_parameters(fields["parameters"])
         fields["parameters_other"] = other
         source_type = "SD-WEBUI"
-    return Metadata(path=path, source_type=source_type, prompt=prompt, negative=negative, fields=fields, chunks=chunks)
+    return Metadata(
+        path=path,
+        source_type=source_type,
+        prompt=prompt,
+        negative=negative,
+        fields=fields,
+        chunks=chunks,
+        character_prompts=character_prompts,
+    )
 
 
 def _read_lsb_byte(bit_iter) -> int:
@@ -206,14 +237,16 @@ def metadata_from_stealth_pngcomp(path: Path, payload: dict[str, Any]) -> Metada
     meta.fields["StealthJson"] = payload
     if not meta.prompt:
         meta.prompt = (
-            nai_v4_caption_text(payload, "v4_prompt")
+            nai_v4_caption_parts(payload, "v4_prompt")[0]
             or str(payload.get("prompt") or payload.get("positive_prompt") or payload.get("Description") or "")
         ).strip()
     if not meta.negative:
         meta.negative = (
-            nai_v4_caption_text(payload, "v4_negative_prompt")
+            nai_v4_caption_parts(payload, "v4_negative_prompt")[0]
             or str(payload.get("uc") or payload.get("negative_prompt") or payload.get("negative") or "")
         ).strip()
+    if not meta.character_prompts:
+        meta.character_prompts = nai_v4_character_prompts(payload)
     return meta
 
 
@@ -437,6 +470,7 @@ def inspect_one(args: argparse.Namespace) -> int:
             "sourceType": meta.source_type,
             "prompt": meta.prompt,
             "negative": meta.negative,
+            "characterPrompts": meta.character_prompts,
             "fields": meta.fields,
             "chunks": meta.chunks,
         }, ensure_ascii=False, indent=2))
