@@ -12,10 +12,55 @@ export const STATUS_LABELS = {
 };
 
 export const FEEDBACK_LABELS = {
-  pending: '待处理',
-  resolved: '已处理',
-  ignored: '已忽略',
+  pending: '进行中',
+  resolved: '已完成',
+  ignored: '不予处理',
 };
+export const FEEDBACK_STATUSES = Object.freeze(Object.keys(FEEDBACK_LABELS));
+
+export const FEEDBACK_PROGRESS = Object.freeze({
+  unread: Object.freeze({
+    label: '待查看',
+    description: '尚未人工查看这条反馈。',
+    status: 'pending',
+  }),
+  accepted: Object.freeze({
+    label: '已受理',
+    description: '已经查看并纳入处理队列。',
+    status: 'pending',
+  }),
+  investigating: Object.freeze({
+    label: '调查中',
+    description: '正在复现问题、确认原因和影响范围。',
+    status: 'pending',
+  }),
+  in_progress: Object.freeze({
+    label: '处理中',
+    description: '已经开始修复、调整或实施。',
+    status: 'pending',
+  }),
+  verifying: Object.freeze({
+    label: '待验证',
+    description: '处理方案已经完成，正在验证结果。',
+    status: 'pending',
+  }),
+  deferred: Object.freeze({
+    label: '暂缓处理',
+    description: '反馈有效，但当前暂不排期处理。',
+    status: 'pending',
+  }),
+  completed: Object.freeze({
+    label: '已完成',
+    description: '处理结果已经完成并确认。',
+    status: 'resolved',
+  }),
+  declined: Object.freeze({
+    label: '不予处理',
+    description: '评估后决定不处理，具体原因应写在回复中。',
+    status: 'ignored',
+  }),
+});
+export const FEEDBACK_PROGRESS_STATUSES = Object.freeze(Object.keys(FEEDBACK_PROGRESS));
 
 export const BATCH_ACTIONS_BY_STATUS = {
   pending: ['approve', 'reject', 'moveCategory', 'delete'],
@@ -103,11 +148,54 @@ export function currentFeedbackItems() {
     const entry = context.entry || {};
     const codex = context.codex || {};
     const page = context.page || {};
+    const progress = feedbackProgressInfo(item);
     return [
       item.type, item.typeLabel, item.description, item.contact,
       entry.id, entry.title, codex.id, codex.title, page.url,
+      feedbackDirectory(item), item.adminReply, FEEDBACK_LABELS[item.status],
+      progress.label, progress.description,
     ].join(' ').toLowerCase().includes(q);
   });
+}
+
+export function feedbackProgressStatus(item) {
+  const status = FEEDBACK_STATUSES.includes(item?.status) ? item.status : 'pending';
+  const progressStatus = String(item?.progressStatus || '');
+  if (
+    FEEDBACK_PROGRESS_STATUSES.includes(progressStatus)
+    && FEEDBACK_PROGRESS[progressStatus].status === status
+  ) {
+    return progressStatus;
+  }
+  if (status === 'resolved') return 'completed';
+  if (status === 'ignored') return 'declined';
+  return 'unread';
+}
+
+export function feedbackProgressInfo(itemOrStatus) {
+  const progressStatus = typeof itemOrStatus === 'string'
+    ? itemOrStatus
+    : feedbackProgressStatus(itemOrStatus);
+  return FEEDBACK_PROGRESS[progressStatus] || FEEDBACK_PROGRESS.unread;
+}
+
+export function feedbackProgressBadgeClass(itemOrStatus) {
+  const progressStatus = typeof itemOrStatus === 'string'
+    ? itemOrStatus
+    : feedbackProgressStatus(itemOrStatus);
+  if (progressStatus === 'completed') return 'green';
+  if (progressStatus === 'declined') return 'red';
+  if (progressStatus === 'deferred' || progressStatus === 'verifying') return 'amber';
+  return progressStatus === 'unread' ? '' : 'accent';
+}
+
+export function feedbackDirectory(item) {
+  const context = item?.context || item || {};
+  const entryPath = context.entry?.path;
+  if (Array.isArray(entryPath) && entryPath.length) return entryPath.map(String).filter(Boolean).join(' › ');
+  const routePath = context.route?.path;
+  if (Array.isArray(routePath) && routePath.length) return routePath.map(String).filter(Boolean).join(' › ');
+  return '';
 }
 
 export function selectionCounts(items = currentItems()) {

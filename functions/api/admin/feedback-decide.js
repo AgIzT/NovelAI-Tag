@@ -1,8 +1,21 @@
 'use strict';
 
-import { json, err, requireAdmin, validId, readJson, listAll, cleanLine } from '../../_lib.js';
+import { json, err, requireAdmin, validId, cleanLine, cleanText } from '../../_lib.js';
+import {
+  FEEDBACK_REPLY_LIMIT,
+  defaultFeedbackProgressStatus,
+  feedbackRecordKey,
+  feedbackStatusForProgress,
+  findFeedbackRecord,
+  normalizeFeedbackProgressStatus,
+  normalizeFeedbackStatus,
+  sanitizeAdminFeedbackRecord,
+} from '../../_feedback.js';
 
-const ACTIONS = new Set(['resolve', 'ignore']);
+const LEGACY_ACTION_STATUS = Object.freeze({
+  resolve: 'resolved',
+  ignore: 'ignored',
+});
 
 export async function onRequestPost(context) {
   const denied = requireAdmin(context);
@@ -15,37 +28,123 @@ export async function onRequestPost(context) {
   const id = String(body?.id || '');
   const action = cleanLine(body?.action, 20);
   if (!validId(id)) return err('无效的反馈 id');
-  if (!ACTIONS.has(action)) return err('未知反馈操作');
+  if (action && action !== 'update' && !LEGACY_ACTION_STATUS[action]) return err('未知反馈操作');
 
-  const pendingKey = await findPendingFeedbackKey(env.STRINGS_BUCKET, id);
-  if (!pendingKey) return err('该反馈不存在或已被处理', 404);
-  const record = await readJson(env.STRINGS_BUCKET, pendingKey);
-  if (!record) return err('该反馈内容读取失败', 404);
+  const sourceStatusRaw = cleanLine(body?.sourceStatus, 20);
+  const sourceStatus = sourceStatusRaw ? normalizeFeedbackStatus(sourceStatusRaw) : '';
+  if (sourceStatusRaw && !sourceStatus) return err('反馈来源状态无效');
+
+  const targetStatusRaw = cleanLine(body?.targetStatus, 20);
+  const requestedTargetStatus = targetStatusRaw ? normalizeFeedbackStatus(targetStatusRaw) : '';
+  if (targetStatusRaw && !requestedTargetStatus) return err('反馈目标状态无效');
+  const legacyTargetStatus = LEGACY_ACTION_STATUS[action] || '';
+  if (requestedTargetStatus && legacyTargetStatus && requestedTargetStatus !== legacyTargetStatus) {
+    return err('旧操作与目标状态冲突');
+  }
+  const requestedBucketStatus = requestedTargetStatus || legacyTargetStatus;
+
+  const progressStatusRaw = cleanLine(body?.progressStatus, 30);
+  const requestedProgressStatus = progressStatusRaw
+    ? normalizeFeedbackProgressStatus(progressStatusRaw)
+    : '';
+  if (progressStatusRaw && !requestedProgressStatus) return err('反馈展示进度无效');
+
+  const found = await findFeedbackRecord(env.STRINGS_BUCKET, id, sourceStatus);
+  if (!found) return err('该反馈不存在或状态不匹配', 404);
 
   const now = new Date();
-  const nextStatus = action === 'resolve' ? 'resolved' : 'ignored';
-  const nextKey = `feedback/${nextStatus}/${now.getUTCFullYear()}/${pad(now.getUTCMonth() + 1)}/${id}.json`;
+  const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+  const record = found.record;
+  const currentItem = sanitizeAdminFeedbackRecord(record, found.status);
+  const currentProgressStatus = currentItem.progressStatus;
+  let progressStatus = requestedProgressStatus;
+  if (!progressStatus) {
+    if (!requestedBucketStatus || requestedBucketStatus === found.status) {
+      progressStatus = currentProgressStatus;
+    } else if (requestedBucketStatus === 'resolved') {
+      progressStatus = 'completed';
+    } else if (requestedBucketStatus === 'ignored') {
+      progressStatus = 'declined';
+    } else {
+      progressStatus = 'accepted';
+    }
+  }
+  progressStatus = normalizeFeedbackProgressStatus(
+    progressStatus,
+    defaultFeedbackProgressStatus(found.status),
+  );
+  const targetStatus = feedbackStatusForProgress(progressStatus);
+  if (!targetStatus) return err('反馈展示进度无效');
+  if (requestedProgressStatus && requestedBucketStatus && requestedBucketStatus !== targetStatus) {
+    return err('展示进度与后台归档状态冲突');
+  }
+
+  const hasReply = Object.prototype.hasOwnProperty.call(body || {}, 'adminReply')
+    || Object.prototype.hasOwnProperty.call(body || {}, 'reply');
+  const currentReply = cleanText(record.adminReply, FEEDBACK_REPLY_LIMIT);
+  let adminReply = currentReply;
+  if (hasReply) {
+    const rawReply = cleanText(body.adminReply ?? body.reply, FEEDBACK_REPLY_LIMIT + 1);
+    if (rawReply.length > FEEDBACK_REPLY_LIMIT) {
+      return err(`回复最多 ${FEEDBACK_REPLY_LIMIT} 个字`);
+    }
+    adminReply = rawReply;
+  }
+
+  const statusChanged = found.status !== targetStatus;
+  const progressChanged = currentProgressStatus !== progressStatus;
+  const replyChanged = currentReply !== adminReply;
   const nextRecord = {
     ...record,
-    status: nextStatus,
-    handledAction: action,
-    handledAt: now.getTime(),
-    handledAtIso: now.toISOString(),
+    status: targetStatus,
+    statusUpdatedAt: statusChanged
+      ? nowMs
+      : Number(record.statusUpdatedAt || record.handledAt || record.createdAt || nowMs),
+    statusUpdatedAtIso: statusChanged
+      ? nowIso
+      : String(record.statusUpdatedAtIso || record.handledAtIso || ''),
+    progressStatus,
+    progressStatusUpdatedAt: progressChanged
+      ? nowMs
+      : Number(currentItem.progressStatusUpdatedAt || record.createdAt || nowMs),
+    progressStatusUpdatedAtIso: progressChanged
+      ? nowIso
+      : String(currentItem.progressStatusUpdatedAtIso || record.receivedAt || ''),
+    adminReply,
+    replyUpdatedAt: replyChanged ? nowMs : Number(record.replyUpdatedAt || 0),
+    replyUpdatedAtIso: replyChanged ? nowIso : String(record.replyUpdatedAtIso || ''),
   };
+  if (progressChanged) nextRecord.previousProgressStatus = currentProgressStatus;
+  if (statusChanged) {
+    nextRecord.previousStatus = found.status;
+    nextRecord.handledAction = targetStatus === 'resolved'
+      ? 'resolve'
+      : targetStatus === 'ignored'
+        ? 'ignore'
+        : 'reopen';
+    if (targetStatus === 'pending') {
+      nextRecord.handledAt = 0;
+      nextRecord.handledAtIso = '';
+    } else {
+      nextRecord.handledAt = nowMs;
+      nextRecord.handledAtIso = nowIso;
+    }
+  }
 
+  const nextKey = statusChanged ? feedbackRecordKey(targetStatus, id, now) : found.key;
   await env.STRINGS_BUCKET.put(nextKey, JSON.stringify(nextRecord), {
     httpMetadata: { contentType: 'application/json; charset=utf-8' },
   });
-  await env.STRINGS_BUCKET.delete(pendingKey);
-  return json({ ok: true, id, action, status: nextStatus });
-}
-
-async function findPendingFeedbackKey(bucket, id) {
-  const keys = (await listAll(bucket, 'feedback/pending/'))
-    .filter(k => k.endsWith(`/${id}.json`) || k.endsWith(`${id}.json`));
-  return keys[0] || '';
-}
-
-function pad(n) {
-  return String(n).padStart(2, '0');
+  if (nextKey !== found.key) await env.STRINGS_BUCKET.delete(found.key);
+  return json({
+    ok: true,
+    id,
+    action: action || 'update',
+    status: targetStatus,
+    previousStatus: found.status,
+    progressStatus,
+    previousProgressStatus: currentProgressStatus,
+    item: sanitizeAdminFeedbackRecord(nextRecord, targetStatus),
+  });
 }

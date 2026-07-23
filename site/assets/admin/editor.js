@@ -1,5 +1,8 @@
 import {
-  COMMUNITY_CATEGORIES, STATUS_LABELS, escHtml, escAttr, formatDate,
+  COMMUNITY_CATEGORIES, STATUS_LABELS, FEEDBACK_LABELS,
+  FEEDBACK_PROGRESS, FEEDBACK_PROGRESS_STATUSES,
+  feedbackDirectory, feedbackProgressStatus, feedbackProgressInfo,
+  feedbackProgressBadgeClass, escHtml, escAttr, formatDate,
 } from './state.js';
 import { fetchCommunityAsset, mutateCommunity } from './api.js';
 import { readImageParams } from '../community/png-metadata.js';
@@ -75,36 +78,81 @@ export function renderFeedbackDetail(item) {
   const entry = ctx.entry || {};
   const page = ctx.page || {};
   const codex = ctx.codex || {};
+  const progressStatus = feedbackProgressStatus(item);
+  const progress = feedbackProgressInfo(progressStatus);
+  const directory = feedbackDirectory(item);
+  const updatedAt = [
+    item.replyUpdatedAt,
+    item.progressStatusUpdatedAt,
+    item.statusUpdatedAt,
+    item.handledAt,
+    item.createdAt,
+  ].reduce((latest, value) => Math.max(latest, Number(value) || 0), 0);
   return `
     <div class="detail-head">
       <div class="detail-heading">
         <p class="detail-kicker">反馈详情</p>
         <h2>${escHtml(item.typeLabel || item.type || '反馈')}</h2>
-        <p>${escHtml(formatDate(item.createdAt))}</p>
+        <p>收到于 ${escHtml(formatDate(item.createdAt))}</p>
       </div>
       <div class="detail-head-tools">
-        <span class="badge accent">${escHtml(item.status || 'pending')}</span>
+        <span class="badge ${feedbackProgressBadgeClass(progressStatus)}">${escHtml(progress.label)}</span>
         ${detailCloseButton()}
       </div>
     </div>
-    <div class="editor-form">
+    <form class="editor-form" id="feedbackEditorForm">
       <div class="field"><label>反馈内容</label><div class="copy-block">${escHtml(item.description || '')}</div></div>
       <div class="field-row">
         <div class="field"><label>联系方式</label><input readonly value="${escAttr(item.contact || '未填写')}"></div>
         <div class="field"><label>法典</label><input readonly value="${escAttr(codex.title || codex.id || '无')}"></div>
       </div>
       <div class="field"><label>词条</label><input readonly value="${escAttr(entry.title || entry.id || '无')}"></div>
+      <div class="field"><label>词条目录</label><input readonly value="${escAttr(directory || '无')}"></div>
       <div class="field"><label>页面 URL</label><input readonly value="${escAttr(page.url || '')}"></div>
       <div class="field"><label>完整上下文</label><div class="copy-block">${escHtml(JSON.stringify(ctx, null, 2))}</div></div>
-    </div>
+      <section class="feedback-workflow" aria-labelledby="feedbackWorkflowTitle">
+        <div class="feedback-workflow-head">
+          <div>
+            <b id="feedbackWorkflowTitle">反馈者可见进度与回复</b>
+            <span>公开反馈页启用后，将展示这里的处理进度和经审核回复；后台归档会自动同步。</span>
+          </div>
+          <small>最近更新：${escHtml(formatDate(updatedAt))}</small>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="feedbackProgressSelect">展示进度</label>
+            <select id="feedbackProgressSelect" aria-describedby="feedbackProgressHint">
+              ${feedbackProgressOptions(progressStatus)}
+            </select>
+            <small class="field-help" id="feedbackProgressHint">${escHtml(feedbackProgressHint(progressStatus))}</small>
+          </div>
+          <label class="field feedback-reply-field">
+            <span class="field-label">站长回复</span>
+            <textarea id="feedbackReply" maxlength="2000" placeholder="填写处理说明、修复结果，或不予处理的具体原因">${escHtml(item.adminReply || '')}</textarea>
+          </label>
+        </div>
+      </section>
+    </form>
     <div class="detail-actions" data-detail-actions>
+      <div class="editor-state" data-editor-state role="status" aria-live="polite">
+        <span class="editor-state-dot" aria-hidden="true"></span>
+        <span data-editor-state-text>展示进度或回复尚未保存</span>
+      </div>
       <div class="detail-action-buttons">
         <button class="soft-btn" type="button" data-copy-feedback="${escAttr(item.id)}">复制上下文</button>
-        ${item.status === 'pending' ? '<button class="primary-btn" type="button" data-feedback-action="resolve">标记已处理</button><button class="danger-btn" type="button" data-feedback-action="ignore">忽略</button>' : ''}
-        <button class="danger-btn" type="button" data-feedback-action="delete">删除反馈</button>
+        <button class="primary-btn action-primary" type="button" data-feedback-action="save">保存进度与回复</button>
+        <button class="danger-btn danger-quiet" type="button" data-feedback-action="delete">删除反馈</button>
       </div>
     </div>
   `;
+}
+
+export function collectFeedbackUpdate() {
+  const progressStatus = valueOf('feedbackProgressSelect');
+  return {
+    progressStatus: FEEDBACK_PROGRESS_STATUSES.includes(progressStatus) ? progressStatus : 'unread',
+    adminReply: valueOf('feedbackReply').trim(),
+  };
 }
 
 function field(label, id, type, value, placeholder = '') {
@@ -138,6 +186,24 @@ function communityActions(status) {
 
 function valueOf(id) {
   return document.getElementById(id)?.value || '';
+}
+
+function feedbackProgressOptions(current) {
+  const groups = [
+    ['处理中', ['unread', 'accepted', 'investigating', 'in_progress', 'verifying']],
+    ['暂停', ['deferred']],
+    ['结案', ['completed', 'declined']],
+  ];
+  return groups.map(([label, values]) => `
+    <optgroup label="${escAttr(label)}">
+      ${values.map(value => `<option value="${escAttr(value)}"${value === current ? ' selected' : ''}>${escHtml(FEEDBACK_PROGRESS[value].label)}</option>`).join('')}
+    </optgroup>
+  `).join('');
+}
+
+function feedbackProgressHint(progressStatus) {
+  const progress = feedbackProgressInfo(progressStatus);
+  return `${progress.description} 保存后归入后台「${FEEDBACK_LABELS[progress.status]}」分组。`;
 }
 
 function paramsBadgeText(params) {
@@ -185,6 +251,14 @@ function detailCloseButton() {
    预览图用压缩图（快），链接与"查看原图"指向原图（有则用）。 */
 if (typeof document !== 'undefined') {
   document.addEventListener('change', event => {
+    const progressSelect = event.target instanceof Element
+      ? event.target.closest('#feedbackProgressSelect')
+      : null;
+    if (progressSelect) {
+      const hint = document.getElementById('feedbackProgressHint');
+      if (hint) hint.textContent = feedbackProgressHint(progressSelect.value);
+      return;
+    }
     const input = event.target instanceof Element ? event.target.closest('input[name="coverIndex"]') : null;
     if (!input) return;
     const panel = input.closest('.detail-panel') || document;

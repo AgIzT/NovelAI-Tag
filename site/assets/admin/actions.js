@@ -1,15 +1,15 @@
 import {
   $, $$, state, STATUS_LABELS, FEEDBACK_LABELS, currentItems, selectedItem, selectedFeedback,
-  isBatchActionAllowed,
+  isBatchActionAllowed, feedbackDirectory, feedbackProgressStatus, feedbackProgressInfo,
 } from './state.js';
 import {
   token, setToken, clearToken, getCommunity, getStats, mutateCommunity,
-  getFeedback, decideFeedback, deleteFeedback,
+  getFeedback, updateFeedback, deleteFeedback,
 } from './api.js';
 import {
   renderAll, renderHeader, renderNav, renderToolbar, renderList, renderDetail,
 } from './render.js';
-import { collectCommunityEdits } from './editor.js';
+import { collectCommunityEdits, collectFeedbackUpdate } from './editor.js';
 
 let toastTimer;
 let searchTimer;
@@ -168,8 +168,10 @@ function bindDelegates() {
     }
     const feedbackStatus = event.target.closest('[data-feedback-status]');
     if (feedbackStatus) {
-      if (state.busy) return;
-      state.feedbackStatus = feedbackStatus.dataset.feedbackStatus || 'pending';
+      const nextStatus = feedbackStatus.dataset.feedbackStatus || 'pending';
+      if (state.busy || nextStatus === state.feedbackStatus || !confirmDiscardChanges()) return;
+      clearDirty(false);
+      state.feedbackStatus = nextStatus;
       state.selectedFeedbackId = '';
       loadCurrent();
       return;
@@ -211,8 +213,10 @@ function bindDelegates() {
     const feedbackPick = event.target.closest('[data-pick-feedback], [data-feedback-id]');
     if (feedbackPick && state.view === 'feedback') {
       const id = feedbackPick.dataset.pickFeedback || feedbackPick.dataset.feedbackId || '';
-      if (state.busy || !id || id === state.selectedFeedbackId) return;
+      if (state.busy || !id || id === state.selectedFeedbackId || !confirmDiscardChanges()) return;
+      clearDirty(false);
       state.selectedFeedbackId = id;
+      renderHeader();
       syncActiveRows();
       renderDetail();
       return;
@@ -225,10 +229,15 @@ function bindDelegates() {
   });
 
   $('#detail').addEventListener('input', event => {
-    if (event.target.closest('#editorForm')) markDirty();
+    if (event.target.closest('#editorForm, #feedbackEditorForm')) markDirty();
   });
   $('#detail').addEventListener('change', event => {
-    if (event.target.closest('#editorForm') || event.target.matches('input[name="coverIndex"]')) markDirty();
+    if (event.target.closest('#editorForm, #feedbackEditorForm') || event.target.matches('input[name="coverIndex"]')) markDirty();
+  });
+  $('#detail').addEventListener('submit', event => {
+    if (!event.target.matches('#feedbackEditorForm')) return;
+    event.preventDefault();
+    runFeedbackAction('save');
   });
   $('#detail').addEventListener('click', event => {
     if (event.target.closest('[data-detail-close]')) {
@@ -255,7 +264,10 @@ function bindKeyboard() {
   document.addEventListener('keydown', event => {
     const editing = isEditingTarget(event.target);
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-      if (state.view !== 'dashboard' && state.view !== 'feedback' && selectedItem()) {
+      if (state.view === 'feedback' && selectedFeedback()) {
+        event.preventDefault();
+        runFeedbackAction('save');
+      } else if (state.view !== 'dashboard' && selectedItem()) {
         event.preventDefault();
         runCommunityAction('update');
       }
@@ -444,17 +456,51 @@ async function runFeedbackAction(action) {
   if (state.busy || state.loading) return;
   const item = selectedFeedback();
   if (!item) return;
-  if (action === 'delete' && !confirm('确认永久删除这条反馈？')) return;
-  if (action === 'ignore' && !confirm('确认忽略这条反馈？')) return;
+  if (action === 'delete') {
+    if (state.dirty && !confirmDiscardChanges('删除反馈会丢弃尚未保存的展示进度与回复，仍要继续吗？')) return;
+    if (!confirm('确认永久删除这条反馈？')) return;
+  }
+
+  const update = collectFeedbackUpdate();
+  if (action === 'resolve') update.progressStatus = 'completed';
+  if (action === 'ignore') update.progressStatus = 'declined';
   const before = state.feedbackItems.slice();
   const index = before.findIndex(entry => entry.id === item.id);
   setBusy(true);
   try {
-    if (action === 'delete') await deleteFeedback(item.id, state.feedbackStatus);
-    else await decideFeedback(item.id, action);
-    state.feedbackItems = state.feedbackItems.filter(entry => entry.id !== item.id);
-    state.selectedFeedbackId = state.feedbackItems[Math.min(index, state.feedbackItems.length - 1)]?.id || '';
-    toast(action === 'delete' ? '反馈已删除' : action === 'resolve' ? '已标记处理' : '已忽略');
+    if (action === 'delete') {
+      await deleteFeedback(item.id, item.status || state.feedbackStatus);
+      state.feedbackItems = state.feedbackItems.filter(entry => entry.id !== item.id);
+      state.selectedFeedbackId = state.feedbackItems[Math.min(index, state.feedbackItems.length - 1)]?.id || '';
+      toast('反馈已删除');
+    } else {
+      const sourceStatus = item.status || state.feedbackStatus;
+      const targetProgress = feedbackProgressInfo(update.progressStatus);
+      const data = await updateFeedback(item.id, sourceStatus, update.progressStatus, update.adminReply);
+      const saved = data.item || {
+        ...item,
+        status: targetProgress.status,
+        progressStatus: update.progressStatus,
+        adminReply: update.adminReply,
+        statusUpdatedAt: sourceStatus === targetProgress.status ? item.statusUpdatedAt : Date.now(),
+        progressStatusUpdatedAt: feedbackProgressStatus(item) === update.progressStatus
+          ? item.progressStatusUpdatedAt
+          : Date.now(),
+        replyUpdatedAt: update.adminReply === (item.adminReply || '') ? item.replyUpdatedAt : Date.now(),
+      };
+      if (saved.status === state.feedbackStatus) {
+        state.feedbackItems.splice(index, 1, saved);
+        state.selectedFeedbackId = saved.id;
+      } else {
+        state.feedbackItems = state.feedbackItems.filter(entry => entry.id !== item.id);
+        state.selectedFeedbackId = state.feedbackItems[Math.min(index, state.feedbackItems.length - 1)]?.id || '';
+      }
+      const savedProgress = feedbackProgressInfo(saved);
+      toast(sourceStatus === saved.status
+        ? `已保存 · ${savedProgress.label}`
+        : `已更新为「${savedProgress.label}」，归入「${FEEDBACK_LABELS[saved.status] || saved.status}」`);
+    }
+    clearDirty(false);
     renderWorkspace();
   } catch (error) {
     handleError(error);
@@ -469,13 +515,19 @@ async function copyFeedback(id) {
   const ctx = item.context || {};
   const entry = ctx.entry || {};
   const page = ctx.page || {};
+  const directory = feedbackDirectory(item);
+  const progress = feedbackProgressInfo(item);
   const lines = [
     '【法典图鉴反馈】',
     `类型：${item.typeLabel || item.type}`,
+    `展示进度：${progress.label}`,
+    `后台分组：${FEEDBACK_LABELS[item.status] || item.status || '进行中'}`,
     `描述：${item.description}`,
     `联系方式：${item.contact || '未填写'}`,
     `页面：${page.url || ''}`,
     `词条：${entry.title || entry.id || ''}`,
+    `词条目录：${directory || '无'}`,
+    `站长回复：${item.adminReply || '未回复'}`,
     '',
     '【完整上下文】',
     JSON.stringify(ctx, null, 2),
@@ -573,9 +625,11 @@ function syncActiveRows() {
 }
 
 function markDirty() {
-  if (state.view === 'dashboard' || state.view === 'feedback' || !state.selectedId) return;
+  if (state.view === 'dashboard') return;
+  const id = state.view === 'feedback' ? state.selectedFeedbackId : state.selectedId;
+  if (!id) return;
   state.dirty = true;
-  state.dirtyId = state.selectedId;
+  state.dirtyId = id;
   const detail = $('#detail');
   detail.dataset.dirty = 'true';
   renderHeader();
@@ -591,8 +645,10 @@ function clearDirty(updateHeader = true) {
 
 function confirmDiscardChanges(message = '') {
   if (!state.dirty) return true;
-  const item = selectedItem();
-  const title = item?.title || item?.id || '当前内容';
+  const item = state.view === 'feedback' ? selectedFeedback() : selectedItem();
+  const title = state.view === 'feedback'
+    ? item?.typeLabel || item?.type || item?.id || '当前反馈'
+    : item?.title || item?.id || '当前内容';
   return confirm(message || `「${title}」有未保存修改，确定放弃并离开吗？`);
 }
 
@@ -778,7 +834,7 @@ function setBusy(busy) {
   document.querySelectorAll('[data-action], [data-batch-action], [data-feedback-action], [data-retry-failed], [data-content-status], [data-feedback-status]').forEach(control => {
     control.disabled = busy;
   });
-  document.querySelectorAll('#statusFilter, #categoryFilter, #nsfwFilter, #batchCategory, [data-select-id]').forEach(control => {
+  document.querySelectorAll('#statusFilter, #categoryFilter, #nsfwFilter, #batchCategory, #feedbackProgressSelect, #feedbackReply, [data-select-id]').forEach(control => {
     control.disabled = busy;
   });
   const selectAll = $('#selectAllVisible');

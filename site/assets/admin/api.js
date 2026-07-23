@@ -60,11 +60,25 @@ export function getFeedback(status, opts = {}) {
   return adminApi('/api/admin/feedback?status=' + encodeURIComponent(status), opts);
 }
 
-export function decideFeedback(id, action) {
+export function decideFeedback(id, action, sourceStatus = '') {
   return adminApi('/api/admin/feedback-decide', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id, action }),
+    body: JSON.stringify({ id, action, sourceStatus }),
+  });
+}
+
+export function updateFeedback(id, sourceStatus, progressStatus, adminReply) {
+  return adminApi('/api/admin/feedback-decide', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      id,
+      action: 'update',
+      sourceStatus,
+      progressStatus,
+      adminReply,
+    }),
   });
 }
 

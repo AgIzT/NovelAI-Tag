@@ -1,7 +1,8 @@
 import {
   $, state, COMMUNITY_CATEGORIES, COMMUNITY_STATUSES, STATUS_LABELS, FEEDBACK_LABELS,
   BATCH_ACTIONS_BY_STATUS, escHtml, escAttr, formatDate, currentItems, selectedItem,
-  selectedFeedback, currentFeedbackItems, selectionCounts, pluralCount,
+  selectedFeedback, currentFeedbackItems, selectionCounts, pluralCount, feedbackDirectory,
+  feedbackProgressStatus, feedbackProgressInfo, feedbackProgressBadgeClass,
 } from './state.js';
 import { renderCommunityDetail, renderFeedbackDetail, verifyPendingParams } from './editor.js';
 
@@ -26,7 +27,7 @@ export function renderHeader() {
   const meta = $('#viewMeta');
   const dirty = state.dirty ? ' · 有未保存修改' : '';
   if (state.view === 'dashboard') meta.textContent = state.stats ? `更新于 ${formatDate(state.stats.generatedAt)}` : '';
-  else if (state.view === 'feedback') meta.textContent = `${FEEDBACK_LABELS[state.feedbackStatus]} · ${currentFeedbackItems().length} / ${state.feedbackItems.length} 条`;
+  else if (state.view === 'feedback') meta.textContent = `${FEEDBACK_LABELS[state.feedbackStatus]} · ${currentFeedbackItems().length} / ${state.feedbackItems.length} 条${dirty}`;
   else meta.textContent = `${STATUS_LABELS[state.status]} · ${currentItems().length} / ${state.items.length} 条${dirty}`;
 }
 
@@ -68,7 +69,7 @@ export function renderDashboard() {
         <h2>待办</h2>
         <div class="todo-list">
           ${todoItem('待审投稿', counts.pending || 0)}
-          ${todoItem('反馈待处理', state.feedbackStatus === 'pending' ? state.feedbackItems.length : '-')}
+          ${todoItem('反馈进行中', state.feedbackStatus === 'pending' ? state.feedbackItems.length : '-')}
           ${todoItem('NSFW 内容', stats.nsfw || 0)}
           ${todoItem('软删除留档', counts.deleted || 0)}
         </div>
@@ -357,15 +358,23 @@ function contentRow(item) {
 function feedbackRow(item) {
   const ctx = item.context || {};
   const entry = ctx.entry || {};
+  const directory = feedbackDirectory(item);
+  const progressStatus = feedbackProgressStatus(item);
+  const progress = feedbackProgressInfo(progressStatus);
   return `
     <article class="content-row feedback-row ${state.selectedFeedbackId === item.id ? 'on' : ''}" data-feedback-id="${escAttr(item.id)}">
       <span class="badge accent">${escHtml(item.typeLabel || item.type || '反馈')}</span>
       <div class="row-main">
-        <div class="row-title"><b>${escHtml(item.description || '无描述')}</b></div>
+        <div class="row-title">
+          <b>${escHtml(item.description || '无描述')}</b>
+          <span class="badge ${feedbackProgressBadgeClass(progressStatus)}">${escHtml(progress.label)}</span>
+        </div>
         <div class="row-meta">
           <span>${escHtml(formatDate(item.createdAt))}</span>
           <span>${escHtml(item.contact || '未留联系方式')}</span>
           <span class="fb-context-chip">${escHtml(entry.title || entry.id || '无关联词条')}</span>
+          ${directory ? `<span class="fb-path-chip" title="${escAttr(directory)}">目录 · ${escHtml(directory)}</span>` : ''}
+          ${item.adminReply ? '<span class="badge green">已回复</span>' : ''}
         </div>
       </div>
       <div class="row-actions">
