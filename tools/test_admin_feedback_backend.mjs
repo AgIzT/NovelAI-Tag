@@ -2,18 +2,21 @@ import assert from 'node:assert/strict';
 
 import { onRequestGet as getFeedback } from '../functions/api/admin/feedback.js';
 import { onRequestPost as updateFeedback } from '../functions/api/admin/feedback-decide.js';
+import { onRequestPost as deleteFeedback } from '../functions/api/admin/feedback-delete.js';
 import { onRequestPost as submitFeedback } from '../functions/api/feedback.js';
+import { onRequestGet as getPublicFeedback } from '../functions/api/feedback-public.js';
 import {
   FEEDBACK_PROGRESS as BACKEND_FEEDBACK_PROGRESS,
   feedbackStatusForProgress,
 } from '../functions/_feedback.js';
 import {
   FEEDBACK_PROGRESS as FRONTEND_FEEDBACK_PROGRESS,
-} from '../site/assets/admin/state.js';
+} from '../site/assets/app/feedback-progress.js';
 
 class MemoryR2 {
   constructor() {
     this.objects = new Map();
+    this.listCalls = 0;
   }
 
   async get(key) {
@@ -32,6 +35,7 @@ class MemoryR2 {
   }
 
   async list({ prefix }) {
+    this.listCalls += 1;
     return {
       objects: [...this.objects.keys()]
         .filter(key => key.startsWith(prefix))
@@ -115,6 +119,20 @@ function updateContext(body) {
   };
 }
 
+function deleteContext(body) {
+  return {
+    env,
+    request: request('POST', '/api/admin/feedback-delete', body),
+  };
+}
+
+function publicContext(targetEnv = env) {
+  return {
+    env: targetEnv,
+    request: new Request('https://www.example.test/api/feedback-public'),
+  };
+}
+
 function keysFor(status, id) {
   return [...bucket.objects.keys()]
     .filter(key => key.startsWith(`feedback/${status}/`) && key.endsWith(`/${id}.json`));
@@ -130,7 +148,10 @@ await bucket.put(`feedback/pending/2026/07/${id}.json`, JSON.stringify({
   context: {
     codex: { id: 'suozhang', title: '所长常规' },
     entry: { id: 'entry-1', title: '测试词条', path: ['人物', '发型'] },
+    page: { url: 'https://private.example.test/secret?entry=1' },
   },
+  publicConsent: true,
+  publicVisible: false,
   createdAt: 1000,
 }));
 
@@ -140,6 +161,8 @@ assert.equal(initial.items[0].status, 'pending', 'R2 目录状态应覆盖历史
 assert.equal(initial.items[0].progressStatus, 'unread');
 assert.equal(initial.items[0].progressStatusLabel, '待查看');
 assert.equal(initial.items[0].adminReply, '');
+assert.equal(initial.items[0].publicConsent, true);
+assert.equal(initial.items[0].publicVisible, false);
 assert.deepEqual(initial.items[0].context.entry.path, ['人物', '发型']);
 
 const pendingKey = keysFor('pending', id)[0];
@@ -149,6 +172,7 @@ const investigating = await readOk(await updateFeedback(updateContext({
   sourceStatus: 'pending',
   progressStatus: 'investigating',
   adminReply: '正在复现目录异常并核对影响范围。',
+  publicVisible: true,
 })));
 assert.equal(investigating.status, 'pending');
 assert.equal(investigating.progressStatus, 'investigating');
@@ -157,7 +181,37 @@ assert.equal(investigating.item.progressStatusLabel, '调查中');
 assert.equal(investigating.item.adminReply, '正在复现目录异常并核对影响范围。');
 assert.ok(investigating.item.progressStatusUpdatedAt > 0);
 assert.ok(investigating.item.replyUpdatedAt > 0);
+assert.equal(investigating.item.publicConsent, true);
+assert.equal(investigating.item.publicVisible, true);
+assert.ok(investigating.item.publicVisibleUpdatedAt > 0);
 assert.deepEqual(keysFor('pending', id), [pendingKey], '进行中阶段切换应原位更新');
+
+const publicInvestigating = await readOk(await getPublicFeedback(publicContext()));
+assert.equal(publicInvestigating.summary.total, 1);
+assert.equal(publicInvestigating.summary.open, 1);
+assert.equal(publicInvestigating.summary.closed, 0);
+assert.equal(publicInvestigating.items[0].id, id);
+assert.equal(publicInvestigating.items[0].progressStatus, 'investigating');
+assert.equal(publicInvestigating.items[0].adminReply, '正在复现目录异常并核对影响范围。');
+assert.deepEqual(publicInvestigating.items[0].context, {
+  codex: { id: 'suozhang', title: '所长常规' },
+  entry: { id: 'entry-1', title: '测试词条', path: ['人物', '发型'] },
+});
+for (const privateField of [
+  'contact', 'status', 'previousStatus', 'handledAction', 'notification',
+  'publicConsent', 'publicVisible', 'cfRay', 'commitSha',
+]) {
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(publicInvestigating.items[0], privateField),
+    false,
+    `公开投影不得包含 ${privateField}`,
+  );
+}
+assert.equal(
+  Object.prototype.hasOwnProperty.call(publicInvestigating.items[0].context, 'page'),
+  false,
+  '公开上下文不得包含完整页面 URL',
+);
 
 const replyEdited = await readOk(await updateFeedback(updateContext({
   id,
@@ -231,6 +285,10 @@ assert.equal(declined.item.handledAction, 'ignore');
 assert.equal(keysFor('pending', id).length, 0);
 assert.equal(keysFor('ignored', id).length, 1);
 
+const publicDeclined = await readOk(await getPublicFeedback(publicContext()));
+assert.equal(publicDeclined.summary.closed, 1);
+assert.equal(publicDeclined.items[0].progressStatusLabel, '暂不采纳');
+
 const ignoredList = await readOk(await getFeedback(getContext('ignored')));
 assert.equal(ignoredList.items[0].status, 'ignored');
 assert.equal(ignoredList.items[0].progressStatus, 'declined');
@@ -286,6 +344,15 @@ await bucket.put(`feedback/pending/2026/07/${legacyId}.json`, JSON.stringify({
   description: '希望增加一个新的筛选功能',
   createdAt: 2000,
 }));
+const noConsentPublish = await readError(await updateFeedback(updateContext({
+  id: legacyId,
+  action: 'update',
+  sourceStatus: 'pending',
+  progressStatus: 'accepted',
+  publicVisible: true,
+})), 400);
+assert.match(noConsentPublish.error, /已选择不公开/);
+
 const legacy = await readOk(await updateFeedback(updateContext({
   id: legacyId,
   action: 'resolve',
@@ -326,6 +393,134 @@ const submittedRecord = JSON.parse(submissionBucket.objects.get(submittedKey));
 assert.equal(submittedRecord.status, 'pending');
 assert.equal(submittedRecord.progressStatus, 'unread');
 assert.equal(submittedRecord.adminReply, '');
+assert.equal(submittedRecord.publicConsent, true, '新反馈未显式选择不公开时应默认允许匿名公开');
+assert.equal(submittedRecord.publicVisible, false);
 assert.ok(submittedRecord.progressStatusUpdatedAt > 0);
+
+const privateSubmissionBucket = new MemoryR2();
+const privateSubmissionResponse = await submitFeedback({
+  env: {
+    STRINGS_BUCKET: privateSubmissionBucket,
+    ADMIN_TOKEN: 'test-token',
+  },
+  request: new Request('https://www.example.test/api/feedback', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-forwarded-for': '127.0.0.2',
+    },
+    body: JSON.stringify({
+      type: 'site_bug',
+      description: '这条反馈明确选择不匿名公开。',
+      contact: '',
+      publicConsent: false,
+      context: {},
+    }),
+  }),
+  waitUntil() {},
+});
+const privateSubmissionData = await privateSubmissionResponse.json();
+assert.equal(privateSubmissionResponse.status, 201, JSON.stringify(privateSubmissionData));
+const privateSubmittedKey = [...privateSubmissionBucket.objects.keys()]
+  .find(key => key.startsWith('feedback/pending/') && key.endsWith('.json'));
+const privateSubmittedRecord = JSON.parse(privateSubmissionBucket.objects.get(privateSubmittedKey));
+assert.equal(privateSubmittedRecord.publicConsent, false, '勾选不公开必须显式写入 false');
+assert.equal(privateSubmittedRecord.publicVisible, false);
+
+const unpublishedSubmission = await readOk(await getPublicFeedback(publicContext({
+  STRINGS_BUCKET: submissionBucket,
+})));
+assert.equal(unpublishedSubmission.items.length, 0, '默认可公开但未获维护者确认的反馈不得出现在公开接口');
+
+const hiddenFromPublic = await readOk(await updateFeedback(updateContext({
+  id,
+  action: 'update',
+  sourceStatus: 'pending',
+  progressStatus: 'accepted',
+  publicVisible: false,
+})));
+assert.equal(hiddenFromPublic.item.publicVisible, false);
+assert.equal((await readOk(await getPublicFeedback(publicContext()))).items.length, 0);
+
+const republished = await readOk(await updateFeedback(updateContext({
+  id,
+  action: 'update',
+  sourceStatus: 'pending',
+  progressStatus: 'accepted',
+  publicVisible: true,
+})));
+assert.equal(republished.item.publicVisible, true);
+assert.equal((await readOk(await getPublicFeedback(publicContext()))).items.length, 1);
+
+const deleted = await readOk(await deleteFeedback(deleteContext({
+  id,
+  status: 'pending',
+})));
+assert.equal(deleted.id, id);
+assert.equal((await readOk(await getPublicFeedback(publicContext()))).items.length, 0);
+assert.equal(keysFor('pending', id).length, 0);
+
+const incrementalBucket = new MemoryR2();
+const incrementalEnv = {
+  STRINGS_BUCKET: incrementalBucket,
+  ADMIN_TOKEN: 'test-token',
+};
+for (const [incrementalId, createdAt] of [['aaaaaaaa', 3000], ['bbbbbbbb', 4000]]) {
+  await incrementalBucket.put(
+    `feedback/pending/2026/07/${incrementalId}.json`,
+    JSON.stringify({
+      id: incrementalId,
+      status: 'pending',
+      type: 'suggestion',
+      description: `公开索引增量更新测试 ${incrementalId}`,
+      publicConsent: true,
+      publicVisible: false,
+      progressStatus: 'unread',
+      createdAt,
+    }),
+  );
+}
+const incrementalUpdate = body => updateFeedback({
+  env: incrementalEnv,
+  request: request('POST', '/api/admin/feedback-decide', body),
+});
+for (const incrementalId of ['aaaaaaaa', 'bbbbbbbb']) {
+  const listCallsBefore = incrementalBucket.listCalls;
+  await readOk(await incrementalUpdate({
+    id: incrementalId,
+    sourceStatus: 'pending',
+    progressStatus: 'accepted',
+    publicVisible: true,
+  }));
+  assert.equal(
+    incrementalBucket.listCalls - listCallsBefore,
+    1,
+    '公开索引增量更新除定位当前记录外不应扫描全部反馈分桶',
+  );
+}
+await readOk(await incrementalUpdate({
+  id: 'aaaaaaaa',
+  sourceStatus: 'pending',
+  progressStatus: 'investigating',
+  adminReply: '只更新其中一条时，另一条公开反馈必须保留。',
+}));
+const incrementalPublic = await readOk(await getPublicFeedback(publicContext(incrementalEnv)));
+assert.deepEqual(
+  incrementalPublic.items.map(item => item.id).sort(),
+  ['aaaaaaaa', 'bbbbbbbb'],
+  '增量更新一条公开反馈不得覆盖索引中的其他反馈',
+);
+await readOk(await incrementalUpdate({
+  id: 'aaaaaaaa',
+  sourceStatus: 'pending',
+  progressStatus: 'investigating',
+  publicVisible: false,
+}));
+const incrementalAfterRemoval = await readOk(await getPublicFeedback(publicContext(incrementalEnv)));
+assert.deepEqual(
+  incrementalAfterRemoval.items.map(item => item.id),
+  ['bbbbbbbb'],
+  '撤回一条公开反馈不得移除其他公开反馈',
+);
 
 console.log('admin feedback memory flow: PASS');

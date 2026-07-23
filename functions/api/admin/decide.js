@@ -6,7 +6,7 @@ import {
 } from '../../_lib.js';
 
 // POST /api/admin/decide — 审核：{id, action:"approve"|"reject", edits?}
-// approve 可附带 edits（站长在管理页修正过的字段），通过后重新生成发布文件
+// approve 可附带 edits（维护者在管理页修正过的字段），通过后重新生成发布文件
 export async function onRequestPost(context) {
   const denied = requireAdmin(context);
   if (denied) return denied;

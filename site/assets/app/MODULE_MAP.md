@@ -10,6 +10,7 @@ This file records the first split of `site/assets/app.js`. It is meant to keep l
 | `modal.js` | `openMask`, `closeMask`, `trapFocus`, focus helpers | `maskTimers`, `maskOpeners` | `utils.js`, `browser-history.js` | none |
 | `browser-history.js` | `configureBrowserHistory`, `initializeBrowserHistory`, `persistedHistoryState`, `commitHistoryRoute`, `beginLayeredSearch`, layer registry (`registerHistoryLayer`/`openHistoryLayer`/`closeHistoryLayer`/`forgetHistoryLayer`/`topHistoryLayerId`), `goBackFrom`/`canGoBackFrom`, scroll checkpoints, restore-token helpers | `config`, `initialized`, `restoring`, `pendingBack`, `restoreToken`, `currentEntry`, `reloadCollapse`, `scrollTimer`, `layerRegistry` | none | page adapter injected via `configureBrowserHistory` (`captureRoute`, `urlForRoute`, `applyRoute`, `restoreScroll`, `isEmptySearchRoute`); shared by atlas (`router.js`) and community (`../community/router.js`) |
 | `feedback.js` | `setLoading`, `showSkeleton`, `hideSkeleton`, `toast` | `toastTimer`, skeleton timing state | `utils.js` | none |
+| `feedback-progress.js` | public/admin shared feedback progress labels, descriptions and closed-state helpers | none | none | none |
 | `access.js` | `isNsfwCodex`, `isCodexLocked`, `firstUnlockedCodex`, `showNsfwLockedHint` | none | `state.js`, `feedback.js` | none |
 | `data.js` | media/about/codex loading, normalization, tree build, status helpers | none | `state.js`, `utils.js`, `media.js`, `feedback.js` | none |
 | `search.js` | query parse, matching, highlighting | none | `state.js`, `utils.js`, `media.js`, `favorites.js` | none |
@@ -21,7 +22,7 @@ This file records the first split of `site/assets/app.js`. It is meant to keep l
 | `favorites-backup.js` | `setupFavoritesBackup`, `subscribeFavoritesChanges` | dialog state, codex index promise | `favorites-backup-core.js`, `modal.js`, `browser-history.js` | page-provided codex index; emits scoped favorite-change events |
 | `fav-codex.js` | `FAVORITES_CODEX_ID`, `buildFavoritesCodex` | none | `state.js`, `data.js`, `access.js`, `media.js`, `favorites-backup-core.js` | none |
 | `site-search.js` | `SITE_SEARCH_CODEX_ID`, `buildSiteSearchCodex` | none | `state.js`, `data.js`, `access.js`, `media.js` | none |
-| `report.js` | `setupReport`, `openReportDialog`, feedback context packing | `currentPayload`, `currentTrigger` | `state.js`, `utils.js`, `feedback.js`, `modal.js`, `media.js` | none |
+| `report.js` | `setupReport`, `openReportDialog`, feedback submission/public progress UI and context packing | `currentPayload`, `currentTrigger`, public feedback list/filter state | `state.js`, `utils.js`, `feedback.js`, `feedback-progress.js`, `modal.js`, `media.js` | none |
 | `announcements.js` | `setupAnnouncements`, `loadAnnouncements`, `openAnnouncementsPanel`, badge update | `announcements`, loading flags | `utils.js`, `modal.js`, `history.js` | none |
 | `onboarding.js` | `setupOnboarding`, `maybeShowOnboarding` | `initialRouteUrl`, `step`, `prompted` | `utils.js`, `modal.js` | none |
 | `codex-ui.js` | codex picker/tree/banner/archive/result/empty/random UI | `codexUiActions`, `tipTimer`, `tipIndex`, `EXT_ICON` | `state.js`, `utils.js`, `access.js`, `data.js`, `media.js`, `feedback.js`, `browser-history.js` | `loadCodex`, `applySearch`, `applyFilter`, `openLightbox`, `syncUrlState`, `updateVirtualCards` |

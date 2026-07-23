@@ -10,6 +10,7 @@ import {
   normalizeFeedbackProgressStatus,
   normalizeFeedbackStatus,
   sanitizeAdminFeedbackRecord,
+  updatePublicFeedbackIndex,
 } from '../../_feedback.js';
 
 const LEGACY_ACTION_STATUS = Object.freeze({
@@ -92,9 +93,21 @@ export async function onRequestPost(context) {
     adminReply = rawReply;
   }
 
+  const hasPublicVisible = Object.prototype.hasOwnProperty.call(body || {}, 'publicVisible');
+  if (hasPublicVisible && typeof body.publicVisible !== 'boolean') {
+    return err('公开展示设置无效');
+  }
+  const publicConsent = record.publicConsent === true;
+  const currentPublicVisible = publicConsent && record.publicVisible === true;
+  const publicVisible = hasPublicVisible ? body.publicVisible === true : currentPublicVisible;
+  if (publicVisible && !publicConsent) {
+    return err('反馈者已选择不公开，不能开启公开展示');
+  }
+
   const statusChanged = found.status !== targetStatus;
   const progressChanged = currentProgressStatus !== progressStatus;
   const replyChanged = currentReply !== adminReply;
+  const publicVisibleChanged = currentPublicVisible !== publicVisible;
   const nextRecord = {
     ...record,
     status: targetStatus,
@@ -114,6 +127,14 @@ export async function onRequestPost(context) {
     adminReply,
     replyUpdatedAt: replyChanged ? nowMs : Number(record.replyUpdatedAt || 0),
     replyUpdatedAtIso: replyChanged ? nowIso : String(record.replyUpdatedAtIso || ''),
+    publicConsent,
+    publicVisible,
+    publicVisibleUpdatedAt: publicVisibleChanged
+      ? nowMs
+      : Number(record.publicVisibleUpdatedAt || 0),
+    publicVisibleUpdatedAtIso: publicVisibleChanged
+      ? nowIso
+      : String(record.publicVisibleUpdatedAtIso || ''),
   };
   if (progressChanged) nextRecord.previousProgressStatus = currentProgressStatus;
   if (statusChanged) {
@@ -133,10 +154,19 @@ export async function onRequestPost(context) {
   }
 
   const nextKey = statusChanged ? feedbackRecordKey(targetStatus, id, now) : found.key;
+  if (currentPublicVisible && !publicVisible) {
+    await updatePublicFeedbackIndex(env.STRINGS_BUCKET, { removeIds: [id] });
+  }
   await env.STRINGS_BUCKET.put(nextKey, JSON.stringify(nextRecord), {
     httpMetadata: { contentType: 'application/json; charset=utf-8' },
   });
   if (nextKey !== found.key) await env.STRINGS_BUCKET.delete(found.key);
+  if (publicVisible) {
+    await updatePublicFeedbackIndex(env.STRINGS_BUCKET, {
+      upsertRecord: nextRecord,
+      upsertStatus: targetStatus,
+    });
+  }
   return json({
     ok: true,
     id,

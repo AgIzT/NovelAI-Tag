@@ -1,9 +1,11 @@
 'use strict';
 
-import { cleanLine, cleanText, listAll, readJson } from './_lib.js';
+import { cleanLine, cleanText, listAll, readJson, readJsonBatch } from './_lib.js';
 
 export const FEEDBACK_STATUSES = Object.freeze(['pending', 'resolved', 'ignored']);
 export const FEEDBACK_REPLY_LIMIT = 2000;
+export const FEEDBACK_PUBLIC_INDEX_KEY = 'feedback/public.json';
+export const FEEDBACK_PUBLIC_LIMIT = 200;
 
 export const FEEDBACK_PROGRESS = Object.freeze({
   unread: Object.freeze({
@@ -42,8 +44,8 @@ export const FEEDBACK_PROGRESS = Object.freeze({
     status: 'resolved',
   }),
   declined: Object.freeze({
-    label: '不予处理',
-    description: '评估后决定不处理，具体原因应写在回复中。',
+    label: '暂不采纳',
+    description: '评估后暂不采纳，具体原因会写在回复中。',
     status: 'ignored',
   }),
 });
@@ -141,12 +143,166 @@ export function sanitizeAdminFeedbackRecord(record, status) {
     adminReply: cleanText(source.adminReply, FEEDBACK_REPLY_LIMIT),
     replyUpdatedAt: Number(source.replyUpdatedAt || 0),
     replyUpdatedAtIso: String(source.replyUpdatedAtIso || ''),
+    publicConsent: source.publicConsent === true,
+    publicVisible: source.publicConsent === true && source.publicVisible === true,
+    publicVisibleUpdatedAt: Number(source.publicVisibleUpdatedAt || 0),
+    publicVisibleUpdatedAtIso: String(source.publicVisibleUpdatedAtIso || ''),
     handledAt: Number(source.handledAt || 0),
     handledAction: String(source.handledAction || ''),
     commitSha: String(source.commitSha || ''),
     cfRay: String(source.cfRay || ''),
     notification: sanitizeNotification(source.notification),
   };
+}
+
+export function sanitizePublicFeedbackRecord(record, status) {
+  const source = record && typeof record === 'object' ? record : {};
+  if (source.publicConsent !== true || source.publicVisible !== true) return null;
+  const item = sanitizeAdminFeedbackRecord(source, status);
+  if (!item.id) return null;
+  const progress = FEEDBACK_PROGRESS[item.progressStatus] || FEEDBACK_PROGRESS.unread;
+  return sanitizePublicFeedbackProjection({
+    id: item.id,
+    type: item.type,
+    typeLabel: item.typeLabel,
+    description: item.description,
+    progressStatus: item.progressStatus,
+    progressStatusLabel: progress.label,
+    progressDescription: progress.description,
+    adminReply: item.adminReply,
+    createdAt: item.createdAt,
+    progressStatusUpdatedAt: item.progressStatusUpdatedAt,
+    replyUpdatedAt: item.replyUpdatedAt,
+    updatedAt: Math.max(
+      item.progressStatusUpdatedAt,
+      item.replyUpdatedAt,
+      item.publicVisibleUpdatedAt,
+      item.createdAt,
+    ),
+    context: sanitizePublicContext(item.context),
+  });
+}
+
+export function sanitizePublicFeedbackProjection(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const progressStatus = normalizeFeedbackProgressStatus(source.progressStatus, 'unread');
+  const progress = FEEDBACK_PROGRESS[progressStatus];
+  const id = cleanLine(source.id, 120);
+  const type = cleanLine(source.type, 40) || 'site_bug';
+  if (!id) return null;
+  return {
+    id,
+    type,
+    typeLabel: cleanLine(source.typeLabel, 80) || FEEDBACK_TYPE_LABELS[type] || type,
+    description: cleanText(source.description, 1000),
+    progressStatus,
+    progressStatusLabel: progress.label,
+    progressDescription: progress.description,
+    adminReply: cleanText(source.adminReply, FEEDBACK_REPLY_LIMIT),
+    createdAt: positiveTime(source.createdAt),
+    progressStatusUpdatedAt: positiveTime(source.progressStatusUpdatedAt),
+    replyUpdatedAt: positiveTime(source.replyUpdatedAt),
+    updatedAt: positiveTime(source.updatedAt),
+    context: sanitizePublicContext(source.context),
+  };
+}
+
+export async function updatePublicFeedbackIndex(
+  bucket,
+  { upsertRecord = null, upsertStatus = '', removeIds = [] } = {},
+) {
+  const index = await readJson(bucket, FEEDBACK_PUBLIC_INDEX_KEY);
+  const byId = publicFeedbackMap(index?.items);
+  const sizeBeforeRemoval = byId.size;
+  let removedFromIndex = false;
+  for (const id of removeIds || []) {
+    removedFromIndex = byId.delete(String(id || '')) || removedFromIndex;
+  }
+  if (
+    removedFromIndex
+    && sizeBeforeRemoval >= FEEDBACK_PUBLIC_LIMIT
+    && !upsertRecord
+  ) {
+    return rebuildPublicFeedbackIndex(bucket, { excludeIds: removeIds });
+  }
+  if (upsertRecord && typeof upsertRecord === 'object') {
+    const id = String(upsertRecord.id || '');
+    const item = sanitizePublicFeedbackRecord(upsertRecord, upsertStatus);
+    if (item) byId.set(item.id, item);
+    else if (id) byId.delete(id);
+  }
+  return writePublicFeedbackIndex(bucket, byId.values());
+}
+
+export async function rebuildPublicFeedbackIndex(bucket, { excludeIds = [] } = {}) {
+  const excluded = new Set(Array.from(excludeIds || [], value => String(value || '')));
+  const groups = await Promise.all(FEEDBACK_STATUSES.map(async status => {
+    const keys = (await listAll(bucket, `feedback/${status}/`))
+      .filter(key => key.endsWith('.json'));
+    const records = await readJsonBatch(bucket, keys);
+    return records
+      .map(record => sanitizePublicFeedbackRecord(record, status))
+      .filter(item => item && !excluded.has(item.id));
+  }));
+  const byId = new Map();
+  for (const item of groups.flat()) {
+    const current = byId.get(item.id);
+    if (!current || item.updatedAt >= current.updatedAt) byId.set(item.id, item);
+  }
+  return writePublicFeedbackIndex(bucket, byId.values());
+}
+
+function publicFeedbackMap(items) {
+  const byId = new Map();
+  for (const value of Array.isArray(items) ? items : []) {
+    const item = sanitizePublicFeedbackProjection(value);
+    if (!item) continue;
+    const current = byId.get(item.id);
+    if (!current || item.updatedAt >= current.updatedAt) byId.set(item.id, item);
+  }
+  return byId;
+}
+
+async function writePublicFeedbackIndex(bucket, items) {
+  const now = new Date();
+  const payload = {
+    version: 1,
+    updatedAt: now.getTime(),
+    updatedAtIso: now.toISOString(),
+    items: [...items]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, FEEDBACK_PUBLIC_LIMIT),
+  };
+  await bucket.put(FEEDBACK_PUBLIC_INDEX_KEY, JSON.stringify(payload), {
+    httpMetadata: { contentType: 'application/json; charset=utf-8' },
+  });
+  return payload;
+}
+
+function sanitizePublicContext(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const codexSource = source.codex && typeof source.codex === 'object' ? source.codex : {};
+  const entrySource = source.entry && typeof source.entry === 'object' ? source.entry : {};
+  const codex = {
+    id: cleanLine(codexSource.id, 120),
+    title: cleanLine(codexSource.title, 160),
+  };
+  const entry = {
+    id: cleanLine(entrySource.id, 160),
+    title: cleanLine(entrySource.title, 200),
+    path: Array.isArray(entrySource.path)
+      ? entrySource.path.map(value => cleanLine(value, 120)).filter(Boolean).slice(0, 12)
+      : [],
+  };
+  return {
+    codex: codex.id || codex.title ? codex : null,
+    entry: entry.id || entry.title || entry.path.length ? entry : null,
+  };
+}
+
+function positiveTime(value) {
+  const time = Number(value || 0);
+  return Number.isFinite(time) && time > 0 ? time : 0;
 }
 
 function sanitizeNotification(value) {

@@ -477,6 +477,158 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return {**data, "screenshot": shot}
 
+    def feedback_panel_responsive():
+        def stub_public_feedback():
+            cdp.eval(r"""
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input?.url || String(input);
+    if (!url.includes('/api/feedback-public')) return originalFetch(input, init);
+    const now = Date.now();
+    return Promise.resolve(new Response(JSON.stringify({
+      ok: true,
+      updatedAt: now,
+      summary: {total: 1, open: 1, closed: 0},
+      items: [{
+        id: 'qa-public-feedback',
+        type: 'suggestion',
+        typeLabel: '建议 / 想法',
+        description: '希望处理进度在手机上也能清晰查看。',
+        progressStatus: 'unread',
+        progressStatusLabel: '待查看',
+        progressDescription: '尚未人工查看这条反馈。',
+        adminReply: '已收到，正在安排检查。',
+        createdAt: now - 60000,
+        progressStatusUpdatedAt: now,
+        replyUpdatedAt: now,
+        updatedAt: now,
+        context: {
+          codex: {id: 'qa', title: '回归测试法典'},
+          entry: {id: 'entry-qa', title: '响应式反馈', path: ['体验', '反馈']},
+        },
+      }],
+    }), {headers: {'content-type': 'application/json'}}));
+  };
+  return true;
+})()
+""")
+
+        def open_feedback():
+            cdp.eval("document.querySelector('#moreBtn')?.click()")
+            wait_for(cdp, "document.querySelector('#moreMenu')?.hidden === false", "feedback menu")
+            settle(cdp, 100)
+            cdp.eval("document.querySelector('#globalReportBtn')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#feedbackPanel')?.classList.contains('show') && document.querySelector('#feedbackSubmitTab')?.getAttribute('aria-selected') === 'true' && document.querySelector('#moreMenu')?.hidden === true",
+                "feedback submit panel",
+            )
+
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "desktop app before feedback")
+        stub_public_feedback()
+        open_feedback()
+        desktop = cdp.eval(r"""
+(() => {
+  const panel = document.querySelector('#feedbackPanel .feedback-panel');
+  return {
+    menuTitle: document.querySelector('#globalReportBtn b')?.textContent.trim() || '',
+    menuSubtitle: document.querySelector('#globalReportBtn small')?.textContent.trim() || '',
+    tabs: [...document.querySelectorAll('[data-feedback-tab]')].map(tab => tab.textContent.trim()),
+    selected: document.querySelector('[data-feedback-tab][aria-selected="true"]')?.dataset.feedbackTab || '',
+    privacyOptOutChecked: Boolean(document.querySelector('#feedbackPrivate')?.checked),
+    privacyOptOutLabel: document.querySelector('.feedback-privacy-optout b')?.textContent.trim() || '',
+    privacySafeCopy: document.querySelector('.feedback-privacy-optout small')?.textContent.trim() || '',
+    progressIntro: document.querySelector('.feedback-progress-intro span')?.textContent.trim() || '',
+    panelOverflow: panel ? panel.scrollWidth - panel.clientWidth : 999,
+    pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+})()
+""")
+        if desktop["menuTitle"] != "反馈与进度" or desktop["menuSubtitle"] != "提交反馈 · 查看处理进展":
+            raise CheckFailed(f"Feedback menu wording mismatch: {desktop}")
+        if (
+            desktop["tabs"] != ["提交反馈", "处理进度"]
+            or desktop["selected"] != "submit"
+            or desktop["privacyOptOutChecked"]
+            or desktop["privacyOptOutLabel"] != "不匿名公开此反馈，同时您将无法查看处置进度和维护者回复"
+            or desktop["privacySafeCopy"] != "联系方式、页面地址和其他非必要信息不会公开"
+            or desktop["progressIntro"] != "这里只展示经过反馈者和维护者均确认公开的反馈和回复。"
+        ):
+            raise CheckFailed(f"Feedback submit defaults mismatch: {desktop}")
+        if desktop["panelOverflow"] > 1 or desktop["pageOverflow"] > 1:
+            raise CheckFailed(f"Desktop feedback panel overflowed: {desktop}")
+        cdp.eval("document.querySelector('#feedbackProgressTab')?.click()")
+        wait_for(cdp, "document.querySelectorAll('.feedback-public-card').length === 1", "desktop public feedback")
+        cdp.eval("document.querySelector('.feedback-public-card summary')?.click()")
+        settle(cdp, 300)
+        desktop_progress = cdp.eval("document.querySelector('#feedbackProgressView')?.innerText || ''")
+        if not all(text in desktop_progress for text in ["待查看", "尚未人工查看这条反馈。", "已收到，正在安排检查。"]):
+            raise CheckFailed(f"Desktop public feedback content mismatch: {desktop_progress!r}")
+        desktop_shot = screenshot(cdp, out_dir, "feedback-desktop")
+
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "mobile app before feedback")
+        stub_public_feedback()
+        open_feedback()
+        mobile_submit = cdp.eval(r"""
+(() => {
+  const panel = document.querySelector('#feedbackPanel .feedback-panel');
+  const rect = panel?.getBoundingClientRect();
+  return {
+    viewport: [innerWidth, innerHeight],
+    panel: rect ? {left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom} : null,
+    panelOverflow: panel ? panel.scrollWidth - panel.clientWidth : 999,
+    pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    privacyOptOutVisible: Boolean(document.querySelector('#feedbackPrivate')?.offsetParent),
+    submitVisible: Boolean(document.querySelector('#feedbackSubmit')?.offsetParent),
+  };
+})()
+""")
+        panel = mobile_submit["panel"] or {}
+        if (
+            mobile_submit["viewport"] != [390, 844]
+            or panel.get("left", -1) < -1
+            or panel.get("right", 999) > 391
+            or mobile_submit["panelOverflow"] > 1
+            or mobile_submit["pageOverflow"] > 1
+            or not mobile_submit["privacyOptOutVisible"]
+            or not mobile_submit["submitVisible"]
+        ):
+            raise CheckFailed(f"Mobile feedback submit panel is unusable: {mobile_submit}")
+        cdp.eval("document.querySelector('#feedbackProgressTab')?.click()")
+        wait_for(cdp, "document.querySelectorAll('.feedback-public-card').length === 1", "mobile public feedback")
+        settle(cdp, 300)
+        mobile_progress = cdp.eval(r"""
+(() => {
+  const view = document.querySelector('#feedbackProgressView');
+  const card = document.querySelector('.feedback-public-card');
+  return {
+    text: view?.innerText || '',
+    viewOverflow: view ? view.scrollWidth - view.clientWidth : 999,
+    cardOverflow: card ? card.scrollWidth - card.clientWidth : 999,
+    pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+})()
+""")
+        if "待查看" not in mobile_progress["text"] or any(
+            mobile_progress[key] > 1 for key in ["viewOverflow", "cardOverflow", "pageOverflow"]
+        ):
+            raise CheckFailed(f"Mobile feedback progress overflowed: {mobile_progress}")
+        mobile_shot = screenshot(cdp, out_dir, "feedback-mobile")
+        check_no_errors(cdp)
+        return {
+            "desktop": desktop,
+            "mobileSubmit": mobile_submit,
+            "mobileProgress": mobile_progress,
+            "screenshots": [desktop_shot, mobile_shot],
+        }
+
     def new_update_filter():
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
@@ -1275,6 +1427,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     checks = [
         ("desktop home renders", desktop_load),
         ("announcements render", announcements_panel),
+        ("feedback panel responsive", feedback_panel_responsive),
         ("NEW update filter", new_update_filter),
         ("search highlights text", search_highlight),
         ("author search syntax", author_search),

@@ -25,6 +25,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/utils.js">
 <link rel="modulepreload" href="assets/app/modal.js">
 <link rel="modulepreload" href="assets/app/feedback.js">
+<link rel="modulepreload" href="assets/app/feedback-progress.js">
 <link rel="modulepreload" href="assets/app/access.js">
 <link rel="modulepreload" href="assets/app/data.js">
 <link rel="modulepreload" href="assets/app/search.js">
@@ -119,7 +120,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </button>
         <button id="globalReportBtn" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
-          <span><b>反馈问题</b><small>BUG反馈与新功能建议</small></span>
+          <span><b>反馈与进度</b><small>提交反馈 · 查看处理进展</small></span>
         </button>
         <button id="aboutBtn" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v5"/><path d="M12 8h.01"/></svg>
@@ -469,48 +470,84 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </div>
 
 <div id="feedbackPanel" class="settings-mask" hidden>
-  <div class="settings-panel feedback-panel" role="dialog" aria-modal="true" aria-label="反馈问题">
+  <div class="settings-panel feedback-panel" role="dialog" aria-modal="true" aria-label="反馈与进度">
     <button id="feedbackClose" class="settings-close" type="button" aria-label="关闭">×</button>
-    <h2 class="settings-title">反馈问题</h2>
-    <p class="settings-note">会自动带上当前页面、法典和词条上下文，不会上传截图、收藏列表或浏览历史。</p>
-    <form id="feedbackForm" class="feedback-form">
-      <label class="feedback-field">
-        <span>类型</span>
-        <select id="feedbackType" required>
-          <option value="site_bug">站点 Bug / 使用问题</option>
-          <option value="card_content">卡片内容错误</option>
-          <option value="image_error">图片加载 / 配图问题</option>
-          <option value="copy_error">复制结果问题</option>
-          <option value="suggestion">建议 / 想法</option>
-        </select>
-      </label>
-      <label class="feedback-field">
-        <span>描述</span>
-        <textarea id="feedbackDesc" maxlength="1000" rows="5" placeholder="简单说一下你遇到的问题，或希望优化加入的功能。" required></textarea>
-      </label>
-      <label class="feedback-field">
-        <span>联系方式 <small class="field-live">选填</small></span>
-        <input id="feedbackContact" maxlength="120" placeholder="QQ / 昵称 / 其他能联系到你的方式">
-      </label>
-      <label class="feedback-hp" aria-hidden="true">
-        <span>请留空</span>
-        <input id="feedbackHoneypot" tabindex="-1" autocomplete="off">
-      </label>
-      <div class="feedback-context">
-        <b>将随反馈一同提交</b>
-        <pre id="feedbackContextPreview"></pre>
+    <div class="panel-kicker feedback-kicker">
+      <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg></span>
+      <div>
+        <h2 class="settings-title">反馈与进度</h2>
+        <p>帮助我们持续修正内容与体验。</p>
       </div>
-      <div id="feedbackFallback" class="feedback-fallback" hidden>
-        <b>提交失败时可复制这段内容发给作者或发到群里</b>
-        <textarea id="feedbackFallbackText" rows="7" readonly></textarea>
-        <button id="feedbackCopyFallback" class="nsfw-secondary" type="button">复制反馈文本</button>
+    </div>
+    <div class="feedback-tabs" role="tablist" aria-label="反馈功能">
+      <button id="feedbackSubmitTab" class="feedback-tab" type="button" role="tab" aria-selected="true" aria-controls="feedbackSubmitView" tabindex="0" data-feedback-tab="submit">提交反馈</button>
+      <button id="feedbackProgressTab" class="feedback-tab" type="button" role="tab" aria-selected="false" aria-controls="feedbackProgressView" tabindex="-1" data-feedback-tab="progress">处理进度 <span id="feedbackPublicCount" hidden></span></button>
+    </div>
+    <section id="feedbackSubmitView" class="feedback-tab-panel" role="tabpanel" aria-labelledby="feedbackSubmitTab">
+      <p class="settings-note">会自动带上当前页面、法典和词条上下文，不会上传截图、收藏列表或浏览历史。</p>
+      <form id="feedbackForm" class="feedback-form">
+        <label class="feedback-field">
+          <span>类型</span>
+          <select id="feedbackType" required>
+            <option value="site_bug">站点 Bug / 使用问题</option>
+            <option value="card_content">卡片内容错误</option>
+            <option value="image_error">图片加载 / 配图问题</option>
+            <option value="copy_error">复制结果问题</option>
+            <option value="suggestion">建议 / 想法</option>
+          </select>
+        </label>
+        <label class="feedback-field">
+          <span>描述</span>
+          <textarea id="feedbackDesc" maxlength="1000" rows="5" placeholder="简单说一下你遇到的问题，或希望优化加入的功能。" required></textarea>
+        </label>
+        <label class="feedback-field">
+          <span>联系方式 <small class="field-live">选填</small></span>
+          <input id="feedbackContact" maxlength="120" placeholder="QQ / 昵称 / 其他能联系到你的方式">
+        </label>
+        <label class="feedback-privacy-optout">
+          <input id="feedbackPrivate" type="checkbox">
+          <span>
+            <b>不匿名公开此反馈，同时您将无法查看处置进度和维护者回复</b>
+            <small>联系方式、页面地址和其他非必要信息不会公开</small>
+          </span>
+        </label>
+        <label class="feedback-hp" aria-hidden="true">
+          <span>请留空</span>
+          <input id="feedbackHoneypot" tabindex="-1" autocomplete="off">
+        </label>
+        <div class="feedback-context">
+          <b>将随反馈一同提交</b>
+          <pre id="feedbackContextPreview"></pre>
+        </div>
+        <div id="feedbackFallback" class="feedback-fallback" hidden>
+          <b>提交失败时可复制这段内容发给作者或发到群里</b>
+          <textarea id="feedbackFallbackText" rows="7" readonly></textarea>
+          <button id="feedbackCopyFallback" class="nsfw-secondary" type="button">复制反馈文本</button>
+        </div>
+        <div id="feedbackStatus" class="feedback-status" aria-live="polite"></div>
+        <div class="nsfw-actions">
+          <button id="feedbackCancel" class="nsfw-secondary" type="button">取消</button>
+          <button id="feedbackSubmit" class="nsfw-primary feedback-submit" type="submit">提交反馈</button>
+        </div>
+      </form>
+    </section>
+    <section id="feedbackProgressView" class="feedback-tab-panel feedback-progress-view" role="tabpanel" aria-labelledby="feedbackProgressTab" hidden>
+      <div class="feedback-progress-intro">
+        <div>
+          <b>公开处理进度</b>
+          <span>这里只展示经过反馈者和维护者均确认公开的反馈和回复。</span>
+        </div>
+        <button id="feedbackProgressRefresh" type="button" aria-label="刷新处理进度" title="刷新处理进度">↻</button>
       </div>
-      <div id="feedbackStatus" class="feedback-status" aria-live="polite"></div>
-      <div class="nsfw-actions">
-        <button id="feedbackCancel" class="nsfw-secondary" type="button">取消</button>
-        <button id="feedbackSubmit" class="nsfw-primary feedback-submit" type="submit">提交反馈</button>
+      <div class="feedback-progress-filters" role="group" aria-label="筛选处理进度">
+        <button type="button" data-feedback-filter="all" aria-pressed="true">全部</button>
+        <button type="button" data-feedback-filter="open" aria-pressed="false">进行中</button>
+        <button type="button" data-feedback-filter="closed" aria-pressed="false">已结案</button>
       </div>
-    </form>
+      <div id="feedbackPublicList" class="feedback-public-list" aria-live="polite">
+        <div class="feedback-public-state">切换到这里后会自动加载公开反馈。</div>
+      </div>
+    </section>
   </div>
 </div>
 

@@ -68,7 +68,7 @@ export function decideFeedback(id, action, sourceStatus = '') {
   });
 }
 
-export function updateFeedback(id, sourceStatus, progressStatus, adminReply) {
+export function updateFeedback(id, sourceStatus, progressStatus, adminReply, publicVisible) {
   return adminApi('/api/admin/feedback-decide', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -78,6 +78,7 @@ export function updateFeedback(id, sourceStatus, progressStatus, adminReply) {
       sourceStatus,
       progressStatus,
       adminReply,
+      publicVisible,
     }),
   });
 }

@@ -457,7 +457,7 @@ async function runFeedbackAction(action) {
   const item = selectedFeedback();
   if (!item) return;
   if (action === 'delete') {
-    if (state.dirty && !confirmDiscardChanges('删除反馈会丢弃尚未保存的展示进度与回复，仍要继续吗？')) return;
+    if (state.dirty && !confirmDiscardChanges('删除反馈会丢弃尚未保存的展示进度、回复与公开设置，仍要继续吗？')) return;
     if (!confirm('确认永久删除这条反馈？')) return;
   }
 
@@ -476,17 +476,27 @@ async function runFeedbackAction(action) {
     } else {
       const sourceStatus = item.status || state.feedbackStatus;
       const targetProgress = feedbackProgressInfo(update.progressStatus);
-      const data = await updateFeedback(item.id, sourceStatus, update.progressStatus, update.adminReply);
+      const data = await updateFeedback(
+        item.id,
+        sourceStatus,
+        update.progressStatus,
+        update.adminReply,
+        update.publicVisible,
+      );
       const saved = data.item || {
         ...item,
         status: targetProgress.status,
         progressStatus: update.progressStatus,
         adminReply: update.adminReply,
+        publicVisible: update.publicVisible,
         statusUpdatedAt: sourceStatus === targetProgress.status ? item.statusUpdatedAt : Date.now(),
         progressStatusUpdatedAt: feedbackProgressStatus(item) === update.progressStatus
           ? item.progressStatusUpdatedAt
           : Date.now(),
         replyUpdatedAt: update.adminReply === (item.adminReply || '') ? item.replyUpdatedAt : Date.now(),
+        publicVisibleUpdatedAt: update.publicVisible === Boolean(item.publicVisible)
+          ? item.publicVisibleUpdatedAt
+          : Date.now(),
       };
       if (saved.status === state.feedbackStatus) {
         state.feedbackItems.splice(index, 1, saved);
@@ -496,9 +506,10 @@ async function runFeedbackAction(action) {
         state.selectedFeedbackId = state.feedbackItems[Math.min(index, state.feedbackItems.length - 1)]?.id || '';
       }
       const savedProgress = feedbackProgressInfo(saved);
+      const visibility = saved.publicVisible ? '已公开' : '仅后台';
       toast(sourceStatus === saved.status
-        ? `已保存 · ${savedProgress.label}`
-        : `已更新为「${savedProgress.label}」，归入「${FEEDBACK_LABELS[saved.status] || saved.status}」`);
+        ? `已保存 · ${savedProgress.label} · ${visibility}`
+        : `已更新为「${savedProgress.label}」，归入「${FEEDBACK_LABELS[saved.status] || saved.status}」· ${visibility}`);
     }
     clearDirty(false);
     renderWorkspace();
@@ -522,12 +533,13 @@ async function copyFeedback(id) {
     `类型：${item.typeLabel || item.type}`,
     `展示进度：${progress.label}`,
     `后台分组：${FEEDBACK_LABELS[item.status] || item.status || '进行中'}`,
+    `公开展示：${item.publicVisible ? '是' : item.publicConsent ? '否（等待维护者确认）' : '否（反馈者选择不公开）'}`,
     `描述：${item.description}`,
     `联系方式：${item.contact || '未填写'}`,
     `页面：${page.url || ''}`,
     `词条：${entry.title || entry.id || ''}`,
     `词条目录：${directory || '无'}`,
-    `站长回复：${item.adminReply || '未回复'}`,
+    `维护者回复：${item.adminReply || '未回复'}`,
     '',
     '【完整上下文】',
     JSON.stringify(ctx, null, 2),
@@ -837,6 +849,10 @@ function setBusy(busy) {
   document.querySelectorAll('#statusFilter, #categoryFilter, #nsfwFilter, #batchCategory, #feedbackProgressSelect, #feedbackReply, [data-select-id]').forEach(control => {
     control.disabled = busy;
   });
+  const publicVisible = $('#feedbackPublicVisible');
+  if (publicVisible) {
+    publicVisible.disabled = busy || publicVisible.closest('.feedback-public-control')?.classList.contains('is-disabled');
+  }
   const selectAll = $('#selectAllVisible');
   if (selectAll) selectAll.disabled = busy || currentItems().length === 0;
 }

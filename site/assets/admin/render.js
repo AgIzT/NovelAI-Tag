@@ -375,6 +375,11 @@ function feedbackRow(item) {
           <span class="fb-context-chip">${escHtml(entry.title || entry.id || '无关联词条')}</span>
           ${directory ? `<span class="fb-path-chip" title="${escAttr(directory)}">目录 · ${escHtml(directory)}</span>` : ''}
           ${item.adminReply ? '<span class="badge green">已回复</span>' : ''}
+          ${item.publicVisible
+            ? '<span class="badge accent">公开中</span>'
+            : item.publicConsent
+              ? '<span class="badge">可公开</span>'
+              : ''}
         </div>
       </div>
       <div class="row-actions">

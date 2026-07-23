@@ -82,6 +82,7 @@ export function renderFeedbackDetail(item) {
   const progress = feedbackProgressInfo(progressStatus);
   const directory = feedbackDirectory(item);
   const updatedAt = [
+    item.publicVisibleUpdatedAt,
     item.replyUpdatedAt,
     item.progressStatusUpdatedAt,
     item.statusUpdatedAt,
@@ -113,11 +114,20 @@ export function renderFeedbackDetail(item) {
       <section class="feedback-workflow" aria-labelledby="feedbackWorkflowTitle">
         <div class="feedback-workflow-head">
           <div>
-            <b id="feedbackWorkflowTitle">反馈者可见进度与回复</b>
-            <span>公开反馈页启用后，将展示这里的处理进度和经审核回复；后台归档会自动同步。</span>
+            <b id="feedbackWorkflowTitle">反馈者可见进度、回复与公开设置</b>
+            <span>只有反馈者已授权且你开启公开后，主站才会展示反馈内容、进度与回复；后台归档自动同步。</span>
           </div>
           <small>最近更新：${escHtml(formatDate(updatedAt))}</small>
         </div>
+        <label class="feedback-public-control${item.publicConsent ? '' : ' is-disabled'}">
+          <input id="feedbackPublicVisible" type="checkbox"${item.publicVisible ? ' checked' : ''}${item.publicConsent ? '' : ' disabled'} aria-describedby="feedbackPublicHint">
+          <span>
+            <b>公开到主站「处理进度」</b>
+            <small id="feedbackPublicHint">${item.publicConsent
+              ? '反馈者未选择不公开。联系方式、页面地址和其他非必要信息不会公开。'
+              : '反馈者已选择不公开，此条反馈只能在后台处理和回复。'}</small>
+          </span>
+        </label>
         <div class="field-row">
           <div class="field">
             <label for="feedbackProgressSelect">展示进度</label>
@@ -127,8 +137,8 @@ export function renderFeedbackDetail(item) {
             <small class="field-help" id="feedbackProgressHint">${escHtml(feedbackProgressHint(progressStatus))}</small>
           </div>
           <label class="field feedback-reply-field">
-            <span class="field-label">站长回复</span>
-            <textarea id="feedbackReply" maxlength="2000" placeholder="填写处理说明、修复结果，或不予处理的具体原因">${escHtml(item.adminReply || '')}</textarea>
+            <span class="field-label">维护者回复</span>
+            <textarea id="feedbackReply" maxlength="2000" placeholder="填写处理说明、修复结果，或暂不采纳的具体原因">${escHtml(item.adminReply || '')}</textarea>
           </label>
         </div>
       </section>
@@ -136,7 +146,7 @@ export function renderFeedbackDetail(item) {
     <div class="detail-actions" data-detail-actions>
       <div class="editor-state" data-editor-state role="status" aria-live="polite">
         <span class="editor-state-dot" aria-hidden="true"></span>
-        <span data-editor-state-text>展示进度或回复尚未保存</span>
+        <span data-editor-state-text>展示进度、回复或公开设置尚未保存</span>
       </div>
       <div class="detail-action-buttons">
         <button class="soft-btn" type="button" data-copy-feedback="${escAttr(item.id)}">复制上下文</button>
@@ -152,6 +162,7 @@ export function collectFeedbackUpdate() {
   return {
     progressStatus: FEEDBACK_PROGRESS_STATUSES.includes(progressStatus) ? progressStatus : 'unread',
     adminReply: valueOf('feedbackReply').trim(),
+    publicVisible: Boolean(document.getElementById('feedbackPublicVisible')?.checked),
   };
 }
 

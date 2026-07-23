@@ -320,6 +320,12 @@ body.dark .theme-toggle .moon{display:block}
 .feedback-workflow-head b{font-size:13px}
 .feedback-workflow-head span,.feedback-workflow-head small{color:var(--muted);font-size:10px;line-height:1.5}
 .feedback-workflow-head small{flex:none;text-align:right}
+.feedback-public-control{display:flex;align-items:flex-start;gap:10px;border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line));border-radius:12px;background:var(--card);padding:10px 11px;cursor:pointer}
+.feedback-public-control input{flex:none;width:17px;height:17px;margin:1px 0 0;accent-color:var(--accent)}
+.feedback-public-control span{display:grid;min-width:0;gap:3px}
+.feedback-public-control b{font-size:11px}
+.feedback-public-control small{color:var(--muted);font-size:10px;line-height:1.5}
+.feedback-public-control.is-disabled{cursor:not-allowed;opacity:.68}
 .feedback-workflow .field-row{grid-template-columns:minmax(160px,.5fr) minmax(0,1.5fr)}
 .feedback-reply-field textarea{min-height:108px}
 

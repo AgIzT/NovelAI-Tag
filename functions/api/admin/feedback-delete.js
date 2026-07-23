@@ -1,6 +1,7 @@
 'use strict';
 
-import { json, err, requireAdmin, validId, listAll, cleanLine } from '../../_lib.js';
+import { json, err, requireAdmin, validId, listAll, cleanLine, readJson } from '../../_lib.js';
+import { updatePublicFeedbackIndex } from '../../_feedback.js';
 
 const STATUSES = new Set(['pending', 'resolved', 'ignored']);
 
@@ -22,6 +23,10 @@ export async function onRequestPost(context) {
   const recordKey = keys[0] || '';
   if (!recordKey) return err('该反馈不存在或已被删除', 404);
 
+  const record = await readJson(env.STRINGS_BUCKET, recordKey);
+  if (record?.publicConsent === true && record?.publicVisible === true) {
+    await updatePublicFeedbackIndex(env.STRINGS_BUCKET, { removeIds: [id] });
+  }
   await env.STRINGS_BUCKET.delete(recordKey);
   console.log(JSON.stringify({
     event: 'feedback_deleted',
