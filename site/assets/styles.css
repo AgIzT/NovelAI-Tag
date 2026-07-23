@@ -1022,8 +1022,12 @@ body.dark .feedback-status.success{color:#73d89a}
 }
 .feedback-progress-filters button:hover{color:var(--text);border-color:var(--accent)}
 .feedback-progress-filters button[aria-pressed="true"]{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
-.feedback-public-list{display:grid;gap:8px;min-height:120px}
+.feedback-public-list{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;
+  gap:8px;min-height:120px;
+}
 .feedback-public-state{
+  grid-column:1/-1;
   display:grid;min-height:130px;place-items:center;align-content:center;gap:8px;text-align:center;
   border:1px dashed var(--line);border-radius:14px;background:var(--tagbg);padding:20px;
   color:var(--muted);font-size:12px;line-height:1.6;
@@ -1034,9 +1038,17 @@ body.dark .feedback-status.success{color:#73d89a}
 .feedback-public-state.is-loading{display:flex;min-height:170px}
 .feedback-public-state.is-loading i{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:feedbackSpin .7s linear infinite}
 .feedback-public-state.is-error{border-color:color-mix(in srgb,var(--new) 35%,var(--line));background:color-mix(in srgb,var(--new) 7%,var(--tagbg))}
-.feedback-public-card{overflow:hidden;border:1px solid var(--line);border-radius:15px;background:var(--popover-glass);transition:border-color .15s,background .15s}
+.feedback-public-card{
+  aspect-ratio:1;min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:15px;
+  background:var(--popover-glass);transition:border-color .15s,background .15s;
+}
+.feedback-public-card[open]{grid-column:1/-1;aspect-ratio:auto}
 .feedback-public-card:hover,.feedback-public-card[open]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--panel)}
-.feedback-public-card summary{display:grid;gap:8px;padding:12px 13px;cursor:pointer;list-style:none}
+.feedback-public-card summary{
+  display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:8px;height:100%;
+  padding:12px 13px;cursor:pointer;list-style:none;
+}
+.feedback-public-card[open] summary{grid-template-rows:auto auto auto;height:auto}
 .feedback-public-card summary::-webkit-details-marker{display:none}
 .feedback-public-card summary:focus-visible{outline:2px solid var(--accent);outline-offset:-3px;border-radius:14px}
 .feedback-public-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -1055,9 +1067,9 @@ body.dark .feedback-public-status.is-declined{color:#ff9e97}
   color:var(--text);font-size:13px;font-weight:700;line-height:1.62;white-space:pre-wrap;
 }
 .feedback-public-card[open] .feedback-public-description{display:block}
-.feedback-public-card-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--muted);font-size:10px;line-height:1.45}
+.feedback-public-card-meta{display:grid;gap:2px;color:var(--muted);font-size:10px;line-height:1.45}
 .feedback-public-card-meta span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.feedback-public-card-meta time{flex:none}
+.feedback-public-card-meta time{white-space:nowrap}
 .feedback-public-card-body{display:grid;gap:9px;border-top:1px solid var(--line);padding:11px 13px 13px}
 .feedback-public-progress-copy{margin:0;color:var(--muted);font-size:11px;line-height:1.6}
 .feedback-public-reply{border-left:3px solid var(--accent);border-radius:0 10px 10px 0;background:var(--accent-soft);padding:9px 10px}
@@ -1065,6 +1077,14 @@ body.dark .feedback-public-status.is-declined{color:#ff9e97}
 .feedback-public-reply b{display:block;margin-bottom:4px;color:var(--muted);font-size:10px}
 .feedback-public-reply p{margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.65}
 .feedback-public-card-body>small{color:var(--muted);font-size:10px}
+@media (max-width:600px){
+  .feedback-public-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .feedback-public-card summary{gap:7px;padding:11px}
+  .feedback-public-description{-webkit-line-clamp:4;font-size:12px;line-height:1.55}
+}
+@media (max-width:330px){
+  .feedback-public-list{grid-template-columns:1fr}
+}
 @keyframes feedbackSpin{to{transform:rotate(1turn)}}
 .onboarding-panel{max-width:500px;text-align:left;padding-bottom:18px}
 .onboarding-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}

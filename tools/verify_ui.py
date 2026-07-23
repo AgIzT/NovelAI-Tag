@@ -486,28 +486,38 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     const url = typeof input === 'string' ? input : input?.url || String(input);
     if (!url.includes('/api/feedback-public')) return originalFetch(input, init);
     const now = Date.now();
+    const progress = [
+      ['unread', '待查看'],
+      ['accepted', '已受理'],
+      ['investigating', '调查中'],
+      ['in_progress', '处理中'],
+      ['completed', '已完成'],
+      ['declined', '暂不采纳'],
+    ];
     return Promise.resolve(new Response(JSON.stringify({
       ok: true,
       updatedAt: now,
-      summary: {total: 1, open: 1, closed: 0},
-      items: [{
-        id: 'qa-public-feedback',
+      summary: {total: 6, open: 4, closed: 2},
+      items: progress.map(([progressStatus, progressStatusLabel], index) => ({
+        id: `qa-public-feedback-${index}`,
         type: 'suggestion',
         typeLabel: '建议 / 想法',
-        description: '希望处理进度在手机上也能清晰查看。',
-        progressStatus: 'unread',
-        progressStatusLabel: '待查看',
-        progressDescription: '尚未人工查看这条反馈。',
-        adminReply: '已收到，正在安排检查。',
-        createdAt: now - 60000,
+        description: index
+          ? `用于验证高密度方形布局的公开反馈 ${index + 1}。`
+          : '希望处理进度在手机上也能清晰查看。',
+        progressStatus,
+        progressStatusLabel,
+        progressDescription: '维护者尚未查看这条反馈。',
+        adminReply: index ? '' : '已收到，正在安排检查。',
+        createdAt: now - ((index + 1) * 60000),
         progressStatusUpdatedAt: now,
         replyUpdatedAt: now,
-        updatedAt: now,
+        updatedAt: now - (index * 60000),
         context: {
           codex: {id: 'qa', title: '回归测试法典'},
-          entry: {id: 'entry-qa', title: '响应式反馈', path: ['体验', '反馈']},
+          entry: {id: `entry-qa-${index}`, title: `响应式反馈 ${index + 1}`, path: ['体验', '反馈']},
         },
-      }],
+      })),
     }), {headers: {'content-type': 'application/json'}}));
   };
   return true;
@@ -562,11 +572,40 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if desktop["panelOverflow"] > 1 or desktop["pageOverflow"] > 1:
             raise CheckFailed(f"Desktop feedback panel overflowed: {desktop}")
         cdp.eval("document.querySelector('#feedbackProgressTab')?.click()")
-        wait_for(cdp, "document.querySelectorAll('.feedback-public-card').length === 1", "desktop public feedback")
+        wait_for(cdp, "document.querySelectorAll('.feedback-public-card').length === 6", "desktop public feedback")
+        desktop_grid = cdp.eval(r"""
+(() => {
+  const list = document.querySelector('#feedbackPublicList');
+  const cards = [...document.querySelectorAll('.feedback-public-card')];
+  const columns = getComputedStyle(list).gridTemplateColumns.split(/\s+/).filter(Boolean).length;
+  return {
+    columns,
+    squareRatios: cards.map(card => {
+      const rect = card.getBoundingClientRect();
+      return rect.height ? rect.width / rect.height : 0;
+    }),
+  };
+})()
+""")
+        if desktop_grid["columns"] != 3 or any(abs(ratio - 1) > 0.03 for ratio in desktop_grid["squareRatios"]):
+            raise CheckFailed(f"Desktop feedback cards are not a three-column square grid: {desktop_grid}")
         cdp.eval("document.querySelector('.feedback-public-card summary')?.click()")
         settle(cdp, 300)
-        desktop_progress = cdp.eval("document.querySelector('#feedbackProgressView')?.innerText || ''")
-        if not all(text in desktop_progress for text in ["待查看", "尚未人工查看这条反馈。", "已收到，正在安排检查。"]):
+        desktop_progress = cdp.eval(r"""
+(() => {
+  const view = document.querySelector('#feedbackProgressView');
+  const openCard = document.querySelector('.feedback-public-card[open]');
+  return {
+    text: view?.innerText || '',
+    openCardWidth: openCard?.getBoundingClientRect().width || 0,
+    listWidth: document.querySelector('#feedbackPublicList')?.getBoundingClientRect().width || 0,
+  };
+})()
+""")
+        if (
+            not all(text in desktop_progress["text"] for text in ["待查看", "维护者尚未查看这条反馈。", "已收到，正在安排检查。"])
+            or abs(desktop_progress["openCardWidth"] - desktop_progress["listWidth"]) > 1
+        ):
             raise CheckFailed(f"Desktop public feedback content mismatch: {desktop_progress!r}")
         desktop_shot = screenshot(cdp, out_dir, "feedback-desktop")
 
@@ -602,28 +641,40 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ):
             raise CheckFailed(f"Mobile feedback submit panel is unusable: {mobile_submit}")
         cdp.eval("document.querySelector('#feedbackProgressTab')?.click()")
-        wait_for(cdp, "document.querySelectorAll('.feedback-public-card').length === 1", "mobile public feedback")
+        wait_for(cdp, "document.querySelectorAll('.feedback-public-card').length === 6", "mobile public feedback")
         settle(cdp, 300)
         mobile_progress = cdp.eval(r"""
 (() => {
   const view = document.querySelector('#feedbackProgressView');
-  const card = document.querySelector('.feedback-public-card');
+  const list = document.querySelector('#feedbackPublicList');
+  const cards = [...document.querySelectorAll('.feedback-public-card')];
   return {
     text: view?.innerText || '',
     viewOverflow: view ? view.scrollWidth - view.clientWidth : 999,
-    cardOverflow: card ? card.scrollWidth - card.clientWidth : 999,
+    cardOverflow: Math.max(...cards.map(card => card.scrollWidth - card.clientWidth)),
     pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    columns: getComputedStyle(list).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+    squareRatios: cards.map(card => {
+      const rect = card.getBoundingClientRect();
+      return rect.height ? rect.width / rect.height : 0;
+    }),
   };
 })()
 """)
-        if "待查看" not in mobile_progress["text"] or any(
+        if (
+            "待查看" not in mobile_progress["text"]
+            or mobile_progress["columns"] != 2
+            or any(abs(ratio - 1) > 0.03 for ratio in mobile_progress["squareRatios"])
+            or any(
             mobile_progress[key] > 1 for key in ["viewOverflow", "cardOverflow", "pageOverflow"]
+            )
         ):
             raise CheckFailed(f"Mobile feedback progress overflowed: {mobile_progress}")
         mobile_shot = screenshot(cdp, out_dir, "feedback-mobile")
         check_no_errors(cdp)
         return {
             "desktop": desktop,
+            "desktopGrid": desktop_grid,
             "mobileSubmit": mobile_submit,
             "mobileProgress": mobile_progress,
             "screenshots": [desktop_shot, mobile_shot],

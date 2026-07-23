@@ -78,6 +78,8 @@ for (const [progressStatus, bucketStatus] of Object.entries(EXPECTED_PROGRESS_BU
     BACKEND_FEEDBACK_PROGRESS[progressStatus].description,
   );
 }
+assert.equal(BACKEND_FEEDBACK_PROGRESS.unread.description, '维护者尚未查看这条反馈。');
+assert.equal(BACKEND_FEEDBACK_PROGRESS.declined.description, '评估后暂不采纳，具体原因请查看回复。');
 
 function request(method, path, body) {
   const options = {

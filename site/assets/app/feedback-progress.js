@@ -1,7 +1,7 @@
 export const FEEDBACK_PROGRESS = Object.freeze({
   unread: Object.freeze({
     label: '待查看',
-    description: '尚未人工查看这条反馈。',
+    description: '维护者尚未查看这条反馈。',
     status: 'pending',
   }),
   accepted: Object.freeze({
@@ -36,7 +36,7 @@ export const FEEDBACK_PROGRESS = Object.freeze({
   }),
   declined: Object.freeze({
     label: '暂不采纳',
-    description: '评估后暂不采纳，具体原因会写在回复中。',
+    description: '评估后暂不采纳，具体原因请查看回复。',
     status: 'ignored',
   }),
 });
