@@ -968,15 +968,6 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
 .feedback-fallback textarea:focus{
   border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);
 }
-.feedback-privacy-optout{
-  display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:13px;
-  background:var(--card);padding:10px 11px;cursor:pointer;
-}
-.feedback-privacy-optout input{flex:none;width:17px;height:17px;margin:2px 0 0;accent-color:var(--accent)}
-.feedback-privacy-optout span{display:grid;min-width:0;gap:3px}
-.feedback-privacy-optout b{font-size:12px;line-height:1.4}
-.feedback-privacy-optout small{color:var(--muted);font-size:10.5px;line-height:1.55}
-.feedback-privacy-optout:has(input:focus-visible){border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .feedback-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 .feedback-context{
   border:1px solid var(--line);border-radius:13px;background:var(--tagbg);
@@ -1011,10 +1002,11 @@ body.dark .feedback-status.success{color:#73d89a}
 .feedback-progress-intro span{color:var(--muted);font-size:11px;line-height:1.55}
 .feedback-progress-intro button{
   flex:none;width:32px;height:32px;border:1px solid var(--line);border-radius:10px;
-  background:var(--card);color:var(--accent);font-size:19px;line-height:1;
+  display:grid;place-items:center;background:var(--card);color:var(--accent);font-size:19px;line-height:1;
 }
+.feedback-progress-intro button span{display:block;line-height:1}
 .feedback-progress-intro button:hover{border-color:var(--accent);background:var(--panel)}
-.feedback-progress-intro button[aria-busy="true"]{animation:feedbackSpin .7s linear infinite}
+.feedback-progress-intro button[aria-busy="true"] span{animation:feedbackSpin .7s linear infinite}
 .feedback-progress-filters{display:flex;gap:6px;overflow-x:auto;padding-bottom:1px}
 .feedback-progress-filters button{
   flex:none;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);
@@ -1071,7 +1063,11 @@ body.dark .feedback-public-status.is-declined{color:#ff9e97}
 .feedback-public-card-meta span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .feedback-public-card-meta time{white-space:nowrap}
 .feedback-public-card-body{display:grid;gap:9px;border-top:1px solid var(--line);padding:11px 13px 13px}
-.feedback-public-progress-copy{margin:0;color:var(--muted);font-size:11px;line-height:1.6}
+.feedback-public-progress-copy{
+  margin:0;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:11px;
+  background:var(--accent-soft);color:var(--text);padding:9px 10px;
+  font-size:13px;font-weight:850;line-height:1.55;
+}
 .feedback-public-reply{border-left:3px solid var(--accent);border-radius:0 10px 10px 0;background:var(--accent-soft);padding:9px 10px}
 .feedback-public-reply.is-empty{border-left-color:var(--line);background:var(--tagbg)}
 .feedback-public-reply b{display:block;margin-bottom:4px;color:var(--muted);font-size:10px}
@@ -1682,7 +1678,7 @@ html.vt-codex::view-transition-new(codex-banner){animation-duration:.3s}
   .banner-cover,.banner-info,.banner-about-btn,.banner-cover img,
   .tree.tree-entering .tree-row>span,
   .rail-chip,.card-img,.tree-spy,
-  .feedback-public-state.is-loading i,.feedback-progress-intro button[aria-busy="true"]{
+  .feedback-public-state.is-loading i,.feedback-progress-intro button[aria-busy="true"] span{
     animation:none!important;
     transition:none!important;
   }

@@ -533,7 +533,7 @@ async function copyFeedback(id) {
     `类型：${item.typeLabel || item.type}`,
     `展示进度：${progress.label}`,
     `后台分组：${FEEDBACK_LABELS[item.status] || item.status || '进行中'}`,
-    `公开展示：${item.publicVisible ? '是' : item.publicConsent ? '否（等待维护者确认）' : '否（反馈者选择不公开）'}`,
+    `公开展示：${item.publicVisible ? '是' : '否（等待维护者确认）'}`,
     `描述：${item.description}`,
     `联系方式：${item.contact || '未填写'}`,
     `页面：${page.url || ''}`,
@@ -851,7 +851,7 @@ function setBusy(busy) {
   });
   const publicVisible = $('#feedbackPublicVisible');
   if (publicVisible) {
-    publicVisible.disabled = busy || publicVisible.closest('.feedback-public-control')?.classList.contains('is-disabled');
+    publicVisible.disabled = busy;
   }
   const selectAll = $('#selectAllVisible');
   if (selectAll) selectAll.disabled = busy || currentItems().length === 0;

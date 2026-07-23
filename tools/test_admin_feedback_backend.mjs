@@ -12,6 +12,7 @@ import {
 import {
   FEEDBACK_PROGRESS as FRONTEND_FEEDBACK_PROGRESS,
 } from '../site/assets/app/feedback-progress.js';
+import { renderFeedbackDetail } from '../site/assets/admin/editor.js';
 
 class MemoryR2 {
   constructor() {
@@ -80,6 +81,21 @@ for (const [progressStatus, bucketStatus] of Object.entries(EXPECTED_PROGRESS_BU
 }
 assert.equal(BACKEND_FEEDBACK_PROGRESS.unread.description, '维护者尚未查看这条反馈。');
 assert.equal(BACKEND_FEEDBACK_PROGRESS.declined.description, '评估后暂不采纳，具体原因请查看回复。');
+const legacyOptOutDetail = renderFeedbackDetail({
+  id: 'legacy-opt-out',
+  status: 'pending',
+  progressStatus: 'unread',
+  type: 'site_bug',
+  typeLabel: '站点 Bug / 使用问题',
+  description: '历史记录曾写入不公开字段。',
+  publicConsent: false,
+  publicVisible: false,
+  createdAt: 1000,
+});
+assert.match(legacyOptOutDetail, /id="feedbackPublicVisible" type="checkbox"/);
+assert.doesNotMatch(legacyOptOutDetail, /feedbackPublicVisible"[^>]*disabled/);
+assert.match(legacyOptOutDetail, /是否公开由维护者决定/);
+assert.doesNotMatch(legacyOptOutDetail, /反馈者已选择不公开|反馈者未选择不公开/);
 
 function request(method, path, body) {
   const options = {
@@ -152,7 +168,7 @@ await bucket.put(`feedback/pending/2026/07/${id}.json`, JSON.stringify({
     entry: { id: 'entry-1', title: '测试词条', path: ['人物', '发型'] },
     page: { url: 'https://private.example.test/secret?entry=1' },
   },
-  publicConsent: true,
+  publicConsent: false,
   publicVisible: false,
   createdAt: 1000,
 }));
@@ -163,7 +179,11 @@ assert.equal(initial.items[0].status, 'pending', 'R2 目录状态应覆盖历史
 assert.equal(initial.items[0].progressStatus, 'unread');
 assert.equal(initial.items[0].progressStatusLabel, '待查看');
 assert.equal(initial.items[0].adminReply, '');
-assert.equal(initial.items[0].publicConsent, true);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(initial.items[0], 'publicConsent'),
+  false,
+  '管理端公开状态不再暴露或依赖反馈者授权字段',
+);
 assert.equal(initial.items[0].publicVisible, false);
 assert.deepEqual(initial.items[0].context.entry.path, ['人物', '发型']);
 
@@ -183,7 +203,6 @@ assert.equal(investigating.item.progressStatusLabel, '调查中');
 assert.equal(investigating.item.adminReply, '正在复现目录异常并核对影响范围。');
 assert.ok(investigating.item.progressStatusUpdatedAt > 0);
 assert.ok(investigating.item.replyUpdatedAt > 0);
-assert.equal(investigating.item.publicConsent, true);
 assert.equal(investigating.item.publicVisible, true);
 assert.ok(investigating.item.publicVisibleUpdatedAt > 0);
 assert.deepEqual(keysFor('pending', id), [pendingKey], '进行中阶段切换应原位更新');
@@ -346,14 +365,22 @@ await bucket.put(`feedback/pending/2026/07/${legacyId}.json`, JSON.stringify({
   description: '希望增加一个新的筛选功能',
   createdAt: 2000,
 }));
-const noConsentPublish = await readError(await updateFeedback(updateContext({
+const legacyPublished = await readOk(await updateFeedback(updateContext({
   id: legacyId,
   action: 'update',
   sourceStatus: 'pending',
   progressStatus: 'accepted',
   publicVisible: true,
-})), 400);
-assert.match(noConsentPublish.error, /已选择不公开/);
+})));
+assert.equal(legacyPublished.item.publicVisible, true, '缺少旧授权字段的历史反馈也应由维护者决定公开');
+const legacyHidden = await readOk(await updateFeedback(updateContext({
+  id: legacyId,
+  action: 'update',
+  sourceStatus: 'pending',
+  progressStatus: 'accepted',
+  publicVisible: false,
+})));
+assert.equal(legacyHidden.item.publicVisible, false);
 
 const legacy = await readOk(await updateFeedback(updateContext({
   id: legacyId,
@@ -395,7 +422,11 @@ const submittedRecord = JSON.parse(submissionBucket.objects.get(submittedKey));
 assert.equal(submittedRecord.status, 'pending');
 assert.equal(submittedRecord.progressStatus, 'unread');
 assert.equal(submittedRecord.adminReply, '');
-assert.equal(submittedRecord.publicConsent, true, '新反馈未显式选择不公开时应默认允许匿名公开');
+assert.equal(
+  Object.prototype.hasOwnProperty.call(submittedRecord, 'publicConsent'),
+  false,
+  '新反馈不应再写入反馈者公开授权字段',
+);
 assert.equal(submittedRecord.publicVisible, false);
 assert.ok(submittedRecord.progressStatusUpdatedAt > 0);
 
@@ -413,7 +444,7 @@ const privateSubmissionResponse = await submitFeedback({
     },
     body: JSON.stringify({
       type: 'site_bug',
-      description: '这条反馈明确选择不匿名公开。',
+      description: '客户端即使提交旧公开授权字段也应被忽略。',
       contact: '',
       publicConsent: false,
       context: {},
@@ -426,13 +457,17 @@ assert.equal(privateSubmissionResponse.status, 201, JSON.stringify(privateSubmis
 const privateSubmittedKey = [...privateSubmissionBucket.objects.keys()]
   .find(key => key.startsWith('feedback/pending/') && key.endsWith('.json'));
 const privateSubmittedRecord = JSON.parse(privateSubmissionBucket.objects.get(privateSubmittedKey));
-assert.equal(privateSubmittedRecord.publicConsent, false, '勾选不公开必须显式写入 false');
+assert.equal(
+  Object.prototype.hasOwnProperty.call(privateSubmittedRecord, 'publicConsent'),
+  false,
+  '旧客户端提交 publicConsent 也不得重新形成公开门槛',
+);
 assert.equal(privateSubmittedRecord.publicVisible, false);
 
 const unpublishedSubmission = await readOk(await getPublicFeedback(publicContext({
   STRINGS_BUCKET: submissionBucket,
 })));
-assert.equal(unpublishedSubmission.items.length, 0, '默认可公开但未获维护者确认的反馈不得出现在公开接口');
+assert.equal(unpublishedSubmission.items.length, 0, '未获维护者确认的反馈不得出现在公开接口');
 
 const hiddenFromPublic = await readOk(await updateFeedback(updateContext({
   id,
@@ -475,7 +510,6 @@ for (const [incrementalId, createdAt] of [['aaaaaaaa', 3000], ['bbbbbbbb', 4000]
       status: 'pending',
       type: 'suggestion',
       description: `公开索引增量更新测试 ${incrementalId}`,
-      publicConsent: true,
       publicVisible: false,
       progressStatus: 'unread',
       createdAt,

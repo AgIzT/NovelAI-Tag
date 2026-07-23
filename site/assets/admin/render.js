@@ -377,9 +377,7 @@ function feedbackRow(item) {
           ${item.adminReply ? '<span class="badge green">已回复</span>' : ''}
           ${item.publicVisible
             ? '<span class="badge accent">公开中</span>'
-            : item.publicConsent
-              ? '<span class="badge">可公开</span>'
-              : ''}
+            : '<span class="badge">未公开</span>'}
         </div>
       </div>
       <div class="row-actions">

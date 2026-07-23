@@ -143,8 +143,7 @@ export function sanitizeAdminFeedbackRecord(record, status) {
     adminReply: cleanText(source.adminReply, FEEDBACK_REPLY_LIMIT),
     replyUpdatedAt: Number(source.replyUpdatedAt || 0),
     replyUpdatedAtIso: String(source.replyUpdatedAtIso || ''),
-    publicConsent: source.publicConsent === true,
-    publicVisible: source.publicConsent === true && source.publicVisible === true,
+    publicVisible: source.publicVisible === true,
     publicVisibleUpdatedAt: Number(source.publicVisibleUpdatedAt || 0),
     publicVisibleUpdatedAtIso: String(source.publicVisibleUpdatedAtIso || ''),
     handledAt: Number(source.handledAt || 0),
@@ -157,7 +156,7 @@ export function sanitizeAdminFeedbackRecord(record, status) {
 
 export function sanitizePublicFeedbackRecord(record, status) {
   const source = record && typeof record === 'object' ? record : {};
-  if (source.publicConsent !== true || source.publicVisible !== true) return null;
+  if (source.publicVisible !== true) return null;
   const item = sanitizeAdminFeedbackRecord(source, status);
   if (!item.id) return null;
   const progress = FEEDBACK_PROGRESS[item.progressStatus] || FEEDBACK_PROGRESS.unread;

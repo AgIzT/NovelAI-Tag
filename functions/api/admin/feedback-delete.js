@@ -24,7 +24,7 @@ export async function onRequestPost(context) {
   if (!recordKey) return err('该反馈不存在或已被删除', 404);
 
   const record = await readJson(env.STRINGS_BUCKET, recordKey);
-  if (record?.publicConsent === true && record?.publicVisible === true) {
+  if (record?.publicVisible === true) {
     await updatePublicFeedbackIndex(env.STRINGS_BUCKET, { removeIds: [id] });
   }
   await env.STRINGS_BUCKET.delete(recordKey);

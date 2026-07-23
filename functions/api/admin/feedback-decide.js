@@ -97,12 +97,8 @@ export async function onRequestPost(context) {
   if (hasPublicVisible && typeof body.publicVisible !== 'boolean') {
     return err('公开展示设置无效');
   }
-  const publicConsent = record.publicConsent === true;
-  const currentPublicVisible = publicConsent && record.publicVisible === true;
+  const currentPublicVisible = record.publicVisible === true;
   const publicVisible = hasPublicVisible ? body.publicVisible === true : currentPublicVisible;
-  if (publicVisible && !publicConsent) {
-    return err('反馈者已选择不公开，不能开启公开展示');
-  }
 
   const statusChanged = found.status !== targetStatus;
   const progressChanged = currentProgressStatus !== progressStatus;
@@ -127,7 +123,6 @@ export async function onRequestPost(context) {
     adminReply,
     replyUpdatedAt: replyChanged ? nowMs : Number(record.replyUpdatedAt || 0),
     replyUpdatedAtIso: replyChanged ? nowIso : String(record.replyUpdatedAtIso || ''),
-    publicConsent,
     publicVisible,
     publicVisibleUpdatedAt: publicVisibleChanged
       ? nowMs

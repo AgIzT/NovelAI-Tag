@@ -502,14 +502,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </label>
         <label class="feedback-field">
           <span>联系方式 <small class="field-live">选填</small></span>
-          <input id="feedbackContact" maxlength="120" placeholder="QQ / 昵称 / 其他能联系到你的方式">
-        </label>
-        <label class="feedback-privacy-optout">
-          <input id="feedbackPrivate" type="checkbox">
-          <span>
-            <b>不匿名公开此反馈，同时您将无法查看处置进度和维护者回复</b>
-            <small>联系方式、页面地址和其他非必要信息不会公开</small>
-          </span>
+          <input id="feedbackContact" maxlength="120" placeholder="QQ等联系方式，仅提供给维护者方便后续交流，始终不会公开在反馈进度内">
         </label>
         <label class="feedback-hp" aria-hidden="true">
           <span>请留空</span>
@@ -535,9 +528,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="feedback-progress-intro">
         <div>
           <b>公开处理进度</b>
-          <span>这里只展示经过反馈者和维护者均确认公开的反馈和回复。</span>
+          <span>这里只展示由维护者确认公开的反馈、处理进度和回复。</span>
         </div>
-        <button id="feedbackProgressRefresh" type="button" aria-label="刷新处理进度" title="刷新处理进度">↻</button>
+        <button id="feedbackProgressRefresh" type="button" aria-label="刷新处理进度" title="刷新处理进度"><span aria-hidden="true">↻</span></button>
       </div>
       <div class="feedback-progress-filters" role="group" aria-label="筛选处理进度">
         <button type="button" data-feedback-filter="all" aria-pressed="true">全部</button>

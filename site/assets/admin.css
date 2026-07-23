@@ -325,7 +325,6 @@ body.dark .theme-toggle .moon{display:block}
 .feedback-public-control span{display:grid;min-width:0;gap:3px}
 .feedback-public-control b{font-size:11px}
 .feedback-public-control small{color:var(--muted);font-size:10px;line-height:1.5}
-.feedback-public-control.is-disabled{cursor:not-allowed;opacity:.68}
 .feedback-workflow .field-row{grid-template-columns:minmax(160px,.5fr) minmax(0,1.5fr)}
 .feedback-reply-field textarea{min-height:108px}
 

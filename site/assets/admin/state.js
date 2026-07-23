@@ -120,7 +120,7 @@ export function currentFeedbackItems() {
       entry.id, entry.title, codex.id, codex.title, page.url,
       feedbackDirectory(item), item.adminReply, FEEDBACK_LABELS[item.status],
       progress.label, progress.description,
-      item.publicVisible ? '公开中' : item.publicConsent ? '可公开' : '已选择不公开',
+      item.publicVisible ? '公开中' : '未公开',
     ].join(' ').toLowerCase().includes(q);
   });
 }

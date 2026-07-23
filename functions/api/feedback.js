@@ -67,7 +67,6 @@ export async function onRequestPost(context) {
     adminReply: '',
     replyUpdatedAt: 0,
     replyUpdatedAtIso: '',
-    publicConsent: body?.publicConsent !== false,
     publicVisible: false,
     publicVisibleUpdatedAt: 0,
     publicVisibleUpdatedAtIso: '',

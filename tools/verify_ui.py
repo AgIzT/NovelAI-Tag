@@ -549,9 +549,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     menuSubtitle: document.querySelector('#globalReportBtn small')?.textContent.trim() || '',
     tabs: [...document.querySelectorAll('[data-feedback-tab]')].map(tab => tab.textContent.trim()),
     selected: document.querySelector('[data-feedback-tab][aria-selected="true"]')?.dataset.feedbackTab || '',
-    privacyOptOutChecked: Boolean(document.querySelector('#feedbackPrivate')?.checked),
-    privacyOptOutLabel: document.querySelector('.feedback-privacy-optout b')?.textContent.trim() || '',
-    privacySafeCopy: document.querySelector('.feedback-privacy-optout small')?.textContent.trim() || '',
+    privacyOptionPresent: Boolean(document.querySelector('#feedbackPrivate, .feedback-privacy-optout')),
+    contactPlaceholder: document.querySelector('#feedbackContact')?.getAttribute('placeholder') || '',
     progressIntro: document.querySelector('.feedback-progress-intro span')?.textContent.trim() || '',
     panelOverflow: panel ? panel.scrollWidth - panel.clientWidth : 999,
     pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -563,14 +562,37 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if (
             desktop["tabs"] != ["提交反馈", "处理进度"]
             or desktop["selected"] != "submit"
-            or desktop["privacyOptOutChecked"]
-            or desktop["privacyOptOutLabel"] != "不匿名公开此反馈，同时您将无法查看处置进度和维护者回复"
-            or desktop["privacySafeCopy"] != "联系方式、页面地址和其他非必要信息不会公开"
-            or desktop["progressIntro"] != "这里只展示经过反馈者和维护者均确认公开的反馈和回复。"
+            or desktop["privacyOptionPresent"]
+            or desktop["contactPlaceholder"] != "QQ等联系方式，仅提供给维护者方便后续交流，始终不会公开在反馈进度内"
+            or desktop["progressIntro"] != "这里只展示由维护者确认公开的反馈、处理进度和回复。"
         ):
             raise CheckFailed(f"Feedback submit defaults mismatch: {desktop}")
         if desktop["panelOverflow"] > 1 or desktop["pageOverflow"] > 1:
             raise CheckFailed(f"Desktop feedback panel overflowed: {desktop}")
+        cdp.eval("document.querySelector('#feedbackProgressRefresh')?.setAttribute('aria-busy', 'true')")
+        settle(cdp, 120)
+        refresh_busy = cdp.eval(r"""
+(() => {
+  const button = document.querySelector('#feedbackProgressRefresh');
+  const icon = button?.querySelector('span');
+  const buttonStyle = button ? getComputedStyle(button) : null;
+  const iconStyle = icon ? getComputedStyle(icon) : null;
+  return {
+    buttonAnimation: buttonStyle?.animationName || '',
+    buttonTransform: buttonStyle?.transform || '',
+    iconAnimation: iconStyle?.animationName || '',
+    buttonOverflow: button ? button.scrollWidth - button.clientWidth : 999,
+  };
+})()
+""")
+        cdp.eval("document.querySelector('#feedbackProgressRefresh')?.removeAttribute('aria-busy')")
+        if (
+            refresh_busy["buttonAnimation"] != "none"
+            or refresh_busy["buttonTransform"] != "none"
+            or refresh_busy["iconAnimation"] != "feedbackSpin"
+            or refresh_busy["buttonOverflow"] > 1
+        ):
+            raise CheckFailed(f"Feedback refresh should spin only its icon: {refresh_busy}")
         cdp.eval("document.querySelector('#feedbackProgressTab')?.click()")
         wait_for(cdp, "document.querySelectorAll('.feedback-public-card').length === 6", "desktop public feedback")
         desktop_grid = cdp.eval(r"""
@@ -595,16 +617,27 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 (() => {
   const view = document.querySelector('#feedbackProgressView');
   const openCard = document.querySelector('.feedback-public-card[open]');
+  const progressCopy = document.querySelector('.feedback-public-card[open] .feedback-public-progress-copy');
+  const progressStyle = progressCopy ? getComputedStyle(progressCopy) : null;
   return {
     text: view?.innerText || '',
     openCardWidth: openCard?.getBoundingClientRect().width || 0,
     listWidth: document.querySelector('#feedbackPublicList')?.getBoundingClientRect().width || 0,
+    progressEmphasis: progressStyle ? {
+      fontSize: parseFloat(progressStyle.fontSize),
+      fontWeight: parseInt(progressStyle.fontWeight, 10),
+      backgroundColor: progressStyle.backgroundColor,
+    } : null,
   };
 })()
 """)
         if (
             not all(text in desktop_progress["text"] for text in ["待查看", "维护者尚未查看这条反馈。", "已收到，正在安排检查。"])
             or abs(desktop_progress["openCardWidth"] - desktop_progress["listWidth"]) > 1
+            or not desktop_progress["progressEmphasis"]
+            or desktop_progress["progressEmphasis"]["fontSize"] < 13
+            or desktop_progress["progressEmphasis"]["fontWeight"] < 700
+            or desktop_progress["progressEmphasis"]["backgroundColor"] in ("transparent", "rgba(0, 0, 0, 0)")
         ):
             raise CheckFailed(f"Desktop public feedback content mismatch: {desktop_progress!r}")
         desktop_shot = screenshot(cdp, out_dir, "feedback-desktop")
@@ -624,7 +657,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     panel: rect ? {left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom} : null,
     panelOverflow: panel ? panel.scrollWidth - panel.clientWidth : 999,
     pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    privacyOptOutVisible: Boolean(document.querySelector('#feedbackPrivate')?.offsetParent),
+    privacyOptionPresent: Boolean(document.querySelector('#feedbackPrivate, .feedback-privacy-optout')),
+    contactPlaceholder: document.querySelector('#feedbackContact')?.getAttribute('placeholder') || '',
     submitVisible: Boolean(document.querySelector('#feedbackSubmit')?.offsetParent),
   };
 })()
@@ -636,7 +670,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             or panel.get("right", 999) > 391
             or mobile_submit["panelOverflow"] > 1
             or mobile_submit["pageOverflow"] > 1
-            or not mobile_submit["privacyOptOutVisible"]
+            or mobile_submit["privacyOptionPresent"]
+            or mobile_submit["contactPlaceholder"] != "QQ等联系方式，仅提供给维护者方便后续交流，始终不会公开在反馈进度内"
             or not mobile_submit["submitVisible"]
         ):
             raise CheckFailed(f"Mobile feedback submit panel is unusable: {mobile_submit}")
@@ -674,6 +709,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return {
             "desktop": desktop,
+            "refreshBusy": refresh_busy,
             "desktopGrid": desktop_grid,
             "mobileSubmit": mobile_submit,
             "mobileProgress": mobile_progress,

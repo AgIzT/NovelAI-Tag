@@ -115,17 +115,15 @@ export function renderFeedbackDetail(item) {
         <div class="feedback-workflow-head">
           <div>
             <b id="feedbackWorkflowTitle">反馈者可见进度、回复与公开设置</b>
-            <span>只有反馈者已授权且你开启公开后，主站才会展示反馈内容、进度与回复；后台归档自动同步。</span>
+            <span>是否公开由维护者决定；开启后主站会展示反馈内容、进度与回复，后台归档自动同步。</span>
           </div>
           <small>最近更新：${escHtml(formatDate(updatedAt))}</small>
         </div>
-        <label class="feedback-public-control${item.publicConsent ? '' : ' is-disabled'}">
-          <input id="feedbackPublicVisible" type="checkbox"${item.publicVisible ? ' checked' : ''}${item.publicConsent ? '' : ' disabled'} aria-describedby="feedbackPublicHint">
+        <label class="feedback-public-control">
+          <input id="feedbackPublicVisible" type="checkbox"${item.publicVisible ? ' checked' : ''} aria-describedby="feedbackPublicHint">
           <span>
             <b>公开到主站「处理进度」</b>
-            <small id="feedbackPublicHint">${item.publicConsent
-              ? '反馈者未选择不公开。联系方式、页面地址和其他非必要信息不会公开。'
-              : '反馈者已选择不公开，此条反馈只能在后台处理和回复。'}</small>
+            <small id="feedbackPublicHint">由维护者决定是否公开；联系方式、页面地址和其他非必要信息始终不会公开。</small>
           </span>
         </label>
         <div class="field-row">

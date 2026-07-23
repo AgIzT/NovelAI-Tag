@@ -74,7 +74,7 @@ export function openReportDialog({ source = 'global', entry = null, imageIndex =
     ? defaultType
     : defaultTypeFor({ source, imageError });
   const context = buildFeedbackContext({ source, entry, imageIndex, imageError });
-  currentPayload = { type, description: '', contact: '', publicConsent: true, context, honeypot: '' };
+  currentPayload = { type, description: '', contact: '', context, honeypot: '' };
   resetFeedbackForm(type, context);
   selectFeedbackTab('submit');
   openMask(mask, currentTrigger, { historyMode });
@@ -148,7 +148,6 @@ function resetFeedbackForm(type, context) {
   $('#feedbackType').value = type;
   $('#feedbackDesc').value = '';
   $('#feedbackContact').value = '';
-  $('#feedbackPrivate').checked = false;
   $('#feedbackHoneypot').value = '';
   const fallback = $('#feedbackFallback');
   if (fallback) fallback.hidden = true;
@@ -184,7 +183,6 @@ async function submitFeedback(ev) {
   const type = $('#feedbackType')?.value || 'site_bug';
   const description = ($('#feedbackDesc')?.value || '').trim();
   const contact = ($('#feedbackContact')?.value || '').trim();
-  const publicConsent = !Boolean($('#feedbackPrivate')?.checked);
   const honeypot = $('#feedbackHoneypot')?.value || '';
   if (!TYPE_VALUES.includes(type)) {
     showStatus('请选择有效的反馈类型。', true);
@@ -207,7 +205,6 @@ async function submitFeedback(ev) {
     type,
     description,
     contact,
-    publicConsent,
     context: currentPayload.context,
     honeypot,
   };
@@ -228,19 +225,15 @@ async function submitFeedback(ev) {
     toast('反馈已提交，感谢你帮忙把这里修得更好');
     $('#feedbackDesc').value = '';
     $('#feedbackContact').value = '';
-    $('#feedbackPrivate').checked = false;
     $('#feedbackHoneypot').value = '';
     currentPayload = {
       type,
       description: '',
       contact: '',
-      publicConsent: true,
       context: currentPayload.context,
       honeypot: '',
     };
-    showStatus(publicConsent
-      ? '反馈已提交。维护者确认公开后，会出现在「处理进度」中。'
-      : '反馈已提交。本条已选择不公开，因此无法查看处置进度和维护者回复。', false, true);
+    showStatus('反馈已提交。维护者确认公开后，会出现在「处理进度」中。', false, true);
   } catch (err) {
     console.warn(err);
     showFallback(fallbackText);
@@ -358,7 +351,7 @@ function renderPublicFeedback() {
   if (!items.length) {
     const message = publicFeedbackItems.length
       ? '当前筛选下没有公开反馈。'
-      : '还没有公开反馈。经过反馈者和维护者均确认公开后，会显示在这里。';
+      : '还没有公开反馈。由维护者确认公开后，会显示在这里。';
     list.innerHTML = `<div class="feedback-public-state">${esc(message)}</div>`;
     return;
   }
@@ -447,7 +440,6 @@ function buildFallbackText(payload) {
     `类型ID：${payload.type}`,
     `描述：${payload.description}`,
     `联系方式：${payload.contact || '未填写'}`,
-    `选择不公开：${payload.publicConsent ? '否' : '是'}`,
     '',
     '【自动打包上下文】',
     JSON.stringify(payload.context, null, 2),
