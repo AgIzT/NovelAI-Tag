@@ -57,6 +57,12 @@ MANUAL_CLASSIFICATION_OVERRIDES = {
         "title": "R18 1764",
         "reason": "用户确认原“常规 0035”为 R18",
     },
+    f"{CODEX_ID}-4011": {
+        "path": ("NSFW-限制级别", "r18g"),
+        "rating": "r18g",
+        "title": "R18G 0151",
+        "reason": "用户反馈原“R18 0955”实际为 R18G",
+    },
 }
 
 
@@ -510,6 +516,71 @@ def build_tree(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return serialize(root)
 
 
+def sync_manual_classification_overrides() -> dict[str, Any]:
+    data_path = DATA_DIR / f"{CODEX_ID}.json"
+    codex = json.loads(data_path.read_text(encoding="utf-8"))
+    entries = codex.get("entries") or []
+    by_id = {entry.get("id"): entry for entry in entries}
+    original_positions = {
+        entry.get("id"): position
+        for position, entry in enumerate(entries)
+    }
+    original_order = [entry.get("id") for entry in entries]
+    changes = []
+
+    for entry_id, override in MANUAL_CLASSIFICATION_OVERRIDES.items():
+        entry = by_id.get(entry_id)
+        if not entry:
+            raise RuntimeError(f"manual classification target missing: {entry_id}")
+        before = {
+            "path": entry.get("path"),
+            "rating": entry.get("rating"),
+            "title": entry.get("title"),
+        }
+        after = {
+            "path": list(override["path"]),
+            "rating": override["rating"],
+            "title": override["title"],
+        }
+        if before != after:
+            entry.update(after)
+            changes.append({
+                "id": entry_id,
+                "before": before,
+                "after": after,
+                "reason": override["reason"],
+            })
+
+    try:
+        entries.sort(key=lambda entry: (
+            CATEGORY_ORDER[tuple(entry.get("path") or ())],
+            entry.get("id") in MANUAL_CLASSIFICATION_OVERRIDES,
+            original_positions[entry.get("id")],
+        ))
+    except KeyError as exc:
+        raise RuntimeError(f"unknown category path while sorting: {exc.args[0]}") from exc
+
+    old_tree = codex.get("tree")
+    codex["tree"] = build_tree(entries)
+    order_changed = original_order != [entry.get("id") for entry in entries]
+    tree_changed = old_tree != codex["tree"]
+    if changes or order_changed or tree_changed:
+        temp_path = data_path.with_suffix(data_path.suffix + ".tmp")
+        temp_path.write_text(
+            json.dumps(codex, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        temp_path.replace(data_path)
+
+    return {
+        "codexId": CODEX_ID,
+        "changedEntries": changes,
+        "orderChanged": order_changed,
+        "treeChanged": tree_changed,
+        "written": bool(changes or order_changed or tree_changed),
+    }
+
+
 def codex_payload(entries: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "id": CODEX_ID,
@@ -685,12 +756,21 @@ def validate_import(workers: int) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
-    parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--validate", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true")
+    mode.add_argument("--validate", action="store_true")
+    mode.add_argument("--sync-manual-classification-overrides", action="store_true")
     parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     args = parser.parse_args()
     if args.workers < 1:
         raise SystemExit("--workers must be at least 1")
+    if args.sync_manual_classification_overrides:
+        print(json.dumps(
+            sync_manual_classification_overrides(),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
     if args.validate:
         print(json.dumps(validate_import(args.workers), ensure_ascii=False, indent=2))
         return 0
