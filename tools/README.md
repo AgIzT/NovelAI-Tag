@@ -1,31 +1,74 @@
-# tools 目录说明
+# tools 目录台账
 
-这里放的是维护站点用的本地工具。它们不是前端运行时代码，主要用于转换法典、导入配图、同步 R2、检查 UI 和审计图片参数。
+这里放维护站点用的本地工具（非前端运行时代码）。**本文件是全量台账：目录里每个工具都必须在下面出现，写明状态。**
 
-## 常用工具
+> ⚠ **铁律：重跑任何 `import_*` / `migrate_*` 前，先查本台账的状态列**；涉及 `type:"pack"` 图包的还必须先读 `docs/经验/统一图包类导入规范.md`。状态含义：
+> **现役** = 随时可跑（注意默认是否改数据）；**⚠ 条件** = 只有特定模式安全，别裸跑 `--apply`；**🔒 已用完** = 历史一次性工具，重跑会复活旧数据/覆盖现状，**禁止直接重跑**；**🧪 测试** = 配套测试。
 
-| 文件 | 用途 | 默认是否改数据 |
-| --- | --- | --- |
-| `convert.py` | 把 `法典源/*.docx` 转成 `site/data/*.json`。支持 `--archive-sources` 在转换成功后归档源文件。 | 会改 JSON；带 `--archive-sources` 会移动源文件 |
-| `codex_update_match.py` | 新旧法典增量匹配预演：回放旧 Word、区分新增/修改/减少/歧义，并验证稳定 ID/配图不会错位。 | 只读正式数据；报告写入 `output/` |
-| `suozhang_r18_merge_match.py` | 所长色色上下册专用流程：先按历史规则逻辑合并，再对合并结果做全局增量匹配；门禁通过后可 `--apply`。 | 默认只读；带 `--apply` 才写正式数据与索引 |
-| `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图，生成缩略图和原图引用。 | 默认只预览；带 `--apply` 才写入 |
-| `import_docx_codex.py` | 导入结构较特殊、带内嵌图片的 Word 法典。 | 默认只出报告；带 `--apply` 才写入 |
-| `sync_r2.py` | 同步 `site/images/` 和 `originals/` 到 Cloudflare R2，并维护媒体配置。 | 默认会上传；`--dry-run` 只检查 |
-| `preview_server.py` | 本地预览 `site/`，同时提供 `originals/` 原图缓存。 | 只读 |
-| `verify_ui.py` | 启动浏览器做 UI 冒烟/回归检查。 | 只读，会写测试输出 |
-| `sd_metadata_inspector.py` | 读取图片生成参数，并用原图参数审计法典 tag 覆盖率。 | 只读；审计会写 CSV 报告 |
-
-## 辅助工具
+## 现役 · 主链路
 
 | 文件 | 用途 | 默认是否改数据 |
 | --- | --- | --- |
-| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的本地配图编辑器，默认端口 `8767`。 | 通过页面操作才会写入 |
-| `strings_server.py` + `strings_editor.html` | 画师串/字符串编辑器，默认端口 `8768`。 | 通过页面操作才会写入 |
-| `import_mengshen_pack.py` | 梦神整理图包的历史来源适配器。 | 默认只预览；当前章节迁移态禁止重放 `--apply` |
-| `import_community_ai_misc.py` | 导入并验证社区 AI 杂图；具名人工分级纠正可用 `--sync-manual-classification-overrides` 幂等同步到现状。 | 默认审计；`--apply` 仅首次写入；同步分级需显式参数；`--validate` 验证现状 |
-| `backfill_pack_character_prompts.py` | 从当前两本图包引用的原图幂等回填 NAI V4 角色提示词。 | 默认预演；确认无缺失 / 解析错误后带 `--apply` |
-| `__pycache__/` | Python 自动生成缓存。 | 可忽略 |
+| `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 会改 JSON |
+| `codex_update_match.py` | 新旧法典增量匹配预演（详见下文） | 只读；报告写 `output/` |
+| `suozhang_r18_merge_match.py` | 所长色色上下册合并+全局匹配专用流程（详见下文） | 默认只读；`--apply` 才写 |
+| `import_docx_codex.py` | 导入结构特殊、带内嵌图片的 Word 法典（解构原典用） | 默认只出报告；`--apply` 才写 |
+| `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
+| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；**只上传不删除** | 默认上传；`--dry-run`/`--check-only` 只检查 |
+| `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；`发布.bat` 已自动跑） | 会改 share 索引 |
+| `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
+| `preview_server.py` | 本地预览 site/（:8766，带 no-store + /originals/ 映射） | 只读 |
+| `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`） | 只读，写测试输出 |
+| `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率（详见下文）；**图片参数解析的唯一公共入口** | 只读；审计写 CSV |
+| `cleanup_output.py` | 按保留策略清理 `output/`（详见文件头；`单项工具/清理输出.bat` 的内核） | 默认 dry-run；`--apply` 才删 |
+
+## 现役 · 辅助
+
+| 文件 | 用途 | 默认是否改数据 |
+| --- | --- | --- |
+| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:8767） | 页面操作才写 |
+| `strings_server.py` + `strings_editor.html` | 画师串编辑器（:8768） | 页面操作才写 |
+| `backfill_pack_character_prompts.py` | 从原图幂等回填两本图包的 NAI V4 角色提示词 | 默认预演；`--apply` 才写 |
+
+## 现役 · NAI API 批量例图补全套件
+
+用法与门禁见 `docs/经验/NAI兼容API批量例图补全.md`；密钥不落盘，发往第三方前必须用户明确授权。
+
+| 文件 | 用途 |
+| --- | --- |
+| `nai_api_test_generate.py` | 小规模试跑（只生成审阅用测试批） |
+| `nai_api_batch_generate.py` | 正式批量双候选生成（断点续跑） |
+| `nai_api_review_server.py` | 人工二选一审核页（⚠ 也用 :8767，别和配图工具同开） |
+| `nai_api_verify_batch.py` | 独立复验暂存批次（重开每张图核对真实 PNG 元数据） |
+| `nai_api_apply_selections.py` | 把人工选择正式导入法典（默认 dry-run；`--apply` 才写） |
+| `nai_api_verify_applied.py` | 正式导入后的独立复验 |
+
+## ⚠ 条件 · 来源专用图包导入器（改动前先读统一图包类导入规范）
+
+| 文件 | 状态说明 |
+| --- | --- |
+| `import_mengshen_pack.py` | 梦神图包历史来源适配器。**画风章节已迁出，重放 `--apply` 会被工具主动中止**——别绕过它 |
+| `import_community_ai_misc.py` | 社区AI杂图。`--apply` 仅限首次导入；现役安全模式只有 `--validate`（验证现状）和 `--sync-manual-classification-overrides`（幂等同步具名人工分级纠正） |
+
+## 🔒 已用完 · 一次性历史导入（禁止直接重跑）
+
+这些是来源专用的一次性工具，**目标数据后来经过合并/迁移/手工维护，直接重跑会复活旧册或覆盖现状**。确需重导先改造流程（见对应 decisions）。
+
+| 文件 | 当年用途 | 为什么不能重跑 |
+| --- | --- | --- |
+| `import_artist_excel_strings.py` | 多卷画师 Excel → 旧「Nai4.5Full个人单画师收藏」 | 三册已合并为 `artist_nai45_personal`（见 decisions/合并NovelAI4.5单画师词典.md），重跑会加回独立旧册 |
+| `import_wps_artist_excel_strings.py` | WPS DISPIMG 画师工作簿 → 旧「4.5画师收录」 | 同上 |
+| `import_wof_artist_strings.py` | W.O.F PNG 元数据 → `artist_nai45_strings` | 该书后来并入了梦神画风合集 258 条，重跑会覆盖合并结果 |
+| `import_composition_style_excel.py` | 构图风格工作簿 → `composition_style` | 一次性导入已完成，现状手工维护 |
+| `attic/migrate_asset_prefix.py` | suozhang_r18 图片前缀统一迁移 | 已用完（见 decisions/合并版与图片前缀.md），仅留档 |
+
+## 🧪 测试
+
+`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_favorites_origin_migration_browser.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_favorites_backup.mjs` · `test_favorites_origin_migration.mjs`（Node）。
+
+`__pycache__/` 是 Python 缓存，忽略。
+
+---
 
 ## 法典增量匹配预演
 
@@ -51,7 +94,7 @@ python tools\test_suozhang_r18_merge_match.py
 
 ## sd_metadata_inspector.py
 
-这个工具用于检查图片原始参数，尤其是“法典词条 tag 是否能在原图 prompt 中找到”。
+这个工具用于检查图片原始参数，尤其是"法典词条 tag 是否能在原图 prompt 中找到"。
 
 示例：
 
@@ -69,7 +112,7 @@ python tools\sd_metadata_inspector.py audit-codex --codex-id suozhang_r18 --max-
 - JPG / WebP / AVIF 的 EXIF `UserComment`
 - `stealth_pngcomp` 隐写参数：读取 alpha 通道最低位，识别 `stealth_pngcomp` magic，解 gzip JSON
 
-`stealth_pngcomp` 是 Akegarasu/stable-diffusion-inspector 也支持的一类隐藏参数。它不在普通 PNG 文本块里，所以普通元数据读取会显示“没参数”，但 NovelAI 或 inspector 仍可能读得到。
+`stealth_pngcomp` 是 Akegarasu/stable-diffusion-inspector 也支持的一类隐藏参数。它不在普通 PNG 文本块里，所以普通元数据读取会显示"没参数"，但 NovelAI 或 inspector 仍可能读得到。
 
 ## 安全建议
 
