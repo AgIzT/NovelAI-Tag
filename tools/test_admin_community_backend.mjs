@@ -4,8 +4,6 @@ import {
   onRequestGet as adminGet,
   onRequestPost as adminPost,
 } from '../functions/api/admin/community/[[path]].js';
-import { onRequestPost as legacyDecide } from '../functions/api/admin/decide.js';
-import { onRequestPost as legacyUnpublish } from '../functions/api/admin/unpublish.js';
 
 class MemoryR2 {
   constructor() {
@@ -188,25 +186,11 @@ assert.equal(bucket.communityWrites, 0, 'batch without approved content should n
 
 await seed('30000001', 'pending');
 bucket.communityWrites = 0;
-await responseJson(await legacyDecide({
-  env,
-  request: new Request('https://admin.example.test/api/admin/decide', {
-    method: 'POST',
-    headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
-    body: JSON.stringify({ id: '30000001', action: 'approve' }),
-  }),
-}));
-assert.equal(bucket.communityWrites, 1, 'legacy approve should retain immediate rebuild behavior');
+await responseJson(await adminPost(context('POST', 'approve', { id: '30000001' })));
+assert.equal(bucket.communityWrites, 1, 'single approve should rebuild immediately');
 
 bucket.communityWrites = 0;
-await responseJson(await legacyUnpublish({
-  env,
-  request: new Request('https://admin.example.test/api/admin/unpublish', {
-    method: 'POST',
-    headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
-    body: JSON.stringify({ id: '30000001' }),
-  }),
-}));
-assert.equal(bucket.communityWrites, 1, 'legacy unpublish should retain immediate rebuild behavior');
+await responseJson(await adminPost(context('POST', 'unpublish', { id: '30000001' })));
+assert.equal(bucket.communityWrites, 1, 'single unpublish should rebuild immediately');
 
 console.log('admin community memory flow: PASS');

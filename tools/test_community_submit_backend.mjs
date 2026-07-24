@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 
 import { onRequestPost as submitPost } from '../functions/api/submit.js';
 import { onRequestGet as communityGet } from '../functions/api/community.js';
-import { onRequestPost as legacyDecide } from '../functions/api/admin/decide.js';
 import { onRequestGet as adminGet, onRequestPost as adminPost } from '../functions/api/admin/community/[[path]].js';
 import { toEntry, normalizeCommunityRecord } from '../functions/_lib.js';
 
@@ -202,14 +201,7 @@ let stealthId;
 
 // ---- 6. 审核通过 → 公开聚合透出 original/params；旧记录零迁移兼容 ----
 {
-  const decideRes = await legacyDecide({
-    env,
-    request: new Request('https://admin.example.test/api/admin/decide', {
-      method: 'POST',
-      headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
-      body: JSON.stringify({ id: stealthId, action: 'approve' }),
-    }),
-  });
+  const decideRes = await adminPost(adminContext('POST', 'approve', { id: stealthId }));
   assert.equal(decideRes.status, 200, JSON.stringify(await decideRes.json()));
 
   const publicRes = await communityGet({ env });
