@@ -421,6 +421,7 @@ export function renderLightbox() {
     if (act) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   preloadLightboxNeighbors();
+  document.dispatchEvent(new CustomEvent('lightbox:rendered', { detail: { entry: e, index: lb.index } }));
 }
 
 

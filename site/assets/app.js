@@ -4,7 +4,7 @@ import { setLoading, showSkeleton, hideSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
 import { loadMedia, loadAbout, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries } from './app/data.js';
 import { parseSearchQuery, matchSearchPlan } from './app/search.js';
-import { hasEntryImage, primeResourceHints } from './app/media.js';
+import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
 import { isFav, setFavoritesActions, toggleFav } from './app/favorites.js';
 import { ATLAS_FAVORITES_STORAGE_KEY, readStoredFavorites } from './app/favorites-backup-core.js';
 import { setupFavoritesBackup, subscribeFavoritesChanges } from './app/favorites-backup.js';
@@ -100,6 +100,7 @@ export async function init() {
       }
       initializeAtlasHistory(captureAtlasRoute(state.pendingUrlState.entry || ''));
       maybeShowOnboarding();
+      maybeLoadEditMode();
     } else {
       hideSkeleton(initSkeletonToken);
       setLoading('还没有可显示的法典数据');
@@ -116,6 +117,26 @@ function bindFavoritesBackup() {
   if (favoritesBackupBound) return;
   favoritesBackupBound = true;
   subscribeFavoritesChanges('atlas', syncAtlasFavoritesFromStorage);
+}
+
+/* 本地编辑模式探测：只在本机 origin 下、且 /__edit__/ping 有响应（= edit_server 在服务本页）
+   才动态加载编辑模块；线上与普通预览该路径 404，编辑代码零加载。失败一律静默。 */
+function maybeLoadEditMode() {
+  if (!isLocalOrigin()) return;
+  // ⚠ 瀑布流有持续微动效，页面几乎不会真正 idle，requestIdleCallback 必须带 timeout 兜底才会触发
+  const schedule = window.requestIdleCallback
+    ? cb => window.requestIdleCallback(cb, { timeout: 2000 })
+    : cb => setTimeout(cb, 1500);
+  schedule(async () => {
+    try {
+      const res = await fetch('/__edit__/ping', { cache: 'no-store' });
+      if (!res.ok) return;
+      const info = await res.json();
+      if (!info?.ok) return;
+      const mod = await import('./app/edit.js');
+      mod.initEditMode(info, { loadCodex, applyFilter });
+    } catch { /* 无编辑服务 = 能力不存在 */ }
+  });
 }
 
 async function syncAtlasFavoritesFromStorage() {

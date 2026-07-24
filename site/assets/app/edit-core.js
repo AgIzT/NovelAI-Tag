@@ -1,0 +1,83 @@
+/* 编辑模块的纯函数核心（无 DOM 依赖，node 可直接单测）。
+   树路径分隔符与 codex-ui 的 dataset.path 保持一致：U+0001，源码里只写转义序列。 */
+
+export const TREE_PATH_SEP = '\u0001';
+
+export function splitTreePath(value) {
+  return value ? String(value).split(TREE_PATH_SEP) : [];
+}
+
+export function joinTreePath(parts) {
+  return (parts || []).join(TREE_PATH_SEP);
+}
+
+/* tree [{name,count,children[]}] → 深度优先的全部分类路径
+   [{ parts:[..], value:'a\u0001b', label:'a / b' }, ...] */
+export function buildPathList(tree) {
+  const out = [];
+  const walk = (nodes, prefix) => {
+    for (const node of nodes || []) {
+      const parts = [...prefix, node.name];
+      out.push({ parts, value: joinTreePath(parts), label: parts.join(' / ') });
+      walk(node.children, parts);
+    }
+  };
+  walk(tree, []);
+  return out;
+}
+
+/* 表单值 → 只含真正变化字段的 dirty 子集（服务器白名单同款字段）。
+   values: { title, tags, negative, note, rating, isNew, pathValue } */
+export function diffFields(entry, values) {
+  const diff = {};
+  const strKeys = ['title', 'tags', 'negative', 'note'];
+  for (const key of strKeys) {
+    if (values[key] === undefined) continue;
+    const next = String(values[key]);
+    const prev = String(entry[key] || '');
+    if (next !== prev) diff[key] = next;
+  }
+  if (values.rating !== undefined) {
+    const next = String(values.rating || '');
+    const prev = String(entry.rating || '');
+    if (next !== prev) diff.rating = next;
+  }
+  if (values.isNew !== undefined) {
+    const next = Boolean(values.isNew);
+    if (next !== Boolean(entry.isNew)) diff.isNew = next;
+  }
+  if (values.pathValue !== undefined) {
+    const next = splitTreePath(values.pathValue);
+    const prev = Array.isArray(entry.path) ? entry.path : [];
+    if (next.length && joinTreePath(next) !== joinTreePath(prev)) diff.path = next;
+  }
+  return diff;
+}
+
+/* 提交前的本地校验；返回错误文案，'' 表示通过。requireAll=true 用于新增表单。 */
+export function validateEntryForm(values, { requireAll = false } = {}) {
+  const title = values.title === undefined ? undefined : String(values.title).trim();
+  const tags = values.tags === undefined ? undefined : String(values.tags).trim();
+  if ((requireAll || title !== undefined) && !title) return '标题不能为空';
+  if ((requireAll || tags !== undefined) && !tags) return '正向 Tag 不能为空';
+  if (requireAll && !splitTreePath(values.pathValue).length) return '必须选择分类';
+  return '';
+}
+
+/* 把服务器返回的原始词条同步进内存里已 normalize 的同一个词条对象。 */
+export function mergeEntryInPlace(entry, serverEntry) {
+  if (!entry || !serverEntry) return entry;
+  entry.title = String(serverEntry.title || '');
+  entry.tags = String(serverEntry.tags || '');
+  entry.negative = String(serverEntry.negative || '');
+  entry.note = String(serverEntry.note || '');
+  entry.path = Array.isArray(serverEntry.path) ? serverEntry.path.slice() : entry.path;
+  if (serverEntry.rating) entry.rating = serverEntry.rating;
+  else delete entry.rating;
+  if ('isNew' in serverEntry) entry.isNew = serverEntry.isNew === true;
+  for (const key of ['image', 'original', 'assetRev', 'imageWidth', 'imageHeight', 'assetCodexId']) {
+    if (key in serverEntry) entry[key] = serverEntry[key];
+    else delete entry[key];
+  }
+  return entry;
+}

@@ -396,6 +396,7 @@ export function makeCard(placement) {
     masonryActions.copyEntry(e, node);
   };
   maybeAnimateCardEntry(node, placement);
+  masonryActions.decorateCard?.(node, e);
   return node;
 }
 

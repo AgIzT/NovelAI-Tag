@@ -401,8 +401,14 @@ class EditStore:
         return self.mutate(cid, mutator)
 
     @staticmethod
-    def _max_seq(cid, data):
-        id_re = re.compile(r"^" + re.escape(cid) + r"-(\d+)$")
+    def _id_scheme(cid, data):
+        """探测本书的词条 id 规约，返回 (分隔符, 历史最大序号)。
+        各本 id 形态不一：多数是 `<cid>-NNNN`，少数（如 composition_style）是 `<cid>_NNNN`；
+        合并版（suozhang_r18）用与 cid 无关的历史前缀，此时按 cid 起新前缀、以 `-` 为分隔符。"""
+        sep = "-"
+        if any(re.match(r"^" + re.escape(cid) + r"_\d+$", str(e.get("id") or "")) for e in data["entries"]):
+            sep = "_"
+        id_re = re.compile(r"^" + re.escape(cid) + r"[-_](\d+)$")
         max_n = 0
         for e in data["entries"]:
             m = id_re.match(str(e.get("id") or ""))
@@ -411,7 +417,7 @@ class EditStore:
         stored = data.get("editorMaxSeq")
         if isinstance(stored, int) and stored > max_n:
             max_n = stored
-        return max_n
+        return sep, max_n
 
     def create_entry(self, cid, payload):
         if not isinstance(payload, dict):
@@ -428,10 +434,11 @@ class EditStore:
                     raise EditError(400, "bad-request", f"rating 必须是 {sorted(RATINGS)} 之一或空串")
             if "isNew" in payload and not isinstance(payload["isNew"], bool):
                 raise EditError(400, "bad-request", "isNew 必须是布尔值")
-            seq = self._max_seq(cid, data) + 1
+            sep, max_n = self._id_scheme(cid, data)
+            seq = max_n + 1
             data["editorMaxSeq"] = seq
             entry = {
-                "id": f"{cid}-{seq:04d}",
+                "id": f"{cid}{sep}{seq:04d}",
                 "title": payload["title"],
                 "path": list(payload["path"]),
                 "tags": payload["tags"],

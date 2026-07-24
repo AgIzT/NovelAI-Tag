@@ -85,7 +85,8 @@ def build_sandbox(root):
         json.dumps(compactbook, ensure_ascii=False, separators=(",", ":")),
     )
 
-    foreign_entries = [{"id": "codex_dead-0001", "title": "旧前缀", "path": ["X"], "tags": "y"}]
+    # 合并版：词条 id 用与 cid 无关的历史前缀（如 suozhang_r18 的 codex_xxxx-NNNN）
+    foreign_entries = [{"id": "codex_dead-0007", "title": "旧前缀", "path": ["X"], "tags": "y"}]
     foreignbook = {
         "id": "foreignbook",
         "title": "外来前缀书",
@@ -96,10 +97,26 @@ def build_sandbox(root):
     }
     _write(os.path.join(data, "foreignbook.json"), json.dumps(foreignbook, ensure_ascii=False))
 
+    # 下划线 id 规约的书（如 composition_style_0001）
+    under_entries = [
+        {"id": "underbook_0001", "title": "U1", "path": ["U"], "tags": "a"},
+        {"id": "underbook_0002", "title": "U2", "path": ["U"], "tags": "b"},
+    ]
+    underbook = {
+        "id": "underbook",
+        "title": "下划线书",
+        "entryCount": 2,
+        "imagedCount": 0,
+        "tree": build_tree(under_entries),
+        "entries": under_entries,
+    }
+    _write(os.path.join(data, "underbook.json"), json.dumps(underbook, ensure_ascii=False))
+
     index = [
         {"id": "testbook", "title": "测试书", "entryCount": 3, "imagedCount": 2},
         {"id": "compactbook", "title": "紧凑书", "entryCount": 1, "imagedCount": 0},
         {"id": "foreignbook", "title": "外来前缀书", "entryCount": 1, "imagedCount": 0},
+        {"id": "underbook", "title": "下划线书", "entryCount": 2, "imagedCount": 0},
         {"id": "lockbook", "title": "外部源书", "entryCount": 5, "imagedCount": 5,
          "dataUrl": "https://example.test/data.json"},
     ]
@@ -182,10 +199,19 @@ class EditStoreTest(unittest.TestCase):
         self.assertEqual(second["entry"]["id"], "testbook-0005")
 
     def test_create_in_foreign_prefix_book(self):
+        # cid 与历史前缀无关 → 用 cid 起新前缀、连字符分隔，且与旧前缀 id 无冲突
         res = self.store.create_entry("foreignbook", {"title": "n", "tags": "t", "path": ["X"]})
         self.assertEqual(res["entry"]["id"], "foreignbook-0001")
         ids = [e["id"] for e in self.read_book("foreignbook")["entries"]]
         self.assertEqual(len(ids), len(set(ids)))
+
+    def test_create_preserves_underscore_id_scheme(self):
+        # 下划线规约的书新增词条应沿用下划线、且序号接历史最大值
+        res = self.store.create_entry("underbook", {"title": "U3", "tags": "c", "path": ["U"]})
+        self.assertEqual(res["entry"]["id"], "underbook_0003")
+        self.store.delete_entry("underbook", "underbook_0003")
+        again = self.store.create_entry("underbook", {"title": "U4", "tags": "d", "path": ["U"]})
+        self.assertEqual(again["entry"]["id"], "underbook_0004")  # 删除号不复用，分隔符保持
 
     def test_delete_keeps_image_files(self):
         tdir = os.path.join(self.root, "site", "images", "testbook")
@@ -296,7 +322,7 @@ class EditStoreTest(unittest.TestCase):
     def test_capabilities_reports_editable_and_locked(self):
         caps = self.store.capabilities()
         self.assertTrue(caps["ok"])
-        self.assertEqual(sorted(caps["editable"]), ["compactbook", "foreignbook", "testbook"])
+        self.assertEqual(sorted(caps["editable"]), ["compactbook", "foreignbook", "testbook", "underbook"])
         self.assertEqual(caps["locked"], {"lockbook": "external-data"})
         self.assertEqual(caps["docxWarnings"], [])
 

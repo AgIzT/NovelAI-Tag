@@ -1,0 +1,91 @@
+/* 编辑模式样式：仅当 edit.js 被本地编辑服务器激活时才注入本文件。
+   线上生产不加载。全部走 tokens.css 变量，四主题/深浅色自动适配。 */
+
+/* 顶栏铅笔开关 */
+#editToggle.edit-on{color:var(--accent);background:var(--accent-soft)}
+
+/* 编辑警告条（docx 冲突） */
+.edit-warnbar{
+  position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:8px;
+  padding:7px 16px;font-size:12.5px;color:#7a4a05;background:#fdf3d7;border-bottom:1px solid #f0dfae;
+}
+body.dark .edit-warnbar{color:#f4d58a;background:#332a12;border-bottom-color:#4a3d1c}
+
+/* 卡片编辑角标 */
+.edit-badge{
+  position:absolute;top:8px;left:8px;z-index:5;display:none;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:8px;border:1px solid var(--popover-line);
+  background:var(--popover-glass);color:var(--accent);cursor:pointer;box-shadow:var(--shadow);
+  font-size:14px;line-height:1;
+}
+body.edit-mode .card:hover .edit-badge{display:flex}
+.edit-badge:hover{background:var(--accent-soft)}
+
+/* 目录树「＋」新增入口 */
+.edit-tree-add{
+  display:none;margin-left:auto;flex:none;width:18px;height:18px;border-radius:6px;
+  align-items:center;justify-content:center;font-size:13px;line-height:1;
+  color:var(--muted);cursor:pointer;
+}
+body.edit-mode .tree-row:hover .edit-tree-add{display:inline-flex}
+.edit-tree-add:hover{color:var(--accent);background:var(--accent-soft)}
+
+/* 灯箱编辑面板 */
+body.edit-mode .lb-edit-hidden{display:none!important}
+.edit-panel{
+  margin-top:12px;padding:12px;border:1px dashed var(--accent);border-radius:12px;
+  display:flex;flex-direction:column;gap:8px;font-size:12.5px;
+}
+.edit-panel-title{font-weight:700;color:var(--accent);display:flex;align-items:center;gap:6px}
+.edit-panel label{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:11.5px}
+.edit-panel input[type="text"],.edit-panel textarea,.edit-panel select{
+  width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--line);border-radius:8px;
+  background:var(--card);color:var(--text);font-size:12.5px;font-family:var(--font-ui);
+}
+.edit-panel textarea{font-family:var(--font-prompt);resize:vertical;min-height:52px}
+.edit-panel input:focus,.edit-panel textarea:focus,.edit-panel select:focus{
+  outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);
+}
+.edit-panel-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.edit-panel-row label{flex:1;min-width:120px}
+.edit-check{flex-direction:row!important;align-items:center;gap:6px!important;color:var(--text)!important;font-size:12.5px!important}
+.edit-actions{display:flex;gap:8px;align-items:center;margin-top:2px;flex-wrap:wrap}
+.edit-btn{
+  padding:6px 14px;border-radius:8px;border:1px solid var(--line);cursor:pointer;
+  background:var(--card);color:var(--text);font-size:12.5px;font-family:var(--font-ui);
+}
+.edit-btn:hover{border-color:var(--accent);color:var(--accent)}
+.edit-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.edit-btn.primary:hover{filter:brightness(1.08);color:#fff}
+.edit-btn.danger{color:var(--new);border-color:var(--new)}
+.edit-btn.danger:hover{background:var(--new);color:#fff}
+.edit-btn:disabled{opacity:.5;cursor:wait}
+.edit-hint{font-size:11px;color:var(--muted)}
+
+/* 图片编辑区 */
+.edit-imgzone{
+  border:1.5px dashed var(--line);border-radius:10px;padding:10px;text-align:center;
+  color:var(--muted);font-size:12px;cursor:pointer;
+}
+.edit-imgzone.dragover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.edit-imgzone.disabled{opacity:.55;cursor:not-allowed}
+
+/* 新增词条弹层 */
+.edit-dialog-mask{
+  position:fixed;inset:0;z-index:1200;background:var(--overlay);
+  display:flex;align-items:center;justify-content:center;padding:16px;
+}
+.edit-dialog{
+  width:min(440px,100%);max-height:86vh;overflow:auto;border-radius:14px;
+  background:var(--popover-glass);border:1px solid var(--popover-line);box-shadow:var(--popover-shadow);
+  padding:16px;display:flex;flex-direction:column;gap:10px;
+}
+.edit-dialog h3{margin:0;font-size:15px;color:var(--text)}
+.edit-dialog .edit-dialog-path{font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:8px;padding:4px 10px;align-self:flex-start}
+.edit-dialog label{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:11.5px}
+.edit-dialog input[type="text"],.edit-dialog textarea{
+  width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:8px;
+  background:var(--card);color:var(--text);font-size:13px;font-family:var(--font-ui);
+}
+.edit-dialog textarea{font-family:var(--font-prompt);resize:vertical;min-height:64px}
+.edit-dialog input:focus,.edit-dialog textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
