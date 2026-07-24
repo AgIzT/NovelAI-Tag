@@ -57,8 +57,10 @@ def build_sandbox(root):
                 "credit": "某作者",
             },
             {"id": "testbook-0002", "title": "乙一", "path": ["甲", "乙"], "tags": "three", "negative": "bad", "note": "n"},
+            # 单图-数组格式（pack 书那样：顶层 image 与 images[0] 镜像），P0 可编辑
             {"id": "testbook-0003", "title": "丙一", "path": ["丙"], "tags": "four", "isNew": True,
-             "images": [{"path": "a.jpg", "original": "a.png"}]},
+             "image": "testbook-0003.jpg", "original": "testbook-0003.png",
+             "images": [{"path": "testbook-0003.jpg", "original": "testbook-0003.png"}]},
         ]
     testbook = {
         "id": "testbook",
@@ -112,11 +114,25 @@ def build_sandbox(root):
     }
     _write(os.path.join(data, "underbook.json"), json.dumps(underbook, ensure_ascii=False))
 
+    # 真·多图词条（images[].length > 1），图片编辑应被拒（留 P1）
+    multi_entries = [{
+        "id": "multibook-0001", "title": "多图", "path": ["M"], "tags": "m",
+        "image": "multibook-0001.jpg", "original": "multibook-0001.png",
+        "images": [{"path": "multibook-0001.jpg", "original": "multibook-0001.png"},
+                   {"path": "multibook-0001_02.jpg", "original": "multibook-0001_02.png"}],
+    }]
+    multibook = {
+        "id": "multibook", "title": "多图书", "entryCount": 1, "imagedCount": 1,
+        "tree": build_tree(multi_entries), "entries": multi_entries,
+    }
+    _write(os.path.join(data, "multibook.json"), json.dumps(multibook, ensure_ascii=False))
+
     index = [
         {"id": "testbook", "title": "测试书", "entryCount": 3, "imagedCount": 2},
         {"id": "compactbook", "title": "紧凑书", "entryCount": 1, "imagedCount": 0},
         {"id": "foreignbook", "title": "外来前缀书", "entryCount": 1, "imagedCount": 0},
         {"id": "underbook", "title": "下划线书", "entryCount": 2, "imagedCount": 0},
+        {"id": "multibook", "title": "多图书", "entryCount": 1, "imagedCount": 1},
         {"id": "lockbook", "title": "外部源书", "entryCount": 5, "imagedCount": 5,
          "dataUrl": "https://example.test/data.json"},
     ]
@@ -309,20 +325,39 @@ class EditStoreTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.root, "site", "images", "testbook", "testbook-0002.jpg")))
         self.assertEqual(res["imagedCount"], 2)
 
-    def test_image_ops_reject_multi_image_entries(self):
+    def test_image_ops_reject_only_genuine_multi_image(self):
+        # images[].length > 1 才拒绝
         self.assert_edit_error(
-            400, "multi-image-unsupported", self.store.set_image, "testbook", "testbook-0003", make_png_dataurl()
+            400, "multi-image-unsupported", self.store.set_image, "multibook", "multibook-0001", make_png_dataurl()
         )
         self.assert_edit_error(
-            400, "multi-image-unsupported", self.store.delete_image, "testbook", "testbook-0003"
+            400, "multi-image-unsupported", self.store.delete_image, "multibook", "multibook-0001"
         )
+
+    def test_image_set_syncs_single_element_images_array(self):
+        # 单图-数组词条（pack 书那样）：set 要同步顶层字段与 images[0]
+        self.store.set_image("testbook", "testbook-0003", make_png_dataurl(1200, 600))
+        entry = next(e for e in self.read_book("testbook")["entries"] if e["id"] == "testbook-0003")
+        self.assertEqual(entry["image"], "testbook-0003.jpg")
+        self.assertEqual(len(entry["images"]), 1)
+        self.assertEqual(entry["images"][0]["path"], "testbook-0003.jpg")
+        self.assertEqual(entry["images"][0]["original"], "testbook-0003.png")
+        self.assertEqual(entry["image"], entry["images"][0]["path"])  # 顶层与 images[0] 镜像
+
+    def test_image_delete_on_single_array_makes_no_image_entry(self):
+        res = self.store.delete_image("testbook", "testbook-0003")
+        entry = next(e for e in self.read_book("testbook")["entries"] if e["id"] == "testbook-0003")
+        for key in ("image", "original", "assetRev", "imageWidth", "imageHeight", "images"):
+            self.assertNotIn(key, entry)
+        self.assertEqual(res["imagedCount"], 1)  # 原本 0001 + 0003 = 2，删后剩 0001
 
     # ---------- 能力声明 ----------
 
     def test_capabilities_reports_editable_and_locked(self):
         caps = self.store.capabilities()
         self.assertTrue(caps["ok"])
-        self.assertEqual(sorted(caps["editable"]), ["compactbook", "foreignbook", "testbook", "underbook"])
+        self.assertEqual(sorted(caps["editable"]),
+                         ["compactbook", "foreignbook", "multibook", "testbook", "underbook"])
         self.assertEqual(caps["locked"], {"lockbook": "external-data"})
         self.assertEqual(caps["docxWarnings"], [])
 

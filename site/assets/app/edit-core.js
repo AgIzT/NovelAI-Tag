@@ -74,7 +74,8 @@ export function mergeEntryInPlace(entry, serverEntry) {
   entry.path = Array.isArray(serverEntry.path) ? serverEntry.path.slice() : entry.path;
   if (serverEntry.rating) entry.rating = serverEntry.rating;
   else delete entry.rating;
-  if ('isNew' in serverEntry) entry.isNew = serverEntry.isNew === true;
+  // 服务器返回的是完整词条，缺 isNew 即代表非新（无该键），按权威值无条件同步
+  entry.isNew = serverEntry.isNew === true;
   for (const key of ['image', 'original', 'assetRev', 'imageWidth', 'imageHeight', 'assetCodexId']) {
     if (key in serverEntry) entry[key] = serverEntry[key];
     else delete entry[key];

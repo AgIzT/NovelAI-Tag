@@ -4,10 +4,10 @@
 import { state } from './state.js';
 import { $, esc } from './utils.js';
 import { toast } from './feedback.js';
-import { renderLightbox, closeLightbox } from './lightbox.js';
+import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
 import { setMasonryActions } from './masonry.js';
 import {
-  buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath,
+  buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath, splitTreePath,
 } from './edit-core.js';
 
 const EDIT_MODE_KEY = 'fadian-editmode';
@@ -28,6 +28,17 @@ export function initEditMode(ping, actions) {
   applyEnabledClass();
   document.addEventListener('lightbox:rendered', onLightboxRendered);
   setMasonryActions({ decorateCard });
+  bindTreeAdd();
+  decorateExistingCards();   // edit.js 晚于首屏渲染加载，补装当前已在 DOM 的卡片
+}
+
+/* 给当前已渲染的卡片补角标（此后新建的卡片走注入的 decorateCard） */
+function decorateExistingCards() {
+  document.querySelectorAll('#masonry .card').forEach(node => {
+    const idx = Number(node.dataset.index);
+    const entry = state.placements?.[idx]?.entry;
+    if (entry) decorateCard(node, entry);
+  });
 }
 
 /* ---------- 基础设施 ---------- */
@@ -181,6 +192,7 @@ function buildPanel(entry, { force = false } = {}) {
       </label>
       <label class="edit-check"><input type="checkbox" id="edNew"> 标记为「本次更新」</label>
     </div>
+    <div class="edit-imgzone" id="edImgZone"></div>
     <div class="edit-actions">
       <button type="button" class="edit-btn primary" id="edSave">保存</button>
       <button type="button" class="edit-btn danger" id="edDelete">删除此词条</button>
@@ -188,6 +200,7 @@ function buildPanel(entry, { force = false } = {}) {
     </div>`;
   const head = info.querySelector('.lightbox-head');
   head ? head.after(panel) : info.prepend(panel);
+  buildImageZone(panel.querySelector('#edImgZone'), entry);
 
   panel.querySelector('#edTitle').value = entry.title || '';
   panel.querySelector('#edTags').value = entry.tags || '';
@@ -275,8 +288,172 @@ async function structuralRefresh() {
   await acts.loadCodex?.(id, { historyMode: 'replace', saveBrowse: false });
 }
 
-/* ---------- 卡片装饰（提交4 填充） ---------- */
+/* ---------- 图片编辑区 ---------- */
 
-function decorateCard(/* node, entry */) {
-  // 占位：提交4 加卡片 ✎ 角标
+function buildImageZone(zone, entry) {
+  if (!zone) return;
+  // 前端 normalizeEntry 会给单图词条也合成 1 元素 images[]，故只有 >1 才是真多图（留 P1）
+  if (Array.isArray(entry.images) && entry.images.length > 1) {
+    zone.classList.add('disabled');
+    zone.textContent = '这是多图词条，图片编辑将在后续版本支持。';
+    return;
+  }
+  const hasImage = Boolean(entry.image);
+  zone.innerHTML = hasImage
+    ? '<div>拖入或点击更换图片</div><button type="button" class="edit-btn danger" id="edImgDel" style="margin-top:6px">删除图片</button>'
+    : '<div>拖入或点击添加图片（原图会原样保存 + 生成缩略图）</div>';
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.style.display = 'none';
+  zone.appendChild(fileInput);
+
+  zone.onclick = ev => {
+    if (ev.target.id === 'edImgDel') return;
+    fileInput.click();
+  };
+  fileInput.onchange = () => { if (fileInput.files[0]) uploadImage(entry, fileInput.files[0]); };
+  zone.ondragover = ev => { ev.preventDefault(); zone.classList.add('dragover'); };
+  zone.ondragleave = () => zone.classList.remove('dragover');
+  zone.ondrop = ev => {
+    ev.preventDefault();
+    zone.classList.remove('dragover');
+    const file = ev.dataTransfer?.files?.[0];
+    if (file) uploadImage(entry, file);
+  };
+  const delBtn = zone.querySelector('#edImgDel');
+  if (delBtn) delBtn.onclick = ev => { ev.stopPropagation(); deleteImage(entry); };
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(file);
+  });
+}
+
+async function uploadImage(entry, file) {
+  if (!/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
+  let dataURL;
+  try { dataURL = await readFileAsDataURL(file); }
+  catch { toast('读取文件失败'); return; }
+  const entryId = entry.id;
+  const res = await editFetch('/__edit__/image', {
+    codexId: currentCodexId(), entryId, op: 'set', dataURL,
+  });
+  if (!res) return;
+  // 图片改动会牵动归一化的 images[]，走结构重载再按 id 重开灯箱最稳
+  await structuralRefresh();
+  reopenLightboxById(entryId);
+  toast(res.pendingR2Sync ? '图片已保存 · 记得跑「同步 R2」再发布' : '图片已保存');
+}
+
+async function deleteImage(entry) {
+  if (!window.confirm('删除这张卡片的图片？（磁盘文件保留，仅从数据中移除引用）')) return;
+  const entryId = entry.id;
+  const res = await editFetch('/__edit__/image', {
+    codexId: currentCodexId(), entryId, op: 'delete',
+  });
+  if (!res) return;
+  await structuralRefresh();
+  reopenLightboxById(entryId);
+  toast('图片已移除 · 记得跑「同步 R2」再发布');
+}
+
+/* 结构重载后按 id 找到新 entry 对象重开灯箱（图片/换分类等操作后保持在原词条） */
+function reopenLightboxById(id) {
+  const fresh = state.codex?.entries?.find(e => e.id === id);
+  if (fresh) openLightbox(fresh, 0, null);
+}
+
+/* ---------- 卡片 ✎ 角标 ---------- */
+
+function decorateCard(node, entry) {
+  if (!node || !entry || node.querySelector('.edit-badge')) return;
+  const badge = document.createElement('button');
+  badge.type = 'button';
+  badge.className = 'edit-badge';
+  badge.title = '编辑这张卡片';
+  badge.setAttribute('aria-label', '编辑这张卡片');
+  badge.textContent = '✎';
+  badge.onclick = ev => {
+    ev.stopPropagation();
+    if (!canEditEntry(entry)) return;
+    openLightbox(entry, 0, node.querySelector('.card-img') || null);
+  };
+  node.appendChild(badge);
+}
+
+/* ---------- 目录树「＋ 新增」 ---------- */
+
+let treeAddBtn = null;
+
+function bindTreeAdd() {
+  const tree = document.getElementById('tree');
+  if (!tree || tree.dataset.editBound) return;
+  tree.dataset.editBound = '1';
+  treeAddBtn = document.createElement('button');
+  treeAddBtn.type = 'button';
+  treeAddBtn.className = 'edit-tree-add';
+  treeAddBtn.title = '在此分类下新增词条';
+  treeAddBtn.setAttribute('aria-label', '在此分类下新增词条');
+  treeAddBtn.textContent = '＋';
+  treeAddBtn.onclick = ev => {
+    ev.stopPropagation();
+    const row = treeAddBtn.closest('.tree-row');
+    const path = splitTreePath(row?.dataset.path || '');
+    if (path.length) openCreateDialog(path);
+  };
+  // 单个浮动按钮随悬停行移动，免疫 renderTree 全重建
+  tree.addEventListener('pointerover', ev => {
+    const row = ev.target.closest?.('.tree-row');
+    if (!row) return;
+    if (!canEditContext() || row.dataset.locked === '1' || !row.dataset.path) return;
+    row.appendChild(treeAddBtn);
+  });
+}
+
+function openCreateDialog(path) {
+  const label = path.join(' / ');
+  const mask = document.createElement('div');
+  mask.className = 'edit-dialog-mask';
+  mask.innerHTML = `
+    <div class="edit-dialog" role="dialog" aria-modal="true" aria-label="新增词条">
+      <h3>新增词条</h3>
+      <div class="edit-dialog-path">分类：${esc(label)}</div>
+      <label>标题 *<input type="text" id="ndTitle"></label>
+      <label>正向 Tag *<textarea id="ndTags"></textarea></label>
+      <label>备注（可选）<textarea id="ndNote"></textarea></label>
+      <div class="edit-actions">
+        <button type="button" class="edit-btn primary" id="ndSave">创建</button>
+        <button type="button" class="edit-btn" id="ndCancel">取消</button>
+      </div>
+    </div>`;
+  const close = () => mask.remove();
+  mask.onclick = ev => { if (ev.target === mask) close(); };
+  document.body.appendChild(mask);
+  mask.querySelector('#ndTitle').focus();
+  mask.querySelector('#ndCancel').onclick = close;
+  mask.querySelector('#ndSave').onclick = async () => {
+    const values = {
+      title: mask.querySelector('#ndTitle').value,
+      tags: mask.querySelector('#ndTags').value,
+      pathValue: joinTreePath(path),
+    };
+    const invalid = validateEntryForm(values, { requireAll: true });
+    if (invalid) { toast(invalid); return; }
+    const note = mask.querySelector('#ndNote').value.trim();
+    const entry = { title: values.title.trim(), tags: values.tags.trim(), path };
+    if (note) entry.note = note;
+    const btn = mask.querySelector('#ndSave');
+    btn.disabled = true;
+    const res = await editFetch('/__edit__/entry', { codexId: currentCodexId(), op: 'create', entry });
+    btn.disabled = false;
+    if (!res) return;
+    close();
+    await structuralRefresh();
+    toast('已新增词条：' + (res.entry?.id || ''));
+  };
 }

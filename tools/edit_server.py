@@ -476,7 +476,8 @@ class EditStore:
 
         def mutator(data):
             entry = self._find_entry(data, eid)
-            if "images" in entry:
+            imgs = entry.get("images")
+            if isinstance(imgs, list) and len(imgs) > 1:
                 raise EditError(400, "multi-image-unsupported", "多图词条的图片编辑留待 P1")
             ext = _ext_from_dataurl(durl)
             odir = os.path.join(self.orig, cid)
@@ -503,6 +504,9 @@ class EditStore:
             entry["original"] = ofn
             entry["assetRev"] = _asset_rev(tp, os.path.join(odir, ofn))
             entry.pop("assetCodexId", None)
+            # 本书若用 images[] 存图（单图也是 1 元素数组，顶层与 images[0] 镜像），保持同步
+            if isinstance(imgs, list):
+                entry["images"] = [{"path": tfn, "original": ofn}]
             return entry
 
         result = self.mutate(cid, mutator)
@@ -512,10 +516,13 @@ class EditStore:
     def delete_image(self, cid, eid):
         def mutator(data):
             entry = self._find_entry(data, eid)
-            if "images" in entry:
+            imgs = entry.get("images")
+            if isinstance(imgs, list) and len(imgs) > 1:
                 raise EditError(400, "multi-image-unsupported", "多图词条的图片编辑留待 P1")
             for key in IMAGE_FIELD_KEYS:
                 entry.pop(key, None)
+            if isinstance(imgs, list):
+                entry.pop("images", None)  # 单图-数组词条删图后变无图词条
             # 磁盘文件保留（回滚网）
             return entry
 
