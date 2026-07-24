@@ -37,13 +37,11 @@ def make_png_dataurl(width=20, height=10, color=(200, 30, 30)):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-class EditStoreTest(unittest.TestCase):
-    def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="edit-server-test-")
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-        self.data = os.path.join(self.root, "site", "data")
+def build_sandbox(root):
+    """在 root 下搭一套迷你 site/data（普通书 + 紧凑书 + 外来前缀书 + 外部源锁定书）。"""
+    data = os.path.join(root, "site", "data")
 
-        testbook_entries = [
+    testbook_entries = [
             {
                 "id": "testbook-0001",
                 "title": "甲一",
@@ -62,51 +60,58 @@ class EditStoreTest(unittest.TestCase):
             {"id": "testbook-0003", "title": "丙一", "path": ["丙"], "tags": "four", "isNew": True,
              "images": [{"path": "a.jpg", "original": "a.png"}]},
         ]
-        testbook = {
-            "id": "testbook",
-            "title": "测试书",
-            "entryCount": 3,
-            "imagedCount": 2,
-            "tree": build_tree(testbook_entries),
-            "entries": testbook_entries,
-        }
-        # 默认风格：单行、分隔符带空格（json.dump 默认），与站内多数手维护书一致
-        _write(os.path.join(self.data, "testbook.json"), json.dumps(testbook, ensure_ascii=False))
+    testbook = {
+        "id": "testbook",
+        "title": "测试书",
+        "entryCount": 3,
+        "imagedCount": 2,
+        "tree": build_tree(testbook_entries),
+        "entries": testbook_entries,
+    }
+    # 默认风格：单行、分隔符带空格（json.dump 默认），与站内多数手维护书一致
+    _write(os.path.join(data, "testbook.json"), json.dumps(testbook, ensure_ascii=False))
 
-        compact_entries = [{"id": "compactbook-0001", "title": "A1", "path": ["A"], "tags": "x"}]
-        compactbook = {
-            "id": "compactbook",
-            "title": "紧凑书",
-            "entryCount": 1,
-            "imagedCount": 0,
-            "tree": build_tree(compact_entries),
-            "entries": compact_entries,
-        }
-        _write(
-            os.path.join(self.data, "compactbook.json"),
-            json.dumps(compactbook, ensure_ascii=False, separators=(",", ":")),
-        )
+    compact_entries = [{"id": "compactbook-0001", "title": "A1", "path": ["A"], "tags": "x"}]
+    compactbook = {
+        "id": "compactbook",
+        "title": "紧凑书",
+        "entryCount": 1,
+        "imagedCount": 0,
+        "tree": build_tree(compact_entries),
+        "entries": compact_entries,
+    }
+    _write(
+        os.path.join(data, "compactbook.json"),
+        json.dumps(compactbook, ensure_ascii=False, separators=(",", ":")),
+    )
 
-        foreign_entries = [{"id": "codex_dead-0001", "title": "旧前缀", "path": ["X"], "tags": "y"}]
-        foreignbook = {
-            "id": "foreignbook",
-            "title": "外来前缀书",
-            "entryCount": 1,
-            "imagedCount": 0,
-            "tree": build_tree(foreign_entries),
-            "entries": foreign_entries,
-        }
-        _write(os.path.join(self.data, "foreignbook.json"), json.dumps(foreignbook, ensure_ascii=False))
+    foreign_entries = [{"id": "codex_dead-0001", "title": "旧前缀", "path": ["X"], "tags": "y"}]
+    foreignbook = {
+        "id": "foreignbook",
+        "title": "外来前缀书",
+        "entryCount": 1,
+        "imagedCount": 0,
+        "tree": build_tree(foreign_entries),
+        "entries": foreign_entries,
+    }
+    _write(os.path.join(data, "foreignbook.json"), json.dumps(foreignbook, ensure_ascii=False))
 
-        index = [
-            {"id": "testbook", "title": "测试书", "entryCount": 3, "imagedCount": 2},
-            {"id": "compactbook", "title": "紧凑书", "entryCount": 1, "imagedCount": 0},
-            {"id": "foreignbook", "title": "外来前缀书", "entryCount": 1, "imagedCount": 0},
-            {"id": "lockbook", "title": "外部源书", "entryCount": 5, "imagedCount": 5,
-             "dataUrl": "https://example.test/data.json"},
-        ]
-        _write(os.path.join(self.data, "codexes.json"), json.dumps(index, ensure_ascii=False, indent=2))
+    index = [
+        {"id": "testbook", "title": "测试书", "entryCount": 3, "imagedCount": 2},
+        {"id": "compactbook", "title": "紧凑书", "entryCount": 1, "imagedCount": 0},
+        {"id": "foreignbook", "title": "外来前缀书", "entryCount": 1, "imagedCount": 0},
+        {"id": "lockbook", "title": "外部源书", "entryCount": 5, "imagedCount": 5,
+         "dataUrl": "https://example.test/data.json"},
+    ]
+    _write(os.path.join(data, "codexes.json"), json.dumps(index, ensure_ascii=False, indent=2))
 
+
+class EditStoreTest(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="edit-server-test-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.data = os.path.join(self.root, "site", "data")
+        build_sandbox(self.root)
         self.store = EditStore(self.root)
 
     # ---------- 基础工具 ----------
@@ -294,6 +299,85 @@ class EditStoreTest(unittest.TestCase):
         self.assertEqual(sorted(caps["editable"]), ["compactbook", "foreignbook", "testbook"])
         self.assertEqual(caps["locked"], {"lockbook": "external-data"})
         self.assertEqual(caps["docxWarnings"], [])
+
+
+class HttpSmokeTest(unittest.TestCase):
+    """线程起真服务器（端口 0 随机），走 urllib 全链路冒烟。"""
+
+    def setUp(self):
+        import threading
+
+        from edit_server import Server, make_handler
+
+        self.root = tempfile.mkdtemp(prefix="edit-server-http-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        build_sandbox(self.root)
+        self.store = EditStore(self.root)
+        self.server = Server(("127.0.0.1", 0), make_handler(self.store))
+        self.port = self.server.server_address[1]
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.shutdown)
+
+    def request(self, path, payload=None, headers=None, raw_body=None):
+        import urllib.error
+        import urllib.request
+
+        url = f"http://127.0.0.1:{self.port}{path}"
+        body = raw_body if raw_body is not None else (
+            json.dumps(payload).encode("utf-8") if payload is not None else None
+        )
+        req = urllib.request.Request(url, data=body, headers=headers or {})
+        if body is not None:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req) as res:
+                return res.status, json.loads(res.read())
+        except urllib.error.HTTPError as ex:
+            return ex.code, json.loads(ex.read())
+
+    def test_ping_shape(self):
+        status, data = self.request("/__edit__/ping")
+        self.assertEqual(status, 200)
+        self.assertTrue(data["ok"])
+        self.assertIn("testbook", data["editable"])
+        self.assertIn("lockbook", data["locked"])
+
+    def test_entry_update_roundtrip(self):
+        status, data = self.request("/__edit__/entry", {
+            "codexId": "testbook", "op": "update", "entryId": "testbook-0002",
+            "fields": {"title": "HTTP改", "note": "via http"},
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(data["entry"]["title"], "HTTP改")
+        self.assertEqual(data["entryCount"], 3)
+        on_disk = json.loads(_read(os.path.join(self.root, "site", "data", "testbook.json")))
+        self.assertEqual(next(e for e in on_disk["entries"] if e["id"] == "testbook-0002")["title"], "HTTP改")
+
+    def test_error_shell_and_statuses(self):
+        status, data = self.request("/__edit__/entry", {"codexId": "nobook", "op": "delete", "entryId": "x"})
+        self.assertEqual((status, data["ok"], data["code"]), (404, False, "not-found"))
+        status, data = self.request("/__edit__/entry", {"codexId": "lockbook", "op": "delete", "entryId": "x"})
+        self.assertEqual((status, data["code"]), (403, "codex-locked"))
+        status, data = self.request("/__edit__/entry", raw_body=b"{not json")
+        self.assertEqual((status, data["code"]), (400, "bad-request"))
+        status, data = self.request("/__edit__/nothing", {"a": 1})
+        self.assertEqual(status, 404)
+
+    def test_oversized_body_rejected(self):
+        big = b"x" * (512 * 1024 + 1)
+        status, data = self.request("/__edit__/entry", raw_body=big)
+        self.assertEqual((status, data["code"]), (413, "too-large"))
+
+    def test_foreign_origin_rejected(self):
+        status, data = self.request(
+            "/__edit__/entry",
+            {"codexId": "testbook", "op": "delete", "entryId": "testbook-0001"},
+            headers={"Origin": "https://evil.example"},
+        )
+        self.assertEqual((status, data["code"]), (403, "bad-origin"))
+        on_disk = json.loads(_read(os.path.join(self.root, "site", "data", "testbook.json")))
+        self.assertEqual(len(on_disk["entries"]), 3)
 
 
 if __name__ == "__main__":

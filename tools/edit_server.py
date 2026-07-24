@@ -515,3 +515,151 @@ class EditStore:
         result = self.mutate(cid, mutator)
         result["pendingR2Sync"] = True
         return result
+
+
+# ---------- HTTP 层 ----------
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def make_handler(store):
+    """绑定到指定 EditStore 的 Handler 类（工厂形式便于单测起沙箱服务器）。"""
+    site_dir = store.site
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=site_dir, **kwargs)
+
+        def end_headers(self):
+            request_path = self.path.split("?", 1)[0]
+            if request_path == "/" or request_path.endswith((".html", ".json", ".js", ".css")):
+                self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/__edit__/ping":
+                try:
+                    return self._json(store.capabilities())
+                except Exception as ex:
+                    return self._json({"ok": False, "error": str(ex), "code": "internal"}, 500)
+            if path.startswith("/originals/"):
+                return self._serve_original()
+            return super().do_GET()
+
+        def do_POST(self):
+            path = self.path.split("?", 1)[0]
+            routes = {"/__edit__/entry": ENTRY_MAX_BYTES, "/__edit__/image": IMAGE_MAX_BYTES}
+            if path not in routes:
+                return self._json({"ok": False, "error": "未知端点", "code": "not-found"}, 404)
+            try:
+                self._check_origin()
+                length = int(self.headers.get("Content-Length") or 0)
+                if length <= 0:
+                    raise EditError(400, "bad-request", "缺少请求体")
+                if length > routes[path]:
+                    raise EditError(413, "too-large", "请求体超过上限")
+                try:
+                    body = json.loads(self.rfile.read(length))
+                except Exception:
+                    raise EditError(400, "bad-request", "请求体不是合法 JSON")
+                if path == "/__edit__/entry":
+                    result = self._handle_entry(body)
+                else:
+                    result = self._handle_image(body)
+                return self._json(result)
+            except EditError as ex:
+                return self._json({"ok": False, "error": ex.message, "code": ex.code}, ex.status)
+            except Exception as ex:
+                return self._json({"ok": False, "error": str(ex), "code": "internal"}, 500)
+
+        def _handle_entry(self, body):
+            cid = body.get("codexId")
+            op = body.get("op")
+            if not isinstance(cid, str) or not cid:
+                raise EditError(400, "bad-request", "缺少 codexId")
+            if op == "update":
+                eid = body.get("entryId")
+                if not isinstance(eid, str) or not eid:
+                    raise EditError(400, "bad-request", "缺少 entryId")
+                return store.update_entry(cid, eid, body.get("fields"))
+            if op == "create":
+                return store.create_entry(cid, body.get("entry"))
+            if op == "delete":
+                eid = body.get("entryId")
+                if not isinstance(eid, str) or not eid:
+                    raise EditError(400, "bad-request", "缺少 entryId")
+                return store.delete_entry(cid, eid)
+            raise EditError(400, "bad-request", f"未知 op：{op}")
+
+        def _handle_image(self, body):
+            cid = body.get("codexId")
+            eid = body.get("entryId")
+            op = body.get("op")
+            if not isinstance(cid, str) or not cid or not isinstance(eid, str) or not eid:
+                raise EditError(400, "bad-request", "缺少 codexId / entryId")
+            if op == "set":
+                return store.set_image(cid, eid, body.get("dataURL"))
+            if op == "delete":
+                return store.delete_image(cid, eid)
+            raise EditError(400, "bad-request", f"未知 op：{op}")
+
+        def _check_origin(self):
+            origin = self.headers.get("Origin")
+            if not origin:
+                return
+            try:
+                host = urllib.parse.urlsplit(origin).hostname or ""
+            except ValueError:
+                host = ""
+            if host not in _LOOPBACK_HOSTS:
+                raise EditError(403, "bad-origin", "只接受本机页面的写请求")
+
+        def _serve_original(self):
+            rel = urllib.parse.unquote(self.path.split("?", 1)[0].lstrip("/")).replace("/", os.sep)
+            target = os.path.abspath(os.path.join(store.root, rel))
+            base = os.path.abspath(store.orig)
+            if not (target == base or target.startswith(base + os.sep)):
+                self.send_error(403)
+                return
+            if not os.path.isfile(target):
+                self.send_error(404)
+                return
+            with open(target, "rb") as fh:
+                body = fh.read()
+            self.send_response(200)
+            self.send_header("Content-Type", mimetypes.guess_type(target)[0] or "application/octet-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _json(self, obj, code=200):
+            body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    return Handler
+
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=PORT)
+    args = parser.parse_args()
+    store = EditStore(ROOT)
+    with Server(("127.0.0.1", args.port), make_handler(store)) as server:
+        print(f"Codex editor -> http://localhost:{args.port}/")
+        print("Open the site, the pencil toggle appears in the topbar automatically.")
+        print("Do NOT run this together with the peitu tool (imgserver :8767) on the same book.")
+        server.serve_forever()

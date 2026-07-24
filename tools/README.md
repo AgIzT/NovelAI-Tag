@@ -26,7 +26,8 @@
 
 | 文件 | 用途 | 默认是否改数据 |
 | --- | --- | --- |
-| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:8767） | 页面操作才写 |
+| `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器（:8769）：主站"编辑模式"的写后端，词条/分类/图片编辑，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
+| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:8767）。⚠ 别和法典编辑器同时开 | 页面操作才写 |
 | `strings_server.py` + `strings_editor.html` | 画师串编辑器（:8768） | 页面操作才写 |
 | `backfill_pack_character_prompts.py` | 从原图幂等回填两本图包的 NAI V4 角色提示词 | 默认预演；`--apply` 才写 |
 
@@ -64,7 +65,7 @@
 
 ## 🧪 测试
 
-`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_favorites_origin_migration_browser.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_favorites_backup.mjs` · `test_favorites_origin_migration.mjs`（Node）。
+`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_favorites_origin_migration_browser.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_favorites_backup.mjs` · `test_favorites_origin_migration.mjs`（Node）。
 
 `__pycache__/` 是 Python 缓存，忽略。
 

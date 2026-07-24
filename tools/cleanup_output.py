@@ -5,7 +5,8 @@
   1. output/ui-regression/<时间戳>/ ：只保留最近 KEEP_UI_REGRESSION 次，更早的删除。
   2. output/ 顶层形如 <家族名>_YYYYMMDD-HHMMSS 的时间戳报告目录：每个家族只保留最新一份。
   3. output/ 顶层散落的 *.log / *.out.log / *.err.log / *.stderr.log / *.stdout.log 文件：删除。
-  4. 其余一律不动（白名单式：不匹配上述模式的目录/文件永不删除）。
+  4. output/edit-backups/<时间戳>/（法典编辑器写前快照）：只保留最近 KEEP_EDIT_BACKUPS 份。
+  5. 其余一律不动（白名单式：不匹配上述模式的目录/文件永不删除）。
      例如 nai-api-fill/、feedback-public-consent-migration-*/（回滚备份）天然不匹配，安全。
 
 用法：
@@ -22,8 +23,10 @@ import sys
 from pathlib import Path
 
 KEEP_UI_REGRESSION = 5
+KEEP_EDIT_BACKUPS = 50
 TS_DIR_RE = re.compile(r"^(?P<family>.+)_(?P<ts>\d{8}-\d{6})$")
 UI_TS_RE = re.compile(r"^\d{8}-\d{6}$")
+EDIT_BACKUP_RE = re.compile(r"^\d{8}-\d{6}(-\d+)?$")
 LOG_SUFFIXES = (".log",)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +60,11 @@ def collect_targets() -> list[Path]:
     if ui_dir.is_dir():
         runs = sorted(d for d in ui_dir.iterdir() if d.is_dir() and UI_TS_RE.match(d.name))
         targets.extend(runs[:-KEEP_UI_REGRESSION] if len(runs) > KEEP_UI_REGRESSION else [])
+
+    backup_dir = OUTPUT / "edit-backups"
+    if backup_dir.is_dir():
+        snaps = sorted(d for d in backup_dir.iterdir() if d.is_dir() and EDIT_BACKUP_RE.match(d.name))
+        targets.extend(snaps[:-KEEP_EDIT_BACKUPS] if len(snaps) > KEEP_EDIT_BACKUPS else [])
 
     families: dict[str, list[Path]] = {}
     for d in OUTPUT.iterdir():
