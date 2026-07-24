@@ -560,10 +560,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if desktop["menuTitle"] != "反馈与进度" or desktop["menuSubtitle"] != "提交反馈 · 查看处理进展":
             raise CheckFailed(f"Feedback menu wording mismatch: {desktop}")
         if (
-            desktop["tabs"] != ["提交反馈", "处理进度"]
+            len(desktop["tabs"]) != 2
+            or desktop["tabs"][0] != "提交反馈"
+            or not desktop["tabs"][1].startswith("处理进度")  # 进度 tab 可带「已结案/总数」计数徽标
             or desktop["selected"] != "submit"
             or desktop["privacyOptionPresent"]
-            or desktop["contactPlaceholder"] != "QQ等联系方式，仅提供给维护者方便后续交流，始终不会公开在反馈进度内"
+            or desktop["contactPlaceholder"] != "QQ / 邮箱等"
             or desktop["progressIntro"] != "这里只展示由维护者确认公开的反馈、处理进度和回复。"
         ):
             raise CheckFailed(f"Feedback submit defaults mismatch: {desktop}")
@@ -671,7 +673,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             or mobile_submit["panelOverflow"] > 1
             or mobile_submit["pageOverflow"] > 1
             or mobile_submit["privacyOptionPresent"]
-            or mobile_submit["contactPlaceholder"] != "QQ等联系方式，仅提供给维护者方便后续交流，始终不会公开在反馈进度内"
+            or mobile_submit["contactPlaceholder"] != "QQ / 邮箱等"
             or not mobile_submit["submitVisible"]
         ):
             raise CheckFailed(f"Mobile feedback submit panel is unusable: {mobile_submit}")
