@@ -373,6 +373,20 @@ export function bindUI() {
     };
   }
 
+  /* 公告面板底部的常驻入口：从「站方在干什么」的语境顺势跳到反馈处理进度。
+     沿用灯箱→反馈的既有做法（叠层打开、不手动关公告），保持历史栈一致。 */
+  const announcementsFeedbackLink = $('#announcementsFeedbackLink');
+  if (announcementsFeedbackLink) {
+    announcementsFeedbackLink.onclick = () => {
+      openReportDialog({
+        source: 'announcement',
+        tab: 'progress',
+        trigger: announcementsFeedbackLink,
+        historyMode: mobileQuery.matches ? 'replace' : 'push',
+      });
+    };
+  }
+
   /* 设置 / 关于 悬浮框：开关三件套（按钮/遮罩/Esc），带淡入淡出 */
   const settingsMask = $('#settings');
   const nsfwMask = $('#nsfwConfirm');

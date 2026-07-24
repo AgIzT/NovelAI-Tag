@@ -5,6 +5,7 @@ import { openMask, closeMask, trapFocus } from './modal.js';
 import { entryImages, imageItemUrl, thumbUrl, originalUrl, hasEntryImage } from './media.js';
 import {
   feedbackProgressMeta,
+  feedbackProgressFlow,
   isFeedbackProgressClosed,
 } from './feedback-progress.js';
 
@@ -66,7 +67,7 @@ export function setupReport() {
   $('#feedbackProgressRefresh')?.addEventListener('click', () => loadPublicFeedback({ force: true }));
 }
 
-export function openReportDialog({ source = 'global', entry = null, imageIndex = 0, defaultType = '', imageError = false, trigger = document.activeElement, historyMode = 'push' } = {}) {
+export function openReportDialog({ source = 'global', entry = null, imageIndex = 0, defaultType = '', imageError = false, tab = 'submit', trigger = document.activeElement, historyMode = 'push' } = {}) {
   const mask = $('#feedbackPanel');
   if (!mask) return;
   currentTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
@@ -76,8 +77,10 @@ export function openReportDialog({ source = 'global', entry = null, imageIndex =
   const context = buildFeedbackContext({ source, entry, imageIndex, imageError });
   currentPayload = { type, description: '', contact: '', context, honeypot: '' };
   resetFeedbackForm(type, context);
-  selectFeedbackTab('submit');
+  selectFeedbackTab(tab === 'progress' ? 'progress' : 'submit');
   openMask(mask, currentTrigger, { historyMode });
+  /* 无论停在哪个 tab 都预取一次公开进度，让「处理进度」tab 的计数尽早出现（本会话仅拉一次）。 */
+  loadPublicFeedback();
 }
 
 export function buildFeedbackContext({ source = 'global', entry = null, imageIndex = 0, imageError = false } = {}) {
@@ -377,14 +380,38 @@ function renderPublicFeedbackCard(item) {
         </span>
       </summary>
       <div class="feedback-public-card-body">
+        ${renderProgressFlow(item.progressStatus)}
         <p class="feedback-public-progress-copy">${esc(progress.description)}</p>
-        <div class="feedback-public-reply${item.adminReply ? '' : ' is-empty'}">
-          <b>维护者回复</b>
-          <p>${esc(item.adminReply || '暂时还没有公开回复。')}</p>
-        </div>
+        ${renderPublicReply(item)}
         <small>反馈提交于 ${esc(formatPublicDate(item.createdAt))}</small>
       </div>
     </details>`;
+}
+
+/* 把当前进度画成一条 5 段迷你步骤条；暂不采纳不走线性流程，返回空串。 */
+function renderProgressFlow(status) {
+  const flow = feedbackProgressFlow(status);
+  if (!flow) return '';
+  const nodes = flow.steps.map((step, i) => {
+    const cls = i < flow.currentIndex
+      ? 'is-done'
+      : i === flow.currentIndex
+        ? (flow.done ? 'is-done' : flow.paused ? 'is-paused' : 'is-current')
+        : 'is-todo';
+    return `<li class="${cls}"><span class="feedback-flow-dot" aria-hidden="true"></span><span class="feedback-flow-label">${esc(step.label)}</span></li>`;
+  }).join('');
+  return `<ol class="feedback-flow" aria-label="处理进度">${nodes}</ol>`;
+}
+
+/* 有回复就展示；没回复时只有已结案（完成/暂不采纳）才显示占位——处理中没回复是正常的，不必制造「没有回复」的负面暗示。 */
+function renderPublicReply(item) {
+  if (item.adminReply) {
+    return `<div class="feedback-public-reply"><b>维护者回复</b><p>${esc(item.adminReply)}</p></div>`;
+  }
+  if (isFeedbackProgressClosed(item.progressStatus)) {
+    return '<div class="feedback-public-reply is-empty"><b>维护者回复</b><p>已结案，维护者暂未留下公开说明。</p></div>';
+  }
+  return '';
 }
 
 function publicFeedbackContext(value) {
@@ -421,10 +448,23 @@ function formatPublicDate(value) {
 }
 
 function updatePublicFeedbackCount() {
-  const count = $('#feedbackPublicCount');
-  if (!count) return;
-  count.textContent = String(publicFeedbackItems.length);
-  count.hidden = publicFeedbackItems.length === 0;
+  const total = publicFeedbackItems.length;
+  const closed = publicFeedbackItems.filter(item => isFeedbackProgressClosed(item.progressStatus)).length;
+  const counts = { all: total, open: total - closed, closed };
+  const badge = $('#feedbackPublicCount');
+  if (badge) {
+    badge.textContent = total ? `${closed}/${total}` : '';
+    badge.hidden = total === 0;
+  }
+  const tab = $('#feedbackProgressTab');
+  if (tab) {
+    if (total) tab.title = `已公开 ${total} 条 · 已结案 ${closed} 条`;
+    else tab.removeAttribute('title');
+  }
+  document.querySelectorAll('[data-filter-count]').forEach(node => {
+    node.textContent = String(counts[node.dataset.filterCount] || 0);
+    node.hidden = total === 0;
+  });
 }
 
 function defaultTypeFor({ source, imageError }) {

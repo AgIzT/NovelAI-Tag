@@ -106,6 +106,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
       </button>
       <div id="moreMenu" class="more-menu" role="menu" hidden>
+        <button id="globalReportBtn" class="more-item" type="button" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
+          <span><b>反馈与进度</b><small>提交反馈 · 查看处理进展</small></span>
+        </button>
         <a class="more-item" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
           <span><b>GitHub 仓库</b><small>查看项目源码</small></span>
@@ -117,10 +121,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button id="historyBtn" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
           <span><b>浏览与收藏</b><small>浏览记录 · 收藏备份</small></span>
-        </button>
-        <button id="globalReportBtn" class="more-item" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
-          <span><b>反馈与进度</b><small>提交反馈 · 查看处理进展</small></span>
         </button>
         <button id="aboutBtn" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v5"/><path d="M12 8h.01"/></svg>
@@ -465,6 +465,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 5a2 2 0 0 1 4 0v1a5 5 0 0 1 4 4.9v3.2l1.4 2.4A1 1 0 0 1 18.5 18h-13a1 1 0 0 1-.9-1.5L6 14.1v-3.2A5 5 0 0 1 10 6z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg></span>
       <h2 class="settings-title">公告</h2>
     </div>
+    <button id="announcementsFeedbackLink" class="announcements-foot" type="button">
+      <span class="announcements-foot-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="m9 11 2 2 4-4"/></svg>
+      </span>
+      <span class="announcements-foot-copy"><b>反馈处理进度</b><small>看看大家提的反馈都得到了怎样的回复与处理</small></span>
+      <svg class="announcements-foot-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </button>
     <div id="announcementsList" class="announcements-list"></div>
   </div>
 </div>
@@ -476,7 +483,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg></span>
       <div>
         <h2 class="settings-title">反馈与进度</h2>
-        <p>帮助我们持续修正内容与体验。</p>
+        <p>每条反馈都会被认真查看，处理进度与回复公开可查。</p>
       </div>
     </div>
     <div class="feedback-tabs" role="tablist" aria-label="反馈功能">
@@ -502,7 +509,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </label>
         <label class="feedback-field">
           <span>联系方式 <small class="field-live">选填</small></span>
-          <input id="feedbackContact" maxlength="120" placeholder="QQ等联系方式，仅提供给维护者方便后续交流，始终不会公开在反馈进度内">
+          <input id="feedbackContact" maxlength="120" placeholder="QQ / 邮箱等">
+          <small class="feedback-field-hint">仅提供给维护者方便后续交流，始终不会公开在处理进度中。</small>
         </label>
         <label class="feedback-hp" aria-hidden="true">
           <span>请留空</span>
@@ -533,9 +541,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button id="feedbackProgressRefresh" type="button" aria-label="刷新处理进度" title="刷新处理进度"><span aria-hidden="true">↻</span></button>
       </div>
       <div class="feedback-progress-filters" role="group" aria-label="筛选处理进度">
-        <button type="button" data-feedback-filter="all" aria-pressed="true">全部</button>
-        <button type="button" data-feedback-filter="open" aria-pressed="false">进行中</button>
-        <button type="button" data-feedback-filter="closed" aria-pressed="false">已结案</button>
+        <button type="button" data-feedback-filter="all" aria-pressed="true"><span>全部</span><b data-filter-count="all" hidden></b></button>
+        <button type="button" data-feedback-filter="open" aria-pressed="false"><span>进行中</span><b data-filter-count="open" hidden></b></button>
+        <button type="button" data-feedback-filter="closed" aria-pressed="false"><span>已结案</span><b data-filter-count="closed" hidden></b></button>
       </div>
       <div id="feedbackPublicList" class="feedback-public-list" aria-live="polite">
         <div class="feedback-public-state">切换到这里后会自动加载公开反馈。</div>
