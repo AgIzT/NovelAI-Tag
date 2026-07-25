@@ -11,19 +11,32 @@
 }
 body.dark .edit-warnbar{color:#f4d58a;background:#332a12;border-bottom-color:#4a3d1c}
 
-/* 卡片编辑角标 */
-.edit-badge{
-  position:absolute;top:8px;left:8px;z-index:5;display:none;align-items:center;justify-content:center;
-  width:28px;height:28px;border-radius:8px;border:1px solid var(--popover-line);
-  background:var(--popover-glass);color:var(--accent);cursor:pointer;box-shadow:var(--shadow);
-  font-size:14px;line-height:1;
-}
-body.edit-mode .card:hover .edit-badge{display:flex}
-.edit-badge:hover{background:var(--accent-soft)}
+/* 编辑模式下：整张卡片点击即进灯箱编辑。
+   放大按钮与「点击复制」提示都失去意义（复制在编辑态无用），一并隐藏。 */
+body.edit-mode .card .zoom-btn,
+body.edit-mode .card .copy-hint{display:none}
+body.edit-mode .card{cursor:pointer}
 
-/* 只在编辑模式出现的顶栏按钮 */
-.edit-only{display:none}
-body.edit-mode .edit-only{display:inline-flex}
+/* 结果栏「＋ 新增词条」：新增是高频操作，常驻在主界面 */
+.edit-newentry-btn{
+  display:none;margin-left:auto;padding:4px 12px;border-radius:999px;
+  border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);
+  font-size:12px;cursor:pointer;font-family:var(--font-ui);white-space:nowrap;
+}
+body.edit-mode .edit-newentry-btn{display:inline-block}
+.edit-newentry-btn:hover{filter:brightness(1.05)}
+@media (max-width:600px){
+  .edit-newentry-btn{margin-left:0}
+}
+
+/* 编辑模式下由「社区共建」门换成的法典管理入口：复用门的版式，只换配色语义 */
+.codex-door.edit-door{
+  border-style:solid;border-color:var(--accent);
+  background:var(--accent-soft);color:var(--accent);
+  width:100%;text-align:left;cursor:pointer;font-family:var(--font-ui);
+}
+.codex-door.edit-door .cd-sub{color:var(--accent);opacity:.72}
+.codex-door.edit-door:hover{filter:brightness(1.03)}
 
 /* 目录树行菜单入口「⋯」 */
 .edit-tree-add{

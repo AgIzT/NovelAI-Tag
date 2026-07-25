@@ -106,6 +106,7 @@ export function setupCodexPicker() {
     closeDirect({ focusButton });
     if (isMobile() && historyMode !== 'none') forgetHistoryLayer('codex-menu');
   };
+  closePickerRef = close;   // 供外部模块（本地编辑模式）正确收起选择器，含移动端托管历史层
 
   const chooseCodex = c => {
     if (!c) return;
@@ -190,6 +191,7 @@ export function setupCodexPicker() {
       `</span>` +
       `<span class="cd-out">${DOOR_OUT_ICON}</span>`;
     wrap.appendChild(a);
+    codexUiActions.decorateDoor?.(wrap);   // 本地编辑模式会把这扇门改成「法典管理」，生产未注入即空转
     return wrap;
   };
 
@@ -479,6 +481,13 @@ export function updateReadingSpy() {
       nav.scrollTo({ top: Math.max(0, top - nav.clientHeight * 0.38), behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
     }
   }
+}
+
+/* 法典选择器的收起入口。setupCodexPicker() 里把内部 close 挂上来，
+   外部模块（本地编辑模式点「法典管理」时）据此正确收起，不必复制其历史层逻辑。 */
+let closePickerRef = null;
+export function closeCodexPicker(options = {}) {
+  closePickerRef?.(options);
 }
 
 export function visibleTree() {

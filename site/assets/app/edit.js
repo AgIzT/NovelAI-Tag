@@ -5,7 +5,7 @@ import { state } from './state.js';
 import { $, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
-import { setMasonryActions } from './masonry.js';
+import { setCodexUiActions, closeCodexPicker } from './codex-ui.js';
 import {
   buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath, splitTreePath,
 } from './edit-core.js';
@@ -27,18 +27,10 @@ export function initEditMode(ping, actions) {
   enabled = localStorage.getItem(EDIT_MODE_KEY) === '1';
   applyEnabledClass();
   document.addEventListener('lightbox:rendered', onLightboxRendered);
-  setMasonryActions({ decorateCard });
+  setCodexUiActions({ decorateDoor });
   bindTreeAdd();
-  decorateExistingCards();   // edit.js 晚于首屏渲染加载，补装当前已在 DOM 的卡片
-}
-
-/* 给当前已渲染的卡片补角标（此后新建的卡片走注入的 decorateCard） */
-function decorateExistingCards() {
-  document.querySelectorAll('#masonry .card').forEach(node => {
-    const idx = Number(node.dataset.index);
-    const entry = state.placements?.[idx]?.entry;
-    if (entry) decorateCard(node, entry);
-  });
+  bindCardClick();
+  ensureResultBarButton();
 }
 
 /* ---------- 基础设施 ---------- */
@@ -66,17 +58,32 @@ function buildToggle() {
   btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   btn.onclick = toggleEnabled;
   actionsBar.insertBefore(btn, anchor || actionsBar.firstChild);
+}
 
-  // 法典管理（新建 / 改书名 / 删除本），只在编辑模式下显示
-  const book = document.createElement('button');
-  book.id = 'editCodexBtn';
-  book.type = 'button';
-  book.className = 'icon-btn edit-only';
-  book.title = '法典管理（新建 / 改信息 / 删除）';
-  book.setAttribute('aria-label', '法典管理');
-  book.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
-  book.onclick = openCodexManager;
-  actionsBar.insertBefore(book, btn);
+/* 编辑模式下，把法典选择器底部那扇「社区共建 · 去投稿」的门改成「法典管理」入口。
+   不另设顶栏按钮：增删法典本来就属于法典选择器这个语境。
+   关掉编辑模式（或线上）时这个钩子不改任何东西，门还是原来的投稿门。 */
+function decorateDoor(wrap) {
+  if (!enabled) return;
+  const door = wrap.querySelector('.codex-door');
+  if (!door) return;
+  const swap = document.createElement('button');
+  swap.type = 'button';
+  swap.className = 'codex-door edit-door';
+  swap.setAttribute('aria-label', '法典管理：新建 / 修改 / 删除法典');
+  swap.innerHTML =
+    '<span class="cd-ico"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>' +
+    '<span class="cd-main">' +
+    '<span class="cd-name">法典管理 · 新建 / 删除</span>' +
+    '<span class="cd-sub">本地编辑模式：整理你自己的法典</span>' +
+    '</span>';
+  swap.onclick = ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeCodexPicker({ historyMode: 'none' });   // 先收起选择器（含移动端历史层），再开管理弹窗
+    openCodexManager();
+  };
+  door.replaceWith(swap);
 }
 
 function toggleEnabled() {
@@ -385,22 +392,27 @@ function reopenLightboxById(id) {
   if (fresh) openLightbox(fresh, 0, null);
 }
 
-/* ---------- 卡片 ✎ 角标 ---------- */
+/* ---------- 编辑模式下卡片点击 = 进灯箱编辑 ---------- */
 
-function decorateCard(node, entry) {
-  if (!node || !entry || node.querySelector('.edit-badge')) return;
-  const badge = document.createElement('button');
-  badge.type = 'button';
-  badge.className = 'edit-badge';
-  badge.title = '编辑这张卡片';
-  badge.setAttribute('aria-label', '编辑这张卡片');
-  badge.textContent = '✎';
-  badge.onclick = ev => {
-    ev.stopPropagation();
+/* 编辑模式里「复制 tag」没有意义，而单独的 ✎ 角标与右上放大按钮其实是同一个动作。
+   所以：整张卡片点击即进灯箱（放大按钮与角标由 CSS 一并隐藏）。
+   用捕获阶段委托在 #masonry 上，天然免疫瀑布流虚拟化与编辑模式随时开关。 */
+function bindCardClick() {
+  const grid = document.getElementById('masonry');
+  if (!grid || grid.dataset.editClickBound) return;
+  grid.dataset.editClickBound = '1';
+  grid.addEventListener('click', ev => {
+    if (!canEditContext()) return;
+    const card = ev.target.closest('.card');
+    if (!card) return;
+    // 收藏 / 反馈 / 底部复制按钮仍走各自逻辑
+    if (ev.target.closest('.fav-btn, .report-card-btn, .card-actions')) return;
+    const entry = state.placements?.[Number(card.dataset.index)]?.entry;
     if (!canEditEntry(entry)) return;
-    openLightbox(entry, 0, node.querySelector('.card-img') || null);
-  };
-  node.appendChild(badge);
+    ev.preventDefault();
+    ev.stopPropagation();   // 拦掉 masonry 自己的「点卡复制」
+    openLightbox(entry, 0, card.querySelector('.card-img') || null);
+  }, true);
 }
 
 /* ---------- 目录树行菜单（新增词条 / 新建子分类 / 重命名 / 移动 / 删除） ---------- */
@@ -759,14 +771,25 @@ function openSelectDialog({ title, hint, label, options, onSubmit }) {
   mask.querySelector('#sdCancel').onclick = close;
 }
 
-function openCreateDialog(path) {
-  const label = path.join(' / ');
+/* 新增词条弹窗。path 给定时锁定分类（从目录树菜单进）；
+   不给时列出分类下拉、默认选中当前正在浏览的分类（从结果栏按钮进）。 */
+function openCreateDialog(path = null) {
+  const pathList = buildPathList(state.codex?.tree || []);
+  if (!path && !pathList.length) {
+    toast('先新建一个分类，才能往里加词条');
+    return;
+  }
+  const fixed = Array.isArray(path) && path.length ? path : null;
+  const preferred = joinTreePath(state.activePath || []);
   const mask = document.createElement('div');
   mask.className = 'edit-dialog-mask';
   mask.innerHTML = `
     <div class="edit-dialog" role="dialog" aria-modal="true" aria-label="新增词条">
       <h3>新增词条</h3>
-      <div class="edit-dialog-path">分类：${esc(label)}</div>
+      ${fixed
+        ? `<div class="edit-dialog-path">分类：${esc(fixed.join(' / '))}</div>`
+        : `<label>分类 *<select id="ndPath">${pathList
+            .map(p => `<option value="${esc(p.value)}">${esc(p.label)}</option>`).join('')}</select></label>`}
       <label>标题 *<input type="text" id="ndTitle"></label>
       <label>正向 Tag *<textarea id="ndTags"></textarea></label>
       <label>备注（可选）<textarea id="ndNote"></textarea></label>
@@ -778,18 +801,21 @@ function openCreateDialog(path) {
   const close = () => mask.remove();
   mask.onclick = ev => { if (ev.target === mask) close(); };
   document.body.appendChild(mask);
+  const pathSel = mask.querySelector('#ndPath');
+  if (pathSel && pathList.some(p => p.value === preferred)) pathSel.value = preferred;
   mask.querySelector('#ndTitle').focus();
   mask.querySelector('#ndCancel').onclick = close;
   mask.querySelector('#ndSave').onclick = async () => {
+    const targetPath = fixed || splitTreePath(pathSel?.value || '');
     const values = {
       title: mask.querySelector('#ndTitle').value,
       tags: mask.querySelector('#ndTags').value,
-      pathValue: joinTreePath(path),
+      pathValue: joinTreePath(targetPath),
     };
     const invalid = validateEntryForm(values, { requireAll: true });
     if (invalid) { toast(invalid); return; }
     const note = mask.querySelector('#ndNote').value.trim();
-    const entry = { title: values.title.trim(), tags: values.tags.trim(), path };
+    const entry = { title: values.title.trim(), tags: values.tags.trim(), path: targetPath };
     if (note) entry.note = note;
     const btn = mask.querySelector('#ndSave');
     btn.disabled = true;
@@ -800,4 +826,20 @@ function openCreateDialog(path) {
     await structuralRefresh();
     toast('已新增词条：' + (res.entry?.id || ''));
   };
+}
+
+/* 结果栏常驻「＋ 新增词条」——新增是高频操作，不该只藏在目录树菜单里 */
+function ensureResultBarButton() {
+  const bar = document.querySelector('.result-bar');
+  if (!bar || document.getElementById('editNewEntryBtn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'editNewEntryBtn';
+  btn.type = 'button';
+  btn.className = 'edit-newentry-btn';
+  btn.textContent = '＋ 新增词条';
+  btn.onclick = () => {
+    if (!canEditContext()) { toast('当前法典不可编辑'); return; }
+    openCreateDialog();
+  };
+  bar.appendChild(btn);
 }
