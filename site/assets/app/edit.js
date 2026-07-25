@@ -411,6 +411,9 @@ function bindTreeAdd() {
     const row = ev.target.closest?.('.tree-row');
     if (!row) return;
     if (!canEditContext() || row.dataset.locked === '1' || !row.dataset.path) return;
+    // ⚠ 已经在这一行就别再 append：重复插入会移动 DOM 节点，
+    //   打断进行中的 mousedown→mouseup 配对，click 永不触发（按钮点了没反应的真凶）
+    if (treeAddBtn.parentElement === row) return;
     row.appendChild(treeAddBtn);
   });
 }
