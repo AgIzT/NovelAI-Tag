@@ -500,7 +500,7 @@ class CategoryOpsTest(unittest.TestCase):
         self.assert_edit_error(400, "bad-request", cc, "testbook", [], "  ")
         self.assert_edit_error(400, "bad-request", cc, "testbook", [], "甲")        # 同名已存在
         self.assert_edit_error(400, "path-not-found", cc, "testbook", ["不存在"], "x")
-        self.assert_edit_error(400, "bad-request", cc, "testbook", [], "带分隔符")
+        self.assert_edit_error(400, "bad-request", cc, "testbook", [], "带\u0001分隔符")
         self.assert_edit_error(403, "codex-locked", cc, "lockbook", [], "x")
 
     def test_explicit_category_survives_occupy_then_empty_again(self):
