@@ -482,7 +482,7 @@ export function updateReadingSpy() {
 }
 
 export function visibleTree() {
-  return buildAccessTree(state.codex?.entries || []);
+  return buildAccessTree(state.codex?.entries || [], state.codex?.emptyCategories);
 }
 
 function nsfwLockStart(entry, path) {
@@ -491,7 +491,7 @@ function nsfwLockStart(entry, path) {
   return nsfwIndex >= 0 ? nsfwIndex : 0;
 }
 
-function buildAccessTree(entries) {
+function buildAccessTree(entries, emptyPaths) {
   const root = new Map();
   for (const entry of entries) {
     if (!state.allowR18g && isR18gEntry(entry)) continue;
@@ -505,6 +505,16 @@ function buildAccessTree(entries) {
       if (lockFrom >= 0 && index >= lockFrom) cur.locked = true;
       node = cur.children;
     });
+  }
+  // 本地编辑器登记的空分类（还没有词条）：只保证节点存在，不计数。
+  // 普通法典没有这个字段，行为完全不变。
+  for (const path of emptyPaths || []) {
+    if (!Array.isArray(path) || !path.length) continue;
+    let node = root;
+    for (const name of path) {
+      if (!node.has(name)) node.set(name, { name, count: 0, locked: false, children: new Map() });
+      node = node.get(name).children;
+    }
   }
   const toList = map => [...map.values()].map(n => ({
     name: n.name,

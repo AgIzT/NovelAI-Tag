@@ -66,6 +66,17 @@ function buildToggle() {
   btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   btn.onclick = toggleEnabled;
   actionsBar.insertBefore(btn, anchor || actionsBar.firstChild);
+
+  // 法典管理（新建 / 改书名 / 删除本），只在编辑模式下显示
+  const book = document.createElement('button');
+  book.id = 'editCodexBtn';
+  book.type = 'button';
+  book.className = 'icon-btn edit-only';
+  book.title = '法典管理（新建 / 改信息 / 删除）';
+  book.setAttribute('aria-label', '法典管理');
+  book.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+  book.onclick = openCodexManager;
+  actionsBar.insertBefore(book, btn);
 }
 
 function toggleEnabled() {
@@ -115,7 +126,10 @@ function updateWarnBar() {
 
 /* ---------- 服务器通信 ---------- */
 
-async function editFetch(path, body) {
+/* 统一 POST：成功返回数据，失败返回 null 并 toast。
+   opts.wantError=true 时失败也返回服务器的 {ok:false,code}（调用方需要区分错误种类时用）；
+   opts.silent=true 时不弹 toast。 */
+async function editFetch(path, body, opts = {}) {
   if (saving) return null;
   saving = true;
   try {
@@ -125,10 +139,13 @@ async function editFetch(path, body) {
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({ ok: false, error: '响应解析失败' }));
-    if (!data.ok) { toast(data.error || '保存失败'); return null; }
+    if (!data.ok) {
+      if (!opts.silent) toast(data.error || '保存失败');
+      return opts.wantError ? data : null;
+    }
     return data;
   } catch (ex) {
-    toast('无法连接编辑服务：' + (ex?.message || ex));
+    if (!opts.silent) toast('无法连接编辑服务：' + (ex?.message || ex));
     return null;
   } finally {
     saving = false;
@@ -386,7 +403,7 @@ function decorateCard(node, entry) {
   node.appendChild(badge);
 }
 
-/* ---------- 目录树「＋ 新增」 ---------- */
+/* ---------- 目录树行菜单（新增词条 / 新建子分类 / 重命名 / 移动 / 删除） ---------- */
 
 let treeAddBtn = null;
 
@@ -397,14 +414,14 @@ function bindTreeAdd() {
   treeAddBtn = document.createElement('button');
   treeAddBtn.type = 'button';
   treeAddBtn.className = 'edit-tree-add';
-  treeAddBtn.title = '在此分类下新增词条';
-  treeAddBtn.setAttribute('aria-label', '在此分类下新增词条');
-  treeAddBtn.textContent = '＋';
+  treeAddBtn.title = '编辑这个分类';
+  treeAddBtn.setAttribute('aria-label', '编辑这个分类');
+  treeAddBtn.textContent = '⋯';
   treeAddBtn.onclick = ev => {
     ev.stopPropagation();
     const row = treeAddBtn.closest('.tree-row');
     const path = splitTreePath(row?.dataset.path || '');
-    if (path.length) openCreateDialog(path);
+    if (path.length) openTreeMenu(row, path);
   };
   // 单个浮动按钮随悬停行移动，免疫 renderTree 全重建
   tree.addEventListener('pointerover', ev => {
@@ -416,6 +433,330 @@ function bindTreeAdd() {
     if (treeAddBtn.parentElement === row) return;
     row.appendChild(treeAddBtn);
   });
+  ensureTreeToolbar();
+}
+
+/* 目录树顶部常驻工具条：新建一级分类（空树时也有入口） */
+function ensureTreeToolbar() {
+  const tree = document.getElementById('tree');
+  if (!tree || document.getElementById('editTreeToolbar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'editTreeToolbar';
+  bar.className = 'edit-tree-toolbar';
+  bar.innerHTML = '<button type="button" class="edit-chip" id="edNewTopCat">＋ 新建一级分类</button>';
+  tree.parentElement?.insertBefore(bar, tree);
+  bar.querySelector('#edNewTopCat').onclick = () => {
+    if (!canEditContext()) { toast('当前法典不可编辑'); return; }
+    openPromptDialog({
+      title: '新建一级分类',
+      label: '分类名',
+      onSubmit: async name => {
+        const res = await editFetch('/__edit__/category', {
+          codexId: currentCodexId(), op: 'create', parentPath: [], name,
+        });
+        if (!res) return false;
+        await structuralRefresh();
+        toast('已新建分类：' + name);
+        return true;
+      },
+    });
+  };
+}
+
+function closeTreeMenu() {
+  document.getElementById('editTreeMenu')?.remove();
+}
+
+function openTreeMenu(row, path) {
+  closeTreeMenu();
+  const label = path.join(' / ');
+  const menu = document.createElement('div');
+  menu.id = 'editTreeMenu';
+  menu.className = 'edit-menu';
+  menu.innerHTML = `
+    <div class="edit-menu-head">${esc(label)}</div>
+    <button type="button" data-act="entry">＋ 在此新增词条</button>
+    <button type="button" data-act="sub">＋ 新建子分类</button>
+    <button type="button" data-act="rename">✎ 重命名</button>
+    <button type="button" data-act="move">↦ 移动到…</button>
+    <button type="button" data-act="delete" class="danger">✕ 删除分类</button>`;
+  const rect = row.getBoundingClientRect();
+  menu.style.top = `${Math.round(rect.bottom + 4)}px`;
+  menu.style.left = `${Math.round(rect.left)}px`;
+  document.body.appendChild(menu);
+  requestAnimationFrame(() => document.addEventListener('click', closeTreeMenu, { once: true }));
+  menu.onclick = ev => {
+    ev.stopPropagation();
+    const act = ev.target.closest('button')?.dataset.act;
+    if (!act) return;
+    closeTreeMenu();
+    if (act === 'entry') openCreateDialog(path);
+    else if (act === 'sub') createSubCategory(path);
+    else if (act === 'rename') renameCategory(path);
+    else if (act === 'move') moveCategory(path);
+    else if (act === 'delete') deleteCategory(path);
+  };
+}
+
+function createSubCategory(parentPath) {
+  openPromptDialog({
+    title: '新建子分类',
+    hint: '父分类：' + parentPath.join(' / '),
+    label: '分类名',
+    onSubmit: async name => {
+      const res = await editFetch('/__edit__/category', {
+        codexId: currentCodexId(), op: 'create', parentPath, name,
+      });
+      if (!res) return false;
+      await structuralRefresh();
+      toast('已新建子分类：' + name);
+      return true;
+    },
+  });
+}
+
+function renameCategory(path) {
+  openPromptDialog({
+    title: '重命名分类',
+    hint: '当前：' + path.join(' / '),
+    label: '新分类名',
+    value: path[path.length - 1],
+    onSubmit: async name => {
+      const res = await editFetch('/__edit__/category', {
+        codexId: currentCodexId(), op: 'rename', path, name,
+      });
+      if (!res) return false;
+      await structuralRefresh();
+      toast(`已重命名（${res.entry?.movedEntries ?? 0} 条词条随之更新）`);
+      return true;
+    },
+  });
+}
+
+function moveCategory(path) {
+  const options = buildPathList(state.codex?.tree || [])
+    .filter(p => {
+      const parts = p.parts;
+      if (parts.length >= path.length && joinTreePath(parts.slice(0, path.length)) === joinTreePath(path)) return false;
+      return true;   // 排除自己与自己的子树
+    });
+  const cur = path.slice(0, -1).join(' / ') || '（顶层）';
+  openSelectDialog({
+    title: '移动分类',
+    hint: `「${path.join(' / ')}」当前在：${cur}`,
+    label: '移动到',
+    options: [{ value: '', label: '（顶层）' }, ...options.map(p => ({ value: p.value, label: p.label }))],
+    onSubmit: async value => {
+      const res = await editFetch('/__edit__/category', {
+        codexId: currentCodexId(), op: 'move', path, newParentPath: splitTreePath(value),
+      });
+      if (!res) return false;
+      await structuralRefresh();
+      toast(`已移动（${res.entry?.movedEntries ?? 0} 条词条随之更新）`);
+      return true;
+    },
+  });
+}
+
+async function deleteCategory(path) {
+  const label = path.join(' / ');
+  if (!window.confirm(`删除分类「${label}」？`)) return;
+  let res = await editFetch(
+    '/__edit__/category',
+    { codexId: currentCodexId(), op: 'delete', path },
+    { wantError: true, silent: true },
+  );
+  if (res && res.ok === false) {
+    if (res.code !== 'category-not-empty') { toast(res.error || '删除失败'); return; }
+    // 非空分类：服务器拒绝并报了条数，二次确认后才连词条一并删
+    if (!window.confirm(`${res.error}\n\n确定连同其中所有词条一起删除吗？\n（图片文件保留在磁盘，数据可从 output/edit-backups/ 找回）`)) return;
+    res = await editFetch('/__edit__/category', {
+      codexId: currentCodexId(), op: 'delete', path, withEntries: true,
+    });
+  }
+  if (!res || res.ok === false) return;
+  await structuralRefresh();
+  const n = res.entry?.deletedEntries ?? 0;
+  toast(n ? `分类已删除（连带 ${n} 条词条）` : '分类已删除');
+}
+
+/* ---------- 法典管理（新建 / 改元信息 / 删除） ---------- */
+
+function openCodexManager() {
+  const meta = state.codexes?.find(c => c.id === currentCodexId());
+  const editable = caps?.editable?.includes(currentCodexId());
+  const mask = document.createElement('div');
+  mask.className = 'edit-dialog-mask';
+  mask.innerHTML = `
+    <div class="edit-dialog" role="dialog" aria-modal="true" aria-label="法典管理">
+      <h3>法典管理</h3>
+      <div class="edit-dialog-path">当前：${esc(meta?.title || currentCodexId())}</div>
+      ${editable ? `
+      <label>书名<input type="text" id="cxTitle" value="${esc(meta?.title || '')}"></label>
+      <label>作者<input type="text" id="cxAuthor" value="${esc(meta?.author || '')}"></label>
+      <label>版本<input type="text" id="cxVersion" value="${esc(meta?.version || '')}"></label>
+      <div class="edit-actions">
+        <button type="button" class="edit-btn primary" id="cxSave">保存本书信息</button>
+        <button type="button" class="edit-btn danger" id="cxDelete">删除这本法典</button>
+      </div>` : '<div class="edit-hint">这本是外部数据源，不能在本地编辑。</div>'}
+      <hr class="edit-sep">
+      <div class="edit-panel-title">新建一本法典</div>
+      <label>id（小写字母/数字/下划线，建后不可改）<input type="text" id="cxNewId" placeholder="my_codex"></label>
+      <label>书名<input type="text" id="cxNewTitle" placeholder="我的法典"></label>
+      <div class="edit-panel-row">
+        <label>类型
+          <select id="cxNewType">
+            <option value="codex">法典</option>
+            <option value="string">画风串</option>
+            <option value="pack">精选图包</option>
+          </select>
+        </label>
+        <label class="edit-check"><input type="checkbox" id="cxNewNsfw"> 整本 NSFW</label>
+      </div>
+      <div class="edit-actions">
+        <button type="button" class="edit-btn primary" id="cxCreate">创建并切换过去</button>
+        <button type="button" class="edit-btn" id="cxClose">关闭</button>
+      </div>
+    </div>`;
+  const close = () => mask.remove();
+  mask.onclick = ev => { if (ev.target === mask) close(); };
+  document.body.appendChild(mask);
+  mask.querySelector('#cxClose').onclick = close;
+
+  const saveBtn = mask.querySelector('#cxSave');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const fields = {};
+      const title = mask.querySelector('#cxTitle').value.trim();
+      const author = mask.querySelector('#cxAuthor').value.trim();
+      const version = mask.querySelector('#cxVersion').value.trim();
+      if (!title) { toast('书名不能为空'); return; }
+      if (title !== (meta?.title || '')) fields.title = title;
+      if (author !== (meta?.author || '')) fields.author = author;
+      if (version !== (meta?.version || '')) fields.version = version;
+      if (!Object.keys(fields).length) { toast('没有改动'); return; }
+      const res = await editFetch('/__edit__/codex', { codexId: currentCodexId(), op: 'meta', fields });
+      if (!res) return;
+      close();
+      await reloadCodexIndex();
+      await structuralRefresh();
+      toast('法典信息已保存');
+    };
+  }
+
+  const delBtn = mask.querySelector('#cxDelete');
+  if (delBtn) {
+    delBtn.onclick = async () => {
+      const name = meta?.title || currentCodexId();
+      if (!window.confirm(`确定删除法典「${name}」？\n数据文件会归档到 output/edit-backups/，图片文件保留在磁盘。`)) return;
+      if (!window.confirm('再确认一次：这会把它从法典列表中移除。')) return;
+      const res = await editFetch('/__edit__/codex', { codexId: currentCodexId(), op: 'delete' });
+      if (!res) return;
+      close();
+      await reloadCodexIndex();
+      const next = state.codexes?.[0]?.id;
+      if (next) await acts.loadCodex?.(next, { historyMode: 'replace', saveBrowse: false });
+      toast('法典已删除（副本在 ' + res.backupDir + '）');
+    };
+  }
+
+  mask.querySelector('#cxCreate').onclick = async () => {
+    const codex = {
+      id: mask.querySelector('#cxNewId').value.trim(),
+      title: mask.querySelector('#cxNewTitle').value.trim(),
+      type: mask.querySelector('#cxNewType').value,
+    };
+    if (mask.querySelector('#cxNewNsfw').checked) codex.nsfw = true;
+    if (!codex.id || !codex.title) { toast('id 与书名都要填'); return; }
+    const res = await editFetch('/__edit__/codex', { op: 'create', codex });
+    if (!res) return;
+    close();
+    await reloadCodexIndex();
+    await acts.loadCodex?.(codex.id, { historyMode: 'replace', saveBrowse: false });
+    toast('已创建并切换到：' + codex.title);
+  };
+}
+
+/* 重新拉取 codexes.json 让选择器/元信息跟上（增删本或改书名后）。
+   自绘选择器每次 open 都按 state.codexes 重建，但顶栏原生 <select> 是 init 时一次性填的，要手动重刷。 */
+async function reloadCodexIndex() {
+  try {
+    const list = await fetch('data/codexes.json', { cache: 'no-store' }).then(r => r.json());
+    state.codexes = list;
+    const sel = document.getElementById('codexSelect');
+    if (sel) {
+      const keep = sel.value;
+      sel.innerHTML = list
+        .map(c => `<option value="${esc(c.id)}">${esc(c.selectorTitle || c.title || c.id)}</option>`)
+        .join('');
+      if (list.some(c => c.id === keep)) sel.value = keep;
+    }
+    caps = await fetch('/__edit__/ping', { cache: 'no-store' }).then(r => r.json()).catch(() => caps);
+  } catch { /* 忽略 */ }
+}
+
+/* ---------- 通用小弹层：单输入 / 单选择 ---------- */
+
+function openPromptDialog({ title, hint, label, value = '', onSubmit }) {
+  const mask = document.createElement('div');
+  mask.className = 'edit-dialog-mask';
+  mask.innerHTML = `
+    <div class="edit-dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+      <h3>${esc(title)}</h3>
+      ${hint ? `<div class="edit-dialog-path">${esc(hint)}</div>` : ''}
+      <label>${esc(label)}<input type="text" id="pdInput" value="${esc(value)}"></label>
+      <div class="edit-actions">
+        <button type="button" class="edit-btn primary" id="pdOk">确定</button>
+        <button type="button" class="edit-btn" id="pdCancel">取消</button>
+      </div>
+    </div>`;
+  const close = () => mask.remove();
+  mask.onclick = ev => { if (ev.target === mask) close(); };
+  document.body.appendChild(mask);
+  const input = mask.querySelector('#pdInput');
+  input.focus();
+  input.select();
+  const submit = async () => {
+    const v = input.value.trim();
+    if (!v) { toast('不能为空'); return; }
+    const btn = mask.querySelector('#pdOk');
+    btn.disabled = true;
+    const ok = await onSubmit(v);
+    btn.disabled = false;
+    if (ok) close();
+  };
+  mask.querySelector('#pdOk').onclick = submit;
+  mask.querySelector('#pdCancel').onclick = close;
+  input.onkeydown = ev => { if (ev.key === 'Enter') submit(); };
+}
+
+function openSelectDialog({ title, hint, label, options, onSubmit }) {
+  const mask = document.createElement('div');
+  mask.className = 'edit-dialog-mask';
+  mask.innerHTML = `
+    <div class="edit-dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+      <h3>${esc(title)}</h3>
+      ${hint ? `<div class="edit-dialog-path">${esc(hint)}</div>` : ''}
+      <label>${esc(label)}
+        <select id="sdSelect">${options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select>
+      </label>
+      <div class="edit-actions">
+        <button type="button" class="edit-btn primary" id="sdOk">确定</button>
+        <button type="button" class="edit-btn" id="sdCancel">取消</button>
+      </div>
+    </div>`;
+  const close = () => mask.remove();
+  mask.onclick = ev => { if (ev.target === mask) close(); };
+  document.body.appendChild(mask);
+  const submit = async () => {
+    const btn = mask.querySelector('#sdOk');
+    btn.disabled = true;
+    const ok = await onSubmit(mask.querySelector('#sdSelect').value);
+    btn.disabled = false;
+    if (ok) close();
+  };
+  mask.querySelector('#sdOk').onclick = submit;
+  mask.querySelector('#sdCancel').onclick = close;
 }
 
 function openCreateDialog(path) {

@@ -51,16 +51,26 @@ class EditError(Exception):
         self.message = message
 
 
-def build_tree(entries):
+def build_tree(entries, empty_paths=None):
     """entries 的 path 数组 → 目录树 [{name,count,children[]}]（count=子树累计）。
-    移植自 import_community_ai_misc.build_tree，语义不得改动。"""
+    词条派生部分移植自 import_community_ai_misc.build_tree，语义不得改动。
+
+    `empty_paths` 是显式登记的空分类（编辑器「新建分类」用）：只保证节点存在、不加计数。
+    因为目录树本是 path 派生的，没有这个登记就无法表达"还没有词条的分类"。"""
     root = {}
-    for entry in entries:
+
+    def ensure(path, counted):
         node = root
-        for name in entry["path"]:
+        for name in path:
             current = node.setdefault(name, {"name": name, "count": 0, "children": {}})
-            current["count"] += 1
+            if counted:
+                current["count"] += 1
             node = current["children"]
+
+    for entry in entries:
+        ensure(entry["path"], True)
+    for path in (empty_paths or []):
+        ensure(path, False)
 
     def serialize(node):
         return [
@@ -69,6 +79,22 @@ def build_tree(entries):
         ]
 
     return serialize(root)
+
+
+def normalize_empty_categories(value):
+    """清洗 emptyCategories：只保留非空字符串数组，去重且保序。"""
+    out, seen = [], set()
+    for path in value or []:
+        if not isinstance(path, list) or not path:
+            continue
+        if not all(isinstance(p, str) and p for p in path):
+            continue
+        key = tuple(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(list(path))
+    return out
 
 
 def _hash_file(path):
@@ -297,8 +323,8 @@ class EditStore:
             raise EditError(409, "self-check-failed", "entryCount 与词条数不一致")
         if data.get("imagedCount") != imaged_count:
             raise EditError(409, "self-check-failed", "imagedCount 与配图数不一致")
-        if data.get("tree") != build_tree(entries):
-            raise EditError(409, "self-check-failed", "tree 与词条 path 不一致")
+        if data.get("tree") != build_tree(entries, data.get("emptyCategories")):
+            raise EditError(409, "self-check-failed", "tree 与词条 path / 空分类不一致")
 
     # ---------- 写管线 ----------
 
@@ -318,7 +344,12 @@ class EditStore:
             entry_count, imaged_count = self.compute_counts(entries)
             data["entryCount"] = entry_count
             data["imagedCount"] = imaged_count
-            data["tree"] = build_tree(entries)
+            empty = self._prune_empty_categories(data, entries)
+            if empty:
+                data["emptyCategories"] = empty
+            else:
+                data.pop("emptyCategories", None)
+            data["tree"] = build_tree(entries, empty)
             self.validate_codex(data)
             self.atomic_write_json_styled(path, data)
             self._update_index_counts(cid, entry_count, imaged_count)
@@ -330,6 +361,156 @@ class EditStore:
                 "tree": data["tree"],
                 "backupDir": backup_dir,
             }
+
+    # ---------- 空分类登记 ----------
+
+    @staticmethod
+    def _prune_empty_categories(data, entries):
+        """清洗空分类登记，并丢掉那些已经有词条的（它们已由 path 派生进树，登记多余）。"""
+        registered = normalize_empty_categories(data.get("emptyCategories"))
+        if not registered:
+            return []
+        occupied = set()
+        for e in entries:
+            path = e.get("path") or []
+            for i in range(1, len(path) + 1):
+                occupied.add(tuple(path[:i]))
+        return [p for p in registered if tuple(p) not in occupied]
+
+    @staticmethod
+    def _all_tree_paths(data):
+        """当前树里的全部分类路径（词条派生 + 空分类登记）。"""
+        paths = set()
+        for e in data["entries"]:
+            path = e.get("path") or []
+            for i in range(1, len(path) + 1):
+                paths.add(tuple(path[:i]))
+        for p in normalize_empty_categories(data.get("emptyCategories")):
+            for i in range(1, len(p) + 1):
+                paths.add(tuple(p[:i]))
+        return paths
+
+    # ---------- 分类（目录）操作 ----------
+
+    @staticmethod
+    def _check_category_name(name):
+        if not isinstance(name, str) or not name.strip():
+            raise EditError(400, "bad-request", "分类名不能为空")
+        if len(name) > 60:
+            raise EditError(400, "bad-request", "分类名过长（最多 60 字）")
+        if "\u0001" in name or "/" in name:
+            raise EditError(400, "bad-request", "分类名不能含分隔符")
+        return name.strip()
+
+    def create_category(self, cid, parent_path, name):
+        """新建分类：登记为空分类（还没有词条），树里以 count 0 出现。"""
+        clean = self._check_category_name(name)
+        parent = parent_path if isinstance(parent_path, list) else []
+        if not all(isinstance(p, str) and p for p in parent):
+            raise EditError(400, "bad-request", "父分类路径非法")
+
+        def mutator(data):
+            if parent and tuple(parent) not in self._all_tree_paths(data):
+                raise EditError(400, "path-not-found", "父分类不存在")
+            target = list(parent) + [clean]
+            if tuple(target) in self._all_tree_paths(data):
+                raise EditError(400, "bad-request", "同名分类已存在")
+            registered = normalize_empty_categories(data.get("emptyCategories"))
+            registered.append(target)
+            data["emptyCategories"] = registered
+            return {"path": target}
+
+        return self.mutate(cid, mutator)
+
+    def rename_category(self, cid, path, name):
+        """重命名分类：批量改所有以该路径为前缀的词条 path，空分类登记同步。"""
+        clean = self._check_category_name(name)
+        if not isinstance(path, list) or not path:
+            raise EditError(400, "bad-request", "分类路径非法")
+        old = list(path)
+
+        def mutator(data):
+            if tuple(old) not in self._all_tree_paths(data):
+                raise EditError(404, "not-found", "分类不存在")
+            new = old[:-1] + [clean]
+            if clean != old[-1] and tuple(new) in self._all_tree_paths(data):
+                raise EditError(400, "bad-request", "同名分类已存在")
+            n = len(old)
+            moved = 0
+            for e in data["entries"]:
+                p = e.get("path") or []
+                if len(p) >= n and p[:n] == old:
+                    e["path"] = new + p[n:]
+                    moved += 1
+            registered = []
+            for p in normalize_empty_categories(data.get("emptyCategories")):
+                registered.append(new + p[n:] if len(p) >= n and p[:n] == old else p)
+            data["emptyCategories"] = registered
+            return {"path": new, "movedEntries": moved}
+
+        return self.mutate(cid, mutator)
+
+    def move_category(self, cid, path, new_parent_path):
+        """移动分类到新父级（new_parent_path 为空数组 = 提升到顶层）。"""
+        if not isinstance(path, list) or not path:
+            raise EditError(400, "bad-request", "分类路径非法")
+        old = list(path)
+        parent = new_parent_path if isinstance(new_parent_path, list) else []
+        if not all(isinstance(p, str) and p for p in parent):
+            raise EditError(400, "bad-request", "目标父分类路径非法")
+        if parent[:len(old)] == old:
+            raise EditError(400, "bad-request", "不能把分类移到它自己或其子分类下")
+
+        def mutator(data):
+            paths = self._all_tree_paths(data)
+            if tuple(old) not in paths:
+                raise EditError(404, "not-found", "分类不存在")
+            if parent and tuple(parent) not in paths:
+                raise EditError(400, "path-not-found", "目标父分类不存在")
+            new = list(parent) + [old[-1]]
+            if new == old:
+                raise EditError(400, "bad-request", "目标位置与当前相同")
+            if tuple(new) in paths:
+                raise EditError(400, "bad-request", "目标位置已有同名分类")
+            n = len(old)
+            moved = 0
+            for e in data["entries"]:
+                p = e.get("path") or []
+                if len(p) >= n and p[:n] == old:
+                    e["path"] = new + p[n:]
+                    moved += 1
+            registered = []
+            for p in normalize_empty_categories(data.get("emptyCategories")):
+                registered.append(new + p[n:] if len(p) >= n and p[:n] == old else p)
+            data["emptyCategories"] = registered
+            return {"path": new, "movedEntries": moved}
+
+        return self.mutate(cid, mutator)
+
+    def delete_category(self, cid, path, with_entries=False):
+        """删除分类。默认只允许删空分类；with_entries=True 才连同其下词条一起删。
+        图片文件一律保留（回滚网）。"""
+        if not isinstance(path, list) or not path:
+            raise EditError(400, "bad-request", "分类路径非法")
+        target = list(path)
+
+        def mutator(data):
+            if tuple(target) not in self._all_tree_paths(data):
+                raise EditError(404, "not-found", "分类不存在")
+            n = len(target)
+            inside = [e for e in data["entries"] if len(e.get("path") or []) >= n and e["path"][:n] == target]
+            if inside and not with_entries:
+                raise EditError(409, "category-not-empty", f"该分类下还有 {len(inside)} 条词条，请先移走或确认一并删除")
+            for e in inside:
+                data["entries"].remove(e)
+            registered = [
+                p for p in normalize_empty_categories(data.get("emptyCategories"))
+                if not (len(p) >= n and p[:n] == target)
+            ]
+            data["emptyCategories"] = registered
+            return {"path": target, "deletedEntries": len(inside)}
+
+        return self.mutate(cid, mutator)
 
     # ---------- 词条操作 ----------
 
@@ -345,11 +526,12 @@ class EditStore:
         return {tuple(e["path"]) for e in entries if isinstance(e.get("path"), list)}
 
     @staticmethod
-    def _check_path_field(value, entries):
+    def _check_path_field(value, data):
+        """目标分类必须是树里已存在的路径（含「新建的空分类」，它们在 emptyCategories 里登记）。"""
         if not isinstance(value, list) or not value or not all(isinstance(p, str) and p for p in value):
             raise EditError(400, "bad-request", "path 必须是非空字符串数组")
-        if tuple(value) not in EditStore._existing_paths(entries):
-            raise EditError(400, "path-not-found", "目标分类不存在（P0 只能选现有分类）")
+        if tuple(value) not in EditStore._all_tree_paths(data):
+            raise EditError(400, "path-not-found", "目标分类不存在（只能选树里已有的分类）")
 
     @staticmethod
     def _reposition(entries, entry):
@@ -387,7 +569,7 @@ class EditStore:
                 raise EditError(400, "bad-request", "isNew 必须是布尔值")
             path_changed = False
             if "path" in fields:
-                self._check_path_field(fields["path"], data["entries"])
+                self._check_path_field(fields["path"], data)
                 path_changed = tuple(fields["path"]) != tuple(entry.get("path") or ())
             for key, value in fields.items():
                 if key in ("negative", "note", "rating") and value == "":
@@ -427,7 +609,7 @@ class EditStore:
             for key in ("title", "tags"):
                 if not isinstance(payload.get(key), str) or not payload[key].strip():
                     raise EditError(400, "bad-request", f"新词条必须有非空 {key}")
-            self._check_path_field(payload.get("path"), data["entries"])
+            self._check_path_field(payload.get("path"), data)
             if "rating" in payload:
                 r = payload["rating"]
                 if not isinstance(r, str) or (r and r not in RATINGS):
@@ -513,6 +695,109 @@ class EditStore:
         result["pendingR2Sync"] = True
         return result
 
+    # ---------- 法典（整本）操作 ----------
+
+    def _write_index(self, index):
+        """整表重写 codexes.json（增删本用）。保持 indent=2 风格与原文件的末尾换行习惯。"""
+        path = self.index_path()
+        try:
+            with open(path, encoding="utf-8") as f:
+                trailing = "\n" if f.read().endswith("\n") else ""
+        except OSError:
+            trailing = ""
+        self._atomic_write_text(path, json.dumps(index, ensure_ascii=False, indent=2) + trailing)
+
+    @staticmethod
+    def _check_codex_id(cid):
+        if not isinstance(cid, str) or not re.fullmatch(r"[a-z][a-z0-9_]{1,39}", cid or ""):
+            raise EditError(400, "bad-request", "法典 id 只能用小写字母 / 数字 / 下划线，字母开头，2-40 字")
+        return cid
+
+    def create_codex(self, payload):
+        """新建一本空法典：写 <id>.json + 注册进 codexes.json。"""
+        if not isinstance(payload, dict):
+            raise EditError(400, "bad-request", "payload 必须是对象")
+        cid = self._check_codex_id(payload.get("id"))
+        title = payload.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise EditError(400, "bad-request", "书名不能为空")
+        ctype = payload.get("type") or "codex"
+        if ctype not in ("codex", "string", "pack"):
+            raise EditError(400, "bad-request", "type 只能是 codex / string / pack")
+        with self.lock:
+            index = self.read_index()
+            if any(item.get("id") == cid for item in index):
+                raise EditError(400, "bad-request", f"法典 id 已存在：{cid}")
+            target = self.codex_path(cid)
+            if os.path.exists(target):
+                raise EditError(400, "bad-request", f"数据文件已存在：{cid}.json")
+            backup_dir = self.make_backup([self.index_path()])
+            meta = {
+                "id": cid,
+                "type": ctype,
+                "title": title.strip(),
+                "version": str(payload.get("version") or "").strip(),
+                "author": str(payload.get("author") or "").strip(),
+                "entryCount": 0,
+                "imagedCount": 0,
+            }
+            if payload.get("nsfw") is True:
+                meta["nsfw"] = True
+            book = dict(meta)
+            book["tree"] = []
+            book["entries"] = []
+            self.atomic_write_json_styled(target, book)
+            index.append(meta)
+            self._write_index(index)
+            return {"ok": True, "codex": meta, "backupDir": backup_dir}
+
+    def delete_codex(self, cid):
+        """删除一本法典：从索引摘除，数据文件**归档**到备份目录（不真删）。
+        图片 / 原图文件一律保留在磁盘（回滚网）。"""
+        with self.lock:
+            meta = self.codex_meta(cid)
+            if not self.is_editable(meta):
+                raise EditError(403, "codex-locked", f"{cid} 是外部数据源，不能在此删除")
+            path = self.codex_path(cid)
+            backup_dir = self.make_backup([path, self.index_path()])
+            index = [item for item in self.read_index() if item.get("id") != cid]
+            self._write_index(index)
+            if os.path.isfile(path):
+                os.remove(path)   # 已在 backup_dir 留有完整副本
+            return {"ok": True, "removed": cid, "backupDir": backup_dir}
+
+    def update_codex_meta(self, cid, fields):
+        """改法典元信息（书名 / 版本 / 作者 / 类型 / NSFW）：单本 JSON 与索引同步。"""
+        if not isinstance(fields, dict) or not fields:
+            raise EditError(400, "bad-request", "fields 为空")
+        allowed = {"title", "version", "author", "type", "nsfw", "selectorTitle"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise EditError(400, "bad-request", f"不可编辑的字段：{','.join(sorted(unknown))}")
+        if "title" in fields and (not isinstance(fields["title"], str) or not fields["title"].strip()):
+            raise EditError(400, "bad-request", "书名不能为空")
+        if "type" in fields and fields["type"] not in ("codex", "string", "pack"):
+            raise EditError(400, "bad-request", "type 只能是 codex / string / pack")
+        if "nsfw" in fields and not isinstance(fields["nsfw"], bool):
+            raise EditError(400, "bad-request", "nsfw 必须是布尔值")
+        with self.lock:
+            meta = self.codex_meta(cid)
+            if not self.is_editable(meta):
+                raise EditError(403, "codex-locked", f"{cid} 是外部数据源，禁止本地编辑")
+            path, data = self.read_codex(cid)
+            backup_dir = self.make_backup([path, self.index_path()])
+            index = self.read_index()
+            for key, value in fields.items():
+                clean = value.strip() if isinstance(value, str) else value
+                for target in (data, next(i for i in index if i.get("id") == cid)):
+                    if clean == "" or clean is False:
+                        target.pop(key, None)
+                    else:
+                        target[key] = clean
+            self.atomic_write_json_styled(path, data)
+            self._write_index(index)
+            return {"ok": True, "codex": next(i for i in index if i.get("id") == cid), "backupDir": backup_dir}
+
     def delete_image(self, cid, eid):
         def mutator(data):
             entry = self._find_entry(data, eid)
@@ -563,7 +848,12 @@ def make_handler(store):
 
         def do_POST(self):
             path = self.path.split("?", 1)[0]
-            routes = {"/__edit__/entry": ENTRY_MAX_BYTES, "/__edit__/image": IMAGE_MAX_BYTES}
+            routes = {
+                "/__edit__/entry": ENTRY_MAX_BYTES,
+                "/__edit__/image": IMAGE_MAX_BYTES,
+                "/__edit__/category": ENTRY_MAX_BYTES,
+                "/__edit__/codex": ENTRY_MAX_BYTES,
+            }
             if path not in routes:
                 return self._json({"ok": False, "error": "未知端点", "code": "not-found"}, 404)
             try:
@@ -579,8 +869,12 @@ def make_handler(store):
                     raise EditError(400, "bad-request", "请求体不是合法 JSON")
                 if path == "/__edit__/entry":
                     result = self._handle_entry(body)
-                else:
+                elif path == "/__edit__/image":
                     result = self._handle_image(body)
+                elif path == "/__edit__/category":
+                    result = self._handle_category(body)
+                else:
+                    result = self._handle_codex(body)
                 return self._json(result)
             except EditError as ex:
                 return self._json({"ok": False, "error": ex.message, "code": ex.code}, ex.status)
@@ -604,6 +898,34 @@ def make_handler(store):
                 if not isinstance(eid, str) or not eid:
                     raise EditError(400, "bad-request", "缺少 entryId")
                 return store.delete_entry(cid, eid)
+            raise EditError(400, "bad-request", f"未知 op：{op}")
+
+        def _handle_category(self, body):
+            cid = body.get("codexId")
+            op = body.get("op")
+            if not isinstance(cid, str) or not cid:
+                raise EditError(400, "bad-request", "缺少 codexId")
+            if op == "create":
+                return store.create_category(cid, body.get("parentPath") or [], body.get("name"))
+            if op == "rename":
+                return store.rename_category(cid, body.get("path"), body.get("name"))
+            if op == "move":
+                return store.move_category(cid, body.get("path"), body.get("newParentPath") or [])
+            if op == "delete":
+                return store.delete_category(cid, body.get("path"), body.get("withEntries") is True)
+            raise EditError(400, "bad-request", f"未知 op：{op}")
+
+        def _handle_codex(self, body):
+            op = body.get("op")
+            if op == "create":
+                return store.create_codex(body.get("codex") or {})
+            cid = body.get("codexId")
+            if not isinstance(cid, str) or not cid:
+                raise EditError(400, "bad-request", "缺少 codexId")
+            if op == "delete":
+                return store.delete_codex(cid)
+            if op == "meta":
+                return store.update_codex_meta(cid, body.get("fields"))
             raise EditError(400, "bad-request", f"未知 op：{op}")
 
         def _handle_image(self, body):

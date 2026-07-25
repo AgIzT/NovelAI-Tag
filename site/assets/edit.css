@@ -21,14 +21,50 @@ body.dark .edit-warnbar{color:#f4d58a;background:#332a12;border-bottom-color:#4a
 body.edit-mode .card:hover .edit-badge{display:flex}
 .edit-badge:hover{background:var(--accent-soft)}
 
-/* 目录树「＋」新增入口 */
+/* 只在编辑模式出现的顶栏按钮 */
+.edit-only{display:none}
+body.edit-mode .edit-only{display:inline-flex}
+
+/* 目录树行菜单入口「⋯」 */
 .edit-tree-add{
   display:none;margin-left:auto;flex:none;width:18px;height:18px;border-radius:6px;
   align-items:center;justify-content:center;font-size:13px;line-height:1;
-  color:var(--muted);cursor:pointer;
+  color:var(--muted);cursor:pointer;border:none;background:transparent;
 }
 body.edit-mode .tree-row:hover .edit-tree-add{display:inline-flex}
 .edit-tree-add:hover{color:var(--accent);background:var(--accent-soft)}
+
+/* 目录树顶部工具条 */
+.edit-tree-toolbar{display:none;padding:6px 10px 0}
+body.edit-mode .edit-tree-toolbar{display:block}
+.edit-chip{
+  width:100%;padding:5px 8px;border:1px dashed var(--accent);border-radius:8px;
+  background:transparent;color:var(--accent);font-size:12px;cursor:pointer;
+  font-family:var(--font-ui);
+}
+.edit-chip:hover{background:var(--accent-soft)}
+
+/* 分类行浮出菜单 */
+.edit-menu{
+  position:fixed;z-index:1300;min-width:168px;padding:5px;border-radius:10px;
+  background:var(--popover-glass);border:1px solid var(--popover-line);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);
+  display:flex;flex-direction:column;gap:1px;
+}
+.edit-menu-head{
+  padding:5px 9px 6px;font-size:11px;color:var(--muted);
+  border-bottom:1px solid var(--line);margin-bottom:3px;
+  max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.edit-menu button{
+  text-align:left;padding:6px 9px;border:none;border-radius:7px;background:transparent;
+  color:var(--text);font-size:12.5px;cursor:pointer;font-family:var(--font-ui);
+}
+.edit-menu button:hover{background:var(--accent-soft);color:var(--accent)}
+.edit-menu button.danger{color:var(--new)}
+.edit-menu button.danger:hover{background:var(--new);color:#fff}
+
+.edit-sep{border:none;border-top:1px solid var(--line);margin:4px 0 2px}
 
 /* 灯箱编辑面板 */
 body.edit-mode .lb-edit-hidden{display:none!important}

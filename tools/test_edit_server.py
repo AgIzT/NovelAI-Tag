@@ -362,6 +362,222 @@ class EditStoreTest(unittest.TestCase):
         self.assertEqual(caps["docxWarnings"], [])
 
 
+class CategoryOpsTest(unittest.TestCase):
+    """分类（目录）增删改移。"""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="edit-cat-test-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.data = os.path.join(self.root, "site", "data")
+        build_sandbox(self.root)
+        self.store = EditStore(self.root)
+
+    def book(self):
+        return json.loads(_read(os.path.join(self.data, "testbook.json")))
+
+    def tree_names(self, tree=None):
+        """展平树 → {'甲/乙': count}"""
+        out = {}
+
+        def walk(nodes, prefix):
+            for n in nodes:
+                key = prefix + n["name"]
+                out[key] = n["count"]
+                walk(n["children"], key + "/")
+
+        walk(self.book()["tree"] if tree is None else tree, "")
+        return out
+
+    def assert_edit_error(self, status, code, fn, *args, **kwargs):
+        with self.assertRaises(EditError) as ctx:
+            fn(*args, **kwargs)
+        self.assertEqual((ctx.exception.status, ctx.exception.code), (status, code))
+
+    # ---- 新建 ----
+
+    def test_create_empty_category_appears_in_tree_with_zero_count(self):
+        self.store.create_category("testbook", [], "新分类")
+        book = self.book()
+        self.assertIn(["新分类"], book["emptyCategories"])
+        self.assertEqual(self.tree_names()["新分类"], 0)
+        self.assertEqual(book["entryCount"], 3)  # 空分类不影响词条数
+
+    def test_create_nested_empty_category(self):
+        self.store.create_category("testbook", ["甲"], "甲子")
+        self.assertEqual(self.tree_names()["甲/甲子"], 0)
+
+    def test_create_category_rejections(self):
+        cc = self.store.create_category
+        self.assert_edit_error(400, "bad-request", cc, "testbook", [], "  ")
+        self.assert_edit_error(400, "bad-request", cc, "testbook", [], "甲")        # 同名已存在
+        self.assert_edit_error(400, "path-not-found", cc, "testbook", ["不存在"], "x")
+        self.assert_edit_error(400, "bad-request", cc, "testbook", [], "带分隔符")
+        self.assert_edit_error(403, "codex-locked", cc, "lockbook", [], "x")
+
+    def test_entry_can_be_created_into_empty_category_which_then_unregisters(self):
+        self.store.create_category("testbook", [], "新分类")
+        res = self.store.create_entry("testbook", {"title": "首条", "tags": "t", "path": ["新分类"]})
+        self.assertEqual(res["entry"]["path"], ["新分类"])
+        book = self.book()
+        self.assertEqual(self.tree_names()["新分类"], 1)
+        # 已经有词条了，空分类登记自动清理掉
+        self.assertNotIn("emptyCategories", book)
+
+    # ---- 重命名 ----
+
+    def test_rename_category_moves_all_entries(self):
+        res = self.store.rename_category("testbook", ["甲"], "甲改")
+        self.assertEqual(res["entry"]["movedEntries"], 2)  # 甲 与 甲/乙 下共 2 条
+        names = self.tree_names()
+        self.assertEqual(names["甲改"], 2)
+        self.assertEqual(names["甲改/乙"], 1)
+        self.assertNotIn("甲", names)
+        paths = [e["path"] for e in self.book()["entries"]]
+        self.assertIn(["甲改"], paths)
+        self.assertIn(["甲改", "乙"], paths)
+
+    def test_rename_nested_category(self):
+        self.store.rename_category("testbook", ["甲", "乙"], "乙改")
+        self.assertIn("甲/乙改", self.tree_names())
+
+    def test_rename_rejections(self):
+        rc = self.store.rename_category
+        self.assert_edit_error(404, "not-found", rc, "testbook", ["无此分类"], "x")
+        self.assert_edit_error(400, "bad-request", rc, "testbook", ["甲"], "丙")   # 目标名已存在
+        self.assert_edit_error(400, "bad-request", rc, "testbook", ["甲"], "")
+
+    def test_rename_also_updates_empty_category_registry(self):
+        self.store.create_category("testbook", ["甲"], "空子类")
+        self.store.rename_category("testbook", ["甲"], "甲改")
+        self.assertIn(["甲改", "空子类"], self.book()["emptyCategories"])
+        self.assertEqual(self.tree_names()["甲改/空子类"], 0)
+
+    # ---- 移动 ----
+
+    def test_move_category_under_new_parent(self):
+        res = self.store.move_category("testbook", ["丙"], ["甲"])
+        self.assertEqual(res["entry"]["movedEntries"], 1)
+        names = self.tree_names()
+        self.assertIn("甲/丙", names)
+        self.assertNotIn("丙", names)
+        self.assertEqual(names["甲"], 3)  # 甲原 2 条 + 丙的 1 条
+
+    def test_move_category_to_top_level(self):
+        self.store.move_category("testbook", ["甲", "乙"], [])
+        names = self.tree_names()
+        self.assertEqual(names["乙"], 1)
+        self.assertNotIn("甲/乙", names)
+
+    def test_move_rejections(self):
+        mc = self.store.move_category
+        self.assert_edit_error(400, "bad-request", mc, "testbook", ["甲"], ["甲", "乙"])  # 移进自己子树
+        self.assert_edit_error(404, "not-found", mc, "testbook", ["无此分类"], [])
+        self.assert_edit_error(400, "path-not-found", mc, "testbook", ["丙"], ["不存在"])
+
+    # ---- 删除 ----
+
+    def test_delete_empty_category(self):
+        self.store.create_category("testbook", [], "待删")
+        self.store.delete_category("testbook", ["待删"])
+        self.assertNotIn("待删", self.tree_names())
+        self.assertEqual(self.book()["entryCount"], 3)
+
+    def test_delete_non_empty_category_requires_explicit_flag(self):
+        self.assert_edit_error(409, "category-not-empty", self.store.delete_category, "testbook", ["甲"])
+        self.assertEqual(self.book()["entryCount"], 3)  # 未落盘
+
+    def test_delete_category_with_entries(self):
+        res = self.store.delete_category("testbook", ["甲"], with_entries=True)
+        self.assertEqual(res["entry"]["deletedEntries"], 2)
+        book = self.book()
+        self.assertEqual(book["entryCount"], 1)
+        self.assertNotIn("甲", self.tree_names())
+        # 图片文件不动，词条 id 也不复用
+        after = self.store.create_entry("testbook", {"title": "新", "tags": "t", "path": ["丙"]})
+        self.assertEqual(after["entry"]["id"], "testbook-0004")
+
+
+class CodexOpsTest(unittest.TestCase):
+    """法典（整本）增删与元信息。"""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="edit-codex-test-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.data = os.path.join(self.root, "site", "data")
+        build_sandbox(self.root)
+        self.store = EditStore(self.root)
+
+    def index(self):
+        return json.loads(_read(os.path.join(self.data, "codexes.json")))
+
+    def assert_edit_error(self, status, code, fn, *args, **kwargs):
+        with self.assertRaises(EditError) as ctx:
+            fn(*args, **kwargs)
+        self.assertEqual((ctx.exception.status, ctx.exception.code), (status, code))
+
+    def test_create_codex_writes_file_and_registers(self):
+        res = self.store.create_codex({"id": "mybook", "title": "我的法典", "author": "我", "version": "1.0"})
+        self.assertEqual(res["codex"]["id"], "mybook")
+        book = json.loads(_read(os.path.join(self.data, "mybook.json")))
+        self.assertEqual(book["entries"], [])
+        self.assertEqual(book["tree"], [])
+        self.assertEqual(book["entryCount"], 0)
+        self.assertEqual(book["title"], "我的法典")
+        ids = [i["id"] for i in self.index()]
+        self.assertIn("mybook", ids)
+        # 新书立刻可用：建分类 → 建词条
+        self.store.create_category("mybook", [], "第一章")
+        entry = self.store.create_entry("mybook", {"title": "首条", "tags": "t", "path": ["第一章"]})
+        self.assertEqual(entry["entry"]["id"], "mybook-0001")
+        self.assertEqual(entry["entryCount"], 1)
+
+    def test_create_codex_rejections(self):
+        cc = self.store.create_codex
+        self.assert_edit_error(400, "bad-request", cc, {"id": "testbook", "title": "x"})   # 已存在
+        self.assert_edit_error(400, "bad-request", cc, {"id": "Bad-Id", "title": "x"})     # 非法 id
+        self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "  "})     # 空书名
+        self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "x", "type": "weird"})
+
+    def test_delete_codex_archives_file_and_unregisters(self):
+        res = self.store.delete_codex("compactbook")
+        self.assertFalse(os.path.exists(os.path.join(self.data, "compactbook.json")))
+        self.assertNotIn("compactbook", [i["id"] for i in self.index()])
+        # 归档副本必须存在（回滚网）
+        archived = os.path.join(self.root, res["backupDir"].replace("/", os.sep), "compactbook.json")
+        self.assertTrue(os.path.isfile(archived))
+        self.assertIn("compactbook-0001", _read(archived))
+
+    def test_index_rewrite_preserves_trailing_newline(self):
+        ip = os.path.join(self.data, "codexes.json")
+        _write(ip, _read(ip) + "\n")           # 造一个以换行结尾的索引
+        self.store.create_codex({"id": "nlbook", "title": "换行书"})
+        self.assertTrue(_read(ip).endswith("\n"), "整表重写不应丢掉末尾换行")
+        _write(ip, _read(ip).rstrip("\n"))     # 反过来：原本无换行也不该凭空加
+        self.store.delete_codex("nlbook")
+        self.assertFalse(_read(ip).endswith("\n"))
+
+    def test_delete_external_codex_rejected(self):
+        self.assert_edit_error(403, "codex-locked", self.store.delete_codex, "lockbook")
+        self.assertIn("lockbook", [i["id"] for i in self.index()])
+
+    def test_update_codex_meta_syncs_book_and_index(self):
+        self.store.update_codex_meta("testbook", {"title": "新书名", "author": "新作者", "version": "9.9"})
+        book = json.loads(_read(os.path.join(self.data, "testbook.json")))
+        idx = next(i for i in self.index() if i["id"] == "testbook")
+        self.assertEqual(book["title"], "新书名")
+        self.assertEqual(idx["title"], "新书名")
+        self.assertEqual(idx["author"], "新作者")
+        self.assertEqual(book["version"], "9.9")
+        # 计数字段不受影响
+        self.assertEqual(idx["entryCount"], 3)
+
+    def test_update_codex_meta_rejections(self):
+        um = self.store.update_codex_meta
+        self.assert_edit_error(400, "bad-request", um, "testbook", {"title": " "})
+        self.assert_edit_error(400, "bad-request", um, "testbook", {"entryCount": 999})
+        self.assert_edit_error(403, "codex-locked", um, "lockbook", {"title": "x"})
+
+
 class HttpSmokeTest(unittest.TestCase):
     """线程起真服务器（端口 0 随机），走 urllib 全链路冒烟。"""
 
@@ -378,6 +594,7 @@ class HttpSmokeTest(unittest.TestCase):
         self.port = self.server.server_address[1]
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
+        self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
     def request(self, path, payload=None, headers=None, raw_body=None):
