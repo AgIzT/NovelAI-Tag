@@ -17,6 +17,7 @@
   · 外部源书（带 dataUrl，如 mengshen_r18）服务器端强制拒写
 """
 import argparse
+import ast
 import base64
 import hashlib
 import http.server
@@ -37,8 +38,15 @@ PORT = 8769
 MAXDIM = 1100
 ENTRY_MAX_BYTES = 512 * 1024
 IMAGE_MAX_BYTES = 64 * 1024 * 1024
-RATINGS = {"safe", "r18", "r18g", "restricted"}
+RATINGS = {"safe", "nsfw", "r18", "r18g", "restricted"}
 IMAGE_FIELD_KEYS = ("image", "original", "assetRev", "imageWidth", "imageHeight", "assetCodexId")
+IMAGE_FORMAT_EXTENSIONS = {
+    "JPEG": "jpg",
+    "PNG": "png",
+    "WEBP": "webp",
+    "GIF": "gif",
+    "BMP": "bmp",
+}
 
 
 class EditError(Exception):
@@ -113,13 +121,53 @@ def _asset_rev(*paths):
     return h.hexdigest()[:16]
 
 
-def _ext_from_dataurl(durl):
+def _asset_rev_bytes(*payloads):
+    """与 _asset_rev 相同的算法，但用于尚未落盘的事务内图片。"""
+    h = hashlib.sha256()
+    for payload in payloads:
+        h.update(hashlib.sha256(payload).hexdigest().encode("ascii"))
+    return h.hexdigest()[:16]
+
+
+def _decode_image_dataurl(durl):
+    """严格解码并验真图片；扩展名只相信 Pillow 识别出的实际格式。"""
+    if not isinstance(durl, str) or "," not in durl:
+        raise EditError(400, "bad-request", "dataURL 非法")
+    header, encoded = durl.split(",", 1)
+    if not re.fullmatch(r"data:image/[A-Za-z0-9.+-]+;base64", header, re.IGNORECASE):
+        raise EditError(400, "bad-request", "dataURL 必须是 base64 图片")
     try:
-        mime = durl[5:durl.index(";")]
-        ext = mime.split("/")[-1].lower()
+        raw = base64.b64decode(encoded, validate=True)
     except Exception:
-        ext = "png"
-    return {"jpeg": "jpg", "svg+xml": "svg"}.get(ext, ext) or "png"
+        raise EditError(400, "bad-request", "dataURL base64 解码失败")
+    if not raw:
+        raise EditError(400, "bad-request", "图片内容为空")
+
+    from PIL import Image, ImageOps
+
+    try:
+        # verify() 检查完整文件；随后重开并 load()，确保延迟解码阶段也成功。
+        with Image.open(io.BytesIO(raw)) as probe:
+            image_format = str(probe.format or "").upper()
+            probe.verify()
+        ext = IMAGE_FORMAT_EXTENSIONS.get(image_format)
+        if not ext:
+            raise EditError(400, "unsupported-image", f"不支持的图片格式：{image_format or '未知'}")
+        with Image.open(io.BytesIO(raw)) as source:
+            source.seek(0)
+            source.load()
+            thumb = ImageOps.exif_transpose(source)
+            if thumb.mode not in ("RGB", "L"):
+                thumb = thumb.convert("RGB")
+            thumb.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
+            thumb_w, thumb_h = thumb.size
+            out = io.BytesIO()
+            thumb.save(out, "JPEG", quality=86, optimize=True)
+    except EditError:
+        raise
+    except Exception:
+        raise EditError(400, "bad-request", "无法完整解码为图片")
+    return raw, ext, out.getvalue(), thumb_w, thumb_h
 
 
 class EditStore:
@@ -184,9 +232,22 @@ class EditStore:
         try:
             with open(os.path.join(self.root, "tools", "convert.py"), encoding="utf-8") as f:
                 text = f.read()
-            for m in re.finditer(r'"([^"\n]+)"\s*:\s*"([A-Za-z0-9_]+)"', text):
-                mapping[m.group(1)] = m.group(2)
-        except OSError:
+            tree = ast.parse(text)
+            raw_map = None
+            for node in tree.body:
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(isinstance(target, ast.Name) and target.id == "ID_MAP" for target in targets):
+                    raw_map = ast.literal_eval(node.value)
+                    break
+            pairs = raw_map.items() if isinstance(raw_map, dict) else (raw_map or [])
+            for item in pairs:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    key, cid = item
+                    if isinstance(key, str) and isinstance(cid, str):
+                        mapping[key] = cid
+        except (OSError, SyntaxError, ValueError, TypeError):
             pass
         warned = set()
         for fn in docx_files:
@@ -235,6 +296,24 @@ class EditStore:
                 pass
             raise
 
+    def _atomic_write_bytes(self, path, payload):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
+        )
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_name, path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
     def _atomic_write_text(self, path, text):
         fd, tmp_name = tempfile.mkstemp(
             prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
@@ -250,6 +329,60 @@ class EditStore:
                 pass
             raise
 
+    @staticmethod
+    def _safe_child_path(directory, filename):
+        """返回 directory 下的绝对路径；任何绝对路径或 .. 越界均拒绝。"""
+        base = os.path.abspath(directory)
+        target = os.path.abspath(os.path.join(base, filename))
+        try:
+            inside = os.path.commonpath([base, target])
+        except ValueError:
+            inside = ""
+        if os.path.normcase(inside) != os.path.normcase(base):
+            raise EditError(400, "bad-request", "图片文件名越出目标目录")
+        return target
+
+    @staticmethod
+    def _capture_file_states(paths):
+        states = {}
+        for path in dict.fromkeys(paths):
+            if os.path.isfile(path):
+                with open(path, "rb") as fh:
+                    states[path] = fh.read()
+            else:
+                states[path] = None
+        return states
+
+    def _restore_file_states(self, states):
+        errors = []
+        for path, payload in reversed(list(states.items())):
+            try:
+                if payload is None:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                else:
+                    self._atomic_write_bytes(path, payload)
+            except Exception as ex:
+                errors.append(f"{path}: {ex}")
+        if errors:
+            raise OSError("；".join(errors))
+
+    def _run_transaction(self, paths, operation):
+        """让一组文件变更具备异常回滚；崩溃恢复仍由写前备份兜底。"""
+        states = self._capture_file_states(paths)
+        try:
+            return operation()
+        except Exception as original:
+            try:
+                self._restore_file_states(states)
+            except Exception as rollback_error:
+                raise EditError(
+                    500,
+                    "rollback-failed",
+                    f"写入失败且自动回滚未完成，请从 output/edit-backups 恢复：{rollback_error}",
+                ) from original
+            raise
+
     def make_backup(self, paths):
         os.makedirs(self.backup_root, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -259,9 +392,19 @@ class EditStore:
             n += 1
             target = os.path.join(self.backup_root, f"{stamp}-{n:02d}")
         os.makedirs(target)
-        for p in paths:
+        for p in dict.fromkeys(paths):
             if os.path.isfile(p):
-                shutil.copy2(p, os.path.join(target, os.path.basename(p)))
+                # JSON 沿用历史平铺位置，保证旧恢复习惯和测试不变；图片按项目相对路径
+                # 放进 files/，避免原图与缩略图同名时互相覆盖。
+                if os.path.normcase(os.path.dirname(p)) == os.path.normcase(self.data) and p.lower().endswith(".json"):
+                    dest = os.path.join(target, os.path.basename(p))
+                else:
+                    rel = os.path.relpath(p, self.root)
+                    if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+                        rel = os.path.join("external", os.path.basename(p))
+                    dest = os.path.join(target, "files", rel)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.copy2(p, dest)
         return os.path.relpath(target, self.root).replace(os.sep, "/")
 
     def _update_index_counts(self, cid, entry_count, imaged_count):
@@ -328,9 +471,10 @@ class EditStore:
 
     # ---------- 写管线 ----------
 
-    def mutate(self, cid, mutator):
+    def mutate(self, cid, mutator, file_writes=None):
         """统一写管线：锁 → 校验可编辑 → 备份 → 变更 → 重算 → 自检 → 原子写 → 同步索引。
-        mutator(data) 返回被操作的词条（delete 返回 None）。"""
+        mutator(data) 返回被操作的词条（delete 返回 None）；file_writes 与 JSON 同事务提交。"""
+        file_writes = dict(file_writes or {})
         with self.lock:
             meta = self.codex_meta(cid)
             if not self.is_editable(meta):
@@ -338,7 +482,6 @@ class EditStore:
             path, data = self.read_codex(cid)
             if not isinstance(data.get("entries"), list):
                 raise EditError(500, "internal", f"{cid}.json 缺少 entries 数组")
-            backup_dir = self.make_backup([path, self.index_path()])
             entry = mutator(data)
             entries = data["entries"]
             entry_count, imaged_count = self.compute_counts(entries)
@@ -351,8 +494,17 @@ class EditStore:
                 data.pop("emptyCategories", None)
             data["tree"] = build_tree(entries, empty)
             self.validate_codex(data)
-            self.atomic_write_json_styled(path, data)
-            self._update_index_counts(cid, entry_count, imaged_count)
+            protected = [path, self.index_path(), *file_writes]
+            backup_dir = self.make_backup(protected)
+
+            def commit():
+                # 资源先写、JSON 后写；任何一步失败都会把已替换文件恢复到事务前状态。
+                for target, payload in file_writes.items():
+                    self._atomic_write_bytes(target, payload)
+                self.atomic_write_json_styled(path, data)
+                self._update_index_counts(cid, entry_count, imaged_count)
+
+            self._run_transaction(protected, commit)
             return {
                 "ok": True,
                 "entry": entry,
@@ -366,16 +518,12 @@ class EditStore:
 
     @staticmethod
     def _prune_empty_categories(data, entries):
-        """清洗空分类登记，并丢掉那些已经有词条的（它们已由 path 派生进树，登记多余）。"""
-        registered = normalize_empty_categories(data.get("emptyCategories"))
-        if not registered:
-            return []
-        occupied = set()
-        for e in entries:
-            path = e.get("path") or []
-            for i in range(1, len(path) + 1):
-                occupied.add(tuple(path[:i]))
-        return [p for p in registered if tuple(p) not in occupied]
+        """清洗显式分类登记。
+
+        字段沿用历史名 emptyCategories，但语义是“编辑器显式创建的分类”。即使分类
+        暂时被词条占用也要保留登记，避免最后一条词条移走后目录骨架消失。
+        """
+        return normalize_empty_categories(data.get("emptyCategories"))
 
     @staticmethod
     def _all_tree_paths(data):
@@ -648,50 +796,36 @@ class EditStore:
     # ---------- 图片操作 ----------
 
     def set_image(self, cid, eid, durl):
-        if not isinstance(durl, str) or not durl.startswith("data:") or "," not in durl:
-            raise EditError(400, "bad-request", "dataURL 非法")
-        try:
-            raw = base64.b64decode(durl.split(",", 1)[1])
-        except Exception:
-            raise EditError(400, "bad-request", "dataURL base64 解码失败")
-        from PIL import Image
+        raw, ext, thumb_bytes, thumb_w, thumb_h = _decode_image_dataurl(durl)
+        odir = os.path.join(self.orig, cid)
+        tdir = os.path.join(self.site, "images", cid)
+        ofn = eid + "." + ext
+        tfn = eid + ".jpg"
+        original_path = self._safe_child_path(odir, ofn)
+        thumb_path = self._safe_child_path(tdir, tfn)
+        asset_rev = _asset_rev_bytes(thumb_bytes, raw)
 
         def mutator(data):
             entry = self._find_entry(data, eid)
             imgs = entry.get("images")
             if isinstance(imgs, list) and len(imgs) > 1:
                 raise EditError(400, "multi-image-unsupported", "多图词条的图片编辑留待 P1")
-            ext = _ext_from_dataurl(durl)
-            odir = os.path.join(self.orig, cid)
-            os.makedirs(odir, exist_ok=True)
-            ofn = eid + "." + ext
-            with open(os.path.join(odir, ofn), "wb") as f:
-                f.write(raw)
-            try:
-                im = Image.open(io.BytesIO(raw))
-            except Exception:
-                raise EditError(400, "bad-request", "无法解码为图片")
-            if im.mode not in ("RGB", "L"):
-                im = im.convert("RGB")
-            im.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
-            thumb_w, thumb_h = im.size
-            tdir = os.path.join(self.site, "images", cid)
-            os.makedirs(tdir, exist_ok=True)
-            tfn = eid + ".jpg"
-            tp = os.path.join(tdir, tfn)
-            im.save(tp, "JPEG", quality=86, optimize=True)
             entry["image"] = tfn
             entry["imageWidth"] = thumb_w
             entry["imageHeight"] = thumb_h
             entry["original"] = ofn
-            entry["assetRev"] = _asset_rev(tp, os.path.join(odir, ofn))
+            entry["assetRev"] = asset_rev
             entry.pop("assetCodexId", None)
             # 本书若用 images[] 存图（单图也是 1 元素数组，顶层与 images[0] 镜像），保持同步
             if isinstance(imgs, list):
                 entry["images"] = [{"path": tfn, "original": ofn}]
             return entry
 
-        result = self.mutate(cid, mutator)
+        result = self.mutate(
+            cid,
+            mutator,
+            file_writes={original_path: raw, thumb_path: thumb_bytes},
+        )
         result["pendingR2Sync"] = True
         return result
 
@@ -721,13 +855,25 @@ class EditStore:
         title = payload.get("title")
         if not isinstance(title, str) or not title.strip():
             raise EditError(400, "bad-request", "书名不能为空")
+        for key in ("selectorTitle", "author", "version"):
+            if key in payload and not isinstance(payload[key], str):
+                raise EditError(400, "bad-request", f"{key} 必须是字符串")
+        if "nsfw" in payload and not isinstance(payload["nsfw"], bool):
+            raise EditError(400, "bad-request", "nsfw 必须是布尔值")
         ctype = payload.get("type") or "codex"
         if ctype not in ("codex", "string", "pack"):
             raise EditError(400, "bad-request", "type 只能是 codex / string / pack")
         with self.lock:
             index = self.read_index()
-            if any(item.get("id") == cid for item in index):
-                raise EditError(400, "bad-request", f"法典 id 已存在：{cid}")
+            reserved_ids = set()
+            for item in index:
+                if isinstance(item.get("id"), str):
+                    reserved_ids.add(item["id"])
+                aliases = item.get("aliases")
+                if isinstance(aliases, list):
+                    reserved_ids.update(alias for alias in aliases if isinstance(alias, str))
+            if cid in reserved_ids:
+                raise EditError(400, "bad-request", f"法典 id 已被现有 id 或 alias 占用：{cid}")
             target = self.codex_path(cid)
             if os.path.exists(target):
                 raise EditError(400, "bad-request", f"数据文件已存在：{cid}.json")
@@ -741,14 +887,20 @@ class EditStore:
                 "entryCount": 0,
                 "imagedCount": 0,
             }
+            if str(payload.get("selectorTitle") or "").strip():
+                meta["selectorTitle"] = payload["selectorTitle"].strip()
             if payload.get("nsfw") is True:
                 meta["nsfw"] = True
             book = dict(meta)
             book["tree"] = []
             book["entries"] = []
-            self.atomic_write_json_styled(target, book)
             index.append(meta)
-            self._write_index(index)
+
+            def commit():
+                self.atomic_write_json_styled(target, book)
+                self._write_index(index)
+
+            self._run_transaction([target, self.index_path()], commit)
             return {"ok": True, "codex": meta, "backupDir": backup_dir}
 
     def delete_codex(self, cid):
@@ -761,9 +913,13 @@ class EditStore:
             path = self.codex_path(cid)
             backup_dir = self.make_backup([path, self.index_path()])
             index = [item for item in self.read_index() if item.get("id") != cid]
-            self._write_index(index)
-            if os.path.isfile(path):
-                os.remove(path)   # 已在 backup_dir 留有完整副本
+
+            def commit():
+                self._write_index(index)
+                if os.path.isfile(path):
+                    os.remove(path)   # 已在 backup_dir 留有完整副本
+
+            self._run_transaction([path, self.index_path()], commit)
             return {"ok": True, "removed": cid, "backupDir": backup_dir}
 
     def update_codex_meta(self, cid, fields):
@@ -780,6 +936,9 @@ class EditStore:
             raise EditError(400, "bad-request", "type 只能是 codex / string / pack")
         if "nsfw" in fields and not isinstance(fields["nsfw"], bool):
             raise EditError(400, "bad-request", "nsfw 必须是布尔值")
+        for key in ("title", "version", "author", "selectorTitle"):
+            if key in fields and not isinstance(fields[key], str):
+                raise EditError(400, "bad-request", f"{key} 必须是字符串")
         with self.lock:
             meta = self.codex_meta(cid)
             if not self.is_editable(meta):
@@ -794,8 +953,11 @@ class EditStore:
                         target.pop(key, None)
                     else:
                         target[key] = clean
-            self.atomic_write_json_styled(path, data)
-            self._write_index(index)
+            def commit():
+                self.atomic_write_json_styled(path, data)
+                self._write_index(index)
+
+            self._run_transaction([path, self.index_path()], commit)
             return {"ok": True, "codex": next(i for i in index if i.get("id") == cid), "backupDir": backup_dir}
 
     def delete_image(self, cid, eid):

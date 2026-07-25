@@ -34,6 +34,9 @@ const codexSupportsNewFilter = codex => {
   const meta = findCodexMeta(codex?.id);
   return Boolean(meta?.newFilterLabel && codex?.entries?.some(entry => entry.isNew === true));
 };
+const announceCodexLoaded = codex => {
+  document.dispatchEvent(new CustomEvent('codex:loaded', { detail: { codex } }));
+};
 const historyModeFor = (options, fallback = 'push') => options.historyMode || fallback;
 const urlSearchScope = urlState => {
   if (!urlState) return state.searchScope;
@@ -100,11 +103,15 @@ export async function init() {
       }
       initializeAtlasHistory(captureAtlasRoute(state.pendingUrlState.entry || ''));
       maybeShowOnboarding();
-      maybeLoadEditMode();
     } else {
       hideSkeleton(initSkeletonToken);
       setLoading('还没有可显示的法典数据');
+      const codexBtnText = $('#codexBtnText');
+      if (codexBtnText) codexBtnText.textContent = '暂无法典';
+      initializeAtlasHistory(captureAtlasRoute(''));
     }
+    // 本地编辑器的能力探测与是否已有法典无关：空仓库也必须能创建第一本。
+    maybeLoadEditMode();
   } catch (ex) {
     console.error(ex);
     hideSkeleton(initSkeletonToken);
@@ -134,7 +141,7 @@ function maybeLoadEditMode() {
       const info = await res.json();
       if (!info?.ok) return;
       const mod = await import('./app/edit.js');
-      mod.initEditMode(info, { loadCodex, applyFilter });
+      mod.initEditMode(info, { loadCodex, applyFilter, captureRoute: captureAtlasRoute });
     } catch { /* 无编辑服务 = 能力不存在 */ }
   });
 }
@@ -227,10 +234,11 @@ export async function loadCodex(id, options = {}) {
       }
       setLoading('');
       notifyCodexDataStatus(c);
+      announceCodexLoaded(c);
     };
     /* 换法典用同文档 View Transition 做整页交叉淡化（数据已就绪，回调内纯同步渲染，不冻结页面）；
        首次进站没有旧画面、减少动效、老浏览器 → 直接渲染 */
-    if (wasSwitching && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
+    if (wasSwitching && options.transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
       /* 先等选择菜单/面板退场（~180ms）再开始变形——切换动效别被浮层挡住白播一场 */
       await new Promise(r => setTimeout(r, 170));
       if (seq !== codexLoadSeq) return;
@@ -320,8 +328,9 @@ export async function openFavoritesView(options = {}) {
       }
       setLoading('');
       notifyCodexDataStatus(c);
+      announceCodexLoaded(c);
     };
-    if (wasSwitching && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
+    if (wasSwitching && options.transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
       await new Promise(r => setTimeout(r, 170));
       if (seq !== codexLoadSeq) return;
       const h = document.documentElement;
@@ -411,8 +420,9 @@ export async function openSiteSearchView(options = {}) {
       }
       setLoading('');
       notifyCodexDataStatus(c);
+      announceCodexLoaded(c);
     };
-    if (wasSwitching && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
+    if (wasSwitching && options.transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
       await new Promise(r => setTimeout(r, 170));
       if (seq !== codexLoadSeq) return;
       const h = document.documentElement;

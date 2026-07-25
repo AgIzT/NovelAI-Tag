@@ -6,18 +6,20 @@ import { $, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
 import { setCodexUiActions, closeCodexPicker } from './codex-ui.js';
+import { openMask, closeMask, trapFocus } from './modal.js';
 import {
   buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath, splitTreePath,
 } from './edit-core.js';
 
 const EDIT_MODE_KEY = 'fadian-editmode';
-const RATING_OPTIONS = [['', '无'], ['safe', 'safe'], ['r18', 'r18'], ['r18g', 'r18g'], ['restricted', 'restricted']];
+const RATING_OPTIONS = [['', '无'], ['safe', 'safe'], ['nsfw', 'nsfw'], ['r18', 'r18'], ['r18g', 'r18g'], ['restricted', 'restricted']];
 
 let caps = null;                 // /__edit__/ping 返回的能力声明
 let acts = {};                   // { loadCodex, applyFilter }
 let enabled = false;
 let saving = false;
 let panelEntryId = null;         // 灯箱编辑面板当前对应的词条 id（用于缓存复用）
+let activeDialog = null;
 
 export function initEditMode(ping, actions) {
   caps = ping;
@@ -27,6 +29,11 @@ export function initEditMode(ping, actions) {
   enabled = localStorage.getItem(EDIT_MODE_KEY) === '1';
   applyEnabledClass();
   document.addEventListener('lightbox:rendered', onLightboxRendered);
+  document.addEventListener('codex:loaded', updateWarnBar);
+  // 深链接可能在动态模块加载前已经打开灯箱，补一次初始面板挂载。
+  if (state.lightbox?.entry) {
+    onLightboxRendered({ detail: { entry: state.lightbox.entry, index: state.lightbox.index } });
+  }
   setCodexUiActions({ decorateDoor });
   bindTreeAdd();
   bindCardClick();
@@ -98,7 +105,12 @@ function toggleEnabled() {
 function applyEnabledClass() {
   document.body.classList.toggle('edit-mode', enabled);
   const btn = document.getElementById('editToggle');
-  if (btn) btn.classList.toggle('edit-on', enabled);
+  if (btn) {
+    btn.classList.toggle('edit-on', enabled);
+    btn.setAttribute('aria-pressed', String(enabled));
+  }
+  const codexBtnText = document.getElementById('codexBtnText');
+  if (!state.codex && codexBtnText) codexBtnText.textContent = enabled ? '新建法典' : '暂无法典';
   updateWarnBar();
 }
 
@@ -129,6 +141,28 @@ function updateWarnBar() {
     const main = document.querySelector('.main') || document.body;
     main.insertBefore(bar, main.firstChild);
   }
+}
+
+/* 动态编辑弹窗统一接入主站 modal：历史层、初始聚焦、Tab 陷阱、Esc 与焦点恢复。 */
+function mountEditDialog(mask, { trigger = document.activeElement } = {}) {
+  if (activeDialog?.isConnected) activeDialog.remove();
+  mask.id = 'editDialogLayer';
+  mask.hidden = true;
+  const close = options => closeMask(mask, options);
+  mask.addEventListener('click', ev => { if (ev.target === mask) close(); });
+  mask.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      close();
+      return;
+    }
+    trapFocus(ev, mask);
+  });
+  document.body.appendChild(mask);
+  activeDialog = mask;
+  openMask(mask, trigger);
+  return close;
 }
 
 /* ---------- 服务器通信 ---------- */
@@ -274,7 +308,7 @@ async function saveEntry(entry) {
   if (!res) return;
   const structural = 'path' in diff;
   if (structural) {
-    await structuralRefresh();
+    await structuralRefresh({ reopenEntryId: entry.id });
     toast('已保存，分类已更新');
   } else {
     mergeEntryInPlace(entry, res.entry);
@@ -305,11 +339,39 @@ function applyServerCounts(res) {
 }
 
 /* 结构变化（换分类/增删）后：让缓存失效并原地重载当前书，不整页刷新 */
-async function structuralRefresh() {
+async function structuralRefresh({
+  reopenEntryId = '',
+  imageIndex = state.lightbox?.index || 0,
+  consumeLayer = false,
+} = {}) {
   const id = currentCodexId();
   if (!id) return;
+  const route = acts.captureRoute?.('') || {
+    codex: id,
+    path: [...(state.activePath || [])],
+    q: state.query || '',
+    scope: state.searchScope || '',
+    onlyNew: Boolean(state.onlyNew),
+  };
+  const scrollY = Math.max(0, window.scrollY || 0);
   state.codexCache?.delete?.(id);
-  await acts.loadCodex?.(id, { historyMode: 'replace', saveBrowse: false });
+  await acts.loadCodex?.(id, {
+    urlState: { ...route, codex: id, entry: '' },
+    historyMode: 'replace',
+    transition: 'none',
+    consumeLayer,
+    parentScrollY: scrollY,
+    saveBrowse: false,
+  });
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.scrollTo({ top: scrollY, left: 0, behavior: 'auto' });
+    resolve();
+  })));
+  if (reopenEntryId) {
+    // 同 id 的面板会刻意保留未保存输入；结构重载则必须重建，避免按钮继续引用旧 entry 对象。
+    removePanel();
+    reopenLightboxById(reopenEntryId, imageIndex);
+  }
 }
 
 /* ---------- 图片编辑区 ---------- */
@@ -359,7 +421,7 @@ function readFileAsDataURL(file) {
 }
 
 async function uploadImage(entry, file) {
-  if (!/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
+  if (file.type && !/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
   let dataURL;
   try { dataURL = await readFileAsDataURL(file); }
   catch { toast('读取文件失败'); return; }
@@ -369,8 +431,7 @@ async function uploadImage(entry, file) {
   });
   if (!res) return;
   // 图片改动会牵动归一化的 images[]，走结构重载再按 id 重开灯箱最稳
-  await structuralRefresh();
-  reopenLightboxById(entryId);
+  await structuralRefresh({ reopenEntryId: entryId });
   toast(res.pendingR2Sync ? '图片已保存 · 记得跑「同步 R2」再发布' : '图片已保存');
 }
 
@@ -381,15 +442,18 @@ async function deleteImage(entry) {
     codexId: currentCodexId(), entryId, op: 'delete',
   });
   if (!res) return;
-  await structuralRefresh();
-  reopenLightboxById(entryId);
+  removePanel();
+  closeLightbox({ historyMode: 'none', immediate: true });
+  await structuralRefresh({ reopenEntryId: entryId });
   toast('图片已移除 · 记得跑「同步 R2」再发布');
 }
 
 /* 结构重载后按 id 找到新 entry 对象重开灯箱（图片/换分类等操作后保持在原词条） */
-function reopenLightboxById(id) {
+function reopenLightboxById(id, imageIndex = 0) {
   const fresh = state.codex?.entries?.find(e => e.id === id);
-  if (fresh) openLightbox(fresh, 0, null);
+  if (fresh) openLightbox(fresh, imageIndex, null, {
+    historyMode: 'replace', recordRecent: false, allowEmpty: true,
+  });
 }
 
 /* ---------- 编辑模式下卡片点击 = 进灯箱编辑 ---------- */
@@ -411,7 +475,9 @@ function bindCardClick() {
     if (!canEditEntry(entry)) return;
     ev.preventDefault();
     ev.stopPropagation();   // 拦掉 masonry 自己的「点卡复制」
-    openLightbox(entry, 0, card.querySelector('.card-img') || null);
+    openLightbox(entry, 0, card.querySelector('.card-img') || null, {
+      recordRecent: false, allowEmpty: true,
+    });
   }, true);
 }
 
@@ -467,7 +533,7 @@ function ensureTreeToolbar() {
           codexId: currentCodexId(), op: 'create', parentPath: [], name,
         });
         if (!res) return false;
-        await structuralRefresh();
+        await structuralRefresh({ consumeLayer: true });
         toast('已新建分类：' + name);
         return true;
       },
@@ -520,7 +586,7 @@ function createSubCategory(parentPath) {
         codexId: currentCodexId(), op: 'create', parentPath, name,
       });
       if (!res) return false;
-      await structuralRefresh();
+      await structuralRefresh({ consumeLayer: true });
       toast('已新建子分类：' + name);
       return true;
     },
@@ -538,7 +604,7 @@ function renameCategory(path) {
         codexId: currentCodexId(), op: 'rename', path, name,
       });
       if (!res) return false;
-      await structuralRefresh();
+      await structuralRefresh({ consumeLayer: true });
       toast(`已重命名（${res.entry?.movedEntries ?? 0} 条词条随之更新）`);
       return true;
     },
@@ -563,7 +629,7 @@ function moveCategory(path) {
         codexId: currentCodexId(), op: 'move', path, newParentPath: splitTreePath(value),
       });
       if (!res) return false;
-      await structuralRefresh();
+      await structuralRefresh({ consumeLayer: true });
       toast(`已移动（${res.entry?.movedEntries ?? 0} 条词条随之更新）`);
       return true;
     },
@@ -602,19 +668,35 @@ function openCodexManager() {
   mask.innerHTML = `
     <div class="edit-dialog" role="dialog" aria-modal="true" aria-label="法典管理">
       <h3>法典管理</h3>
-      <div class="edit-dialog-path">当前：${esc(meta?.title || currentCodexId())}</div>
+      <div class="edit-dialog-path">当前：${esc(meta?.title || '尚未创建法典')}</div>
       ${editable ? `
       <label>书名<input type="text" id="cxTitle" value="${esc(meta?.title || '')}"></label>
+      <label>选择器短标题（留空则使用书名）<input type="text" id="cxSelectorTitle" value="${esc(meta?.selectorTitle || '')}"></label>
       <label>作者<input type="text" id="cxAuthor" value="${esc(meta?.author || '')}"></label>
       <label>版本<input type="text" id="cxVersion" value="${esc(meta?.version || '')}"></label>
+      <div class="edit-panel-row">
+        <label>类型
+          <select id="cxType">
+            <option value="codex">法典</option>
+            <option value="string">画风串</option>
+            <option value="pack">精选图包</option>
+          </select>
+        </label>
+        <label class="edit-check"><input type="checkbox" id="cxNsfw" ${meta?.nsfw ? 'checked' : ''}> 整本 NSFW</label>
+      </div>
       <div class="edit-actions">
         <button type="button" class="edit-btn primary" id="cxSave">保存本书信息</button>
         <button type="button" class="edit-btn danger" id="cxDelete">删除这本法典</button>
-      </div>` : '<div class="edit-hint">这本是外部数据源，不能在本地编辑。</div>'}
+      </div>` : `<div class="edit-hint">${meta ? '这本是外部数据源，不能在本地编辑。' : '当前还没有法典，请在下面创建第一本。'}</div>`}
       <hr class="edit-sep">
       <div class="edit-panel-title">新建一本法典</div>
       <label>id（小写字母/数字/下划线，建后不可改）<input type="text" id="cxNewId" placeholder="my_codex"></label>
       <label>书名<input type="text" id="cxNewTitle" placeholder="我的法典"></label>
+      <label>选择器短标题（可选）<input type="text" id="cxNewSelectorTitle"></label>
+      <div class="edit-panel-row">
+        <label>作者（可选）<input type="text" id="cxNewAuthor"></label>
+        <label>版本（可选）<input type="text" id="cxNewVersion"></label>
+      </div>
       <div class="edit-panel-row">
         <label>类型
           <select id="cxNewType">
@@ -630,28 +712,33 @@ function openCodexManager() {
         <button type="button" class="edit-btn" id="cxClose">关闭</button>
       </div>
     </div>`;
-  const close = () => mask.remove();
-  mask.onclick = ev => { if (ev.target === mask) close(); };
-  document.body.appendChild(mask);
-  mask.querySelector('#cxClose').onclick = close;
+  const close = mountEditDialog(mask, { trigger: document.getElementById('codexBtn') });
+  mask.querySelector('#cxClose').onclick = () => close();
+  if (editable) mask.querySelector('#cxType').value = meta?.type || 'codex';
 
   const saveBtn = mask.querySelector('#cxSave');
   if (saveBtn) {
     saveBtn.onclick = async () => {
       const fields = {};
       const title = mask.querySelector('#cxTitle').value.trim();
+      const selectorTitle = mask.querySelector('#cxSelectorTitle').value.trim();
       const author = mask.querySelector('#cxAuthor').value.trim();
       const version = mask.querySelector('#cxVersion').value.trim();
+      const type = mask.querySelector('#cxType').value;
+      const nsfw = mask.querySelector('#cxNsfw').checked;
       if (!title) { toast('书名不能为空'); return; }
       if (title !== (meta?.title || '')) fields.title = title;
+      if (selectorTitle !== (meta?.selectorTitle || '')) fields.selectorTitle = selectorTitle;
       if (author !== (meta?.author || '')) fields.author = author;
       if (version !== (meta?.version || '')) fields.version = version;
+      if (type !== (meta?.type || 'codex')) fields.type = type;
+      if (nsfw !== Boolean(meta?.nsfw)) fields.nsfw = nsfw;
       if (!Object.keys(fields).length) { toast('没有改动'); return; }
       const res = await editFetch('/__edit__/codex', { codexId: currentCodexId(), op: 'meta', fields });
       if (!res) return;
-      close();
       await reloadCodexIndex();
-      await structuralRefresh();
+      await structuralRefresh({ consumeLayer: true });
+      close();
       toast('法典信息已保存');
     };
   }
@@ -664,10 +751,17 @@ function openCodexManager() {
       if (!window.confirm('再确认一次：这会把它从法典列表中移除。')) return;
       const res = await editFetch('/__edit__/codex', { codexId: currentCodexId(), op: 'delete' });
       if (!res) return;
-      close();
       await reloadCodexIndex();
       const next = state.codexes?.[0]?.id;
-      if (next) await acts.loadCodex?.(next, { historyMode: 'replace', saveBrowse: false });
+      if (next) {
+        await acts.loadCodex?.(next, {
+          historyMode: 'replace', transition: 'none', consumeLayer: true, saveBrowse: false,
+        });
+        close();
+      } else {
+        close();
+        window.setTimeout(() => location.reload(), 80);
+      }
       toast('法典已删除（副本在 ' + res.backupDir + '）');
     };
   }
@@ -676,15 +770,20 @@ function openCodexManager() {
     const codex = {
       id: mask.querySelector('#cxNewId').value.trim(),
       title: mask.querySelector('#cxNewTitle').value.trim(),
+      selectorTitle: mask.querySelector('#cxNewSelectorTitle').value.trim(),
+      author: mask.querySelector('#cxNewAuthor').value.trim(),
+      version: mask.querySelector('#cxNewVersion').value.trim(),
       type: mask.querySelector('#cxNewType').value,
     };
     if (mask.querySelector('#cxNewNsfw').checked) codex.nsfw = true;
     if (!codex.id || !codex.title) { toast('id 与书名都要填'); return; }
     const res = await editFetch('/__edit__/codex', { op: 'create', codex });
     if (!res) return;
-    close();
     await reloadCodexIndex();
-    await acts.loadCodex?.(codex.id, { historyMode: 'replace', saveBrowse: false });
+    await acts.loadCodex?.(codex.id, {
+      historyMode: 'replace', transition: 'none', consumeLayer: true, saveBrowse: false,
+    });
+    close();
     toast('已创建并切换到：' + codex.title);
   };
 }
@@ -722,12 +821,9 @@ function openPromptDialog({ title, hint, label, value = '', onSubmit }) {
         <button type="button" class="edit-btn" id="pdCancel">取消</button>
       </div>
     </div>`;
-  const close = () => mask.remove();
-  mask.onclick = ev => { if (ev.target === mask) close(); };
-  document.body.appendChild(mask);
+  const close = mountEditDialog(mask);
   const input = mask.querySelector('#pdInput');
-  input.focus();
-  input.select();
+  requestAnimationFrame(() => requestAnimationFrame(() => input.select()));
   const submit = async () => {
     const v = input.value.trim();
     if (!v) { toast('不能为空'); return; }
@@ -738,7 +834,7 @@ function openPromptDialog({ title, hint, label, value = '', onSubmit }) {
     if (ok) close();
   };
   mask.querySelector('#pdOk').onclick = submit;
-  mask.querySelector('#pdCancel').onclick = close;
+  mask.querySelector('#pdCancel').onclick = () => close();
   input.onkeydown = ev => { if (ev.key === 'Enter') submit(); };
 }
 
@@ -757,9 +853,7 @@ function openSelectDialog({ title, hint, label, options, onSubmit }) {
         <button type="button" class="edit-btn" id="sdCancel">取消</button>
       </div>
     </div>`;
-  const close = () => mask.remove();
-  mask.onclick = ev => { if (ev.target === mask) close(); };
-  document.body.appendChild(mask);
+  const close = mountEditDialog(mask);
   const submit = async () => {
     const btn = mask.querySelector('#sdOk');
     btn.disabled = true;
@@ -768,7 +862,7 @@ function openSelectDialog({ title, hint, label, options, onSubmit }) {
     if (ok) close();
   };
   mask.querySelector('#sdOk').onclick = submit;
-  mask.querySelector('#sdCancel').onclick = close;
+  mask.querySelector('#sdCancel').onclick = () => close();
 }
 
 /* 新增词条弹窗。path 给定时锁定分类（从目录树菜单进）；
@@ -792,19 +886,24 @@ function openCreateDialog(path = null) {
             .map(p => `<option value="${esc(p.value)}">${esc(p.label)}</option>`).join('')}</select></label>`}
       <label>标题 *<input type="text" id="ndTitle"></label>
       <label>正向 Tag *<textarea id="ndTags"></textarea></label>
+      <label>负面 Tag（可选）<textarea id="ndNegative"></textarea></label>
       <label>备注（可选）<textarea id="ndNote"></textarea></label>
+      <div class="edit-panel-row">
+        <label>分级
+          <select id="ndRating">${RATING_OPTIONS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
+        </label>
+        <label class="edit-check"><input type="checkbox" id="ndNew"> 标记为「本次更新」</label>
+      </div>
+      <label>图片（可选；原图会原样保存）<input type="file" id="ndImage" accept="image/*"></label>
       <div class="edit-actions">
         <button type="button" class="edit-btn primary" id="ndSave">创建</button>
         <button type="button" class="edit-btn" id="ndCancel">取消</button>
       </div>
     </div>`;
-  const close = () => mask.remove();
-  mask.onclick = ev => { if (ev.target === mask) close(); };
-  document.body.appendChild(mask);
+  const close = mountEditDialog(mask);
   const pathSel = mask.querySelector('#ndPath');
   if (pathSel && pathList.some(p => p.value === preferred)) pathSel.value = preferred;
-  mask.querySelector('#ndTitle').focus();
-  mask.querySelector('#ndCancel').onclick = close;
+  mask.querySelector('#ndCancel').onclick = () => close();
   mask.querySelector('#ndSave').onclick = async () => {
     const targetPath = fixed || splitTreePath(pathSel?.value || '');
     const values = {
@@ -814,17 +913,36 @@ function openCreateDialog(path = null) {
     };
     const invalid = validateEntryForm(values, { requireAll: true });
     if (invalid) { toast(invalid); return; }
+    const imageFile = mask.querySelector('#ndImage').files?.[0] || null;
+    if (imageFile?.type && !/^image\//.test(imageFile.type)) { toast('请选择图片文件'); return; }
+    let imageDataURL = null;
+    if (imageFile) {
+      try { imageDataURL = await readFileAsDataURL(imageFile); }
+      catch { toast('读取图片失败'); return; }
+    }
+    const negative = mask.querySelector('#ndNegative').value.trim();
     const note = mask.querySelector('#ndNote').value.trim();
     const entry = { title: values.title.trim(), tags: values.tags.trim(), path: targetPath };
+    if (negative) entry.negative = negative;
     if (note) entry.note = note;
+    const rating = mask.querySelector('#ndRating').value;
+    if (rating) entry.rating = rating;
+    if (mask.querySelector('#ndNew').checked) entry.isNew = true;
     const btn = mask.querySelector('#ndSave');
     btn.disabled = true;
     const res = await editFetch('/__edit__/entry', { codexId: currentCodexId(), op: 'create', entry });
-    btn.disabled = false;
-    if (!res) return;
+    if (!res) { btn.disabled = false; return; }
+    let imageRes = null;
+    if (imageDataURL) {
+      imageRes = await editFetch('/__edit__/image', {
+        codexId: currentCodexId(), entryId: res.entry.id, op: 'set', dataURL: imageDataURL,
+      });
+    }
+    await structuralRefresh({ reopenEntryId: res.entry.id, consumeLayer: true });
     close();
-    await structuralRefresh();
-    toast('已新增词条：' + (res.entry?.id || ''));
+    toast(imageDataURL && !imageRes
+      ? `已新增词条 ${res.entry?.id || ''}，但图片未保存`
+      : '已新增词条：' + (res.entry?.id || ''));
   };
 }
 

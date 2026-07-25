@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from edit_server import EditError, EditStore, build_tree  # noqa: E402
@@ -169,6 +170,11 @@ class EditStoreTest(unittest.TestCase):
         for key in ("image", "original", "assetRev", "imageWidth", "imageHeight", "characterPrompts", "credit", "isNew"):
             self.assertEqual(after[key], before[key], key)
 
+    def test_update_accepts_compatible_nsfw_rating(self):
+        self.store.update_entry("testbook", "testbook-0001", {"rating": "nsfw"})
+        after = self.read_book("testbook")["entries"][0]
+        self.assertEqual(after["rating"], "nsfw")
+
     def test_update_empty_string_removes_optional_keys(self):
         self.store.update_entry("testbook", "testbook-0002", {"negative": "", "note": ""})
         after = next(e for e in self.read_book("testbook")["entries"] if e["id"] == "testbook-0002")
@@ -267,6 +273,22 @@ class EditStoreTest(unittest.TestCase):
         self.assertEqual(_read(book_path), before)
         self.assertEqual(glob.glob(os.path.join(self.data, "*.tmp")), [])
 
+    def test_index_failure_rolls_back_committed_book(self):
+        book_path = os.path.join(self.data, "testbook.json")
+        index_path = os.path.join(self.data, "codexes.json")
+        before_book = _read(book_path)
+        before_index = _read(index_path)
+        original = self.store._update_index_counts
+        self.store._update_index_counts = lambda *_: (_ for _ in ()).throw(OSError("simulated index failure"))
+        try:
+            with self.assertRaises(OSError):
+                self.store.create_entry("testbook", {"title": "不应提交", "tags": "x", "path": ["甲"]})
+        finally:
+            self.store._update_index_counts = original
+        self.assertEqual(_read(book_path), before_book)
+        self.assertEqual(_read(index_path), before_index)
+        self.assertEqual(glob.glob(os.path.join(self.data, "*.tmp")), [])
+
     def test_self_check_blocks_corrupting_mutation(self):
         book_path = os.path.join(self.data, "testbook.json")
         before = _read(book_path)
@@ -316,6 +338,68 @@ class EditStoreTest(unittest.TestCase):
         self.assertEqual(res["imagedCount"], 3)
         self.assertTrue(res["pendingR2Sync"])
 
+    def test_invalid_image_never_overwrites_existing_original(self):
+        original = os.path.join(self.root, "originals", "testbook", "testbook-0001.png")
+        os.makedirs(os.path.dirname(original), exist_ok=True)
+        with open(original, "wb") as fh:
+            fh.write(b"ORIGINAL-SENTINEL")
+        bad = "data:image/png;base64," + base64.b64encode(b"NOT-AN-IMAGE").decode("ascii")
+        self.assert_edit_error(400, "bad-request", self.store.set_image, "testbook", "testbook-0001", bad)
+        with open(original, "rb") as fh:
+            self.assertEqual(fh.read(), b"ORIGINAL-SENTINEL")
+
+    def test_image_extension_comes_from_content_not_mime(self):
+        disguised = make_png_dataurl().replace("data:image/png", "data:image/anything", 1)
+        self.store.set_image("testbook", "testbook-0002", disguised)
+        entry = next(e for e in self.read_book("testbook")["entries"] if e["id"] == "testbook-0002")
+        self.assertEqual(entry["original"], "testbook-0002.png")
+        self.assertNotIn("anything", entry["original"])
+
+    def test_malicious_mime_path_is_rejected_without_escape(self):
+        payload = make_png_dataurl().split(",", 1)[1]
+        malicious = "data:image/x\\..\\..\\escaped;base64," + payload
+        self.assert_edit_error(400, "bad-request", self.store.set_image, "testbook", "testbook-0002", malicious)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "escaped")))
+
+    def test_image_and_json_roll_back_together_when_index_fails(self):
+        original = os.path.join(self.root, "originals", "testbook", "testbook-0001.png")
+        thumb = os.path.join(self.root, "site", "images", "testbook", "testbook-0001.jpg")
+        os.makedirs(os.path.dirname(original), exist_ok=True)
+        os.makedirs(os.path.dirname(thumb), exist_ok=True)
+        with open(original, "wb") as fh:
+            fh.write(b"OLD-ORIGINAL")
+        with open(thumb, "wb") as fh:
+            fh.write(b"OLD-THUMB")
+        before_book = _read(os.path.join(self.data, "testbook.json"))
+        original_update = self.store._update_index_counts
+        self.store._update_index_counts = lambda *_: (_ for _ in ()).throw(OSError("simulated index failure"))
+        try:
+            with self.assertRaises(OSError):
+                self.store.set_image("testbook", "testbook-0001", make_png_dataurl())
+        finally:
+            self.store._update_index_counts = original_update
+        with open(original, "rb") as fh:
+            self.assertEqual(fh.read(), b"OLD-ORIGINAL")
+        with open(thumb, "rb") as fh:
+            self.assertEqual(fh.read(), b"OLD-THUMB")
+        self.assertEqual(_read(os.path.join(self.data, "testbook.json")), before_book)
+
+    def test_replaced_images_are_in_backup_with_relative_paths(self):
+        original = os.path.join(self.root, "originals", "testbook", "testbook-0001.png")
+        thumb = os.path.join(self.root, "site", "images", "testbook", "testbook-0001.jpg")
+        os.makedirs(os.path.dirname(original), exist_ok=True)
+        os.makedirs(os.path.dirname(thumb), exist_ok=True)
+        with open(original, "wb") as fh:
+            fh.write(b"OLD-ORIGINAL")
+        with open(thumb, "wb") as fh:
+            fh.write(b"OLD-THUMB")
+        res = self.store.set_image("testbook", "testbook-0001", make_png_dataurl())
+        backup = os.path.join(self.root, res["backupDir"].replace("/", os.sep), "files")
+        with open(os.path.join(backup, "originals", "testbook", "testbook-0001.png"), "rb") as fh:
+            self.assertEqual(fh.read(), b"OLD-ORIGINAL")
+        with open(os.path.join(backup, "site", "images", "testbook", "testbook-0001.jpg"), "rb") as fh:
+            self.assertEqual(fh.read(), b"OLD-THUMB")
+
     def test_image_delete_removes_fields_keeps_files(self):
         self.store.set_image("testbook", "testbook-0002", make_png_dataurl())
         res = self.store.delete_image("testbook", "testbook-0002")
@@ -360,6 +444,11 @@ class EditStoreTest(unittest.TestCase):
                          ["compactbook", "foreignbook", "multibook", "testbook", "underbook"])
         self.assertEqual(caps["locked"], {"lockbook": "external-data"})
         self.assertEqual(caps["docxWarnings"], [])
+
+    def test_docx_warning_parses_real_tuple_id_map(self):
+        _write(os.path.join(self.root, "tools", "convert.py"), 'ID_MAP = [("所长常规", "testbook")]\n')
+        _write(os.path.join(self.root, "法典源", "所长常规 2026.docx"), "fixture")
+        self.assertEqual(self.store.capabilities()["docxWarnings"], ["testbook"])
 
 
 class CategoryOpsTest(unittest.TestCase):
@@ -414,14 +503,16 @@ class CategoryOpsTest(unittest.TestCase):
         self.assert_edit_error(400, "bad-request", cc, "testbook", [], "带分隔符")
         self.assert_edit_error(403, "codex-locked", cc, "lockbook", [], "x")
 
-    def test_entry_can_be_created_into_empty_category_which_then_unregisters(self):
+    def test_explicit_category_survives_occupy_then_empty_again(self):
         self.store.create_category("testbook", [], "新分类")
         res = self.store.create_entry("testbook", {"title": "首条", "tags": "t", "path": ["新分类"]})
         self.assertEqual(res["entry"]["path"], ["新分类"])
         book = self.book()
         self.assertEqual(self.tree_names()["新分类"], 1)
-        # 已经有词条了，空分类登记自动清理掉
-        self.assertNotIn("emptyCategories", book)
+        self.assertIn(["新分类"], book["emptyCategories"])
+        self.store.delete_entry("testbook", res["entry"]["id"])
+        self.assertEqual(self.tree_names()["新分类"], 0)
+        self.assertIn(["新分类"], self.book()["emptyCategories"])
 
     # ---- 重命名 ----
 
@@ -516,13 +607,16 @@ class CodexOpsTest(unittest.TestCase):
         self.assertEqual((ctx.exception.status, ctx.exception.code), (status, code))
 
     def test_create_codex_writes_file_and_registers(self):
-        res = self.store.create_codex({"id": "mybook", "title": "我的法典", "author": "我", "version": "1.0"})
+        res = self.store.create_codex({
+            "id": "mybook", "title": "我的法典", "selectorTitle": "我的短标题", "author": "我", "version": "1.0",
+        })
         self.assertEqual(res["codex"]["id"], "mybook")
         book = json.loads(_read(os.path.join(self.data, "mybook.json")))
         self.assertEqual(book["entries"], [])
         self.assertEqual(book["tree"], [])
         self.assertEqual(book["entryCount"], 0)
         self.assertEqual(book["title"], "我的法典")
+        self.assertEqual(book["selectorTitle"], "我的短标题")
         ids = [i["id"] for i in self.index()]
         self.assertIn("mybook", ids)
         # 新书立刻可用：建分类 → 建词条
@@ -537,6 +631,25 @@ class CodexOpsTest(unittest.TestCase):
         self.assert_edit_error(400, "bad-request", cc, {"id": "Bad-Id", "title": "x"})     # 非法 id
         self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "  "})     # 空书名
         self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "x", "type": "weird"})
+        self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "x", "selectorTitle": 3})
+        self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "x", "nsfw": "yes"})
+
+    def test_create_codex_rejects_existing_alias(self):
+        index_path = os.path.join(self.data, "codexes.json")
+        index = self.index()
+        index[0]["aliases"] = ["shadow_id"]
+        _write(index_path, json.dumps(index, ensure_ascii=False, indent=2))
+        self.assert_edit_error(400, "bad-request", self.store.create_codex, {"id": "shadow_id", "title": "影子"})
+        self.assertFalse(os.path.exists(os.path.join(self.data, "shadow_id.json")))
+
+    def test_create_codex_rolls_back_new_file_when_index_write_fails(self):
+        index_path = os.path.join(self.data, "codexes.json")
+        before = _read(index_path)
+        with mock.patch.object(self.store, "_write_index", side_effect=OSError("simulated index failure")):
+            with self.assertRaises(OSError):
+                self.store.create_codex({"id": "rollback_book", "title": "不应出现"})
+        self.assertFalse(os.path.exists(os.path.join(self.data, "rollback_book.json")))
+        self.assertEqual(_read(index_path), before)
 
     def test_delete_codex_archives_file_and_unregisters(self):
         res = self.store.delete_codex("compactbook")
@@ -561,12 +674,18 @@ class CodexOpsTest(unittest.TestCase):
         self.assertIn("lockbook", [i["id"] for i in self.index()])
 
     def test_update_codex_meta_syncs_book_and_index(self):
-        self.store.update_codex_meta("testbook", {"title": "新书名", "author": "新作者", "version": "9.9"})
+        self.store.update_codex_meta("testbook", {
+            "title": "新书名", "selectorTitle": "短标题", "author": "新作者", "version": "9.9",
+            "type": "pack", "nsfw": True,
+        })
         book = json.loads(_read(os.path.join(self.data, "testbook.json")))
         idx = next(i for i in self.index() if i["id"] == "testbook")
         self.assertEqual(book["title"], "新书名")
         self.assertEqual(idx["title"], "新书名")
         self.assertEqual(idx["author"], "新作者")
+        self.assertEqual(idx["selectorTitle"], "短标题")
+        self.assertEqual(idx["type"], "pack")
+        self.assertTrue(idx["nsfw"])
         self.assertEqual(book["version"], "9.9")
         # 计数字段不受影响
         self.assertEqual(idx["entryCount"], 3)
@@ -575,7 +694,19 @@ class CodexOpsTest(unittest.TestCase):
         um = self.store.update_codex_meta
         self.assert_edit_error(400, "bad-request", um, "testbook", {"title": " "})
         self.assert_edit_error(400, "bad-request", um, "testbook", {"entryCount": 999})
+        self.assert_edit_error(400, "bad-request", um, "testbook", {"selectorTitle": 3})
         self.assert_edit_error(403, "codex-locked", um, "lockbook", {"title": "x"})
+
+    def test_update_codex_meta_rolls_back_book_when_index_write_fails(self):
+        book_path = os.path.join(self.data, "testbook.json")
+        index_path = os.path.join(self.data, "codexes.json")
+        before_book = _read(book_path)
+        before_index = _read(index_path)
+        with mock.patch.object(self.store, "_write_index", side_effect=OSError("simulated index failure")):
+            with self.assertRaises(OSError):
+                self.store.update_codex_meta("testbook", {"title": "不应提交"})
+        self.assertEqual(_read(book_path), before_book)
+        self.assertEqual(_read(index_path), before_index)
 
 
 class HttpSmokeTest(unittest.TestCase):

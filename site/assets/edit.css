@@ -81,6 +81,11 @@ body.edit-mode .edit-tree-toolbar{display:block}
 
 /* 灯箱编辑面板 */
 body.edit-mode .lb-edit-hidden{display:none!important}
+.lightbox-stage.edit-empty::before{
+  content:"暂无图片";display:grid;place-items:center;width:min(520px,72%);aspect-ratio:4/3;
+  border:1px dashed var(--line);border-radius:8px;background:var(--panel);color:var(--muted);font-size:13px;
+}
+.lightbox-stage.edit-empty #lightboxImg{display:none}
 .edit-panel{
   margin-top:12px;padding:12px;border:1px dashed var(--accent);border-radius:12px;
   display:flex;flex-direction:column;gap:8px;font-size:12.5px;
@@ -123,18 +128,27 @@ body.edit-mode .lb-edit-hidden{display:none!important}
 .edit-dialog-mask{
   position:fixed;inset:0;z-index:1200;background:var(--overlay);
   display:flex;align-items:center;justify-content:center;padding:16px;
+  opacity:0;pointer-events:none;transition:opacity .2s ease;
 }
+.edit-dialog-mask.show{opacity:1;pointer-events:auto}
 .edit-dialog{
   width:min(440px,100%);max-height:86vh;overflow:auto;border-radius:14px;
   background:var(--popover-glass);border:1px solid var(--popover-line);box-shadow:var(--popover-shadow);
   padding:16px;display:flex;flex-direction:column;gap:10px;
+  opacity:0;transform:translateY(10px) scale(.98);
+  transition:opacity .18s ease,transform .22s cubic-bezier(.22,1,.36,1);
 }
+.edit-dialog-mask.show .edit-dialog{opacity:1;transform:none}
 .edit-dialog h3{margin:0;font-size:15px;color:var(--text)}
 .edit-dialog .edit-dialog-path{font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:8px;padding:4px 10px;align-self:flex-start}
 .edit-dialog label{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:11.5px}
-.edit-dialog input[type="text"],.edit-dialog textarea{
+.edit-dialog input[type="text"],.edit-dialog input[type="file"],.edit-dialog select,.edit-dialog textarea{
   width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:8px;
   background:var(--card);color:var(--text);font-size:13px;font-family:var(--font-ui);
 }
 .edit-dialog textarea{font-family:var(--font-prompt);resize:vertical;min-height:64px}
 .edit-dialog input:focus,.edit-dialog textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+
+@media (prefers-reduced-motion:reduce){
+  .edit-dialog-mask,.edit-dialog{transition:none}
+}

@@ -126,7 +126,10 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   const parentScrollY = Math.max(0, window.scrollY || 0);
   if (isR18gBlocked(entry)) { showR18gLockedHint(); return; }  // 深链/最近记录等绕过路径的兜底拦截
   if (isEntryAccessBlocked(entry)) { showNsfwLockedHint(); return; }
-  const images = entryImages(entry);
+  const sourceImages = entryImages(entry);
+  const images = sourceImages.length
+    ? sourceImages
+    : (options.allowEmpty ? [{ _editPlaceholder: true }] : []);
   if (!images.length) return;
   if (options.recordRecent !== false) recordRecentEntry(entry);
   state.lightbox = {
@@ -302,13 +305,17 @@ export function renderLightbox() {
   const e = lb.entry;
   const item = lb.images[lb.index];
   if (!e || !item) return;
+  const emptyImage = item._editPlaceholder === true;
   const seq = ++lbSeq;
   const img = $('#lightboxImg');
-  const thumbSrc = imageItemUrl('image', e, item);
-  const origSrc = imageItemUrl('original', e, item);
+  const stage = $('#lightboxStage');
+  stage.classList.toggle('edit-empty', emptyImage);
+  img.hidden = emptyImage;
+  const thumbSrc = emptyImage ? '' : imageItemUrl('image', e, item);
+  const origSrc = emptyImage ? '' : imageItemUrl('original', e, item);
   const origAbs = resolvedUrl(origSrc);
   img.onload = null;
-  img.onerror = () => {
+  img.onerror = emptyImage ? null : () => {
     if (seq !== lbSeq) return;
     if (origSrc && resolvedUrl(img.currentSrc || img.src) !== origAbs) {
       img.src = origSrc;
@@ -328,10 +335,15 @@ export function renderLightbox() {
       pre.src = origSrc;
     }
   };
-  showImage();
+  if (emptyImage) img.removeAttribute('src');
+  else showImage();
 
   $('#lightboxTitle').textContent = e.title;
-  $('#lightboxMeta').textContent = `${lb.index + 1} / ${lb.images.length} · ${e.path.join(' › ')}`;
+  $('#lightboxMeta').textContent = emptyImage
+    ? `暂无图片 · ${e.path.join(' › ')}`
+    : `${lb.index + 1} / ${lb.images.length} · ${e.path.join(' › ')}`;
+  const tip = document.querySelector('.lightbox-tip');
+  if (tip) tip.hidden = emptyImage;
 
   const credit = item.credit || item.author || e.credit || e.author || '';
   const creditUrl = item.creditUrl || item.authorUrl || e.creditUrl || e.authorUrl || '';
@@ -368,7 +380,7 @@ export function renderLightbox() {
   const shareBtn = $('#shareLightbox');
   const shareUrl = shareUrlForEntry(e);
   if (shareBtn) {
-    shareBtn.hidden = !shareUrl;
+    shareBtn.hidden = emptyImage || !shareUrl;
     shareBtn.onclick = ev => {
       ev.stopPropagation();
       if (shareUrl) copyText(shareUrl, '已复制分享链接', shareBtn, { convert: false });
@@ -376,7 +388,7 @@ export function renderLightbox() {
   }
   const reportBtn = $('#reportLightbox');
   if (reportBtn) {
-    reportBtn.hidden = false;
+    reportBtn.hidden = emptyImage;
     reportBtn.onclick = ev => {
       ev.stopPropagation();
       openReportDialog({
