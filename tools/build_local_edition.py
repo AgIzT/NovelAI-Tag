@@ -34,7 +34,6 @@ LOCAL_CSS = """
 body.local-edition #globalReportBtn,
 body.local-edition .more-item[href*="github.com/AgIzT/NovelAI-Tag"],
 body.local-edition #announcementsBtn,
-body.local-edition #editToggle,
 body.local-edition #announcementsFeedbackLink,
 body.local-edition #announcementsPanel,
 body.local-edition #feedbackPanel,
@@ -55,7 +54,7 @@ LOCAL_ABOUT = {
     "credits": ["本地版只提供软件与演示数据，请使用你自己的词条和图片。"],
     "tips": [
         "当前内置一本可自由修改或删除的示例法典。",
-        "编辑模式默认开启，点击卡片即可修改词条或上传图片。",
+        "编辑模式首次默认开启，可用顶栏铅笔按钮切换展示模式；编辑时点击卡片即可修改词条或上传图片。",
         "点击顶部法典名称，在菜单底部进入法典管理，可创建自己的法典。",
         "每次保存前都会自动备份到 output/edit-backups。",
         "关闭“法典图鉴本地版”窗口即可停止本地服务。",
@@ -364,7 +363,7 @@ def write_readme(product: Path):
 使用方法
 --------
 1. 双击“法典图鉴本地版.exe”（也可双击备用的“启动法典图鉴.bat”）。
-2. 浏览器会自动打开，编辑模式默认开启。
+2. 浏览器会自动打开，编辑模式首次默认开启；可用顶栏铅笔按钮切换编辑与展示模式。
 3. 内置“示例法典”可以自由修改或删除；点击顶部法典名称，在菜单底部进入“法典管理”即可新建自己的法典。
 4. 关闭启动器窗口即可停止本地服务。
 

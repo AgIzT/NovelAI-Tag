@@ -16,32 +16,90 @@ echo                     法典图鉴  总控台
 echo ============================================================
 echo.
 echo   [ 日常 ]
-echo      1.  启动预览        看主站              :8766
-echo      2.  配图工具        拖图配词条           :8767
+echo      1.  法典编辑器      浏览 + 编辑一体      :8769
+echo      2.  配图工具        批量拖图配词条       :8767
 echo.
 echo   [ 发布上线 ]
 echo      3.  同步 R2         上传图片到云端
 echo      4.  发布            同步 R2 + 推送 (自动部署)
 echo      5.  转换法典        法典源/ 新 docx 转数据
 echo.
+echo   [ 本地版发行 ]
+echo      6.  打包本地版      生成独立发行包 + zip
+echo.
 echo   [ 开发 / 测试 ]
-echo      6.  投稿本地测试    站 + 后端 + R2      :8788
-echo      7.  画风串编辑                          :8768
-echo      8.  回归验证        UI 自检
+echo      7.  只读预览        访客视角            :8766
+echo      8.  投稿本地测试    站 + 后端 + R2      :8788
+echo      9.  画风串编辑                          :8768
+echo     10.  回归验证        UI 自检
+echo     11.  清理输出        按保留策略清 output
 echo.
 echo      0.  退出
 echo ------------------------------------------------------------
 set "c="
 set /p "c=  请输入序号后回车: "
-if "%c%"=="1" goto act_preview
+if "%c%"=="1" goto act_editor
 if "%c%"=="2" goto act_imgserver
 if "%c%"=="3" goto act_sync
 if "%c%"=="4" goto act_publish
 if "%c%"=="5" goto act_convert
-if "%c%"=="6" goto act_wrangler
-if "%c%"=="7" goto act_strings
-if "%c%"=="8" goto act_verify
+if "%c%"=="6" goto act_buildlocal
+if "%c%"=="7" goto act_preview
+if "%c%"=="8" goto act_wrangler
+if "%c%"=="9" goto act_strings
+if "%c%"=="10" goto act_verify
+if "%c%"=="11" goto act_cleanup
 if "%c%"=="0" goto end
+goto menu
+
+:act_editor
+call :findpy
+if errorlevel 1 goto menu
+%PY% -c "import PIL" 2>nul
+if errorlevel 1 (
+  echo == 安装依赖 python-docx, Pillow ==
+  %PY% -m pip install -r requirements.txt
+)
+echo 已在新窗口启动法典编辑器, 浏览器打开 http://localhost:8769
+echo 点顶栏铅笔进入编辑模式; 每次保存前会自动备份到 output\edit-backups\
+echo 注意: 不要和配图工具 (菜单 2) 同时开, 两者都会写同一份数据
+start "" http://localhost:8769
+start "fadian-editor-8769" /D "%~dp0" %PY% tools\edit_server.py
+goto menu
+
+:act_buildlocal
+call :findpy
+if errorlevel 1 goto menu
+%PY% -c "import PIL" 2>nul
+if errorlevel 1 (
+  echo == 安装依赖 python-docx, Pillow ==
+  %PY% -m pip install -r requirements.txt
+)
+%PY% -c "import PyInstaller" 2>nul
+if errorlevel 1 (
+  echo [ERROR] 缺少 PyInstaller, 请先运行: pip install pyinstaller
+  pause
+  goto menu
+)
+echo == 构建独立本地版, 需要几分钟 ==
+%PY% tools\build_local_edition.py
+echo.
+echo 产物在 output\local-edition\
+pause
+goto menu
+
+:act_cleanup
+call :findpy
+if errorlevel 1 goto menu
+echo == 先预览将被清理的内容 ==
+%PY% tools\cleanup_output.py
+echo.
+set "yn="
+set /p "yn=  确认删除以上项目? 输入 Y 回车 (其它键取消): "
+if /i not "%yn%"=="Y" goto menu
+%PY% tools\cleanup_output.py --apply
+echo.
+pause
 goto menu
 
 :act_preview

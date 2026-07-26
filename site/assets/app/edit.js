@@ -12,6 +12,7 @@ import {
 } from './edit-core.js';
 
 const EDIT_MODE_KEY = 'fadian-editmode';
+const LOCAL_EDIT_MODE_KEY = 'fadian-local-editmode';
 const RATING_OPTIONS = [['', '无'], ['safe', 'safe'], ['nsfw', 'nsfw'], ['r18', 'r18'], ['r18g', 'r18g'], ['restricted', 'restricted']];
 
 let caps = null;                 // /__edit__/ping 返回的能力声明
@@ -26,9 +27,10 @@ export function initEditMode(ping, actions) {
   acts = actions || {};
   injectStyles();
   buildToggle();
-  // 独立本地发行版的唯一用途就是编辑，首次打开直接进入编辑态；
-  // 仓库维护/线上探测模式仍沿用用户自己的开关记忆。
-  enabled = caps?.localEdition === true || localStorage.getItem(EDIT_MODE_KEY) === '1';
+  // 独立本地版首次打开默认编辑，但允许切换展示态并独立记忆；
+  // 不与同端口的仓库维护编辑器共享偏好，避免两种用途互相串状态。
+  const storedMode = localStorage.getItem(editModeStorageKey());
+  enabled = storedMode == null ? caps?.localEdition === true : storedMode === '1';
   applyEnabledClass();
   document.addEventListener('lightbox:rendered', onLightboxRendered);
   document.addEventListener('codex:loaded', updateWarnBar);
@@ -41,7 +43,6 @@ export function initEditMode(ping, actions) {
   bindTreeAdd();
   bindCardClick();
   ensureResultBarButton();
-  syncLocalEditionEmptyState();
 }
 
 /* ---------- 基础设施 ---------- */
@@ -75,10 +76,16 @@ function buildToggle() {
    不另设顶栏按钮：增删法典本来就属于法典选择器这个语境。
    关掉编辑模式（或线上）时这个钩子不改任何东西，门还是原来的投稿门。 */
 function decorateDoor(wrap) {
-  // 独立本地版没有共创站，哪怕用户临时关掉编辑态，这扇门也始终是法典管理。
-  if (!enabled && caps?.localEdition !== true) return;
   const door = wrap.querySelector('.codex-door');
   if (!door) return;
+  if (!enabled) {
+    // 展示模式既不能露出线上共创死链，也不应保留法典管理入口。
+    if (caps?.localEdition === true) {
+      door.remove();
+      wrap.hidden = true;
+    }
+    return;
+  }
   const swap = document.createElement('button');
   swap.type = 'button';
   swap.className = 'codex-door edit-door';
@@ -96,6 +103,10 @@ function decorateDoor(wrap) {
     openCodexManager();
   };
   door.replaceWith(swap);
+}
+
+function editModeStorageKey() {
+  return caps?.localEdition === true ? LOCAL_EDIT_MODE_KEY : EDIT_MODE_KEY;
 }
 
 function syncLocalEditionEmptyState() {
@@ -119,19 +130,23 @@ function syncLocalEditionEmptyState() {
   document.getElementById('main')?.classList.remove('is-loading');
   if (!empty) return;
   empty.className = 'empty local-first-codex';
-  empty.innerHTML =
-    '<div class="empty-mark" aria-hidden="true">＋</div>' +
-    '<h2>这里还没有法典</h2>' +
-    '<p>创建第一本法典，然后就可以添加分类、词条和本地图片。</p>' +
-    '<div class="empty-actions"><button type="button" id="localFirstCodexBtn">＋ 创建我的第一本法典</button></div>';
+  empty.innerHTML = enabled
+    ? '<div class="empty-mark" aria-hidden="true">＋</div>' +
+      '<h2>这里还没有法典</h2>' +
+      '<p>创建第一本法典，然后就可以添加分类、词条和本地图片。</p>' +
+      '<div class="empty-actions"><button type="button" id="localFirstCodexBtn">＋ 创建我的第一本法典</button></div>'
+    : '<h2>这里还没有法典</h2>';
   empty.hidden = false;
-  empty.querySelector('#localFirstCodexBtn')?.addEventListener('click', openCodexManager);
+  if (enabled) {
+    empty.querySelector('#localFirstCodexBtn')?.addEventListener('click', openCodexManager);
+  }
 }
 
 function toggleEnabled() {
   enabled = !enabled;
-  localStorage.setItem(EDIT_MODE_KEY, enabled ? '1' : '0');
+  localStorage.setItem(editModeStorageKey(), enabled ? '1' : '0');
   applyEnabledClass();
+  closeCodexPicker();
   if (!enabled) removePanel();
   else if (!state.lightbox?.hidden && state.lightbox?.entry) refreshPanel();
   toast(enabled ? '编辑模式已开启' : '编辑模式已关闭');
@@ -143,10 +158,13 @@ function applyEnabledClass() {
   if (btn) {
     btn.classList.toggle('edit-on', enabled);
     btn.setAttribute('aria-pressed', String(enabled));
+    btn.title = enabled ? '切换到展示模式' : '切换到编辑模式';
+    btn.setAttribute('aria-label', btn.title);
   }
   const codexBtnText = document.getElementById('codexBtnText');
   if (!state.codex && codexBtnText) codexBtnText.textContent = enabled ? '新建法典' : '暂无法典';
   updateWarnBar();
+  syncLocalEditionEmptyState();
 }
 
 function currentCodexId() {
