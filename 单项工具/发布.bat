@@ -78,7 +78,7 @@ call git add -A
 if errorlevel 1 goto :fail
 
 call git diff --cached --quiet -- site/data
-if not errorlevel 1 (
+if errorlevel 1 (
   echo [ERROR] site/data is local-only and must be published through the R2 data release.
   call git restore --staged -- site/data
   goto :fail
