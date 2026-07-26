@@ -1,7 +1,0 @@
-{
-  "baseUrl": "https://assets.quicktagcloud.com",
-  "bucket": "novelai-tag-assets",
-  "imagePrefix": "images",
-  "originalPrefix": "originals",
-  "localFallback": true
-}

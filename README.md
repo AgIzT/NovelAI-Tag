@@ -11,7 +11,7 @@
 - 🖼️ **图为主瀑布流**
 - 🔍 **中英实时搜索** + 轻量搜索语法
 - ⚖️ **SD 权重转换**
-- 🧩 **零构建静态站**：纯 HTML/CSS/JS ES Modules，可直接部署到 Cloudflare Pages / GitHub Pages
+- 🧩 **零构建前端**：纯 HTML/CSS/JS ES Modules，正式站部署在 Cloudflare Pages
 - ✏️ **本地编辑模式**：直接增删词条、调整分类和图片
 
 ## 🚀 本地使用与编辑（Windows）
@@ -25,11 +25,10 @@
 发行包内置一本可自由修改或删除的示例法典。法典数据保存在 `site/data/`，缩略图保存在 `site/images/`，原图保存在 `originals/`，保存前的自动备份位于 `output/edit-backups/`。本地版只监听本机地址，内容不会自动上传；迁移或备份时建议直接复制整个解压目录。
 
 ## ☁️ 部署上线
-静态站，无需构建：
+前端无需构建：
 - **Cloudflare Pages**：连接本仓库，Build command 留空，**Build output directory 填 `site`**
-- **GitHub Pages**：把 Pages 源指向 `site/` 目录
 
-正式站把应用代码部署到 Pages，把版本化法典 JSON、缩略图和原图发布到 Cloudflare R2；仓库里的 `site/data/` 同时作为本地编辑源、历史快照和故障回退。
+正式站把应用代码部署到 Pages，把版本化法典 JSON、缩略图和原图发布到 Cloudflare R2。`site/data/` 是维护者本机的编辑真相，已被 Git 忽略；正式域优先直连 R2，Pages Preview 与公网直连故障时通过同源 Pages Function 读取同一个 R2 release。
 
 维护动作统一从根目录的 `法典图鉴.bat` 总控台进入（也可以直接双击 `单项工具/` 里对应的那一个）：
 
@@ -37,7 +36,7 @@
 - **菜单 5 发布程序**：先发布同一批 R2 数据，再提交并推送 Git，由 Pages 自动部署。
 - **菜单 6 回滚数据**：确认后切回上一个 R2 release，只换指针、不删除任何版本。
 
-自行部署时不配置 R2 数据发布层也能跑：站点会直接读随部署带上的 `site/data/`。数据路径相对页面解析，因此部署在域名根目录或子路径（GitHub Pages 项目站）都可以。
+仓库不再分发法典 JSON。自行部署需要提供自己的 `site/data/`，或配置等价的 R2 数据发布层与 `/data` 代理；仅克隆仓库直接发布到 GitHub Pages 不包含本站法典内容。本地版发行包仍内置独立示例数据，不受影响。
 
 ## 📁 目录结构
 ```
@@ -52,9 +51,9 @@ site/              ← 部署的网站本体
   index.html
   strings.html     画风串分享页（社区投稿库）
   assets/          样式与脚本（app.js + ES Modules）
-  data/            本地编辑源 + 部署时携带的稳定回退快照
+  data/            本地编辑源（Git 忽略；版本化发布到 R2）
   data-source.json 正式域名的 R2 数据入口
-functions/         Cloudflare Pages Functions（投稿 / 反馈 / 喜欢后端）
+functions/         Cloudflare Pages Functions（R2 数据代理 / 投稿 / 反馈 / 喜欢后端）
 法典图鉴.bat       ← 总控台（唯一入口，只做菜单，动作都委托给下面这些）
 单项工具/          编辑器 / 配图 / 转换法典 / 发布数据 / 发布程序 / 回滚数据 /
                    打包本地版 / 预览 / 本地后端测试 / 回归验证 / 清理 / 数据库迁移

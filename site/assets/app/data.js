@@ -53,14 +53,16 @@ export async function fetchCodex(meta) {
       data = result.data;
       if (result.source === 'r2') {
         sourceMeta = { ...meta, dataStatus: 'R2 数据', dataRelease: result.release };
-      } else if (result.source === 'static-fallback') {
+      } else if (result.source === 'proxy' || result.source === 'proxy-fallback') {
         sourceMeta = {
           ...meta,
-          dataStatus: '静态回退',
-          dataNotice: 'R2 数据文件加载失败，已使用 Pages 稳定快照',
+          dataStatus: result.source === 'proxy-fallback' ? 'R2 代理回退' : 'R2 数据（Pages 代理）',
+          dataRelease: result.release,
+          dataNotice: result.source === 'proxy-fallback'
+            ? 'R2 公网直连失败，已通过 Pages Functions 读取同一发布版本'
+            : '',
           dataError: result.error?.message || String(result.error || ''),
         };
-        shouldCache = false;
       }
     }
   } catch (ex) {
@@ -77,8 +79,8 @@ export async function fetchCodex(meta) {
       dataUrl: '',
       assetBaseUrl: '',
       assetPathMode: 'codex',
-      dataStatus: '本地快照',
-      dataNotice: '外部数据源加载失败，已使用本地快照',
+      dataStatus: '发布回退数据',
+      dataNotice: '外部数据源加载失败，已使用当前 R2 发布中的回退数据',
       dataError: ex.message || String(ex),
       version: meta.fallbackVersion || meta.version || data.version,
     };
@@ -229,7 +231,7 @@ export function buildTreeFromEntries(entries) {
 export function codexStatusLabel(c) {
   if (c?.dataStatus) return c.dataStatus;
   if (c?.dataUrl) return '外部源';
-  if (c?.fallbackDataUrl) return '本地快照';
+  if (c?.fallbackDataUrl) return '发布回退数据';
   return '本地数据';
 }
 
@@ -244,9 +246,10 @@ export function codexStatusTitle(c) {
   if (c?.dataNotice) return c.dataNotice;
   if (c?.dataRelease) return `当前读取 R2 发布：${c.dataRelease}`;
   if (c?.dataUrl) return `当前读取外部源：${c.dataUrl}`;
-  if (c?.sourceDataUrl && c?.fallbackDataUrl) return `外部源：${c.sourceDataUrl}\n回退快照：${c.fallbackDataUrl}`;
-  if (c?.fallbackDataUrl) return `本地快照：${c.fallbackDataUrl}`;
+  if (c?.sourceDataUrl && c?.fallbackDataUrl) return `外部源：${c.sourceDataUrl}\n发布回退数据：${c.fallbackDataUrl}`;
+  if (c?.fallbackDataUrl) return `发布回退数据：${c.fallbackDataUrl}`;
   if (getDataSource().mode === 'r2') return '当前读取 R2 数据发布层';
+  if (getDataSource().mode === 'proxy') return '当前通过 Pages Functions 读取 R2 数据发布层';
   return '当前读取本地数据';
 }
 

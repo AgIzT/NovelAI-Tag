@@ -73,9 +73,16 @@ if errorlevel 1 (
   goto :fail
 )
 
-echo == Publishing updates to GitHub - Cloudflare will auto-deploy ==
+echo == Publishing program updates to GitHub - Cloudflare will auto-deploy ==
 call git add -A
 if errorlevel 1 goto :fail
+
+call git diff --cached --quiet -- site/data
+if not errorlevel 1 (
+  echo [ERROR] site/data is local-only and must be published through the R2 data release.
+  call git restore --staged -- site/data
+  goto :fail
+)
 
 call git diff --cached --quiet
 if errorlevel 1 goto :commit
@@ -83,7 +90,7 @@ echo No local changes to commit.
 goto :push
 
 :commit
-call git commit -m "update site data and images"
+call git commit -m "update site program"
 if errorlevel 1 goto :fail
 
 :push
