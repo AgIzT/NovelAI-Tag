@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { renderShareResponse } from '../functions/_share.js';
 
 function r2Object(value) {
+  if (value instanceof Error) return { json: async () => { throw value; } };
   return { json: async () => structuredClone(value) };
 }
 
-function makeContext({ host, r2 = {}, assets = {}, atlasHosts = 'novelai.quicktagcloud.com' }) {
+function makeContext({ host, r2 = {}, r2Errors = {}, assets = {}, atlasHosts = 'novelai.quicktagcloud.com' }) {
   const r2Calls = [];
   const assetCalls = [];
   return {
@@ -17,6 +18,7 @@ function makeContext({ host, r2 = {}, assets = {}, atlasHosts = 'novelai.quickta
         ATLAS_DATA_BUCKET: {
           get: async key => {
             r2Calls.push(key);
+            if (Object.hasOwn(r2Errors, key)) throw r2Errors[key];
             return Object.hasOwn(r2, key) ? r2Object(r2[key]) : null;
           },
         },
@@ -140,6 +142,33 @@ try {
     assert.match(html, /法典图鉴 \| NovelAI Tag Atlas/);
     assert.notEqual(response.headers.get('cache-control'), 'no-store', '有意 fail-closed 通用卡仍应沿用既定缓存');
     assert.deepEqual(assetCalls, []);
+  }
+
+  {
+    const shardKey = `data/releases/${release}/share/demo.json`;
+    for (const failureStage of ['get', 'json']) {
+      const r2 = {
+        'data/current.json': { release },
+        [`data/releases/${release}/share-index.json`]: remoteIndex,
+      };
+      const r2Errors = {};
+      if (failureStage === 'get') r2Errors[shardKey] = new Error('injected R2 get timeout');
+      else r2[shardKey] = new Error('injected R2 body read failure');
+      const { context, assetCalls } = makeContext({
+        host: 'novelai.quicktagcloud.com',
+        r2,
+        r2Errors,
+        assets: {
+          '/data/share-index.json': staticIndex,
+          '/data/share/demo.json': staticBook,
+        },
+      });
+      const response = await renderShareResponse(context);
+      const html = await response.text();
+      assert.equal(response.headers.get('cache-control'), 'no-store', `R2 分片 ${failureStage} 异常不得缓存`);
+      assert.match(html, /codex=demo&amp;entry=demo-0001/, '瞬时分片故障仍应保留请求的深链目标');
+      assert.deepEqual(assetCalls, [], '锁定 R2 release 后不得用静态旧分片补洞');
+    }
   }
 
   {

@@ -6,6 +6,17 @@ const SITE_TITLE = '法典图鉴 | NovelAI Tag Atlas';
 const SITE_DESCRIPTION = '按图挑选 NovelAI 提示词、画风串与法典条目。';
 const RELEASE_RE = /^r-[0-9a-f]{20}$/;
 
+function shareDataError(message, { transient = false, cause } = {}) {
+  const error = new Error(message);
+  error.transient = transient;
+  if (cause !== undefined) error.cause = cause;
+  return error;
+}
+
+function isTransientShareDataError(error) {
+  return error?.transient === true;
+}
+
 function htmlEscape(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
@@ -78,11 +89,24 @@ async function readAssetJson(context, pathname) {
   const url = new URL(pathname, context.request.url);
   const req = new Request(url.href, { method: 'GET', headers: { accept: 'application/json' } });
   const assets = context.env && context.env.ASSETS;
-  const res = assets && typeof assets.fetch === 'function'
-    ? await assets.fetch(req)
-    : await fetch(req);
-  if (!res || !res.ok) throw new Error(`share asset fetch failed: ${pathname}`);
-  return res.json();
+  let res;
+  try {
+    res = assets && typeof assets.fetch === 'function'
+      ? await assets.fetch(req)
+      : await fetch(req);
+  } catch (ex) {
+    throw shareDataError(`share asset fetch failed: ${pathname}`, { transient: true, cause: ex });
+  }
+  if (!res || !res.ok) {
+    const status = Number(res?.status || 0);
+    const transient = status === 408 || status === 425 || status === 429 || status >= 500;
+    throw shareDataError(`share asset fetch failed: ${pathname}`, { transient });
+  }
+  try {
+    return await res.json();
+  } catch (ex) {
+    throw shareDataError(`share asset JSON invalid: ${pathname}`, { transient: true, cause: ex });
+  }
 }
 
 function normalizedDataPrefix(env) {
@@ -101,12 +125,17 @@ function publishedDataEnabled(context) {
 }
 
 async function readR2Json(bucket, key) {
-  const object = await bucket.get(key);
-  if (!object) throw new Error(`share R2 object missing: ${key}`);
+  let object;
+  try {
+    object = await bucket.get(key);
+  } catch (ex) {
+    throw shareDataError(`share R2 read failed: ${key}`, { transient: true, cause: ex });
+  }
+  if (!object) throw shareDataError(`share R2 object missing: ${key}`);
   try {
     return await object.json();
   } catch (ex) {
-    throw new Error(`share R2 JSON invalid: ${key}: ${ex.message || ex}`);
+    throw shareDataError(`share R2 JSON invalid: ${key}: ${ex.message || ex}`, { transient: true, cause: ex });
   }
 }
 
@@ -204,7 +233,7 @@ async function resolveShareCard(context) {
     codexShare = await dataset.read(`share/${encodePathPart(codexId)}.json`);
   } catch (ex) {
     console.warn(ex);
-    return genericCard(origin, targetUrl);
+    return genericCard(origin, targetUrl, { transient: isTransientShareDataError(ex) });
   }
   if (!codexShare || codexShare.id !== codexId || codexShare.shareable !== true) {
     return genericCard(origin, targetUrl);
