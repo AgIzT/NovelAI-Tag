@@ -128,6 +128,77 @@ function sourceLabel(source) {
   return source.degraded ? 'static-fallback' : 'static';
 }
 
+function normalizeBatchRequest(request) {
+  const spec = typeof request === 'string' ? { path: request } : { ...(request || {}) };
+  return {
+    path: normalizeKey(spec.path),
+    cache: spec.cache || 'default',
+    hasFallbackValue: Object.prototype.hasOwnProperty.call(spec, 'fallbackValue'),
+    fallbackValue: spec.fallbackValue,
+  };
+}
+
+async function fetchStaticResult(spec, source, primaryError = null) {
+  const url = joinBase(LOCAL_DATA_BASE, spec.path);
+  try {
+    return {
+      data: await fetchJsonUrl(url, primaryError || source.degraded ? 'no-store' : spec.cache),
+      source: primaryError ? 'static-fallback' : sourceLabel(source),
+      url,
+      release: '',
+      ...(primaryError ? { error: primaryError } : {}),
+    };
+  } catch (error) {
+    if (!spec.hasFallbackValue) throw error;
+    return {
+      data: spec.fallbackValue,
+      source: primaryError ? 'static-fallback' : sourceLabel(source),
+      url,
+      release: '',
+      error,
+    };
+  }
+}
+
+/* 启动数据必须按批次决定数据源：任何 demoting path 失败，或并发期间已有
+   其它请求触发降级，都丢弃本批全部 R2 结果并整批重读部署快照。 */
+export async function fetchDataJsonBatch(requests) {
+  const specs = Array.from(requests || [], normalizeBatchRequest);
+  const source = await initializeDataSource();
+  if (source.mode !== 'r2') {
+    return Promise.all(specs.map(spec => fetchStaticResult(spec, source)));
+  }
+
+  const primary = await Promise.allSettled(specs.map(spec => (
+    fetchJsonUrl(joinBase(source.baseUrl, spec.path), spec.cache)
+  )));
+  const demotingFailure = primary.findIndex((result, index) => (
+    result.status === 'rejected' && DEMOTING_PATHS.has(specs[index].path)
+  ));
+  if (demotingFailure >= 0 || activeSource !== source) {
+    const error = demotingFailure >= 0
+      ? primary[demotingFailure].reason
+      : activeSource.error || new Error('R2 data source was demoted during batch loading');
+    console.warn('R2 bootstrap data unavailable; reloading the whole batch from the deployed snapshot.', error);
+    if (activeSource === source) demoteToStatic(error);
+    return Promise.all(specs.map(spec => fetchStaticResult(spec, activeSource, error)));
+  }
+
+  return Promise.all(primary.map((result, index) => {
+    const spec = specs[index];
+    if (result.status === 'fulfilled') {
+      return {
+        data: result.value,
+        source: 'r2',
+        url: joinBase(source.baseUrl, spec.path),
+        release: source.release,
+      };
+    }
+    console.warn(`R2 data file unavailable; using the deployed snapshot: ${spec.path}`, result.reason);
+    return fetchStaticResult(spec, source, result.reason);
+  }));
+}
+
 export async function fetchDataJsonResult(path, { cache = 'default', allowFallback = true } = {}) {
   const source = await initializeDataSource();
   const primaryUrl = joinBase(source.baseUrl, path);

@@ -29,6 +29,7 @@ async function loadCase({ hostname, protocol = 'https:', responses, localEdition
     const key = String(url);
     calls.push({ url: key, cache: options.cache });
     const response = responses[key];
+    if (typeof response === 'function') return response();
     if (response instanceof Error) throw response;
     if (!response) throw new Error(`unexpected fetch ${key}`);
     return response;
@@ -166,6 +167,42 @@ try {
     assert.equal(book.source, 'static-fallback');
     assert.equal(book.data.id, 'snapshot-book');
     assert.equal(calls.some(call => call.url.includes('/releases/') && call.url.endsWith('demo.json')), false);
+  }
+
+  {
+    // 启动批次中 media 先失败、codexes 后成功时，也必须丢弃已经成功的 R2 索引。
+    const release = 'r-0123456789abcdefabcd';
+    const responses = {
+      'https://novelai.quicktagcloud.com/data-source.json': jsonResponse({
+        schemaVersion: 1,
+        baseUrl: 'https://assets.quicktagcloud.com/data',
+        pointer: 'current.json',
+        remoteHosts: ['novelai.quicktagcloud.com'],
+      }),
+      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release }),
+      [`https://assets.quicktagcloud.com/data/releases/${release}/codexes.json`]: async () => {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        return jsonResponse([{ id: 'r2-index-must-not-escape' }]);
+      },
+      [`https://assets.quicktagcloud.com/data/releases/${release}/media.json`]: new Error('media failed first'),
+      [`https://assets.quicktagcloud.com/data/releases/${release}/about.json`]: jsonResponse({ intro: 'r2-about' }),
+      'https://novelai.quicktagcloud.com/data/codexes.json': jsonResponse([{ id: 'snapshot-index' }]),
+      'https://novelai.quicktagcloud.com/data/media.json': jsonResponse({ baseUrl: 'snapshot-media' }),
+      'https://novelai.quicktagcloud.com/data/about.json': jsonResponse({ intro: 'snapshot-about' }),
+    };
+    const { mod } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
+    const [index, media, about] = await mod.fetchDataJsonBatch([
+      { path: 'codexes.json', cache: 'no-store' },
+      { path: 'media.json', cache: 'no-store' },
+      { path: 'about.json', cache: 'no-store' },
+    ]);
+    assert.equal(mod.getDataSource().mode, 'static');
+    assert.deepEqual([index.source, media.source, about.source], [
+      'static-fallback', 'static-fallback', 'static-fallback',
+    ]);
+    assert.equal(index.data[0].id, 'snapshot-index');
+    assert.equal(media.data.baseUrl, 'snapshot-media');
+    assert.equal(about.data.intro, 'snapshot-about');
   }
 
   console.log('data-source tests passed');

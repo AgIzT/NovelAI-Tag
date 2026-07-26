@@ -2,7 +2,22 @@ import { state } from './state.js';
 import { stripTrailingSlash } from './utils.js';
 import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
-import { fetchDataJson, fetchDataJsonResult, getDataSource } from '../data-source.js';
+import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource } from '../data-source.js';
+
+const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
+
+export async function loadBootstrapData() {
+  const [indexResult, mediaResult, aboutResult] = await fetchDataJsonBatch([
+    { path: 'codexes.json', cache: 'no-store' },
+    { path: 'media.json', cache: 'no-store', fallbackValue: {} },
+    { path: 'about.json', cache: 'no-store', fallbackValue: EMPTY_ABOUT },
+  ]);
+  return {
+    codexes: Array.isArray(indexResult.data) ? indexResult.data : [],
+    media: mediaResult.data || {},
+    about: aboutResult.data || EMPTY_ABOUT,
+  };
+}
 
 export async function loadCodexIndex() {
   const data = await fetchDataJson('codexes.json', { cache: 'no-store' });
@@ -20,7 +35,7 @@ export async function loadAbout() {
   try {
     return await fetchDataJson('about.json', { cache: 'no-store' });
   } catch {}
-  return { links: [], tips: [], credits: [] };
+  return EMPTY_ABOUT;
 }
 
 
