@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 const coreUrl = new URL('../site/assets/app/favorites-backup-core.js', import.meta.url);
 const coreSource = await readFile(coreUrl, 'utf8');
 const core = await import(`data:text/javascript;base64,${Buffer.from(coreSource).toString('base64')}`);
+const backupUiUrl = new URL('../site/assets/app/favorites-backup.js', import.meta.url);
+const backupUiSource = await readFile(backupUiUrl, 'utf8');
 
 const {
   ATLAS_FAVORITES_STORAGE_KEY,
@@ -356,5 +358,34 @@ rollbackStorage.failOnceFor = COMMUNITY_FAVORITES_STORAGE_KEY;
 expectCode('STORAGE_WRITE_FAILED', () => commitFavoritesRestore(rollbackStorage, replacePlan));
 assert.equal(rollbackStorage.getItem(ATLAS_FAVORITES_STORAGE_KEY), oldAtlasRaw);
 assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), oldCommunityRaw);
+
+// 法典索引网络请求瞬时失败只影响本次操作，下次操作会重试；成功结果仍复用。
+const resolverSource = backupUiSource.match(
+  /  const resolveCodexes = async \(\) => \{[\s\S]*?\n  \};/,
+)?.[0];
+assert.ok(resolverSource, 'missing resolveCodexes implementation');
+const makeResolver = new Function('options', 'fetchDataJson', 'console', `
+  let codexesPromise = null;
+${resolverSource}
+  return resolveCodexes;
+`);
+let fetchAttempts = 0;
+const resolverWarnings = [];
+const resolveCodexes = makeResolver(
+  {},
+  async () => {
+    fetchAttempts += 1;
+    if (fetchAttempts === 1) throw new Error('temporary network failure');
+    return codexes;
+  },
+  { warn: (...args) => resolverWarnings.push(args) },
+);
+assert.deepEqual(await resolveCodexes(), []);
+assert.equal(fetchAttempts, 1);
+assert.equal(resolverWarnings.length, 1);
+assert.equal((await resolveCodexes()), codexes);
+assert.equal(fetchAttempts, 2);
+assert.equal((await resolveCodexes()), codexes);
+assert.equal(fetchAttempts, 2, '成功读取后应继续复用缓存');
 
 console.log('favorites backup core: all tests passed');

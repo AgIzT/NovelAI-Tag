@@ -178,18 +178,20 @@ export function setupFavoritesBackup(options = {}) {
   const resolveCodexes = async () => {
     if (!codexesPromise) {
       codexesPromise = (async () => {
-        try {
-          const supplied = await options.getCodexes?.();
-          if (Array.isArray(supplied) && supplied.length) return supplied;
-          const data = await fetchDataJson('codexes.json', { cache: 'no-store' });
-          return Array.isArray(data) ? data : [];
-        } catch (error) {
-          console.warn('收藏备份：法典别名索引暂不可用，将原样保留法典标识。', error);
-          return [];
-        }
+        const supplied = await options.getCodexes?.();
+        if (Array.isArray(supplied) && supplied.length) return supplied;
+        const data = await fetchDataJson('codexes.json', { cache: 'no-store' });
+        return Array.isArray(data) ? data : [];
       })();
     }
-    return codexesPromise;
+    const pending = codexesPromise;
+    try {
+      return await pending;
+    } catch (error) {
+      if (codexesPromise === pending) codexesPromise = null;
+      console.warn('收藏备份：法典别名索引暂不可用，将原样保留法典标识。', error);
+      return [];
+    }
   };
 
   const readCurrent = async () => readStoredFavorites(localStorage, await resolveCodexes());
