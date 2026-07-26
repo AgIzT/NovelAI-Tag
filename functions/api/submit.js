@@ -31,6 +31,11 @@ function clampDim(v) {
 export async function onRequestPost({ request, env }) {
   const noStorage = requireStorage(env);
   if (noStorage) return noStorage;
+  const contentLength = Number(request.headers.get('content-length') || 0);
+  const multipartAllowance = 8 * 1024 * 1024;
+  if (contentLength > LIMITS.totalBytes + multipartAllowance) {
+    return err('图片总体积过大', 413);
+  }
   let form;
   try { form = await request.formData(); } catch { return err('请求格式错误'); }
 

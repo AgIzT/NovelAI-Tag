@@ -134,10 +134,24 @@ try {
         '/data/share/demo.json': staticBook,
       },
     });
-    const html = await (await renderShareResponse(context)).text();
+    const response = await renderShareResponse(context);
+    const html = await response.text();
     assert.doesNotMatch(html, /静态词条/);
     assert.match(html, /法典图鉴 \| NovelAI Tag Atlas/);
+    assert.notEqual(response.headers.get('cache-control'), 'no-store', '有意 fail-closed 通用卡仍应沿用既定缓存');
     assert.deepEqual(assetCalls, []);
+  }
+
+  {
+    const { context } = makeContext({
+      host: 'novelai.quicktagcloud.com',
+      r2: {},
+      assets: {},
+    });
+    const response = await renderShareResponse(context);
+    const html = await response.text();
+    assert.equal(response.headers.get('cache-control'), 'no-store', '双数据源故障的瞬时降级卡不得缓存');
+    assert.match(html, /codex=demo&amp;entry=demo-0001/, '瞬时故障仍应保留请求的深链目标');
   }
 
   console.log('share backend tests passed');

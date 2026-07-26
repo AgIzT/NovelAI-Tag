@@ -71,7 +71,6 @@ export async function onRequestPost(context) {
     publicVisibleUpdatedAt: 0,
     publicVisibleUpdatedAtIso: '',
     commitSha: cleanLine(env.CF_PAGES_COMMIT_SHA, 80) || 'local',
-    ipHash,
     cfRay: cleanLine(request.headers.get('cf-ray'), 120),
     notification: initialNotificationState(env),
   };
@@ -118,7 +117,7 @@ async function hashIp(request, env) {
   const raw = request.headers.get('cf-connecting-ip')
     || request.headers.get('x-forwarded-for')?.split(',')[0]
     || 'unknown';
-  const salt = String(env.RATE_LIMIT_SALT || env.ADMIN_TOKEN || 'novelai-tag-feedback').slice(0, 128);
+  const salt = String(env.RATE_LIMIT_SALT || 'novelai-tag-feedback').slice(0, 128);
   const bytes = new TextEncoder().encode(`${salt}:${raw}`);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, '0')).join('').slice(0, 32);

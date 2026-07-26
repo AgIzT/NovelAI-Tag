@@ -19,7 +19,7 @@ const LEGACY_ACTION_STATUS = Object.freeze({
 });
 
 export async function onRequestPost(context) {
-  const denied = requireAdmin(context);
+  const denied = await requireAdmin(context);
   if (denied) return denied;
   const { request, env } = context;
   if (!env.STRINGS_BUCKET) return err('服务端未绑定存储桶 STRINGS_BUCKET', 503);

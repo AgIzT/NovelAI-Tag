@@ -61,7 +61,7 @@ function deepLinkUrl(origin, codexId, entryId = '') {
   return url.href;
 }
 
-function genericCard(origin, targetUrl = '') {
+function genericCard(origin, targetUrl = '', { transient = false } = {}) {
   return {
     kind: 'generic',
     title: SITE_TITLE,
@@ -70,6 +70,7 @@ function genericCard(origin, targetUrl = '') {
     canonicalUrl: new URL('/share', origin).href,
     targetUrl: targetUrl || new URL('/', origin).href,
     safe: false,
+    transient,
   };
 }
 
@@ -180,7 +181,11 @@ async function resolveShareCard(context) {
     dataset = await loadShareDataset(context);
   } catch (ex) {
     console.warn(ex);
-    return genericCard(origin);
+    return genericCard(
+      origin,
+      deepLinkUrl(origin, path.codexId, path.entryId),
+      { transient: true },
+    );
   }
   const index = dataset.index;
 
@@ -300,7 +305,7 @@ export async function renderShareResponse(context) {
   const card = await resolveShareCard(context);
   const headers = {
     'content-type': 'text/html; charset=utf-8',
-    'cache-control': CACHE_CONTROL,
+    'cache-control': card.transient ? 'no-store' : CACHE_CONTROL,
   };
   const body = context.request.method === 'HEAD' ? null : renderHtml(card);
   return new Response(body, { status: 200, headers });

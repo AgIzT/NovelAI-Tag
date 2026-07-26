@@ -17,7 +17,7 @@ const MUTATIONS = new Set([
 const ASSET_KEY_RE = /^community\/img\/[0-9a-fA-F-]{8,40}\/[\w][\w.-]*$/;
 
 export async function onRequestGet(context) {
-  const denied = requireAdmin(context);
+  const denied = await requireAdmin(context);
   if (denied) return denied;
   const noStorage = requireStorage(context.env);
   if (noStorage) return noStorage;
@@ -35,7 +35,7 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPost(context) {
-  const denied = requireAdmin(context);
+  const denied = await requireAdmin(context);
   if (denied) return denied;
   const noStorage = requireStorage(context.env);
   if (noStorage) return noStorage;

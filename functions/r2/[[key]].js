@@ -5,8 +5,14 @@
 // 线上默认直连 R2 公开地址，不走这里。
 export async function onRequestGet({ env, params }) {
   if (!env.STRINGS_BUCKET) return new Response('no bucket', { status: 503 });
-  const key = (params.key || []).map(decodeURIComponent).join('/');
-  if (!key.startsWith('community/')) return new Response('forbidden', { status: 403 });
+  const parts = Array.isArray(params.key) ? params.key : [params.key || ''];
+  let key;
+  try {
+    key = parts.map(decodeURIComponent).join('/');
+  } catch {
+    return new Response('bad key', { status: 400 });
+  }
+  if (!key.startsWith('community/img/')) return new Response('forbidden', { status: 403 });
   const obj = await env.STRINGS_BUCKET.get(key);
   if (!obj) return new Response('not found', { status: 404 });
   return new Response(obj.body, {

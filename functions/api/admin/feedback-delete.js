@@ -6,7 +6,7 @@ import { updatePublicFeedbackIndex } from '../../_feedback.js';
 const STATUSES = new Set(['pending', 'resolved', 'ignored']);
 
 export async function onRequestPost(context) {
-  const denied = requireAdmin(context);
+  const denied = await requireAdmin(context);
   if (denied) return denied;
   const { request, env } = context;
   if (!env.STRINGS_BUCKET) return err('服务端未绑定存储桶 STRINGS_BUCKET', 503);

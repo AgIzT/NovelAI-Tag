@@ -428,6 +428,11 @@ assert.equal(
   '新反馈不应再写入反馈者公开授权字段',
 );
 assert.equal(submittedRecord.publicVisible, false);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(submittedRecord, 'ipHash'),
+  false,
+  '公开桶里的反馈记录不得持久化 IP 哈希',
+);
 assert.ok(submittedRecord.progressStatusUpdatedAt > 0);
 
 const privateSubmissionBucket = new MemoryR2();

@@ -88,6 +88,15 @@ async function responseJson(response) {
   return data;
 }
 
+{
+  const deniedContext = context('GET', 'stats');
+  deniedContext.request = new Request(deniedContext.request.url, {
+    headers: { authorization: 'Bearer wrong-token' },
+  });
+  const denied = await adminGet(deniedContext);
+  assert.equal(denied.status, 401, '错误管理口令必须被拒绝');
+}
+
 const initial = [
   ['10000001', 'pending'],
   ['10000002', 'approved'],

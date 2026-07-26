@@ -125,13 +125,39 @@ export function err(message, status = 400) {
   return json({ ok: false, error: message }, status);
 }
 
+async function digestAdminToken(value) {
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+}
+
+function equalAdminTokenDigests(left, right) {
+  if (typeof crypto.subtle.timingSafeEqual === 'function') {
+    return crypto.subtle.timingSafeEqual(left, right);
+  }
+  // Node.js 的 WebCrypto 测试环境暂未实现 Workers 的 timingSafeEqual 扩展。
+  // 两侧已固定为 SHA-256 的 32 字节摘要，回退循环不会泄露原口令长度。
+  const a = new Uint8Array(left);
+  const b = new Uint8Array(right);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    diff |= (a[i] || 0) ^ (b[i] || 0);
+  }
+  return diff === 0;
+}
+
 // 管理接口口令校验；通过返回 null，失败返回应直接回给客户端的 Response
-export function requireAdmin(context) {
+export async function requireAdmin(context) {
   const token = String(context.env.ADMIN_TOKEN || '').trim();
   if (!token) return err('服务端未配置 ADMIN_TOKEN（见配置指南）', 503);
   const auth = context.request.headers.get('authorization') || '';
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m || m[1].trim() !== token) return err('管理口令错误或未提供', 401);
+  if (!m) return err('管理口令错误或未提供', 401);
+  const [providedDigest, expectedDigest] = await Promise.all([
+    digestAdminToken(m[1].trim()),
+    digestAdminToken(token),
+  ]);
+  if (!equalAdminTokenDigests(providedDigest, expectedDigest)) {
+    return err('管理口令错误或未提供', 401);
+  }
   return null;
 }
 
@@ -394,6 +420,16 @@ export function emptyCollection() {
 export async function rebuildCommunity(env) {
   const bucket = env.STRINGS_BUCKET;
   const keys = (await listAll(bucket, 'community/approved/')).filter(k => k.endsWith('.json'));
+  const rebuildLog = {
+    event: 'community_rebuild',
+    approvedCount: keys.length,
+    readBatches: Math.ceil(keys.length / 20),
+  };
+  if (keys.length >= 900) {
+    console.warn(JSON.stringify({ ...rebuildLog, risk: 'internal_subrequest_limit' }));
+  } else {
+    console.log(JSON.stringify(rebuildLog));
+  }
   const records = await readJsonBatch(bucket, keys);
   records.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const entries = records.map(r => toEntry(env, r));
