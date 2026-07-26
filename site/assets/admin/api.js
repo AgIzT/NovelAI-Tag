@@ -1,15 +1,15 @@
 import { KEY } from './state.js';
 
 export function token() {
-  return localStorage.getItem(KEY) || '';
+  return sessionStorage.getItem(KEY) || '';
 }
 
 export function setToken(value) {
-  localStorage.setItem(KEY, value || '');
+  sessionStorage.setItem(KEY, value || '');
 }
 
 export function clearToken() {
-  localStorage.removeItem(KEY);
+  sessionStorage.removeItem(KEY);
 }
 
 export async function adminApi(path, opts = {}) {

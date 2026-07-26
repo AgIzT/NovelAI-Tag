@@ -11,4 +11,5 @@ export const state = {
   activeImageIndex: 0,
   searchHistorySessionId: '',
   loading: true,
+  loadError: false,
 };

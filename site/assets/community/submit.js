@@ -17,6 +17,7 @@ let files = [];
 let busy = false;
 let metadataConsumed = false;
 let onSubmitted = null;
+let addQueue = Promise.resolve();
 
 export function initSubmitDialog(options = {}) {
   submitMask = $('#submitMask');
@@ -153,7 +154,17 @@ function showError(message) {
   if (error) error.textContent = message || '';
 }
 
-async function addFiles(list) {
+export function addFiles(list) {
+  const batch = Array.from(list || []);
+  const job = addQueue.then(() => addFilesInner(batch));
+  addQueue = job.catch(error => {
+    console.error('图片处理队列失败', error);
+    showError(error?.message || '图片处理失败');
+  });
+  return job;
+}
+
+async function addFilesInner(list) {
   for (const file of list) {
     if (files.length >= LIMITS.imageCount) {
       showError(`图片最多 ${LIMITS.imageCount} 张`);
