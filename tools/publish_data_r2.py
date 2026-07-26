@@ -98,6 +98,22 @@ def normalize_release(value):
     return value
 
 
+def safe_release(value):
+    """把不可信来源（远端指针）的 release 洗成合法值或空串，不抛异常。"""
+    value = str(value or "").strip()
+    return value if RELEASE_RE.fullmatch(value) else ""
+
+
+def previous_release_for(current_pointer, release):
+    """算回滚目标：换版时记住刚才那版；重发同一版时保留原有回滚目标，别把回滚网抹掉。"""
+    pointer = current_pointer if isinstance(current_pointer, dict) else {}
+    current = safe_release(pointer.get("release"))
+    if current and current != release:
+        return current
+    carried = safe_release(pointer.get("previousRelease"))
+    return carried if carried != release else ""
+
+
 def collect_release_files(data_dir=DATA_DIR):
     data_dir = Path(data_dir).resolve()
     paths = sorted(data_dir.rglob("*.json"))
@@ -131,6 +147,17 @@ def collect_release_files(data_dir=DATA_DIR):
         body = parsed[filename]
         if not isinstance(body, dict) or body.get("id") != cid:
             raise ValueError(f"codex file id mismatch: {filename}")
+
+    share_index = parsed.get("share-index.json")
+    share_codexes = share_index.get("codexes") if isinstance(share_index, dict) else None
+    if not isinstance(share_codexes, dict):
+        raise ValueError("share-index.json must contain a codexes object")
+    for cid, entry in sorted(share_codexes.items()):
+        if not isinstance(entry, dict) or not entry.get("shareable"):
+            continue
+        shard = f"share/{cid}.json"
+        if shard not in relative:
+            raise ValueError(f"share shard is missing for a shareable codex: {shard}")
     return tuple(files)
 
 
@@ -230,7 +257,7 @@ class R2DataClient:
         )
 
     def get_json(self, key):
-        status, _headers, body = self.raw._request("GET", key)
+        status, _headers, body = self.raw.get(key)
         if status == 404:
             return None
         if status >= 400:
@@ -241,9 +268,12 @@ class R2DataClient:
             raise RuntimeError(f"invalid remote JSON {key}: {ex}") from ex
 
 
-def object_matches(client, key, size, sha):
-    remote = client.head_metadata(key)
+def metadata_matches(remote, size, sha):
     return bool(remote and remote.get("size") == size and remote.get("sha256") == sha)
+
+
+def object_matches(client, key, size, sha):
+    return metadata_matches(client.head_metadata(key), size, sha)
 
 
 def verify_object(client, key, size, sha):
@@ -279,31 +309,29 @@ def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=
     skipped = 0
     for item in plan.files:
         key = f"{release_prefix}/{item.relative_path}"
-        if object_matches(client, key, item.size, item.sha256):
+        # HEAD 已经证明远端对象与本地 size+SHA 一致，跳过时不必再验一次。
+        if metadata_matches(client.head_metadata(key), item.size, item.sha256):
             skipped += 1
-        else:
-            client.put_file(key, item, RELEASE_CACHE_CONTROL)
-            uploaded += 1
+            continue
+        client.put_file(key, item, RELEASE_CACHE_CONTROL)
+        uploaded += 1
         verify_object(client, key, item.size, item.sha256)
 
     manifest_key = f"{release_prefix}/manifest.json"
     manifest_sha = sha256_bytes(plan.manifest_bytes)
-    if object_matches(client, manifest_key, len(plan.manifest_bytes), manifest_sha):
+    if metadata_matches(client.head_metadata(manifest_key), len(plan.manifest_bytes), manifest_sha):
         skipped += 1
     else:
         client.put_bytes(manifest_key, plan.manifest_bytes, RELEASE_CACHE_CONTROL)
         uploaded += 1
-    verify_object(client, manifest_key, len(plan.manifest_bytes), manifest_sha)
+        verify_object(client, manifest_key, len(plan.manifest_bytes), manifest_sha)
 
     if public_check:
         public_check(plan)
 
     current_key = f"{data_prefix}/current.json"
     previous = client.get_json(current_key) or {}
-    previous_release = previous.get("release") or ""
-    if not RELEASE_RE.fullmatch(str(previous_release)):
-        previous_release = ""
-    pointer = build_pointer(plan, previous_release=previous_release)
+    pointer = build_pointer(plan, previous_release=previous_release_for(previous, plan.release))
     pointer_bytes = json_bytes(pointer)
     client.put_bytes(current_key, pointer_bytes, POINTER_CACHE_CONTROL)
     remote_pointer = client.get_json(current_key) or {}
@@ -335,10 +363,7 @@ def activate_release(client, data_prefix, release):
     verify_manifest_files(client, data_prefix, release, manifest)
     current_key = f"{data_prefix}/current.json"
     current = client.get_json(current_key) or {}
-    previous_release = current.get("release") or ""
-    if not RELEASE_RE.fullmatch(str(previous_release)):
-        previous_release = ""
-    pointer = build_pointer(manifest, previous_release=previous_release)
+    pointer = build_pointer(manifest, previous_release=previous_release_for(current, release))
     pointer_bytes = json_bytes(pointer)
     client.put_bytes(current_key, pointer_bytes, POINTER_CACHE_CONTROL)
     verified = client.get_json(current_key) or {}

@@ -4,7 +4,7 @@ This file records the first split of `site/assets/app.js`. It is meant to keep l
 
 | Module | Main exports | Module state / closure state | Direct imports | Action injection |
 | --- | --- | --- | --- | --- |
-| `../data-source.js` | `initializeDataSource`, `fetchDataJson`, `fetchDataJsonResult`, `getDataSource` | active R2/static release context + one initialization promise | none | none; shared by atlas and community. Official host reads immutable R2 release selected by `current.json`; previews/local editions stay on `/data`, and an R2 file failure falls back to the Pages snapshot |
+| `../data-source.js` | `initializeDataSource`, `fetchDataJson`, `fetchDataJsonResult`, `getDataSource` | active R2/static release context + one initialization promise | none | none; shared by atlas and community. Official host reads the immutable R2 release selected by `current.json`; previews/local editions stay on the deployed `data/`. All paths resolve against `document.baseURI`, so sub-path deployments work. A single R2 file failure falls back to the deployed snapshot, and a fallback of `codexes.json`/`media.json` demotes the whole session to static so gating never mixes a stale index with fresh books |
 | `../app.js` | `init`, `loadCodex`, `openFavoritesView`, `openSiteSearchView`, `applySearch`, `applyFilter` | `codexLoadSeq` | all feature modules | injects router, codex UI, masonry, history, favorites, UI actions before `init()` |
 | `state.js` | constants, `state`, `normalizeDensity`, `densityConfig`, `normalizeSearchScope` | shared `state` object | none | none |
 | `utils.js` | `$`, `safeJsonParse`, path helpers, `prefersReducedMotion`, `updateSearchClear`, `updateScrollProgress`, `clamp`, `esc` | none | none | none |

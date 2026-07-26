@@ -16,11 +16,14 @@ function jsonResponse(value, status = 200) {
   });
 }
 
-async function loadCase({ hostname, protocol = 'https:', responses, localEdition = false }) {
+async function loadCase({ hostname, protocol = 'https:', responses, localEdition = false, basePath = '/' }) {
   caseNumber += 1;
-  const href = `${protocol}//${hostname}/`;
+  const href = `${protocol}//${hostname}${basePath}`;
   globalThis.location = { href, hostname, protocol };
-  globalThis.document = { body: { classList: { contains: name => localEdition && name === 'local-edition' } } };
+  globalThis.document = {
+    baseURI: href,
+    body: { classList: { contains: name => localEdition && name === 'local-edition' } },
+  };
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     const key = String(url);
@@ -117,6 +120,52 @@ try {
     assert.equal(result.source, 'static');
     assert.equal(result.data.id, 'local-edition');
     assert.equal(calls.length, 1);
+  }
+
+  {
+    // 子路径自部署（GitHub Pages 项目站）：所有数据路径都必须相对文档基址解析。
+    const responses = {
+      'https://agizt.github.io/NovelAI-Tag/data-source.json': jsonResponse({
+        schemaVersion: 1,
+        baseUrl: 'https://assets.quicktagcloud.com/data',
+        pointer: 'current.json',
+        remoteHosts: ['novelai.quicktagcloud.com'],
+      }),
+      'https://agizt.github.io/NovelAI-Tag/data/codexes.json': jsonResponse([{ id: 'subpath' }]),
+    };
+    const { mod } = await loadCase({
+      hostname: 'agizt.github.io',
+      basePath: '/NovelAI-Tag/',
+      responses,
+    });
+    const result = await mod.fetchDataJsonResult('codexes.json');
+    assert.equal(result.source, 'static');
+    assert.equal(result.data[0].id, 'subpath');
+  }
+
+  {
+    // 索引回退必须把整个会话降级，后续分书不能再混读 R2。
+    const responses = {
+      'https://novelai.quicktagcloud.com/data-source.json': jsonResponse({
+        schemaVersion: 1,
+        baseUrl: 'https://assets.quicktagcloud.com/data',
+        pointer: 'current.json',
+        remoteHosts: ['novelai.quicktagcloud.com'],
+      }),
+      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release: 'r-0123456789abcdefabcd' }),
+      'https://assets.quicktagcloud.com/data/releases/r-0123456789abcdefabcd/codexes.json': new Error('cors failed'),
+      'https://novelai.quicktagcloud.com/data/codexes.json': jsonResponse([{ id: 'snapshot' }]),
+      'https://novelai.quicktagcloud.com/data/demo.json': jsonResponse({ id: 'snapshot-book' }),
+    };
+    const { mod, calls } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
+    const index = await mod.fetchDataJsonResult('codexes.json');
+    assert.equal(index.source, 'static-fallback');
+    assert.equal(mod.getDataSource().mode, 'static');
+
+    const book = await mod.fetchDataJsonResult('demo.json');
+    assert.equal(book.source, 'static-fallback');
+    assert.equal(book.data.id, 'snapshot-book');
+    assert.equal(calls.some(call => call.url.includes('/releases/') && call.url.endsWith('demo.json')), false);
   }
 
   console.log('data-source tests passed');

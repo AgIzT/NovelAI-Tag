@@ -488,7 +488,10 @@ class R2Client:
         raise RuntimeError(f"request failed after {attempts} attempt(s): {label}")
 
     def head(self, key):
-        return self._request("HEAD", key)
+        return self._request("HEAD", key, retry_statuses=RETRYABLE_REQUEST_STATUSES)
+
+    def get(self, key):
+        return self._request("GET", key, retry_statuses=RETRYABLE_REQUEST_STATUSES)
 
     def put_file(self, key, path, sha, cache_control):
         with open(path, "rb") as fh:

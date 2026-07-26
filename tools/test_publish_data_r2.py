@@ -13,6 +13,9 @@ from tools.publish_data_r2 import (
 )
 
 
+ROLLBACK_TARGET = "r-11111111111111111111"
+
+
 class FakeClient:
     def __init__(self):
         self.objects = {}
@@ -43,6 +46,14 @@ class FakeClient:
         return json.loads(item["body"].decode("utf-8")) if item else None
 
 
+def seed_pointer(client, release):
+    client.objects["data/current.json"] = {
+        "body": json.dumps({"release": release}).encode(),
+        "sha256": "",
+        "cache": POINTER_CACHE_CONTROL,
+    }
+
+
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
@@ -56,7 +67,7 @@ def make_data(root):
     write_json(root / "media.json", {})
     write_json(root / "strings_index.json", {})
     write_json(root / "strings.json", {})
-    write_json(root / "share-index.json", {"codexes": {}})
+    write_json(root / "share-index.json", {"codexes": {"demo": {"id": "demo", "shareable": True}}})
     write_json(root / "share" / "demo.json", {"id": "demo"})
 
 
@@ -81,22 +92,57 @@ class PublishDataR2Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "codex data file is missing"):
                 build_release_plan(root)
 
+    def test_missing_share_shard_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            (root / "share" / "demo.json").unlink()
+            with self.assertRaisesRegex(ValueError, "share shard is missing"):
+                build_release_plan(root)
+
     def test_pointer_is_written_last_and_tracks_previous_release(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             make_data(root)
             plan = build_release_plan(root)
             client = FakeClient()
-            client.objects["data/current.json"] = {
-                "body": json.dumps({"release": "r-11111111111111111111"}).encode(),
-                "sha256": "",
-                "cache": POINTER_CACHE_CONTROL,
-            }
+            seed_pointer(client, ROLLBACK_TARGET)
             result = publish_release(client, plan)
             self.assertEqual(client.operations[-1], ("put", "data/current.json"))
             self.assertEqual(result["pointer"]["release"], plan.release)
-            self.assertEqual(result["pointer"]["previousRelease"], "r-11111111111111111111")
+            self.assertEqual(result["pointer"]["previousRelease"], ROLLBACK_TARGET)
             self.assertEqual(client.objects["data/current.json"]["cache"], POINTER_CACHE_CONTROL)
+
+    def test_republishing_same_data_keeps_the_rollback_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            plan = build_release_plan(root)
+            client = FakeClient()
+            seed_pointer(client, ROLLBACK_TARGET)
+            publish_release(client, plan)
+            # 发布数据.bat 之后再跑发布.bat 会重发同一批数据，回滚目标不能被抹掉。
+            again = publish_release(client, plan)
+            self.assertEqual(again["pointer"]["previousRelease"], ROLLBACK_TARGET)
+            self.assertEqual(activate_release(client, "data", plan.release)["previousRelease"], ROLLBACK_TARGET)
+
+    def test_rollback_and_forward_ping_pong(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            first = build_release_plan(root)
+            client = FakeClient()
+            publish_release(client, first)
+            write_json(root / "about.json", {"changed": True})
+            second = build_release_plan(root)
+            publish_release(client, second)
+
+            back = activate_release(client, "data", client.get_json("data/current.json")["previousRelease"])
+            self.assertEqual(back["release"], first.release)
+            self.assertEqual(back["previousRelease"], second.release)
+            forward = activate_release(client, "data", back["previousRelease"])
+            self.assertEqual(forward["release"], second.release)
+            self.assertEqual(forward["previousRelease"], first.release)
 
     def test_failed_release_does_not_update_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:
