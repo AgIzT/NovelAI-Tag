@@ -2,7 +2,7 @@ import { state, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
 import { setLoading, showSkeleton, hideSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
-import { loadMedia, loadAbout, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries } from './app/data.js';
+import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries } from './app/data.js';
 import { parseSearchQuery, matchSearchPlan } from './app/search.js';
 import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
 import { isFav, setFavoritesActions, toggleFav } from './app/favorites.js';
@@ -65,11 +65,7 @@ export async function init() {
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
     applyDensity(localStorage.getItem(DENSITY_STORAGE_KEY), { render: false });
     state.searchScope = normalizeSearchScope(localStorage.getItem(SEARCH_SCOPE_STORAGE_KEY));
-    const [codexes, media, about] = await Promise.all([
-      fetch('data/codexes.json', { cache: 'no-store' }).then(r => r.json()),
-      loadMedia(),
-      loadAbout(),
-    ]);
+    const { codexes, media, about } = await loadBootstrapData();
     state.codexes = codexes;
     state.media = { ...state.media, ...media };
     state.about = about;

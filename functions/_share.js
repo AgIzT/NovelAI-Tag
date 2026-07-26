@@ -4,6 +4,7 @@ const CACHE_CONTROL = 'public, max-age=300, s-maxage=3600, stale-while-revalidat
 const SITE_NAME = '法典图鉴';
 const SITE_TITLE = '法典图鉴 | NovelAI Tag Atlas';
 const SITE_DESCRIPTION = '按图挑选 NovelAI 提示词、画风串与法典条目。';
+const RELEASE_RE = /^r-[0-9a-f]{20}$/;
 
 function htmlEscape(value) {
   return String(value == null ? '' : value)
@@ -83,6 +84,56 @@ async function readAssetJson(context, pathname) {
   return res.json();
 }
 
+function normalizedDataPrefix(env) {
+  const prefix = String(env?.ATLAS_DATA_PREFIX || 'data').trim().replace(/^\/+|\/+$/g, '');
+  return prefix && !prefix.split('/').includes('..') ? prefix : 'data';
+}
+
+function publishedDataEnabled(context) {
+  if (!context?.env?.ATLAS_DATA_BUCKET) return false;
+  const hosts = String(context.env.ATLAS_DATA_HOSTS || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const hostname = new URL(context.request.url).hostname;
+  return hosts.includes('*') || hosts.includes(hostname);
+}
+
+async function readR2Json(bucket, key) {
+  const object = await bucket.get(key);
+  if (!object) throw new Error(`share R2 object missing: ${key}`);
+  try {
+    return await object.json();
+  } catch (ex) {
+    throw new Error(`share R2 JSON invalid: ${key}: ${ex.message || ex}`);
+  }
+}
+
+async function loadShareDataset(context) {
+  if (publishedDataEnabled(context)) {
+    try {
+      const prefix = normalizedDataPrefix(context.env);
+      const current = await readR2Json(context.env.ATLAS_DATA_BUCKET, `${prefix}/current.json`);
+      const release = String(current?.release || '');
+      if (!RELEASE_RE.test(release)) throw new Error('share R2 current pointer is invalid');
+      const releasePrefix = `${prefix}/releases/${release}`;
+      const read = path => readR2Json(context.env.ATLAS_DATA_BUCKET, `${releasePrefix}/${path}`);
+      const index = await read('share-index.json');
+      return { index, read, release, source: 'r2' };
+    } catch (ex) {
+      console.warn(ex);
+    }
+  }
+
+  const read = path => readAssetJson(context, `/data/${path}`);
+  return {
+    index: await read('share-index.json'),
+    read,
+    release: '',
+    source: 'assets',
+  };
+}
+
 function resolveCodex(index, rawCodexId) {
   if (!rawCodexId || !index || !index.codexes) return null;
   const canonicalId = index.aliases?.[rawCodexId] || rawCodexId;
@@ -124,13 +175,14 @@ async function resolveShareCard(context) {
   const path = parseSharePath(context.request);
   if (!path.ok || !path.codexId) return genericCard(origin);
 
-  let index;
+  let dataset;
   try {
-    index = await readAssetJson(context, '/data/share-index.json');
+    dataset = await loadShareDataset(context);
   } catch (ex) {
     console.warn(ex);
     return genericCard(origin);
   }
+  const index = dataset.index;
 
   const resolved = resolveCodex(index, path.codexId);
   if (!resolved) return genericCard(origin);
@@ -144,7 +196,7 @@ async function resolveShareCard(context) {
 
   let codexShare;
   try {
-    codexShare = await readAssetJson(context, `/data/share/${encodePathPart(codexId)}.json`);
+    codexShare = await dataset.read(`share/${encodePathPart(codexId)}.json`);
   } catch (ex) {
     console.warn(ex);
     return genericCard(origin, targetUrl);

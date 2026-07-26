@@ -7,12 +7,18 @@
     "production": {
       "vars": {
         "STRINGS_PUBLIC_BASE": "https://novelai-strings.quicktagcloud.com",
-        "COMMUNITY_LIKES_ENABLED": "true"
+        "COMMUNITY_LIKES_ENABLED": "true",
+        "ATLAS_DATA_HOSTS": "novelai.quicktagcloud.com",
+        "ATLAS_DATA_PREFIX": "data"
       },
       "r2_buckets": [
         {
           "binding": "STRINGS_BUCKET",
           "bucket_name": "novelai-strings"
+        },
+        {
+          "binding": "ATLAS_DATA_BUCKET",
+          "bucket_name": "novelai-tag-assets"
         }
       ],
       "d1_databases": [

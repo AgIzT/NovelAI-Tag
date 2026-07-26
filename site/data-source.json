@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "baseUrl": "https://assets.quicktagcloud.com/data",
+  "pointer": "current.json",
+  "remoteHosts": [
+    "novelai.quicktagcloud.com"
+  ]
+}

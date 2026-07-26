@@ -1,5 +1,8 @@
 # JS/CSS freshness is controlled only by no-store below.
 # Versioned JS/CSS query strings were intentionally removed; do not add them back.
+/data-source.json
+  Cache-Control: no-store
+
 /assets/app.js
   Cache-Control: no-store
 

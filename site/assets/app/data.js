@@ -2,38 +2,75 @@ import { state } from './state.js';
 import { stripTrailingSlash } from './utils.js';
 import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
+import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource } from '../data-source.js';
+
+const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
+
+export async function loadBootstrapData() {
+  const [indexResult, mediaResult, aboutResult] = await fetchDataJsonBatch([
+    { path: 'codexes.json', cache: 'no-store' },
+    { path: 'media.json', cache: 'no-store', fallbackValue: {} },
+    { path: 'about.json', cache: 'no-store', fallbackValue: EMPTY_ABOUT },
+  ]);
+  return {
+    codexes: Array.isArray(indexResult.data) ? indexResult.data : [],
+    media: mediaResult.data || {},
+    about: aboutResult.data || EMPTY_ABOUT,
+  };
+}
+
+export async function loadCodexIndex() {
+  const data = await fetchDataJson('codexes.json', { cache: 'no-store' });
+  return Array.isArray(data) ? data : [];
+}
 
 export async function loadMedia() {
   try {
-    const res = await fetch('data/media.json', { cache: 'no-store' });
-    if (res.ok) return res.json();
+    return await fetchDataJson('media.json', { cache: 'no-store' });
   } catch {}
   return {};
 }
 
 export async function loadAbout() {
   try {
-    const res = await fetch('data/about.json', { cache: 'no-store' });
-    if (res.ok) return res.json();
+    return await fetchDataJson('about.json', { cache: 'no-store' });
   } catch {}
-  return { links: [], tips: [], credits: [] };
+  return EMPTY_ABOUT;
 }
 
 
 export async function fetchCodex(meta) {
   const key = meta.id || meta.dataUrl;
   if (state.codexCache.has(key)) return state.codexCache.get(key);
-  const url = meta.dataUrl || `data/${meta.id}.json`;
   let data;
   let sourceMeta = meta;
   let shouldCache = true;
   try {
-    data = await fetchJson(url, meta.dataUrl ? 'no-store' : 'default');
+    if (meta.dataUrl) {
+      data = await fetchJson(meta.dataUrl, 'no-store');
+    } else {
+      const result = await fetchDataJsonResult(`${meta.id}.json`);
+      data = result.data;
+      if (result.source === 'r2') {
+        sourceMeta = { ...meta, dataStatus: 'R2 数据', dataRelease: result.release };
+      } else if (result.source === 'static-fallback') {
+        sourceMeta = {
+          ...meta,
+          dataStatus: '静态回退',
+          dataNotice: 'R2 数据文件加载失败，已使用 Pages 稳定快照',
+          dataError: result.error?.message || String(result.error || ''),
+        };
+        shouldCache = false;
+      }
+    }
   } catch (ex) {
     if (!meta.fallbackDataUrl) throw ex;
     console.warn(ex);
     shouldCache = false;
-    data = await fetchJson(meta.fallbackDataUrl, 'default');
+    const fallbackPath = localDataPath(meta.fallbackDataUrl);
+    data = fallbackPath
+      ? await fetchDataJson(fallbackPath)
+      : await fetchJson(meta.fallbackDataUrl, 'default');
     sourceMeta = {
       ...meta,
       sourceDataUrl: meta.dataUrl,
@@ -56,6 +93,11 @@ export async function fetchJson(url, cache = 'default') {
     if (!r.ok) throw new Error(`Failed to load codex: ${url}`);
     return r.json();
   });
+}
+
+function localDataPath(url) {
+  const match = String(url || '').match(/^\/?data\/(.+)$/);
+  return match ? match[1] : '';
 }
 
 export function codexMatches(codex, id) {
@@ -84,6 +126,7 @@ export function normalizeCodex(data, meta = {}) {
     dataStatus: meta.dataStatus || data.dataStatus || (meta.dataUrl ? '外部源' : '本地数据'),
     dataNotice: meta.dataNotice || data.dataNotice || '',
     dataError: meta.dataError || data.dataError || '',
+    dataRelease: meta.dataRelease || data.dataRelease || '',
     source: meta.source || data.source || '',
     contributors: meta.contributors || data.contributors || [],
     links: meta.links || data.links || [],
@@ -193,15 +236,17 @@ export function codexStatusLabel(c) {
 export function codexStatusClass(c) {
   const label = codexStatusLabel(c);
   if (label.includes('快照') || label.includes('失败')) return 'warn';
-  if (label.includes('外部')) return 'remote';
+  if (label.includes('外部') || label.includes('R2')) return 'remote';
   return 'local';
 }
 
 export function codexStatusTitle(c) {
   if (c?.dataNotice) return c.dataNotice;
+  if (c?.dataRelease) return `当前读取 R2 发布：${c.dataRelease}`;
   if (c?.dataUrl) return `当前读取外部源：${c.dataUrl}`;
   if (c?.sourceDataUrl && c?.fallbackDataUrl) return `外部源：${c.sourceDataUrl}\n回退快照：${c.fallbackDataUrl}`;
   if (c?.fallbackDataUrl) return `本地快照：${c.fallbackDataUrl}`;
+  if (getDataSource().mode === 'r2') return '当前读取 R2 数据发布层';
   return '当前读取本地数据';
 }
 

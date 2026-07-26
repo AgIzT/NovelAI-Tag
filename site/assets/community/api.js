@@ -5,6 +5,7 @@ import {
 } from './constants.js';
 import { demoEntries } from './demo.js';
 import { isLocal, normalizeImage } from './utils.js';
+import { fetchDataJson } from '../data-source.js';
 
 export function normalizeCategoryName(value) {
   const text = String(value == null ? '' : value).split('/')[0].replace(/\s+/g, ' ').trim();
@@ -52,7 +53,7 @@ async function fetchJson(url) {
 }
 
 export async function loadCommunityData() {
-  const index = await fetchJson('data/strings_index.json');
+  const index = await fetchDataJson('strings_index.json', { cache: 'no-store' });
   const collection = (index.collections || [])[0] || { name: '共创广场', dataUrl: '/api/community', file: 'strings.json' };
   let raw = null;
   let source = 'api';
@@ -66,7 +67,7 @@ export async function loadCommunityData() {
     }
   }
 
-  if (!raw) raw = await fetchJson('data/' + (collection.file || 'strings.json'));
+  if (!raw) raw = await fetchDataJson(collection.file || 'strings.json', { cache: 'no-store' });
 
   let entries = (raw.entries || []).map(normalizeEntry);
   if (!entries.length && isLocal()) entries = demoEntries().map(normalizeEntry);
