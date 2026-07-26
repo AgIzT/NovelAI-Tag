@@ -4,6 +4,18 @@
   "pages_build_output_dir": "site",
   "compatibility_date": "2026-06-07",
   "env": {
+    "preview": {
+      "vars": {
+        "ATLAS_DATA_HOSTS": "*",
+        "ATLAS_DATA_PREFIX": "data"
+      },
+      "r2_buckets": [
+        {
+          "binding": "ATLAS_DATA_BUCKET",
+          "bucket_name": "novelai-tag-assets"
+        }
+      ]
+    },
     "production": {
       "vars": {
         "STRINGS_PUBLIC_BASE": "https://novelai-strings.quicktagcloud.com",

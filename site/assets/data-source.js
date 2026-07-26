@@ -1,15 +1,16 @@
-/* 数据源解析：正式域读 R2 不可变 release，其余一律读随站点部署的 data/ 快照。
-   路径全部相对于文档基址，子路径部署（GitHub Pages 项目站）同样可用。 */
+/* 数据源解析：正式域优先直连 R2；Pages Preview 与公网直连故障时，
+   通过同源 /data Pages Function 读取同一个不可变 R2 release。
+   localhost、file: 与独立本地版继续读取本机 site/data。 */
 const LOCAL_DATA_BASE = 'data';
 const CONFIG_URL = 'data-source.json';
 const RELEASE_RE = /^r-[0-9a-f]{20}$/;
-/* 索引类文件决定分级门控与图片来源，一旦回退就把整个会话降级，
-   避免"新 release 的分书 + 旧快照的索引"混读造成门控错配。 */
+/* 索引类文件决定分级门控与图片来源，一旦公网直连失败就把整个会话
+   切到同一 release 的 Pages 代理，避免不同 release 混读造成门控错配。 */
 const DEMOTING_PATHS = new Set(['codexes.json', 'media.json']);
 
 let sourcePromise = null;
 let activeSource = {
-  mode: 'static',
+  mode: 'local',
   baseUrl: LOCAL_DATA_BASE,
   release: '',
   publishedAt: '',
@@ -80,38 +81,79 @@ function validateConfig(config) {
   return { baseUrl, pointer };
 }
 
-function demoteToStatic(error) {
+async function selectReleaseSource(mode, baseUrl, pointer, { degraded = false, error = null } = {}) {
+  const current = await fetchJsonUrl(joinBase(baseUrl, pointer), 'no-store');
+  const release = String(current?.release || '');
+  if (!RELEASE_RE.test(release)) throw new Error('Invalid R2 data release pointer');
   activeSource = {
-    mode: 'static',
+    mode,
+    baseUrl: `${stripTrailingSlash(baseUrl)}/releases/${release}`,
+    release,
+    publishedAt: String(current.publishedAt || ''),
+    degraded,
+    ...(error ? { error } : {}),
+  };
+  return activeSource;
+}
+
+function localSource(error = null) {
+  activeSource = {
+    mode: 'local',
     baseUrl: LOCAL_DATA_BASE,
     release: '',
     publishedAt: '',
+    degraded: false,
+    ...(error ? { error } : {}),
+  };
+  return activeSource;
+}
+
+function proxySourceForRelease(source, error) {
+  activeSource = {
+    mode: 'proxy',
+    baseUrl: `${LOCAL_DATA_BASE}/releases/${source.release}`,
+    release: source.release,
+    publishedAt: source.publishedAt,
     degraded: true,
     error,
   };
+  return activeSource;
 }
 
 export async function initializeDataSource() {
   if (!sourcePromise) {
     sourcePromise = (async () => {
-      if (isLocalRuntime()) return;
+      if (isLocalRuntime()) return localSource();
+
+      let config;
       try {
-        const config = await fetchJsonUrl(absoluteSiteUrl(CONFIG_URL), 'no-store');
-        if (!remoteHostAllowed(config)) return;
-        const { baseUrl, pointer } = validateConfig(config);
-        const current = await fetchJsonUrl(joinBase(baseUrl, pointer), 'no-store');
-        const release = String(current?.release || '');
-        if (!RELEASE_RE.test(release)) throw new Error('Invalid R2 data release pointer');
-        activeSource = {
-          mode: 'r2',
-          baseUrl: `${baseUrl}/releases/${release}`,
-          release,
-          publishedAt: String(current.publishedAt || ''),
-          degraded: false,
-        };
+        config = await fetchJsonUrl(absoluteSiteUrl(CONFIG_URL), 'no-store');
+        if (remoteHostAllowed(config)) {
+          const { baseUrl, pointer } = validateConfig(config);
+          try {
+            return await selectReleaseSource('r2', baseUrl, pointer);
+          } catch (error) {
+            console.warn('Public R2 data source unavailable; using the Pages data proxy.', error);
+            try {
+              return await selectReleaseSource('proxy', LOCAL_DATA_BASE, 'current.json', {
+                degraded: true,
+                error,
+              });
+            } catch (proxyError) {
+              console.warn('Pages data proxy unavailable; trying local site data.', proxyError);
+              return localSource(proxyError);
+            }
+          }
+        }
       } catch (error) {
-        console.warn('R2 data source unavailable; using the deployed snapshot.', error);
-        activeSource = { ...activeSource, error };
+        console.warn('Data source config unavailable; trying the Pages data proxy.', error);
+      }
+
+      try {
+        return await selectReleaseSource('proxy', LOCAL_DATA_BASE, 'current.json');
+      } catch (error) {
+        console.warn('Pages data proxy unavailable; trying local site data.', error);
+        return localSource(error);
       }
     })();
   }
@@ -125,7 +167,8 @@ export function getDataSource() {
 
 function sourceLabel(source) {
   if (source.mode === 'r2') return 'r2';
-  return source.degraded ? 'static-fallback' : 'static';
+  if (source.mode === 'proxy') return source.degraded ? 'proxy-fallback' : 'proxy';
+  return 'local';
 }
 
 function normalizeBatchRequest(request) {
@@ -138,35 +181,35 @@ function normalizeBatchRequest(request) {
   };
 }
 
-async function fetchStaticResult(spec, source, primaryError = null) {
-  const url = joinBase(LOCAL_DATA_BASE, spec.path);
+async function fetchSourceResult(spec, source, primaryError = null) {
+  const url = joinBase(source.baseUrl, spec.path);
   try {
     return {
       data: await fetchJsonUrl(url, primaryError || source.degraded ? 'no-store' : spec.cache),
-      source: primaryError ? 'static-fallback' : sourceLabel(source),
+      source: primaryError ? 'proxy-fallback' : sourceLabel(source),
       url,
-      release: '',
+      release: source.release,
       ...(primaryError ? { error: primaryError } : {}),
     };
   } catch (error) {
     if (!spec.hasFallbackValue) throw error;
     return {
       data: spec.fallbackValue,
-      source: primaryError ? 'static-fallback' : sourceLabel(source),
+      source: sourceLabel(source),
       url,
-      release: '',
+      release: source.release,
       error,
     };
   }
 }
 
-/* 启动数据必须按批次决定数据源：任何 demoting path 失败，或并发期间已有
-   其它请求触发降级，都丢弃本批全部 R2 结果并整批重读部署快照。 */
+/* 启动数据必须按批次决定数据通道：公网 R2 的 demoting path 失败时，
+   丢弃本批全部结果并从 Pages 代理重读同一个不可变 release。 */
 export async function fetchDataJsonBatch(requests) {
   const specs = Array.from(requests || [], normalizeBatchRequest);
   const source = await initializeDataSource();
   if (source.mode !== 'r2') {
-    return Promise.all(specs.map(spec => fetchStaticResult(spec, source)));
+    return Promise.all(specs.map(spec => fetchSourceResult(spec, source)));
   }
 
   const primary = await Promise.allSettled(specs.map(spec => (
@@ -178,12 +221,19 @@ export async function fetchDataJsonBatch(requests) {
   if (demotingFailure >= 0 || activeSource !== source) {
     const error = demotingFailure >= 0
       ? primary[demotingFailure].reason
-      : activeSource.error || new Error('R2 data source was demoted during batch loading');
-    console.warn('R2 bootstrap data unavailable; reloading the whole batch from the deployed snapshot.', error);
-    if (activeSource === source) demoteToStatic(error);
-    return Promise.all(specs.map(spec => fetchStaticResult(spec, activeSource, error)));
+      : activeSource.error || new Error('R2 data source changed during batch loading');
+    console.warn('R2 bootstrap data unavailable; reloading the same release through Pages.', error);
+    const proxy = activeSource === source ? proxySourceForRelease(source, error) : activeSource;
+    return Promise.all(specs.map(spec => fetchSourceResult(spec, proxy, error)));
   }
 
+  const proxy = {
+    mode: 'proxy',
+    baseUrl: `${LOCAL_DATA_BASE}/releases/${source.release}`,
+    release: source.release,
+    publishedAt: source.publishedAt,
+    degraded: true,
+  };
   return Promise.all(primary.map((result, index) => {
     const spec = specs[index];
     if (result.status === 'fulfilled') {
@@ -194,8 +244,8 @@ export async function fetchDataJsonBatch(requests) {
         release: source.release,
       };
     }
-    console.warn(`R2 data file unavailable; using the deployed snapshot: ${spec.path}`, result.reason);
-    return fetchStaticResult(spec, source, result.reason);
+    console.warn(`R2 data file unavailable; using the Pages proxy: ${spec.path}`, result.reason);
+    return fetchSourceResult(spec, proxy, result.reason);
   }));
 }
 
@@ -211,13 +261,22 @@ export async function fetchDataJsonResult(path, { cache = 'default', allowFallba
     };
   } catch (error) {
     if (source.mode !== 'r2' || !allowFallback) throw error;
-    const fallbackUrl = joinBase(LOCAL_DATA_BASE, path);
-    console.warn(`R2 data file unavailable; using the deployed snapshot: ${path}`, error);
-    const data = await fetchJsonUrl(fallbackUrl, 'no-store');
-    if (DEMOTING_PATHS.has(normalizeKey(path))) demoteToStatic(error);
+    const demoting = DEMOTING_PATHS.has(normalizeKey(path));
+    const proxy = demoting
+      ? proxySourceForRelease(source, error)
+      : {
+          mode: 'proxy',
+          baseUrl: `${LOCAL_DATA_BASE}/releases/${source.release}`,
+          release: source.release,
+          publishedAt: source.publishedAt,
+          degraded: true,
+          error,
+        };
+    const fallbackUrl = joinBase(proxy.baseUrl, path);
+    console.warn(`R2 data file unavailable; using the Pages proxy: ${path}`, error);
     return {
-      data,
-      source: 'static-fallback',
+      data: await fetchJsonUrl(fallbackUrl, 'no-store'),
+      source: 'proxy-fallback',
       url: fallbackUrl,
       release: source.release,
       error,

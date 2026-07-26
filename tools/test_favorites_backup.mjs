@@ -295,39 +295,44 @@ assert.deepEqual(ownerMigrationPlan.next.atlas, [
   { codexId: 'artist_nai45_strings', entryId: 'mengshen_pack-0001' },
 ]);
 
-// 永久兼容表必须和当前真实数据对齐：258 条全命中，旧图包剩余项全不误迁。
-const realCodexes = JSON.parse(await readFile(new URL('../site/data/codexes.json', import.meta.url), 'utf8'));
-const artistStrings = JSON.parse(await readFile(new URL('../site/data/artist_nai45_strings.json', import.meta.url), 'utf8'));
-const mengshenPack = JSON.parse(await readFile(new URL('../site/data/mengshen_pack.json', import.meta.url), 'utf8'));
-const suozhangR18 = JSON.parse(await readFile(new URL('../site/data/suozhang_r18.json', import.meta.url), 'utf8'));
-const movedMengshenEntries = artistStrings.entries.filter(entry => entry.id.startsWith('mengshen_pack-'));
-assert.equal(movedMengshenEntries.length, 258);
-for (const entry of movedMengshenEntries) {
-  assert.deepEqual(
-    canonicalizeAtlasFavorite(
+// 永久兼容表在维护者本机仍和真实数据做全量对齐；公开仓库不再携带这些 JSON。
+try {
+  const realCodexes = JSON.parse(await readFile(new URL('../site/data/codexes.json', import.meta.url), 'utf8'));
+  const artistStrings = JSON.parse(await readFile(new URL('../site/data/artist_nai45_strings.json', import.meta.url), 'utf8'));
+  const mengshenPack = JSON.parse(await readFile(new URL('../site/data/mengshen_pack.json', import.meta.url), 'utf8'));
+  const suozhangR18 = JSON.parse(await readFile(new URL('../site/data/suozhang_r18.json', import.meta.url), 'utf8'));
+  const movedMengshenEntries = artistStrings.entries.filter(entry => entry.id.startsWith('mengshen_pack-'));
+  assert.equal(movedMengshenEntries.length, 258);
+  for (const entry of movedMengshenEntries) {
+    assert.deepEqual(
+      canonicalizeAtlasFavorite(
+        { codexId: 'mengshen_pack', entryId: entry.id },
+        realCodexes,
+      ),
+      { codexId: 'artist_nai45_strings', entryId: entry.id },
+    );
+  }
+  for (const entry of mengshenPack.entries) {
+    assert.deepEqual(
+      canonicalizeAtlasFavorite(
+        { codexId: 'mengshen_pack', entryId: entry.id },
+        realCodexes,
+      ),
       { codexId: 'mengshen_pack', entryId: entry.id },
-      realCodexes,
-    ),
-    { codexId: 'artist_nai45_strings', entryId: entry.id },
-  );
-}
-for (const entry of mengshenPack.entries) {
-  assert.deepEqual(
-    canonicalizeAtlasFavorite(
-      { codexId: 'mengshen_pack', entryId: entry.id },
-      realCodexes,
-    ),
-    { codexId: 'mengshen_pack', entryId: entry.id },
-  );
-}
-for (const entry of suozhangR18.entries) {
-  const sourceCodexId = entry.id.startsWith('codex_6e699406-')
-    ? 'codex_6e699406'
-    : 'codex_8489ac52';
-  assert.deepEqual(
-    canonicalizeAtlasFavorite({ codexId: sourceCodexId, entryId: entry.id }, realCodexes),
-    { codexId: 'suozhang_r18', entryId: entry.id },
-  );
+    );
+  }
+  for (const entry of suozhangR18.entries) {
+    const sourceCodexId = entry.id.startsWith('codex_6e699406-')
+      ? 'codex_6e699406'
+      : 'codex_8489ac52';
+    assert.deepEqual(
+      canonicalizeAtlasFavorite({ codexId: sourceCodexId, entryId: entry.id }, realCodexes),
+      { codexId: 'suozhang_r18', entryId: entry.id },
+    );
+  }
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+  console.log('favorites backup core: skipped local-only site/data compatibility audit');
 }
 
 // 双键提交成功后才返回最终运行态快照。

@@ -26,6 +26,9 @@ originals/
 site/images/
 image.png
 
+# 法典 JSON（本地编辑真相；版本化发布到 R2，不进仓库）
+site/data/
+
 # Cloudflare R2 本地密钥配置
 r2_config.json
 .r2_sync_manifest.json

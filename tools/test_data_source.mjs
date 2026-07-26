@@ -8,11 +8,21 @@ const original = {
 };
 
 let caseNumber = 0;
+const release = 'r-0123456789abcdefabcd';
 
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
     headers: { 'content-type': 'application/json' },
+  });
+}
+
+function config(remoteHosts = ['novelai.quicktagcloud.com']) {
+  return jsonResponse({
+    schemaVersion: 1,
+    baseUrl: 'https://assets.quicktagcloud.com/data',
+    pointer: 'current.json',
+    remoteHosts,
   });
 }
 
@@ -43,17 +53,9 @@ try {
 
   {
     const responses = {
-      'https://novelai.quicktagcloud.com/data-source.json': jsonResponse({
-        schemaVersion: 1,
-        baseUrl: 'https://assets.quicktagcloud.com/data',
-        pointer: 'current.json',
-        remoteHosts: ['novelai.quicktagcloud.com'],
-      }),
-      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({
-        release: 'r-0123456789abcdefabcd',
-        publishedAt: '2026-07-26T00:00:00+00:00',
-      }),
-      'https://assets.quicktagcloud.com/data/releases/r-0123456789abcdefabcd/codexes.json': jsonResponse([{ id: 'remote' }]),
+      'https://novelai.quicktagcloud.com/data-source.json': config(),
+      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release }),
+      [`https://assets.quicktagcloud.com/data/releases/${release}/codexes.json`]: jsonResponse([{ id: 'remote' }]),
     };
     const { mod, calls } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
     const result = await mod.fetchDataJsonResult('codexes.json');
@@ -63,38 +65,46 @@ try {
   }
 
   {
+    const host = 'preview.novelai-tag.pages.dev';
     const responses = {
-      'https://preview.novelai-tag.pages.dev/data-source.json': jsonResponse({
-        schemaVersion: 1,
-        baseUrl: 'https://assets.quicktagcloud.com/data',
-        pointer: 'current.json',
-        remoteHosts: ['novelai.quicktagcloud.com'],
-      }),
-      'https://preview.novelai-tag.pages.dev/data/codexes.json': jsonResponse([{ id: 'preview' }]),
+      [`https://${host}/data-source.json`]: config(),
+      [`https://${host}/data/current.json`]: jsonResponse({ release }),
+      [`https://${host}/data/releases/${release}/codexes.json`]: jsonResponse([{ id: 'preview-proxy' }]),
     };
-    const { mod, calls } = await loadCase({ hostname: 'preview.novelai-tag.pages.dev', responses });
+    const { mod, calls } = await loadCase({ hostname: host, responses });
     const result = await mod.fetchDataJsonResult('codexes.json');
-    assert.equal(result.source, 'static');
-    assert.equal(result.data[0].id, 'preview');
-    assert.equal(calls.some(call => call.url.includes('/data/current.json')), false);
+    assert.equal(result.source, 'proxy');
+    assert.equal(result.data[0].id, 'preview-proxy');
+    assert.equal(result.release, release);
+    assert.equal(calls.some(call => call.url.startsWith('https://assets.quicktagcloud.com/')), false);
   }
 
   {
     const responses = {
-      'https://novelai.quicktagcloud.com/data-source.json': jsonResponse({
-        schemaVersion: 1,
-        baseUrl: 'https://assets.quicktagcloud.com/data',
-        pointer: 'current.json',
-        remoteHosts: ['novelai.quicktagcloud.com'],
-      }),
-      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release: 'r-0123456789abcdefabcd' }),
-      'https://assets.quicktagcloud.com/data/releases/r-0123456789abcdefabcd/demo.json': new Error('cors failed'),
-      'https://novelai.quicktagcloud.com/data/demo.json': jsonResponse({ id: 'fallback' }),
+      'https://novelai.quicktagcloud.com/data-source.json': config(),
+      'https://assets.quicktagcloud.com/data/current.json': new Error('public R2 failed'),
+      'https://novelai.quicktagcloud.com/data/current.json': jsonResponse({ release }),
+      [`https://novelai.quicktagcloud.com/data/releases/${release}/codexes.json`]: jsonResponse([{ id: 'proxy-init' }]),
+    };
+    const { mod } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
+    const result = await mod.fetchDataJsonResult('codexes.json');
+    assert.equal(result.source, 'proxy-fallback');
+    assert.equal(result.data[0].id, 'proxy-init');
+    assert.equal(mod.getDataSource().mode, 'proxy');
+  }
+
+  {
+    const responses = {
+      'https://novelai.quicktagcloud.com/data-source.json': config(),
+      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release }),
+      [`https://assets.quicktagcloud.com/data/releases/${release}/demo.json`]: new Error('cors failed'),
+      [`https://novelai.quicktagcloud.com/data/releases/${release}/demo.json`]: jsonResponse({ id: 'proxy-fallback' }),
     };
     const { mod } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
     const result = await mod.fetchDataJsonResult('demo.json');
-    assert.equal(result.source, 'static-fallback');
-    assert.equal(result.data.id, 'fallback');
+    assert.equal(result.source, 'proxy-fallback');
+    assert.equal(result.data.id, 'proxy-fallback');
+    assert.equal(result.release, release);
   }
 
   {
@@ -103,7 +113,7 @@ try {
     };
     const { mod, calls } = await loadCase({ hostname: 'localhost', protocol: 'http:', responses });
     const result = await mod.fetchDataJsonResult('demo.json');
-    assert.equal(result.source, 'static');
+    assert.equal(result.source, 'local');
     assert.equal(result.data.id, 'local');
     assert.equal(calls.length, 1);
   }
@@ -118,67 +128,46 @@ try {
       localEdition: true,
     });
     const result = await mod.fetchDataJsonResult('demo.json');
-    assert.equal(result.source, 'static');
+    assert.equal(result.source, 'local');
     assert.equal(result.data.id, 'local-edition');
     assert.equal(calls.length, 1);
   }
 
   {
-    // 子路径自部署（GitHub Pages 项目站）：所有数据路径都必须相对文档基址解析。
+    const host = 'agizt.github.io';
+    const basePath = '/NovelAI-Tag/';
     const responses = {
-      'https://agizt.github.io/NovelAI-Tag/data-source.json': jsonResponse({
-        schemaVersion: 1,
-        baseUrl: 'https://assets.quicktagcloud.com/data',
-        pointer: 'current.json',
-        remoteHosts: ['novelai.quicktagcloud.com'],
-      }),
-      'https://agizt.github.io/NovelAI-Tag/data/codexes.json': jsonResponse([{ id: 'subpath' }]),
+      [`https://${host}${basePath}data-source.json`]: config(),
+      [`https://${host}${basePath}data/current.json`]: new Error('no Pages Function'),
+      [`https://${host}${basePath}data/codexes.json`]: jsonResponse([{ id: 'local-subpath' }]),
     };
-    const { mod } = await loadCase({
-      hostname: 'agizt.github.io',
-      basePath: '/NovelAI-Tag/',
-      responses,
-    });
+    const { mod } = await loadCase({ hostname: host, basePath, responses });
     const result = await mod.fetchDataJsonResult('codexes.json');
-    assert.equal(result.source, 'static');
-    assert.equal(result.data[0].id, 'subpath');
+    assert.equal(result.source, 'local');
+    assert.equal(result.data[0].id, 'local-subpath');
   }
 
   {
-    // 索引回退必须把整个会话降级，后续分书不能再混读 R2。
     const responses = {
-      'https://novelai.quicktagcloud.com/data-source.json': jsonResponse({
-        schemaVersion: 1,
-        baseUrl: 'https://assets.quicktagcloud.com/data',
-        pointer: 'current.json',
-        remoteHosts: ['novelai.quicktagcloud.com'],
-      }),
-      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release: 'r-0123456789abcdefabcd' }),
-      'https://assets.quicktagcloud.com/data/releases/r-0123456789abcdefabcd/codexes.json': new Error('cors failed'),
-      'https://novelai.quicktagcloud.com/data/codexes.json': jsonResponse([{ id: 'snapshot' }]),
-      'https://novelai.quicktagcloud.com/data/demo.json': jsonResponse({ id: 'snapshot-book' }),
+      'https://novelai.quicktagcloud.com/data-source.json': config(),
+      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release }),
+      [`https://assets.quicktagcloud.com/data/releases/${release}/codexes.json`]: new Error('index failed'),
+      [`https://novelai.quicktagcloud.com/data/releases/${release}/codexes.json`]: jsonResponse([{ id: 'proxy-index' }]),
+      [`https://novelai.quicktagcloud.com/data/releases/${release}/demo.json`]: jsonResponse({ id: 'proxy-book' }),
     };
     const { mod, calls } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
     const index = await mod.fetchDataJsonResult('codexes.json');
-    assert.equal(index.source, 'static-fallback');
-    assert.equal(mod.getDataSource().mode, 'static');
-
+    assert.equal(index.source, 'proxy-fallback');
+    assert.equal(mod.getDataSource().mode, 'proxy');
     const book = await mod.fetchDataJsonResult('demo.json');
-    assert.equal(book.source, 'static-fallback');
-    assert.equal(book.data.id, 'snapshot-book');
-    assert.equal(calls.some(call => call.url.includes('/releases/') && call.url.endsWith('demo.json')), false);
+    assert.equal(book.source, 'proxy-fallback');
+    assert.equal(book.data.id, 'proxy-book');
+    assert.equal(calls.some(call => call.url.startsWith('https://assets.quicktagcloud.com/') && call.url.endsWith('demo.json')), false);
   }
 
   {
-    // 启动批次中 media 先失败、codexes 后成功时，也必须丢弃已经成功的 R2 索引。
-    const release = 'r-0123456789abcdefabcd';
     const responses = {
-      'https://novelai.quicktagcloud.com/data-source.json': jsonResponse({
-        schemaVersion: 1,
-        baseUrl: 'https://assets.quicktagcloud.com/data',
-        pointer: 'current.json',
-        remoteHosts: ['novelai.quicktagcloud.com'],
-      }),
+      'https://novelai.quicktagcloud.com/data-source.json': config(),
       'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release }),
       [`https://assets.quicktagcloud.com/data/releases/${release}/codexes.json`]: async () => {
         await new Promise(resolve => setTimeout(resolve, 20));
@@ -186,9 +175,9 @@ try {
       },
       [`https://assets.quicktagcloud.com/data/releases/${release}/media.json`]: new Error('media failed first'),
       [`https://assets.quicktagcloud.com/data/releases/${release}/about.json`]: jsonResponse({ intro: 'r2-about' }),
-      'https://novelai.quicktagcloud.com/data/codexes.json': jsonResponse([{ id: 'snapshot-index' }]),
-      'https://novelai.quicktagcloud.com/data/media.json': jsonResponse({ baseUrl: 'snapshot-media' }),
-      'https://novelai.quicktagcloud.com/data/about.json': jsonResponse({ intro: 'snapshot-about' }),
+      [`https://novelai.quicktagcloud.com/data/releases/${release}/codexes.json`]: jsonResponse([{ id: 'proxy-index' }]),
+      [`https://novelai.quicktagcloud.com/data/releases/${release}/media.json`]: jsonResponse({ baseUrl: 'proxy-media' }),
+      [`https://novelai.quicktagcloud.com/data/releases/${release}/about.json`]: jsonResponse({ intro: 'proxy-about' }),
     };
     const { mod } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
     const [index, media, about] = await mod.fetchDataJsonBatch([
@@ -196,13 +185,13 @@ try {
       { path: 'media.json', cache: 'no-store' },
       { path: 'about.json', cache: 'no-store' },
     ]);
-    assert.equal(mod.getDataSource().mode, 'static');
+    assert.equal(mod.getDataSource().mode, 'proxy');
     assert.deepEqual([index.source, media.source, about.source], [
-      'static-fallback', 'static-fallback', 'static-fallback',
+      'proxy-fallback', 'proxy-fallback', 'proxy-fallback',
     ]);
-    assert.equal(index.data[0].id, 'snapshot-index');
-    assert.equal(media.data.baseUrl, 'snapshot-media');
-    assert.equal(about.data.intro, 'snapshot-about');
+    assert.equal(index.data[0].id, 'proxy-index');
+    assert.equal(media.data.baseUrl, 'proxy-media');
+    assert.equal(about.data.intro, 'proxy-about');
   }
 
   console.log('data-source tests passed');
