@@ -16,7 +16,8 @@ let lbSeq = 0;
 let lbCloseTimer = 0;
 let lbSourceImg = null;
 let lbFocusReturn = null;
-const lbPreloadCache = new Set();
+const lbPreloadCache = new Map();
+const LB_PRELOAD_CACHE_LIMIT = 300;
 
 
 export function applyFlyRect(el, rect, radius) {
@@ -234,11 +235,38 @@ export function stepLightbox(delta) {
 }
 
 export function preloadImage(url) {
-  if (!url || lbPreloadCache.has(url)) return;
-  lbPreloadCache.add(url);
+  if (!url) return;
+  if (lbPreloadCache.has(url)) {
+    // Map 的插入顺序兼作轻量 LRU；命中时挪到队尾。
+    const token = lbPreloadCache.get(url);
+    lbPreloadCache.delete(url);
+    lbPreloadCache.set(url, token);
+    return;
+  }
+  while (lbPreloadCache.size >= LB_PRELOAD_CACHE_LIMIT) {
+    lbPreloadCache.delete(lbPreloadCache.keys().next().value);
+  }
+  const token = {};
+  lbPreloadCache.set(url, token);
   const img = new Image();
   img.decoding = 'async';
-  img.src = url;
+  img.onload = () => {
+    img.onload = null;
+    img.onerror = null;
+  };
+  img.onerror = () => {
+    // 失败不留永久命中；下次成为邻图时可以重新预热。
+    if (lbPreloadCache.get(url) === token) lbPreloadCache.delete(url);
+    img.onload = null;
+    img.onerror = null;
+  };
+  try {
+    img.src = url;
+  } catch {
+    if (lbPreloadCache.get(url) === token) lbPreloadCache.delete(url);
+    img.onload = null;
+    img.onerror = null;
+  }
 }
 
 export function preloadLightboxNeighbors() {
@@ -254,6 +282,14 @@ export function preloadLightboxNeighbors() {
     preloadImage(imageItemUrl('image', e, item));
     preloadImage(imageItemUrl('original', e, item));
   }
+}
+
+export function isLightboxKeydownBlocked(ev) {
+  const target = ev.target instanceof HTMLElement ? ev.target : document.activeElement;
+  const tag = target?.tagName;
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
+  const feedbackPanel = $('#feedbackPanel');
+  return Boolean(ev.defaultPrevented || typing || (feedbackPanel && !feedbackPanel.hidden));
 }
 
 export function renderCharacterPrompts(entry) {
@@ -518,6 +554,7 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   });
   window.addEventListener('keydown', ev => {
     if ($('#lightbox').hidden) return;
+    if (isLightboxKeydownBlocked(ev)) return;
     if (ev.key === 'Escape') closeLightbox();
     if (ev.key === 'ArrowLeft') stepLightbox(-1);
     if (ev.key === 'ArrowRight') stepLightbox(1);

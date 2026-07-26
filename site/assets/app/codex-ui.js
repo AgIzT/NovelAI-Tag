@@ -40,6 +40,9 @@ const codexPickerTitle = c => c?.selectorTitle || c?.title || '';
 const realCodexesOfType = typeId => state.codexes.filter(c => codexType(c) === typeId);
 const pickerActiveCodex = () => (state.favoritesView || state.siteSearchView) ? state.browseCodex : state.codex;
 const pickerActiveCodexId = () => pickerActiveCodex()?.id || '';
+const EMPTY_ACCESS_ENTRIES = Object.freeze([]);
+const EMPTY_ACCESS_PATHS = Object.freeze([]);
+let accessViewMemo = null;
 
 const codexUiActions = {
   loadCodex: async () => {},
@@ -52,6 +55,10 @@ const codexUiActions = {
 
 export function setCodexUiActions(actions = {}) {
   Object.assign(codexUiActions, actions);
+}
+
+export function invalidateAccessViewMemo() {
+  accessViewMemo = null;
 }
 
 /* 自绘法典选择器：PC = 类型级联双栏（左类型轨 + 右列表）；移动端 = 分组下拉（各类型小标题 + 条目堆叠）。
@@ -351,7 +358,7 @@ export function updateCodexPickerState() {
 
 export function accessHiddenCount() {
   if (!state.codex) return 0;
-  return (state.codex.entries || []).filter(isEntryAccessBlocked).length;
+  return accessViewSnapshot().hiddenCount;
 }
 
 export function visibleEntryCount() {
@@ -493,7 +500,29 @@ export function closeCodexPicker(options = {}) {
 }
 
 export function visibleTree() {
-  return buildAccessTree(state.codex?.entries || [], state.codex?.emptyCategories);
+  return accessViewSnapshot().tree;
+}
+
+function accessViewSnapshot() {
+  const entries = state.codex?.entries || EMPTY_ACCESS_ENTRIES;
+  const emptyPaths = state.codex?.emptyCategories || EMPTY_ACCESS_PATHS;
+  const allowNsfw = state.allowNsfw;
+  const allowR18g = state.allowR18g;
+  if (
+    accessViewMemo?.entries === entries &&
+    accessViewMemo.emptyPaths === emptyPaths &&
+    accessViewMemo.allowNsfw === allowNsfw &&
+    accessViewMemo.allowR18g === allowR18g
+  ) return accessViewMemo;
+
+  accessViewMemo = {
+    entries,
+    emptyPaths,
+    allowNsfw,
+    allowR18g,
+    ...buildAccessView(entries, emptyPaths),
+  };
+  return accessViewMemo;
 }
 
 function nsfwLockStart(entry, path) {
@@ -502,9 +531,11 @@ function nsfwLockStart(entry, path) {
   return nsfwIndex >= 0 ? nsfwIndex : 0;
 }
 
-function buildAccessTree(entries, emptyPaths) {
+function buildAccessView(entries, emptyPaths) {
   const root = new Map();
+  let hiddenCount = 0;
   for (const entry of entries) {
+    if (isEntryAccessBlocked(entry)) hiddenCount += 1;
     if (!state.allowR18g && isR18gEntry(entry)) continue;
     const path = Array.isArray(entry.path) ? entry.path : [];
     const lockFrom = nsfwLockStart(entry, path);
@@ -533,7 +564,7 @@ function buildAccessTree(entries, emptyPaths) {
     locked: Boolean(n.locked),
     children: toList(n.children),
   }));
-  return toList(root);
+  return { tree: toList(root), hiddenCount };
 }
 
 export function buildNodes(nodes, parent, prefix, depth) {

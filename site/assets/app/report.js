@@ -39,6 +39,7 @@ export function setupReport() {
   mask.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {
       ev.preventDefault();
+      ev.stopPropagation();
       closeMask(mask);
       return;
     }
