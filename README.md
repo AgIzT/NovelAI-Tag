@@ -16,7 +16,7 @@
 
 ## 🚀 本地使用与编辑（Windows）
 
-1. 前往 [GitHub Releases](https://github.com/AgIzT/NovelAI-Tag/releases)，下载最新的 `法典图鉴本地版-YYYYMMDD.zip`。
+1. 前往 [GitHub Releases](https://github.com/AgIzT/NovelAI-Tag/releases)，下载最新的 `NovelAI-Tag-Local-YYYYMMDD.zip`（GitHub 资产名限用英文；解压后即「法典图鉴本地版」）。
 2. 完整解压 ZIP。
 3. 双击 `法典图鉴本地版.exe`。如果 EXE 无法直接启动，可改用同目录的 `启动法典图鉴.bat`。
 4. 浏览器会自动打开，编辑模式首次默认开启；可通过顶栏铅笔按钮切换编辑与展示模式。编辑模式下点击卡片可修改词条和图片；点击顶部法典名称，再从菜单底部进入“法典管理”，即可新建、修改或删除法典。
@@ -40,7 +40,7 @@
 
 ## 📁 目录结构
 ```
-法典源/            法典 .docx 源文件
+法典源/            法典 .docx 源文件（维护者本地目录；.docx 被 Git 忽略，不随仓库分发）
 tools/
   convert.py       docx -> 网站数据(JSON)
   imgserver.py     本地配图服务
@@ -55,8 +55,8 @@ site/              ← 部署的网站本体
   data-source.json 正式域名的 R2 数据入口
 functions/         Cloudflare Pages Functions（R2 数据代理 / 投稿 / 反馈 / 喜欢后端）
 法典图鉴.bat       ← 总控台（唯一入口，只做菜单，动作都委托给下面这些）
-单项工具/          编辑器 / 配图 / 转换法典 / 发布数据 / 发布程序 / 回滚数据 /
-                   打包本地版 / 预览 / 本地后端测试 / 回归验证 / 清理 / 数据库迁移
+单项工具/          编辑器 / 配图 / 画师串编辑 / 转换法典 / 发布数据 / 发布程序 /
+                   回滚数据 / 打包本地版 / 预览 / 本地后端测试 / 回归验证 / 清理 / 数据库迁移
 originals/ 与 site/images/ 是本地图片缓存，会同步到 R2。
 ```
 

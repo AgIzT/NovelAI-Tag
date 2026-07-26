@@ -30,6 +30,8 @@
 | `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器（:8769）：主站"编辑模式"的写后端，词条/分类/图片编辑，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
 | `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:8767）。⚠ 别和法典编辑器同时开 | 页面操作才写 |
 | `strings_server.py` + `strings_editor.html` | 画师串编辑器（:8768） | 页面操作才写 |
+| `build_local_edition.py` | `单项工具/打包本地版.bat` / 总控台菜单 7 的内核：按白名单生成独立本地发行包 + zip（见 docs/decisions/独立本地发行版.md） | 不改仓库数据；默认写 `output/local-edition/` |
+| `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 仓库内不单独运行 |
 | `backfill_pack_character_prompts.py` | 从原图幂等回填两本图包的 NAI V4 角色提示词 | 默认预演；`--apply` 才写 |
 
 ## 现役 · NAI API 批量例图补全套件
@@ -66,7 +68,7 @@
 
 ## 🧪 测试
 
-`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_share_backend.mjs` · `test_favorites_backup.mjs` · `test_favorites_origin_migration.mjs`（Node）。
+`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_favorites_backup.mjs` · `test_favorites_origin_migration.mjs`（Node）。
 
 `__pycache__/` 是 Python 缓存，忽略。
 
