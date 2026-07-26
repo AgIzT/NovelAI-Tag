@@ -2,11 +2,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.publish_data_r2 import (
     POINTER_CACHE_CONTROL,
     activate_release,
     build_release_plan,
+    check_public_release,
     check_current_release,
     publish_release,
     sha256_bytes,
@@ -72,6 +74,36 @@ def make_data(root):
 
 
 class PublishDataR2Tests(unittest.TestCase):
+    def test_public_release_check_uses_explicit_user_agent_and_origin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            plan = build_release_plan(root)
+
+            class FakeResponse:
+                headers = {"Access-Control-Allow-Origin": "https://novelai.quicktagcloud.com"}
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def read(self):
+                    return plan.manifest_bytes
+
+            with patch("tools.publish_data_r2.urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+                check_public_release(
+                    "https://assets.quicktagcloud.com",
+                    "https://novelai.quicktagcloud.com",
+                    "data",
+                    plan,
+                )
+
+            request = urlopen.call_args.args[0]
+            self.assertEqual(request.get_header("Origin"), "https://novelai.quicktagcloud.com")
+            self.assertEqual(request.get_header("User-agent"), "NovelAI-Tag-Data-Publisher/1.0")
+
     def test_release_is_deterministic_and_covers_share_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

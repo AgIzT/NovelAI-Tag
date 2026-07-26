@@ -288,7 +288,16 @@ def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30):
     if not public_data_base.endswith("/" + data_prefix):
         public_data_base += "/" + data_prefix
     url = f"{public_data_base}/releases/{plan.release}/manifest.json"
-    request = urllib.request.Request(url, headers={"Origin": site_origin, "Accept": "application/json"})
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Origin": site_origin,
+            "Accept": "application/json",
+            # Cloudflare may challenge Python urllib's default user agent even when
+            # the public object and CORS policy are both valid.
+            "User-Agent": "NovelAI-Tag-Data-Publisher/1.0",
+        },
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read()
