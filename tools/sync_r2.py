@@ -20,6 +20,7 @@ import mimetypes
 import os
 import posixpath
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -60,8 +61,20 @@ def load_json(path, default=None):
 
 
 def write_json(path, data, indent=None):
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=indent)
+    path = Path(path)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=indent)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def sha256_hex(path):
@@ -190,10 +203,12 @@ def media_from_config(cfg):
 
 def codex_files():
     for path in sorted(DATA_DIR.glob("*.json")):
-        if path.name in ("codexes.json", "media.json"):
+        if path.name in ("codexes.json", "media.json") or path.name.startswith("strings"):
             continue
         data = load_json(path, {})
         if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+            continue
+        if not isinstance(data.get("id"), str) or not data["id"] or data["id"] != path.stem:
             continue
         yield path
 
@@ -496,6 +511,13 @@ class R2Client:
     def put_file(self, key, path, sha, cache_control):
         with open(path, "rb") as fh:
             body = fh.read()
+        actual_sha = hashlib.sha256(body).hexdigest()
+        if actual_sha != sha:
+            raise RuntimeError(
+                f"file changed during upload: {path} "
+                f"(planned sha256 {sha}, current sha256 {actual_sha}); "
+                "close the editor/image tool and rerun"
+            )
         return self.put_bytes(key, body, sha, guess_type(path), cache_control)
 
     def put_bytes(self, key, body, sha, content_type, cache_control):

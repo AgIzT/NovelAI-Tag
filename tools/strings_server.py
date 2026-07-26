@@ -8,7 +8,7 @@
   POST /__strings__?action=upload → 上传图片并压缩
 用法：python tools/strings_server.py
 """
-import http.server, socketserver, json, os, io, re, threading, urllib.parse, time
+import http.server, socketserver, json, os, io, re, threading, urllib.parse, time, tempfile
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +20,46 @@ MAXDIM = 1100
 PORT = 8768
 LOCK = threading.Lock()
 SAFE_ENTRY_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+SAFE_COLLECTION_FILE = re.compile(r"^strings(?:_[A-Za-z0-9_-]+)?\.json$")
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _is_loopback_origin(origin):
+    if not origin:
+        return True
+    try:
+        host = urllib.parse.urlsplit(origin).hostname or ""
+    except ValueError:
+        host = ""
+    return host in LOOPBACK_HOSTS
+
+
+def _collection_path(filename):
+    if not isinstance(filename, str) or filename != os.path.basename(filename):
+        raise ValueError("invalid file")
+    if filename == "strings_index.json" or not SAFE_COLLECTION_FILE.fullmatch(filename):
+        raise ValueError("invalid file")
+    base = os.path.abspath(DATA)
+    target = os.path.abspath(os.path.join(base, filename))
+    if not target.startswith(base + os.sep):
+        raise ValueError("invalid file")
+    return target
+
+
+def _atomic_write_json(path, data):
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -47,6 +87,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         action = qs.get("action", [""])[0]
 
         if path == "/__strings__":
+            if not _is_loopback_origin(self.headers.get("Origin")):
+                self._serve_json({"ok": False, "error": "只接受本机页面的写请求"}, 403)
+                return
             if action == "save":
                 self._handle_save()
             elif action == "upload":
@@ -62,21 +105,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def _resolve_file(self, qs):
         fn = qs.get("file", ["strings.json"])[0]
-        fn = os.path.basename(fn)
-        if not fn.endswith(".json"):
-            raise ValueError("invalid file")
-        return os.path.join(DATA, fn)
+        return _collection_path(fn)
 
     def _handle_save(self):
         try:
             qs = urllib.parse.parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
-            target = self._resolve_file(qs)
+            try:
+                target = self._resolve_file(qs)
+            except ValueError:
+                self._serve_json({"ok": False, "error": "invalid file"}, 400)
+                return
             ln = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(ln))
             self._normalize_images(data)
             with LOCK:
-                with open(target, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+                _atomic_write_json(target, data)
             self._serve_json({"ok": True})
         except Exception as ex:
             self._serve_json({"ok": False, "error": str(ex)}, 500)
@@ -101,7 +144,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             fid = "str_" + hex(int(time.time() * 1000) % 0xFFFFF)[2:]
             fn = f"strings_{fid}.json"
-            fp = os.path.join(DATA, fn)
+            fp = _collection_path(fn)
             if os.path.exists(fp):
                 self._serve_json({"ok": False, "error": "该名称对应的文件已存在，换个名字试试"}, 400)
                 return
@@ -113,8 +156,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 "entries": []
             }
             with LOCK:
-                with open(fp, "w", encoding="utf-8") as f:
-                    json.dump(scaffold, f, ensure_ascii=False, indent=2)
+                _atomic_write_json(fp, scaffold)
 
                 idx_data = {"collections": []}
                 if os.path.exists(STRINGS_INDEX):
@@ -126,8 +168,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "author": "",
                     "file": fn
                 })
-                with open(STRINGS_INDEX, "w", encoding="utf-8") as f:
-                    json.dump(idx_data, f, ensure_ascii=False, indent=2)
+                _atomic_write_json(STRINGS_INDEX, idx_data)
 
             self._serve_json({"ok": True, "file": fn, "name": name})
         except Exception as ex:
@@ -141,19 +182,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if not target_file:
                 self._serve_json({"ok": False, "error": "缺少 file 参数"}, 400)
                 return
-            target_file = os.path.basename(target_file)
-            if not target_file.endswith(".json") or target_file == "strings_index.json":
+            try:
+                fp = _collection_path(target_file)
+            except ValueError:
                 self._serve_json({"ok": False, "error": "invalid file"}, 400)
                 return
 
-            fp = os.path.join(DATA, target_file)
             with LOCK:
                 if os.path.exists(STRINGS_INDEX):
                     with open(STRINGS_INDEX, "r", encoding="utf-8") as f:
                         idx_data = json.load(f)
                     idx_data["collections"] = [c for c in idx_data.get("collections", []) if c.get("file") != target_file]
-                    with open(STRINGS_INDEX, "w", encoding="utf-8") as f:
-                        json.dump(idx_data, f, ensure_ascii=False, indent=2)
+                    _atomic_write_json(STRINGS_INDEX, idx_data)
 
                 if os.path.exists(fp):
                     os.remove(fp)
@@ -203,11 +243,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._serve_json({"ok": False, "error": "invalid entryId"}, 400)
                 return
 
-            target_file = os.path.basename(target_file)
-            if not target_file.endswith(".json"):
+            try:
+                target = _collection_path(target_file)
+            except ValueError:
                 self._serve_json({"ok": False, "error": "invalid file"}, 400)
                 return
-            target = os.path.join(DATA, target_file)
 
             ext = self._guess_ext(image_data)
             tdir = os.path.join(SITE, "images", "strings")
@@ -235,8 +275,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         if e.get("id") == entry_id:
                             e["images"] = existing_images
                             break
-                    with open(target, "w", encoding="utf-8") as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    _atomic_write_json(target, data)
 
             self._serve_json({"ok": True, "images": existing_images, "file": tn})
         except Exception as ex:
