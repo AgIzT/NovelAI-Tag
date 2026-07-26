@@ -48,6 +48,83 @@ const applyUrlSearchScope = urlState => {
   state.searchScope = urlSearchScope(urlState);
   updateSearchScopeControl();
 };
+const siteSearchStillWanted = options => Boolean(
+  options.urlState?.q?.trim()
+  || (state.searchScope === 'site' && state.query.trim()),
+);
+
+function renderCodexView(codex, seq, {
+  options,
+  parentScrollY,
+  primeCodexes = [codex],
+  enterView,
+  selectedCodexId,
+  buttonCodex,
+  buttonFallback,
+  metaText,
+  resolveUrlState,
+  applyViewUrlState,
+  resolveQuery,
+}) {
+  if (seq !== codexLoadSeq) return;
+  primeResourceHints({ codexes: primeCodexes });
+  enterView(codex);
+  state.codex = codex;
+  const c = state.codex;
+  const selectId = selectedCodexId(c);
+  const codexSelect = $('#codexSelect');
+  if (codexSelect && selectId) codexSelect.value = selectId;
+  $('#codexTitle').textContent = c.title;
+  $('#codexMeta').textContent = metaText(c);
+  const codexBtnText = $('#codexBtnText');
+  if (codexBtnText) codexBtnText.textContent = codexPickerTitle(buttonCodex(c)) || buttonFallback(c);
+  updateCodexPickerState();
+  const urlState = resolveUrlState(c);
+  applyViewUrlState(urlState, c);
+  const nextPath = normalizeRoutePath(c.tree, urlState?.path || []);
+  state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
+  state.query = resolveQuery(urlState);
+  state.seenAnimated.clear();
+  state.recentRandomIds = [];
+  $('#search').value = state.query;
+  updateSearchClear();
+  renderTree();
+  renderCodexHeader();
+  if (options.saveBrowse === false) suppressBrowseStateSave(2000);
+  applyFilter({ resetScroll: true });
+  syncUrlState({
+    historyMode: historyModeFor(options),
+    transition: options.transition || 'route',
+    consumeLayer: Boolean(options.consumeLayer),
+    parentScrollY,
+    entry: urlState?.entry || '',
+    saveBrowse: options.saveBrowse !== false,
+  });
+  if (urlState?.entry) {
+    window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
+  }
+  setLoading('');
+  notifyCodexDataStatus(c);
+  announceCodexLoaded(c);
+}
+
+async function runCodexViewTransition(seq, render, { wasSwitching, transition }) {
+  /* 换法典用同文档 View Transition 做整页交叉淡化（数据已就绪，回调内纯同步渲染，不冻结页面）；
+     首次进站没有旧画面、减少动效、老浏览器 → 直接渲染 */
+  if (wasSwitching && transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
+    /* 先等选择菜单/面板退场（~180ms）再开始变形——切换动效别被浮层挡住白播一场 */
+    await new Promise(r => setTimeout(r, 170));
+    if (seq !== codexLoadSeq) return;
+    /* vt-codex 只存活于本次过渡：横幅独立变形等换法典专属动画全挂它名下 */
+    const h = document.documentElement;
+    h.classList.add('vt-codex');
+    const vt = document.startViewTransition(render);
+    vt.finished.catch(() => {}).finally(() => h.classList.remove('vt-codex'));
+    await vt.updateCallbackDone;
+  } else {
+    render();
+  }
+}
 
 export async function init() {
   const initSkeletonToken = 'init';
@@ -187,69 +264,31 @@ export async function loadCodex(id, options = {}) {
     const codex = await fetchCodex(meta);
     if (seq !== codexLoadSeq) return;
     const wasSwitching = Boolean(state.codex);
-    const render = () => {
-      if (seq !== codexLoadSeq) return;
-      primeResourceHints({ codexes: [codex] });
-      state.favoritesView = false;
-      state.siteSearchView = false;
-      state.browseCodex = codex;
-      state.searchReturnPath = [];
-      setOnlyFavControl(false);
-      state.codex = codex;
-      const c = state.codex;
-      const codexSelect = $('#codexSelect');
-      if (codexSelect) codexSelect.value = c.id;
-      $('#codexTitle').textContent = c.title;
-      $('#codexMeta').textContent = `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`;
-      const codexBtnText = $('#codexBtnText');
-      if (codexBtnText) codexBtnText.textContent = codexPickerTitle(findCodexMeta(c.id)) || c.title;
-      updateCodexPickerState();
-      const urlState = options.urlState && (!options.urlState.codex || options.urlState.codex === c.id || (c.aliases || []).includes(options.urlState.codex))
+    const render = () => renderCodexView(codex, seq, {
+      options,
+      parentScrollY,
+      enterView: c => {
+        state.favoritesView = false;
+        state.siteSearchView = false;
+        state.browseCodex = c;
+        state.searchReturnPath = [];
+        setOnlyFavControl(false);
+      },
+      selectedCodexId: c => c.id,
+      buttonCodex: c => findCodexMeta(c.id),
+      buttonFallback: c => c.title,
+      metaText: c => `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`,
+      resolveUrlState: c => options.urlState
+        && (!options.urlState.codex || options.urlState.codex === c.id || (c.aliases || []).includes(options.urlState.codex))
         ? options.urlState
-        : null;
-      state.onlyNew = Boolean(urlState?.onlyNew && codexSupportsNewFilter(c));
-      applyUrlSearchScope(urlState);
-      const nextPath = normalizeRoutePath(c.tree, urlState?.path || []);
-      state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
-      state.query = urlState?.q || '';
-      state.seenAnimated.clear();
-      state.recentRandomIds = [];
-      $('#search').value = state.query;
-      updateSearchClear();
-      renderTree();
-      renderCodexHeader();
-      if (options.saveBrowse === false) suppressBrowseStateSave(2000);
-      applyFilter({ resetScroll: true });
-      syncUrlState({
-        historyMode: historyModeFor(options),
-        transition: options.transition || 'route',
-        consumeLayer: Boolean(options.consumeLayer),
-        parentScrollY,
-        entry: urlState?.entry || '',
-        saveBrowse: options.saveBrowse !== false,
-      });
-      if (urlState?.entry) {
-        window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
-      }
-      setLoading('');
-      notifyCodexDataStatus(c);
-      announceCodexLoaded(c);
-    };
-    /* 换法典用同文档 View Transition 做整页交叉淡化（数据已就绪，回调内纯同步渲染，不冻结页面）；
-       首次进站没有旧画面、减少动效、老浏览器 → 直接渲染 */
-    if (wasSwitching && options.transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
-      /* 先等选择菜单/面板退场（~180ms）再开始变形——切换动效别被浮层挡住白播一场 */
-      await new Promise(r => setTimeout(r, 170));
-      if (seq !== codexLoadSeq) return;
-      /* vt-codex 只存活于本次过渡：横幅独立变形等换法典专属动画全挂它名下 */
-      const h = document.documentElement;
-      h.classList.add('vt-codex');
-      const vt = document.startViewTransition(render);
-      vt.finished.catch(() => {}).finally(() => h.classList.remove('vt-codex'));
-      await vt.updateCallbackDone;
-    } else {
-      render();
-    }
+        : null,
+      applyViewUrlState: (urlState, c) => {
+        state.onlyNew = Boolean(urlState?.onlyNew && codexSupportsNewFilter(c));
+        applyUrlSearchScope(urlState);
+      },
+      resolveQuery: urlState => urlState?.q || '',
+    });
+    await runCodexViewTransition(seq, render, { wasSwitching, transition: options.transition });
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
@@ -281,65 +320,28 @@ export async function openFavoritesView(options = {}) {
     const codex = await buildFavoritesCodex();
     if (seq !== codexLoadSeq) return;
     const wasSwitching = Boolean(state.codex);
-    const render = () => {
-      if (seq !== codexLoadSeq) return;
-      primeResourceHints({ codexes: [codex] });
-      state.favoritesView = true;
-      state.siteSearchView = false;
-      state.onlyNew = false;
-      state.searchReturnPath = [];
-      setOnlyFavControl(true);
-      state.codex = codex;
-      const c = state.codex;
-      const baseMeta = findCodexMeta(state.browseCodex?.id);
-      const codexSelect = $('#codexSelect');
-      if (codexSelect && state.browseCodex) codexSelect.value = state.browseCodex.id;
-      $('#codexTitle').textContent = c.title;
-      $('#codexMeta').textContent = `${c.version} · ${c.entryCount} 条`;
-      const codexBtnText = $('#codexBtnText');
-      if (codexBtnText) codexBtnText.textContent = codexPickerTitle(baseMeta || state.browseCodex) || '选择法典';
-      updateCodexPickerState();
-      const urlState = options.urlState && (options.urlState.favorites || options.urlState.codex === FAVORITES_CODEX_ID)
+    const render = () => renderCodexView(codex, seq, {
+      options,
+      parentScrollY,
+      enterView: () => {
+        state.favoritesView = true;
+        state.siteSearchView = false;
+        state.onlyNew = false;
+        state.searchReturnPath = [];
+        setOnlyFavControl(true);
+      },
+      selectedCodexId: () => state.browseCodex?.id || '',
+      buttonCodex: () => findCodexMeta(state.browseCodex?.id) || state.browseCodex,
+      buttonFallback: () => '选择法典',
+      metaText: c => `${c.version} · ${c.entryCount} 条`,
+      resolveUrlState: () => options.urlState
+        && (options.urlState.favorites || options.urlState.codex === FAVORITES_CODEX_ID)
         ? options.urlState
-        : null;
-      applyUrlSearchScope(urlState);
-      const nextPath = normalizeRoutePath(c.tree, urlState?.path || []);
-      state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
-      state.query = urlState?.q || '';
-      state.seenAnimated.clear();
-      state.recentRandomIds = [];
-      $('#search').value = state.query;
-      updateSearchClear();
-      renderTree();
-      renderCodexHeader();
-      if (options.saveBrowse === false) suppressBrowseStateSave(2000);
-      applyFilter({ resetScroll: true });
-      syncUrlState({
-        historyMode: historyModeFor(options),
-        transition: options.transition || 'route',
-        consumeLayer: Boolean(options.consumeLayer),
-        parentScrollY,
-        entry: urlState?.entry || '',
-        saveBrowse: options.saveBrowse !== false,
-      });
-      if (urlState?.entry) {
-        window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
-      }
-      setLoading('');
-      notifyCodexDataStatus(c);
-      announceCodexLoaded(c);
-    };
-    if (wasSwitching && options.transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
-      await new Promise(r => setTimeout(r, 170));
-      if (seq !== codexLoadSeq) return;
-      const h = document.documentElement;
-      h.classList.add('vt-codex');
-      const vt = document.startViewTransition(render);
-      vt.finished.catch(() => {}).finally(() => h.classList.remove('vt-codex'));
-      await vt.updateCallbackDone;
-    } else {
-      render();
-    }
+        : null,
+      applyViewUrlState: urlState => applyUrlSearchScope(urlState),
+      resolveQuery: urlState => urlState?.q || '',
+    });
+    await runCodexViewTransition(seq, render, { wasSwitching, transition: options.transition });
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
@@ -372,66 +374,32 @@ export async function openSiteSearchView(options = {}) {
   try {
     const codex = await buildSiteSearchCodex();
     if (seq !== codexLoadSeq) return;
+    if (!siteSearchStillWanted(options)) return;
     const wasSwitching = Boolean(state.codex);
-    const render = () => {
-      if (seq !== codexLoadSeq) return;
-      primeResourceHints({ codexes: state.codexes });
-      state.favoritesView = false;
-      state.siteSearchView = true;
-      state.onlyNew = false;
-      setOnlyFavControl(false);
-      state.codex = codex;
-      const c = state.codex;
-      const baseMeta = findCodexMeta(state.browseCodex?.id);
-      const codexSelect = $('#codexSelect');
-      if (codexSelect && state.browseCodex) codexSelect.value = state.browseCodex.id;
-      $('#codexTitle').textContent = c.title;
-      $('#codexMeta').textContent = `${c.version} · ${c.entryCount} 条`;
-      const codexBtnText = $('#codexBtnText');
-      if (codexBtnText) codexBtnText.textContent = codexPickerTitle(baseMeta || state.browseCodex) || '选择法典';
-      updateCodexPickerState();
-      const urlState = options.urlState && options.urlState.scope === 'site'
+    const render = () => siteSearchStillWanted(options) && renderCodexView(codex, seq, {
+      options,
+      parentScrollY,
+      primeCodexes: state.codexes,
+      enterView: () => {
+        state.favoritesView = false;
+        state.siteSearchView = true;
+        state.onlyNew = false;
+        setOnlyFavControl(false);
+      },
+      selectedCodexId: () => state.browseCodex?.id || '',
+      buttonCodex: () => findCodexMeta(state.browseCodex?.id) || state.browseCodex,
+      buttonFallback: () => '选择法典',
+      metaText: c => `${c.version} · ${c.entryCount} 条`,
+      resolveUrlState: () => options.urlState && options.urlState.scope === 'site'
         ? options.urlState
-        : null;
-      state.searchScope = 'site';
-      updateSearchScopeControl();
-      const nextPath = normalizeRoutePath(c.tree, urlState?.path || []);
-      state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
-      state.query = urlState?.q ?? state.query;
-      state.seenAnimated.clear();
-      state.recentRandomIds = [];
-      $('#search').value = state.query;
-      updateSearchClear();
-      renderTree();
-      renderCodexHeader();
-      if (options.saveBrowse === false) suppressBrowseStateSave(2000);
-      applyFilter({ resetScroll: true });
-      syncUrlState({
-        historyMode: historyModeFor(options),
-        transition: options.transition || 'route',
-        consumeLayer: Boolean(options.consumeLayer),
-        parentScrollY,
-        entry: urlState?.entry || '',
-        saveBrowse: options.saveBrowse !== false,
-      });
-      if (urlState?.entry) {
-        window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
-      }
-      setLoading('');
-      notifyCodexDataStatus(c);
-      announceCodexLoaded(c);
-    };
-    if (wasSwitching && options.transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
-      await new Promise(r => setTimeout(r, 170));
-      if (seq !== codexLoadSeq) return;
-      const h = document.documentElement;
-      h.classList.add('vt-codex');
-      const vt = document.startViewTransition(render);
-      vt.finished.catch(() => {}).finally(() => h.classList.remove('vt-codex'));
-      await vt.updateCallbackDone;
-    } else {
-      render();
-    }
+        : null,
+      applyViewUrlState: () => {
+        state.searchScope = 'site';
+        updateSearchScopeControl();
+      },
+      resolveQuery: urlState => urlState?.q ?? state.query,
+    });
+    await runCodexViewTransition(seq, render, { wasSwitching, transition: options.transition });
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);

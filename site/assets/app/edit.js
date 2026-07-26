@@ -5,9 +5,11 @@ import { state } from './state.js';
 import { $, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
-import { setCodexUiActions, closeCodexPicker } from './codex-ui.js';
+import { setCodexUiActions, closeCodexPicker, invalidateAccessViewMemo } from './codex-ui.js';
 import { openMask, closeMask, trapFocus } from './modal.js';
 import { fetchDataJson } from '../data-source.js';
+import { invalidateSearchableText } from './search.js';
+import { invalidateSiteSearchCodex } from './site-search.js';
 import {
   buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath, splitTreePath,
 } from './edit-core.js';
@@ -223,9 +225,12 @@ function mountEditDialog(mask, { trigger = document.activeElement } = {}) {
 
 /* 统一 POST：成功返回数据，失败返回 null 并 toast。
    opts.wantError=true 时失败也返回服务器的 {ok:false,code}（调用方需要区分错误种类时用）；
-   opts.silent=true 时不弹 toast。 */
+   opts.silent=true 只抑制服务器返回的预期错误，连接失败始终提示。 */
 async function editFetch(path, body, opts = {}) {
-  if (saving) return null;
+  if (saving) {
+    toast('正在保存，请稍候再试');
+    return null;
+  }
   saving = true;
   try {
     const res = await fetch(path, {
@@ -240,7 +245,7 @@ async function editFetch(path, body, opts = {}) {
     }
     return data;
   } catch (ex) {
-    if (!opts.silent) toast('无法连接编辑服务：' + (ex?.message || ex));
+    toast('无法连接编辑服务：' + (ex?.message || ex));
     return null;
   } finally {
     saving = false;
@@ -366,6 +371,9 @@ async function saveEntry(entry) {
     toast('已保存，分类已更新');
   } else {
     mergeEntryInPlace(entry, res.entry);
+    invalidateAccessViewMemo();
+    invalidateSearchableText(entry);
+    invalidateSiteSearchCodex();
     applyServerCounts(res);
     renderLightbox();
     acts.applyFilter?.({ transition: 'none' });
@@ -408,6 +416,7 @@ async function structuralRefresh({
     onlyNew: Boolean(state.onlyNew),
   };
   const scrollY = Math.max(0, window.scrollY || 0);
+  invalidateSiteSearchCodex();
   state.codexCache?.delete?.(id);
   await acts.loadCodex?.(id, {
     urlState: { ...route, codex: id, entry: '' },
@@ -804,11 +813,14 @@ function openCodexManager() {
   const delBtn = mask.querySelector('#cxDelete');
   if (delBtn) {
     delBtn.onclick = async () => {
-      const name = meta?.title || currentCodexId();
+      const codexId = currentCodexId();
+      const name = meta?.title || codexId;
       if (!window.confirm(`确定删除法典「${name}」？\n数据文件会归档到 output/edit-backups/，图片文件保留在磁盘。`)) return;
       if (!window.confirm('再确认一次：这会把它从法典列表中移除。')) return;
-      const res = await editFetch('/__edit__/codex', { codexId: currentCodexId(), op: 'delete' });
+      const res = await editFetch('/__edit__/codex', { codexId, op: 'delete' });
       if (!res) return;
+      state.codexCache?.delete?.(codexId);
+      invalidateSiteSearchCodex();
       await reloadCodexIndex();
       const next = state.codexes?.[0]?.id;
       if (next) {
@@ -852,6 +864,7 @@ async function reloadCodexIndex() {
   try {
     const list = await fetchDataJson('codexes.json', { cache: 'no-store' });
     state.codexes = list;
+    invalidateSiteSearchCodex();
     const sel = document.getElementById('codexSelect');
     if (sel) {
       const keep = sel.value;

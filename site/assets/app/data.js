@@ -42,52 +42,64 @@ export async function loadAbout() {
 export async function fetchCodex(meta) {
   const key = meta.id || meta.dataUrl;
   if (state.codexCache.has(key)) return state.codexCache.get(key);
-  let data;
-  let sourceMeta = meta;
-  let shouldCache = true;
-  try {
-    if (meta.dataUrl) {
-      data = await fetchJson(meta.dataUrl, 'no-store');
-    } else {
-      const result = await fetchDataJsonResult(`${meta.id}.json`);
-      data = result.data;
-      if (result.source === 'r2') {
-        sourceMeta = { ...meta, dataStatus: 'R2 数据', dataRelease: result.release };
-      } else if (result.source === 'proxy' || result.source === 'proxy-fallback') {
-        sourceMeta = {
-          ...meta,
-          dataStatus: result.source === 'proxy-fallback' ? 'R2 代理回退' : 'R2 数据（Pages 代理）',
-          dataRelease: result.release,
-          dataNotice: result.source === 'proxy-fallback'
-            ? 'R2 公网直连失败，已通过 Pages Functions 读取同一发布版本'
-            : '',
-          dataError: result.error?.message || String(result.error || ''),
-        };
+  const load = (async () => {
+    let data;
+    let sourceMeta = meta;
+    let shouldCache = true;
+    try {
+      if (meta.dataUrl) {
+        data = await fetchJson(meta.dataUrl, 'no-store');
+      } else {
+        const result = await fetchDataJsonResult(`${meta.id}.json`);
+        data = result.data;
+        if (result.source === 'r2') {
+          sourceMeta = { ...meta, dataStatus: 'R2 数据', dataRelease: result.release };
+        } else if (result.source === 'proxy' || result.source === 'proxy-fallback') {
+          sourceMeta = {
+            ...meta,
+            dataStatus: result.source === 'proxy-fallback' ? 'R2 代理回退' : 'R2 数据（Pages 代理）',
+            dataRelease: result.release,
+            dataNotice: result.source === 'proxy-fallback'
+              ? 'R2 公网直连失败，已通过 Pages Functions 读取同一发布版本'
+              : '',
+            dataError: result.error?.message || String(result.error || ''),
+          };
+        }
       }
+    } catch (ex) {
+      if (!meta.fallbackDataUrl) throw ex;
+      console.warn(ex);
+      shouldCache = false;
+      const fallbackPath = localDataPath(meta.fallbackDataUrl);
+      data = fallbackPath
+        ? await fetchDataJson(fallbackPath)
+        : await fetchJson(meta.fallbackDataUrl, 'default');
+      sourceMeta = {
+        ...meta,
+        sourceDataUrl: meta.dataUrl,
+        dataUrl: '',
+        assetBaseUrl: '',
+        assetPathMode: 'codex',
+        dataStatus: '发布回退数据',
+        dataNotice: '外部数据源加载失败，已使用当前 R2 发布中的回退数据',
+        dataError: ex.message || String(ex),
+        version: meta.fallbackVersion || meta.version || data.version,
+      };
     }
-  } catch (ex) {
-    if (!meta.fallbackDataUrl) throw ex;
-    console.warn(ex);
-    shouldCache = false;
-    const fallbackPath = localDataPath(meta.fallbackDataUrl);
-    data = fallbackPath
-      ? await fetchDataJson(fallbackPath)
-      : await fetchJson(meta.fallbackDataUrl, 'default');
-    sourceMeta = {
-      ...meta,
-      sourceDataUrl: meta.dataUrl,
-      dataUrl: '',
-      assetBaseUrl: '',
-      assetPathMode: 'codex',
-      dataStatus: '发布回退数据',
-      dataNotice: '外部数据源加载失败，已使用当前 R2 发布中的回退数据',
-      dataError: ex.message || String(ex),
-      version: meta.fallbackVersion || meta.version || data.version,
-    };
-  }
-  const codex = normalizeCodex(data, sourceMeta);
-  if (shouldCache) state.codexCache.set(key, codex);
-  return codex;
+    return { codex: normalizeCodex(data, sourceMeta), shouldCache };
+  })();
+  const cached = load.then(
+    ({ codex, shouldCache }) => {
+      if (!shouldCache && state.codexCache.get(key) === cached) state.codexCache.delete(key);
+      return codex;
+    },
+    error => {
+      if (state.codexCache.get(key) === cached) state.codexCache.delete(key);
+      throw error;
+    },
+  );
+  state.codexCache.set(key, cached);
+  return cached;
 }
 
 export async function fetchJson(url, cache = 'default') {

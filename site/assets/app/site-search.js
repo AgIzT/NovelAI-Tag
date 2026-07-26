@@ -5,6 +5,31 @@ import { hasEntryImage, entryImages, assetUrl } from './media.js';
 
 export const SITE_SEARCH_CODEX_ID = 'site-search';
 
+let siteSearchMemo = null;
+let siteSearchInFlight = null;
+let siteSearchGeneration = 0;
+
+function currentBuildKey() {
+  return {
+    codexes: state.codexes,
+    allowNsfw: state.allowNsfw,
+    allowR18g: state.allowR18g,
+  };
+}
+
+function sameBuildKey(a, b) {
+  return Boolean(a && b
+    && a.codexes === b.codexes
+    && a.allowNsfw === b.allowNsfw
+    && a.allowR18g === b.allowR18g);
+}
+
+export function invalidateSiteSearchCodex() {
+  siteSearchGeneration += 1;
+  siteSearchMemo = null;
+  siteSearchInFlight = null;
+}
+
 function siteSearchMeta() {
   return {
     id: SITE_SEARCH_CODEX_ID,
@@ -50,6 +75,27 @@ function cloneSearchEntry(e, codex, groupName) {
 }
 
 export async function buildSiteSearchCodex() {
+  const key = currentBuildKey();
+  if (sameBuildKey(siteSearchMemo?.key, key)) return siteSearchMemo.codex;
+  if (sameBuildKey(siteSearchInFlight?.key, key)) return siteSearchInFlight.promise;
+
+  const generation = siteSearchGeneration;
+  const promise = buildSiteSearchCodexFresh().then(({ codex, complete }) => {
+    if (generation !== siteSearchGeneration || !sameBuildKey(key, currentBuildKey())) {
+      return buildSiteSearchCodex();
+    }
+    if (complete) {
+      siteSearchMemo = { key, codex };
+    }
+    return codex;
+  }).finally(() => {
+    if (siteSearchInFlight?.promise === promise) siteSearchInFlight = null;
+  });
+  siteSearchInFlight = { key, promise };
+  return promise;
+}
+
+async function buildSiteSearchCodexFresh() {
   const lockedMetas = state.codexes.filter(isCodexLocked);
   const openMetas = state.codexes.filter(meta => !isCodexLocked(meta));
   const sources = await Promise.all(openMetas.map(async meta => {
@@ -63,8 +109,10 @@ export async function buildSiteSearchCodex() {
 
   const entries = [];
   let failedCount = 0;
+  let failedSources = 0;
   for (const { meta, codex } of sources) {
     if (!codex) {
+      failedSources += 1;
       failedCount += Number(meta.entryCount || 0);
       continue;
     }
@@ -80,22 +128,28 @@ export async function buildSiteSearchCodex() {
   if (failedCount) notices.push(`${failedCount} 条所在的法典加载失败，稍后再试`);
 
   return {
-    ...siteSearchMeta(),
-    assetPathMode: 'codex',
-    assetBaseUrl: '',
-    dataUrl: '',
-    sourceDataUrl: '',
-    fallbackDataUrl: '',
-    dataStatus: '本地索引',
-    dataNotice: notices.join('；'),
-    dataError: '',
-    source: '',
-    contributors: [],
-    links: [],
-    hasOriginal: sources.some(s => s.codex?.hasOriginal),
-    entries,
-    entryCount: entries.length,
-    imagedCount: entries.filter(hasEntryImage).length,
-    tree: buildTreeFromEntries(entries),
+    // fetchCodex 的“发布回退数据”刻意不进 codexCache，以便下次重试外部源；
+    // 全站 memo 也必须尊重这层语义，不能把一次降级冻结成整会话结果。
+    complete: failedSources === 0
+      && sources.every(({ codex }) => codex?.dataStatus !== '发布回退数据'),
+    codex: {
+      ...siteSearchMeta(),
+      assetPathMode: 'codex',
+      assetBaseUrl: '',
+      dataUrl: '',
+      sourceDataUrl: '',
+      fallbackDataUrl: '',
+      dataStatus: '本地索引',
+      dataNotice: notices.join('；'),
+      dataError: '',
+      source: '',
+      contributors: [],
+      links: [],
+      hasOriginal: sources.some(s => s.codex?.hasOriginal),
+      entries,
+      entryCount: entries.length,
+      imagedCount: entries.filter(hasEntryImage).length,
+      tree: buildTreeFromEntries(entries),
+    },
   };
 }
