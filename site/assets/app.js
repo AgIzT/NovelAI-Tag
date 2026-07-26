@@ -131,9 +131,12 @@ function bindFavoritesBackup() {
 function maybeLoadEditMode() {
   if (!isLocalOrigin()) return;
   // ⚠ 瀑布流有持续微动效，页面几乎不会真正 idle，requestIdleCallback 必须带 timeout 兜底才会触发
-  const schedule = window.requestIdleCallback
-    ? cb => window.requestIdleCallback(cb, { timeout: 2000 })
-    : cb => setTimeout(cb, 1500);
+  // 独立本地版则不应先短暂露出共创入口/空状态，启动后立即接管为编辑器。
+  const schedule = document.body.classList.contains('local-edition')
+    ? cb => cb()
+    : window.requestIdleCallback
+      ? cb => window.requestIdleCallback(cb, { timeout: 2000 })
+      : cb => setTimeout(cb, 1500);
   schedule(async () => {
     try {
       const res = await fetch('/__edit__/ping', { cache: 'no-store' });

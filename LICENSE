@@ -19,3 +19,37 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## 授权范围说明 / Scope Notice
+
+上述 MIT 授权适用于**本项目的软件部分**：前端代码、样式、本地工具脚本与文档。
+The MIT license above applies to the **software** in this repository: frontend
+code, styles, local tooling scripts and documentation.
+
+以下内容**不属于** MIT 授权范围 / The following are **NOT** covered by the MIT license:
+
+1. **词条原文与原始编纂分类**
+   法典内容由各社区编纂者整理创作，著作权归其各自所有。本项目仅作整理与呈现，
+   **无权对其转授权**。如需使用，请自行联系原编纂者。
+   Codex texts and their original taxonomy belong to their respective community
+   compilers. This project only organizes and presents them, and cannot
+   sublicense them.
+
+2. **配图**
+   部分配图由第三方贡献者提供，著作权归贡献者所有；其余由本项目作者生成与筛选，
+   著作权归 AgIzT 所有，保留一切权利。
+   Some images are provided by third-party contributors and belong to them; the
+   rest were generated and curated by the author, © AgIzT, all rights reserved.
+
+3. **数据的汇编结构**
+   统一数据 schema、分类体系、稳定 ID 规则、目录树与分级体系等编排成果，
+   作为汇编作品由 AgIzT 享有著作权，**未经许可不得再分发**。
+   The compilation itself — unified data schema, taxonomy, stable-ID scheme,
+   category tree and rating system — is a compilation work © AgIzT.
+   Redistribution without permission is not granted.
+
+简而言之：**欢迎使用本项目的代码搭建你自己的图鉴，请使用你自己的数据与配图。**
+In short: **you are welcome to build your own atlas with this code — please
+bring your own data and images.**

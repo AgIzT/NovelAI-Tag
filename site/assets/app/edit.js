@@ -26,10 +26,13 @@ export function initEditMode(ping, actions) {
   acts = actions || {};
   injectStyles();
   buildToggle();
-  enabled = localStorage.getItem(EDIT_MODE_KEY) === '1';
+  // 独立本地发行版的唯一用途就是编辑，首次打开直接进入编辑态；
+  // 仓库维护/线上探测模式仍沿用用户自己的开关记忆。
+  enabled = caps?.localEdition === true || localStorage.getItem(EDIT_MODE_KEY) === '1';
   applyEnabledClass();
   document.addEventListener('lightbox:rendered', onLightboxRendered);
   document.addEventListener('codex:loaded', updateWarnBar);
+  document.addEventListener('codex:loaded', syncLocalEditionEmptyState);
   // 深链接可能在动态模块加载前已经打开灯箱，补一次初始面板挂载。
   if (state.lightbox?.entry) {
     onLightboxRendered({ detail: { entry: state.lightbox.entry, index: state.lightbox.index } });
@@ -38,6 +41,7 @@ export function initEditMode(ping, actions) {
   bindTreeAdd();
   bindCardClick();
   ensureResultBarButton();
+  syncLocalEditionEmptyState();
 }
 
 /* ---------- 基础设施 ---------- */
@@ -71,7 +75,8 @@ function buildToggle() {
    不另设顶栏按钮：增删法典本来就属于法典选择器这个语境。
    关掉编辑模式（或线上）时这个钩子不改任何东西，门还是原来的投稿门。 */
 function decorateDoor(wrap) {
-  if (!enabled) return;
+  // 独立本地版没有共创站，哪怕用户临时关掉编辑态，这扇门也始终是法典管理。
+  if (!enabled && caps?.localEdition !== true) return;
   const door = wrap.querySelector('.codex-door');
   if (!door) return;
   const swap = document.createElement('button');
@@ -91,6 +96,36 @@ function decorateDoor(wrap) {
     openCodexManager();
   };
   door.replaceWith(swap);
+}
+
+function syncLocalEditionEmptyState() {
+  if (caps?.localEdition !== true) return;
+  const noCodex = !state.codexes?.length && !state.codex;
+  for (const id of ['editTreeToolbar', 'editNewEntryBtn', 'randomBtn']) {
+    const control = document.getElementById(id);
+    if (control) control.style.display = noCodex ? 'none' : '';
+  }
+  const empty = document.getElementById('empty');
+  if (!noCodex) {
+    if (empty?.classList.contains('local-first-codex')) {
+      empty.hidden = true;
+      empty.classList.remove('local-first-codex');
+      empty.innerHTML = '';
+    }
+    return;
+  }
+  const loading = document.getElementById('loading');
+  if (loading) loading.hidden = true;
+  document.getElementById('main')?.classList.remove('is-loading');
+  if (!empty) return;
+  empty.className = 'empty local-first-codex';
+  empty.innerHTML =
+    '<div class="empty-mark" aria-hidden="true">＋</div>' +
+    '<h2>这里还没有法典</h2>' +
+    '<p>创建第一本法典，然后就可以添加分类、词条和本地图片。</p>' +
+    '<div class="empty-actions"><button type="button" id="localFirstCodexBtn">＋ 创建我的第一本法典</button></div>';
+  empty.hidden = false;
+  empty.querySelector('#localFirstCodexBtn')?.addEventListener('click', openCodexManager);
 }
 
 function toggleEnabled() {
@@ -432,7 +467,9 @@ async function uploadImage(entry, file) {
   if (!res) return;
   // 图片改动会牵动归一化的 images[]，走结构重载再按 id 重开灯箱最稳
   await structuralRefresh({ reopenEntryId: entryId });
-  toast(res.pendingR2Sync ? '图片已保存 · 记得跑「同步 R2」再发布' : '图片已保存');
+  toast(res.pendingR2Sync && caps?.localEdition !== true
+    ? '图片已保存 · 记得跑「同步 R2」再发布'
+    : '图片已保存到本地');
 }
 
 async function deleteImage(entry) {
@@ -445,7 +482,9 @@ async function deleteImage(entry) {
   removePanel();
   closeLightbox({ historyMode: 'none', immediate: true });
   await structuralRefresh({ reopenEntryId: entryId });
-  toast('图片已移除 · 记得跑「同步 R2」再发布');
+  toast(caps?.localEdition === true
+    ? '图片已从词条移除 · 本地原文件仍保留'
+    : '图片已移除 · 记得跑「同步 R2」再发布');
 }
 
 /* 结构重载后按 id 找到新 entry 对象重开灯箱（图片/换分类等操作后保持在原词条） */

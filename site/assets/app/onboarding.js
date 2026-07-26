@@ -57,6 +57,8 @@ export function setupOnboarding() {
 }
 
 export function maybeShowOnboarding() {
+  // 独立本地版由可编辑 Demo 直接教学，通用的线上浏览/反馈引导会造成误导。
+  if (document.body.classList.contains('local-edition')) return;
   if (prompted || initialRouteUrl || isOnboardingDone()) return;
   const mask = $('#onboarding');
   if (!mask) return;

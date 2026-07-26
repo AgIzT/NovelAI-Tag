@@ -125,7 +125,7 @@ export function setupCodexPicker() {
   const buildTypes = () => CODEX_TYPES.map(t => {
     const real = realCodexesOfType(t.id);
     return { ...t, real, soon: real.length === 0 };
-  });
+  }).filter(t => !document.body.classList.contains('local-edition') || t.real.length > 0);
 
   const makeRealItem = (c, n) => {
     const locked = isCodexLocked(c);
@@ -208,6 +208,8 @@ export function setupCodexPicker() {
     menu.classList.add('cascade');
     menu.classList.remove('grouped');
     menu.innerHTML = '';
+    // 本地版允许从零法典启动；此时选择器只需要下面的“法典管理”门。
+    if (!types.length) return;
     if (!activeType || !types.some(t => t.id === activeType)) {
       const preferred = codexType(pickerActiveCodex());
       activeType = types.some(t => t.id === preferred) ? preferred : types[0].id;
