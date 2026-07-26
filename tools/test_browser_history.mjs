@@ -10,12 +10,18 @@ import {
   goBackFrom,
   initializeBrowserHistory,
   isManagedHistoryEntry,
+  isRestoringHistory,
   openHistoryLayer,
   registerHistoryLayer,
   replaceManagedHistoryEntry,
 } from '../site/assets/app/browser-history.js';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const deferred = () => {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+};
 
 class FakeWindow extends EventTarget {
   constructor() {
@@ -463,6 +469,118 @@ assert.equal(replaced.parentId, entry.parentId);
   await tick();
   assert.equal(calls.applyRoute, 1);
   assert.equal(calls.restoreScroll, 1);
+}
+
+// Every managed popstate invalidates an older async restore, including the
+// pure-layer-close fast path. The stale restore must neither overwrite the
+// parent slot nor leave history writes permanently locked.
+{
+  const applyStarted = deferred();
+  const finishApply = deferred();
+  const env = configure('atlas', async route => {
+    applyStarted.resolve();
+    await finishApply.promise;
+    return { ...route, staleRestore: true };
+  });
+  let dialogOpen = false;
+  registerHistoryLayer('restore-race-dialog', {
+    isOpen: () => dialogOpen,
+    open: () => { dialogOpen = true; },
+    close: () => { dialogOpen = false; },
+  });
+  const parent = initializeBrowserHistory();
+  dialogOpen = true;
+  openHistoryLayer('restore-race-dialog');
+  env.route = { view: 'category', q: '' };
+  commitHistoryRoute({ mode: 'push', transition: 'route' });
+
+  env.window.history.back();
+  await applyStarted.promise;
+  assert.equal(isRestoringHistory(), true);
+  env.window.history.back();
+  await tick();
+  assert.equal(isRestoringHistory(), false);
+  assert.equal(dialogOpen, false);
+  assert.equal(getManagedHistoryEntry().id, parent.id);
+
+  env.route = { view: 'fresh', q: '' };
+  assert.equal(commitHistoryRoute({ mode: 'replace' }), true);
+  finishApply.resolve();
+  await tick();
+  assert.equal(getManagedHistoryEntry().id, parent.id);
+  assert.deepEqual(getManagedHistoryEntry().route, { view: 'fresh', q: '' });
+  assert.equal(env.window.history.state.route.staleRestore, undefined);
+}
+
+// A layer opened by the user during a slow route restore remains visible and
+// is adopted into managed history once restoration finishes.
+{
+  const applyStarted = deferred();
+  const finishApply = deferred();
+  const env = configure('atlas', async () => {
+    applyStarted.resolve();
+    await finishApply.promise;
+  });
+  let userLayerOpen = false;
+  registerHistoryLayer('opened-during-restore', {
+    isOpen: () => userLayerOpen,
+    open: () => { userLayerOpen = true; },
+    close: () => { userLayerOpen = false; },
+  });
+  const parent = initializeBrowserHistory();
+  env.route = { view: 'category', q: '' };
+  commitHistoryRoute({ mode: 'push', transition: 'route' });
+
+  env.window.history.back();
+  await applyStarted.promise;
+  userLayerOpen = true;
+  assert.equal(openHistoryLayer('opened-during-restore'), false);
+  finishApply.resolve();
+  await tick();
+
+  assert.equal(userLayerOpen, true);
+  assert.equal(isRestoringHistory(), false);
+  assert.equal(getManagedHistoryEntry().parentId, parent.id);
+  assert.deepEqual(getManagedHistoryEntry().layers, [{ id: 'opened-during-restore' }]);
+  env.window.history.back();
+  await tick();
+  assert.equal(userLayerOpen, false);
+  assert.equal(getManagedHistoryEntry().id, parent.id);
+}
+
+// If that provisional layer is no longer open by the time restoration ends,
+// do not create a history record and therefore keep the existing Forward slot.
+{
+  const applyStarted = deferred();
+  const finishApply = deferred();
+  const env = configure('atlas', async () => {
+    applyStarted.resolve();
+    await finishApply.promise;
+  });
+  let provisionalOpen = false;
+  registerHistoryLayer('closed-during-restore', {
+    isOpen: () => provisionalOpen,
+    open: () => { provisionalOpen = true; },
+    close: () => { provisionalOpen = false; },
+  });
+  const parent = initializeBrowserHistory();
+  env.route = { view: 'category', q: '' };
+  commitHistoryRoute({ mode: 'push', transition: 'route' });
+  const forward = getManagedHistoryEntry();
+
+  env.window.history.back();
+  await applyStarted.promise;
+  provisionalOpen = true;
+  openHistoryLayer('closed-during-restore');
+  provisionalOpen = false;
+  finishApply.resolve();
+  await tick();
+
+  assert.equal(env.window.history.index, 0);
+  assert.equal(env.window.history.length, 2);
+  assert.equal(env.window.history.entries[1].state.id, forward.id);
+  assert.equal(getManagedHistoryEntry().id, parent.id);
+  assert.deepEqual(getManagedHistoryEntry().layers, []);
 }
 
 console.log('browser history tests passed');

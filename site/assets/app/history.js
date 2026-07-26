@@ -60,7 +60,11 @@ export function normalizeLastBrowse(value) {
 
 /* ---------------- 浏览记录 ---------------- */
 export function saveRecentEntries() {
-  localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(state.recentEntries));
+  try {
+    localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(state.recentEntries));
+  } catch (error) {
+    console.warn('[history] 无法保存最近浏览记录', error);
+  }
 }
 
 export function recordRecentEntry(e) {
@@ -122,7 +126,11 @@ export function saveBrowseStateNow(entryId) {
   const snapshot = currentBrowseSnapshot(entryId);
   if (!snapshot) return;
   state.lastBrowse = snapshot;
-  localStorage.setItem(LAST_BROWSE_STORAGE_KEY, JSON.stringify(snapshot));
+  try {
+    localStorage.setItem(LAST_BROWSE_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch (error) {
+    console.warn('[history] 无法保存浏览位置', error);
+  }
 }
 
 export function scheduleBrowseStateSave(entryId) {
