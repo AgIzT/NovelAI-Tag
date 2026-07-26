@@ -4,6 +4,7 @@ This file records the first split of `site/assets/app.js`. It is meant to keep l
 
 | Module | Main exports | Module state / closure state | Direct imports | Action injection |
 | --- | --- | --- | --- | --- |
+| `../data-source.js` | `initializeDataSource`, `fetchDataJson`, `fetchDataJsonResult`, `getDataSource` | active R2/static release context + one initialization promise | none | none; shared by atlas and community. Official host reads immutable R2 release selected by `current.json`; previews/local editions stay on `/data`, and an R2 file failure falls back to the Pages snapshot |
 | `../app.js` | `init`, `loadCodex`, `openFavoritesView`, `openSiteSearchView`, `applySearch`, `applyFilter` | `codexLoadSeq` | all feature modules | injects router, codex UI, masonry, history, favorites, UI actions before `init()` |
 | `state.js` | constants, `state`, `normalizeDensity`, `densityConfig`, `normalizeSearchScope` | shared `state` object | none | none |
 | `utils.js` | `$`, `safeJsonParse`, path helpers, `prefersReducedMotion`, `updateSearchClear`, `updateScrollProgress`, `clamp`, `esc` | none | none | none |
@@ -12,7 +13,7 @@ This file records the first split of `site/assets/app.js`. It is meant to keep l
 | `feedback.js` | `setLoading`, `showSkeleton`, `hideSkeleton`, `toast` | `toastTimer`, skeleton timing state | `utils.js` | none |
 | `feedback-progress.js` | public/admin shared feedback progress labels, descriptions, closed-state helpers, and the public-card 5-step flow model (`FEEDBACK_PROGRESS_FLOW`, `feedbackProgressFlow`) | none | none | none |
 | `access.js` | `isNsfwCodex`, `isCodexLocked`, `firstUnlockedCodex`, `showNsfwLockedHint` | none | `state.js`, `feedback.js` | none |
-| `data.js` | media/about/codex loading, normalization, tree build, status helpers | none | `state.js`, `utils.js`, `media.js`, `feedback.js` | none |
+| `data.js` | codex index/media/about/codex loading, normalization, tree build, R2/static status helpers | none | `state.js`, `utils.js`, `media.js`, `feedback.js`, `../data-source.js` | none |
 | `search.js` | query parse, matching, highlighting | none | `state.js`, `utils.js`, `media.js`, `favorites.js` | none |
 | `router.js` | `setRouterActions`, `readUrlState`, `syncUrlState`, `openEntryDeepLink`, `captureAtlasRoute`, `atlasUrlForRoute`, `configureAtlasHistory`, `initializeAtlasHistory`, `beginAtlasLayeredSearch` | `routerActions` | `state.js`, `utils.js`, `media.js`, `access.js`, `feedback.js`, `browser-history.js` | `onUrlSync`, `renderTree`, `applyFilter`, `openLightbox`, `updateVirtualCards`, `applyHistoryRoute`, `restoreHistoryScroll` |
 | `media.js` | image availability, asset paths, rev/cache bust URLs | none | `state.js`, `utils.js` | none |

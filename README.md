@@ -29,8 +29,13 @@
 - **Cloudflare Pages**：连接本仓库，Build command 留空，**Build output directory 填 `site`**
 - **GitHub Pages**：把 Pages 源指向 `site/` 目录
 
-更新流程：本地配图 / 加法典 → 双击 `发布.bat`（先同步 R2，再 git push）→ 平台自动重新部署。
-词条数据存在本仓库；缩略图和原图发布到 Cloudflare R2，GitHub 仓库不保留图片文件。
+正式站把应用代码部署到 Pages，把版本化法典 JSON、缩略图和原图发布到 Cloudflare R2；仓库里的 `site/data/` 同时作为本地编辑源、历史快照和 Pages 故障回退。
+
+- 只更新数据：双击 `单项工具/发布数据.bat`，同步图片、生成分享索引并原子切换 R2 数据版本，不提交 Git、不触发 Pages 部署。
+- 更新程序：双击 `单项工具/发布.bat`，先发布同一批 R2 数据，再提交并推送 Git，由 Pages 自动部署。
+- 回退数据：双击 `单项工具/回滚数据.bat`，确认后切回上一个 R2 release。
+
+自行部署到其他域名时，未配置 R2 数据发布层也能继续读取随站点部署的 `site/data/`。
 
 ## 📁 目录结构
 ```
@@ -39,15 +44,17 @@ tools/
   convert.py       docx -> 网站数据(JSON)
   imgserver.py     本地配图服务
   sync_r2.py       图片同步到 R2
+  publish_data_r2.py  版本化 JSON 发布到 R2
   preview_server.py  本地预览服务
 site/              ← 部署的网站本体
   index.html
   strings.html     画风串分享页（社区投稿库）
   assets/          样式与脚本（app.js + ES Modules）
-  data/            各法典 JSON + 法典索引
+  data/            本地编辑源 + Pages 稳定回退快照
+  data-source.json 正式域名的 R2 数据入口
 functions/         Cloudflare Pages Functions（投稿 / 反馈 / 喜欢后端）
 法典图鉴.bat       ← 总控台
-单项工具/          转换法典 / 配图工具 / 启动预览 / 同步R2 / 发布 / 投稿本地测试 / 画师串编辑 / 回归验证 / 互动数据库迁移
+单项工具/          转换法典 / 配图工具 / 预览 / R2 图片与数据发布 / 数据回滚 / 程序发布 / 测试与迁移
 originals/ 与 site/images/ 是本地图片缓存，会同步到 R2。
 ```
 

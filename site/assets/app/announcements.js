@@ -1,8 +1,8 @@
 import { $, esc, safeJsonParse } from './utils.js';
 import { openMask, closeMask, trapFocus } from './modal.js';
 import { formatRecentTime } from './history.js';
+import { fetchDataJson } from '../data-source.js';
 
-const ANNOUNCEMENT_URL = 'data/announcements.json';
 const READ_STORAGE_KEY = 'fadian-ann-read-ids';
 
 let announcements = [];
@@ -34,8 +34,7 @@ export function setupAnnouncements({ closeMore = () => {}, trigger = null, histo
 export async function loadAnnouncements() {
   if (loaded) return announcements;
   if (loadingPromise) return loadingPromise;
-  loadingPromise = fetch(ANNOUNCEMENT_URL, { cache: 'no-store' })
-    .then(res => res.ok ? res.json() : [])
+  loadingPromise = fetchDataJson('announcements.json', { cache: 'no-store' })
     .then(data => {
       announcements = normalizeAnnouncements(data);
       loaded = true;

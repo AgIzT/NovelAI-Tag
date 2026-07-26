@@ -493,8 +493,11 @@ class R2Client:
     def put_file(self, key, path, sha, cache_control):
         with open(path, "rb") as fh:
             body = fh.read()
+        return self.put_bytes(key, body, sha, guess_type(path), cache_control)
+
+    def put_bytes(self, key, body, sha, content_type, cache_control):
         headers = {
-            "Content-Type": guess_type(path),
+            "Content-Type": content_type or "application/octet-stream",
             "Content-Length": str(len(body)),
             "Cache-Control": cache_control,
             "x-amz-meta-sha256": sha,

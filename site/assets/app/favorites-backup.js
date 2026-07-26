@@ -17,6 +17,7 @@ import {
   serializeFavoritesBackup,
 } from './favorites-backup-core.js';
 import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
+import { fetchDataJson } from '../data-source.js';
 
 const CHANGE_EVENT = 'novelai-tag:favorites-changed';
 
@@ -180,9 +181,7 @@ export function setupFavoritesBackup(options = {}) {
         try {
           const supplied = await options.getCodexes?.();
           if (Array.isArray(supplied) && supplied.length) return supplied;
-          const response = await fetch('data/codexes.json', { cache: 'no-store' });
-          if (!response.ok) throw new Error(`codex index ${response.status}`);
-          const data = await response.json();
+          const data = await fetchDataJson('codexes.json', { cache: 'no-store' });
           return Array.isArray(data) ? data : [];
         } catch (error) {
           console.warn('收藏备份：法典别名索引暂不可用，将原样保留法典标识。', error);

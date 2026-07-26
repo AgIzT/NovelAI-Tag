@@ -66,6 +66,13 @@ if errorlevel 1 (
   goto :fail
 )
 
+echo == Publishing immutable JSON release to Cloudflare R2 ==
+call %PY% "tools\publish_data_r2.py" --publish
+if errorlevel 1 (
+  echo [ERROR] R2 data release failed. Git and Pages were not published.
+  goto :fail
+)
+
 echo == Publishing updates to GitHub - Cloudflare will auto-deploy ==
 call git add -A
 if errorlevel 1 goto :fail

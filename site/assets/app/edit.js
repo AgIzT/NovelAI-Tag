@@ -7,6 +7,7 @@ import { toast } from './feedback.js';
 import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
 import { setCodexUiActions, closeCodexPicker } from './codex-ui.js';
 import { openMask, closeMask, trapFocus } from './modal.js';
+import { fetchDataJson } from '../data-source.js';
 import {
   buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath, splitTreePath,
 } from './edit-core.js';
@@ -849,7 +850,7 @@ function openCodexManager() {
    自绘选择器每次 open 都按 state.codexes 重建，但顶栏原生 <select> 是 init 时一次性填的，要手动重刷。 */
 async function reloadCodexIndex() {
   try {
-    const list = await fetch('data/codexes.json', { cache: 'no-store' }).then(r => r.json());
+    const list = await fetchDataJson('codexes.json', { cache: 'no-store' });
     state.codexes = list;
     const sel = document.getElementById('codexSelect');
     if (sel) {
