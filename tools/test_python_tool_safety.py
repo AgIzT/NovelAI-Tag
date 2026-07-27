@@ -3,8 +3,10 @@ import hashlib
 import http.client
 import io
 import json
+import runpy
 import threading
 import tempfile
+import types
 import unittest
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -117,6 +119,64 @@ class SyncR2SafetyTests(unittest.TestCase):
 
             with patch.object(sync_r2, "DATA_DIR", data_dir):
                 self.assertEqual([path.name for path in sync_r2.codex_files()], ["valid.json"])
+
+    def test_asset_sync_preserves_strings_manifest_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "manifest.json"
+            asset_path = root / "demo.jpg"
+            asset_path.write_bytes(b"new asset")
+            sha = hashlib.sha256(asset_path.read_bytes()).hexdigest()
+            key = "images/demo/demo.jpg"
+            strings_entry = {"size": 7, "mtime_ns": 11, "sha256": "strings-sha"}
+            stale_entry = {"size": 8, "mtime_ns": 12, "sha256": "stale-sha"}
+            manifest_path.write_text(json.dumps({
+                "objects": {
+                    "images/strings/style.jpg": strings_entry,
+                    "images/stale/old.jpg": stale_entry,
+                }
+            }), encoding="utf-8")
+            args = types.SimpleNamespace(
+                dry_run=False,
+                check_only=False,
+                verbose=False,
+                workers=1,
+                retries=0,
+                retry_base_delay=0,
+                request_timeout=None,
+                request_retries=None,
+            )
+            cfg = {
+                "image_prefix": "images",
+                "original_prefix": "originals",
+                "cache_control": "no-store",
+            }
+            remote = {key: {"size": asset_path.stat().st_size}}
+            cached = {key: {"sha256": sha}}
+
+            with patch.object(sync_r2, "MANIFEST_PATH", manifest_path), \
+                    patch.object(sync_r2, "R2Client"), \
+                    patch.object(sync_r2, "list_remote_objects", return_value=remote):
+                counts, failures = sync_r2.sync_assets(
+                    args,
+                    cfg,
+                    [("image", "demo", "demo.jpg", asset_path, sha)],
+                    manifest_objects=cached,
+                )
+
+            self.assertEqual((counts["skip"], failures), (1, []))
+            objects = json.loads(manifest_path.read_text(encoding="utf-8"))["objects"]
+            self.assertEqual(objects["images/strings/style.jpg"], strings_entry)
+            self.assertEqual(objects[key]["sha256"], sha)
+            self.assertNotIn("images/stale/old.jpg", objects)
+
+
+class ImportSafetyTests(unittest.TestCase):
+    def test_convert_import_does_not_create_directories(self):
+        convert_path = Path(__file__).with_name("convert.py")
+        with patch("os.makedirs") as makedirs:
+            runpy.run_path(str(convert_path))
+        makedirs.assert_not_called()
 
 
 class AtomicJsonWriteTests(unittest.TestCase):
@@ -241,6 +301,44 @@ class LocalServerSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "invalid output path"):
                 imgserver._safe_child_path(tmp, "..", "outside.json")
+
+    def test_imgserver_rejects_bad_image_before_overwriting_original(self):
+        with isolated_server(imgserver) as (_port, paths):
+            codex_path = paths["data"] / "demo.json"
+            original = {
+                "id": "demo",
+                "entryCount": 1,
+                "imagedCount": 1,
+                "entries": [{
+                    "id": "entry",
+                    "image": "entry.jpg",
+                    "original": "entry.png",
+                }],
+            }
+            codex_text = json.dumps(original)
+            codex_path.write_text(codex_text, encoding="utf-8")
+            original_path = paths["originals"] / "demo" / "entry.png"
+            original_path.parent.mkdir(parents=True)
+            original_path.write_bytes(b"known-good-original")
+            payload = io.BytesIO()
+            source_image = Image.new("RGB", (64, 64))
+            source_image.putdata([(i % 256, (i * 7) % 256, (i * 13) % 256) for i in range(4096)])
+            source_image.save(payload, "PNG")
+            truncated_png = payload.getvalue()[:-22]
+            with Image.open(io.BytesIO(truncated_png)) as probe:
+                self.assertEqual(probe.size, (64, 64))
+                with self.assertRaises(OSError):
+                    probe.load()
+            bad_data_url = "data:image/png;base64," + base64.b64encode(
+                truncated_png
+            ).decode("ascii")
+
+            with self.assertRaises(OSError):
+                imgserver.save_image("demo", "entry", bad_data_url)
+
+            self.assertEqual(original_path.read_bytes(), b"known-good-original")
+            self.assertEqual(codex_path.read_text(encoding="utf-8"), codex_text)
+            self.assertFalse((paths["site"] / "images" / "demo" / "entry.jpg").exists())
 
     def test_strings_collection_paths_are_strictly_limited(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(strings_server, "DATA", tmp):

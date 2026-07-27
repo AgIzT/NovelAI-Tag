@@ -21,7 +21,6 @@ IMG_DIR = os.path.join(ROOT, "site", "images")
 ORIG_DIR = os.path.join(ROOT, "originals")
 ARCHIVE_DIR = os.path.join(ROOT, "法典源_已转换")
 ARCHIVE_MANIFEST = os.path.join(ARCHIVE_DIR, "processed_sources.json")
-os.makedirs(DATA_DIR, exist_ok=True)
 
 # 已知法典 → 固定 id（其余用文件名哈希）
 ID_MAP = [
@@ -959,6 +958,7 @@ def main():
         help="Move successfully converted source .docx files to 法典源_已转换/<timestamp>/ so future conversions skip them.",
     )
     args = parser.parse_args()
+    os.makedirs(DATA_DIR, exist_ok=True)
 
     archived_names = load_archived_source_names()
     docs = []

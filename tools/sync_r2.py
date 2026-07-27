@@ -500,7 +500,7 @@ class R2Client:
                 continue
             return status, response_headers, response_body
 
-        raise RuntimeError(f"request failed after {attempts} attempt(s): {label}")
+        raise AssertionError("unreachable")
 
     def head(self, key):
         return self._request("HEAD", key, retry_statuses=RETRYABLE_REQUEST_STATUSES)
@@ -643,7 +643,7 @@ def put_file_with_retries(client, key, path, sha, cache_control, retries, base_d
         if wait:
             time.sleep(wait)
 
-    return 0, {}, b"", attempts
+    raise AssertionError("unreachable")
 
 
 def sync_strings_assets(args, cfg, assets):
@@ -830,7 +830,13 @@ def sync_assets(args, cfg, assets, manifest_objects=None):
             list(pool.map(_upload, pending))
 
     if not args.dry_run and not args.check_only and not failures:
-        write_manifest(cfg, next_manifest)
+        full_manifest = {
+            key: value
+            for key, value in load_manifest().items()
+            if key.startswith("images/strings/")
+        }
+        full_manifest.update(next_manifest)
+        write_manifest(cfg, full_manifest)
         print(f"local sync manifest updated: {MANIFEST_PATH.name}", flush=True)
 
     return counts, failures

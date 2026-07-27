@@ -163,6 +163,10 @@ def save_image(cid, eid, durl):
         if target is None:
             raise ValueError(f"Unknown entry id for {cid}: {eid}")
 
+        with Image.open(io.BytesIO(raw)) as source:
+            source.load()
+            im = source.copy()
+
         # 1) 原图：原始字节直接落盘，不经 Pillow 重编码（保留 NAI 在 PNG 里的元数据）
         odir = _safe_child_path(ORIG, cid)
         os.makedirs(odir, exist_ok=True)
@@ -172,7 +176,6 @@ def save_image(cid, eid, durl):
             f.write(raw)
 
         # 2) 缩略图：压到 MAXDIM，存 JPEG（展示/部署用）
-        im = Image.open(io.BytesIO(raw))
         if im.mode not in ("RGB", "L"):
             im = im.convert("RGB")
         im.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
