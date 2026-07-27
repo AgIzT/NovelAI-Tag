@@ -1,5 +1,6 @@
-// 渲染与主 UI 中高危修复回归：node tools/test_render_ui.mjs
+// 渲染与主 UI 回归：node tools/test_render_ui.mjs
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 class FakeHTMLElement {
   constructor(tagName = 'DIV') {
@@ -84,10 +85,14 @@ const {
 const {
   accessHiddenCount,
   invalidateAccessViewMemo,
+  syncCodexPickerCounts,
   visibleEntryCount,
   visibleTree,
 } = await import('../site/assets/app/codex-ui.js');
-const { setupReport } = await import('../site/assets/app/report.js');
+const { feedbackTimeoutSignal, setupReport } = await import('../site/assets/app/report.js');
+const { safeHttpUrl } = await import('../site/assets/app/utils.js');
+const { atlasUrlForRoute, readUrlState } = await import('../site/assets/app/router.js');
+const { loadAnnouncements } = await import('../site/assets/app/announcements.js');
 
 // 同一批多卡校准：按列累计 delta，每个受影响节点只更新一次，容器高度只同步一次。
 {
@@ -315,6 +320,68 @@ const { setupReport } = await import('../site/assets/app/report.js');
   assert.equal(accessHiddenCount(), 3);
 }
 
+// 编辑器把当前书计数同步回选择器索引；零值也不能被旧计数吞掉。
+{
+  state.codexes = [{ id: 'counts', entryCount: 9, imagedCount: 8 }];
+  assert.equal(syncCodexPickerCounts({ id: 'counts', entryCount: 0, imagedCount: 0 }), true);
+  assert.deepEqual(state.codexes[0], { id: 'counts', entryCount: 0, imagedCount: 0 });
+  assert.equal(syncCodexPickerCounts({ id: 'missing', entryCount: 1, imagedCount: 1 }), false);
+}
+
+// 新格式单段 path 用空参数作格式标记；旧 slash 链接继续走 legacy 解码。
+{
+  const originalSearch = location.search;
+  const url = atlasUrlForRoute({ codex: 'book', path: ['r18g/重口'] });
+  const generated = new URL(url, location.href);
+  assert.deepEqual(generated.searchParams.getAll('path'), ['r18g/重口', '']);
+  location.search = generated.search;
+  assert.deepEqual(readUrlState().path, ['r18g/重口']);
+
+  const searchUrl = atlasUrlForRoute({ codex: 'book', siteSearch: true, q: 'x', path: ['一级/分类'] });
+  assert.deepEqual(new URL(searchUrl, location.href).searchParams.getAll('path'), ['一级/分类', '']);
+
+  location.search = '?path=parent%2Fchild';
+  assert.deepEqual(readUrlState().path, ['parent', 'child']);
+  location.search = originalSearch;
+}
+
+// 外链仅允许绝对 HTTP(S)，反馈超时在旧浏览器没有 timeout() 时自然降级。
+{
+  assert.equal(safeHttpUrl(' https://example.test/a '), 'https://example.test/a');
+  assert.equal(safeHttpUrl('http://example.test'), 'http://example.test');
+  assert.equal(safeHttpUrl('javascript:alert(1)'), '');
+  assert.equal(safeHttpUrl('/relative'), '');
+  assert.deepEqual(feedbackTimeoutSignal(321, { timeout: value => ({ value }) }), { value: 321 });
+  assert.equal(feedbackTimeoutSignal(321, {}), undefined);
+}
+
+// 公告的瞬时失败不能冻结为空结果；下一次打开会重新发起请求。
+{
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  let calls = 0;
+  console.warn = () => {};
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error('temporary offline');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => [{ id: 'retry-ok', title: '恢复', body: '公告已恢复', date: '2026-07-27' }],
+    };
+  };
+  try {
+    assert.deepEqual(await loadAnnouncements(), []);
+    assert.equal((await loadAnnouncements())[0].id, 'retry-ok');
+    assert.equal(calls, 2);
+    assert.equal((await loadAnnouncements())[0].id, 'retry-ok');
+    assert.equal(calls, 2, '成功结果仍应缓存');
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+}
+
 // 反馈弹层 Escape 必须在本层截断，防止同一击继续冒泡关闭灯箱。
 {
   const handlers = new Map();
@@ -339,6 +406,54 @@ const { setupReport } = await import('../site/assets/app/report.js');
   assert.equal(prevented, true);
   assert.equal(stopped, true);
   assert.equal(mask.hidden, true);
+}
+
+// 私有 DOM 流程的关键接线以静态契约锁住，避免后续重构悄悄退回旧路径。
+{
+  const paths = [
+    '../site/assets/app/data.js',
+    '../site/assets/app/MODULE_MAP.md',
+    '../site/assets/app/masonry.js',
+    '../site/assets/app/lightbox.js',
+    '../site/assets/app/codex-ui.js',
+    '../site/assets/app/modal.js',
+    '../site/assets/app/ui.js',
+    '../site/assets/app/onboarding.js',
+    '../site/assets/app/announcements.js',
+    '../site/assets/app/report.js',
+    '../site/assets/app/edit.js',
+  ];
+  const [
+    dataSource,
+    moduleMap,
+    masonrySource,
+    lightboxSource,
+    codexUiSource,
+    modalSource,
+    uiSource,
+    onboardingSource,
+    announcementsSource,
+    reportSource,
+    editSource,
+  ] = await Promise.all(paths.map(path => readFile(new URL(path, import.meta.url), 'utf8')));
+
+  assert.doesNotMatch(dataSource, /export async function load(?:CodexIndex|Media|About)\b/);
+  assert.match(moduleMap, /\| `data\.js` \| atomic bootstrap, codex loading, normalization/);
+  assert.match(masonrySource, /import \{ updateReadingSpy \} from '\.\/codex-ui\.js';/);
+  assert.match(lightboxSource, /const reuseThumbs = lbThumbEntry === e[\s\S]*if \(!reuseThumbs\) \{\s*thumbs\.innerHTML = '';/);
+  assert.match(lightboxSource, /&& lbThumbState === lb/);
+  assert.match(lightboxSource, /const safeCreditUrl = safeHttpUrl\(creditUrl\)/);
+  assert.match(codexUiSource, /function positionOpenBannerPop\(\) \{\s*if \(!bannerAboutOpen\) return;/);
+  assert.match(codexUiSource, /const validLinks = safeExternalLinks\(links\)/);
+  assert.match(codexUiSource, /const links = safeExternalLinks\(Array\.isArray\(c\.links\)/);
+  assert.match(codexUiSource, /const url = safeHttpUrl\(l\.url\)/);
+  assert.match(modalSource, /export function registerMaskHistory\(mask\)/);
+  assert.match(uiSource, /querySelectorAll\('\.settings-mask\[id\], \.favorites-backup-mask\[id\]'\)[\s\S]*forEach\(registerMaskHistory\)/);
+  assert.match(onboardingSource, /function finishOnboarding\(\) \{\s*try \{\s*localStorage\.setItem/);
+  assert.match(announcementsSource, /function markVisibleAnnouncementsRead\(\) \{[\s\S]*try \{\s*localStorage\.setItem/);
+  assert.equal((announcementsSource.match(/loaded = true/g) || []).length, 1);
+  assert.equal((reportSource.match(/signal: feedbackTimeoutSignal\(\)/g) || []).length, 2);
+  assert.equal((editSource.match(/syncCodexPickerCounts\(\);/g) || []).length, 2);
 }
 
 console.log('render UI regressions: PASS');

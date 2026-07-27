@@ -40,9 +40,9 @@ export async function loadAnnouncements() {
       loaded = true;
       return announcements;
     })
-    .catch(() => {
+    .catch(error => {
+      console.warn('[announcements] 公告加载失败，将在下次打开时重试', error);
       announcements = [];
-      loaded = true;
       return announcements;
     })
     .finally(() => { loadingPromise = null; });
@@ -94,11 +94,17 @@ function renderAnnouncements() {
 function markVisibleAnnouncementsRead() {
   const ids = readIds();
   for (const item of activeAnnouncements()) ids.add(item.id);
-  localStorage.setItem(READ_STORAGE_KEY, JSON.stringify([...ids].slice(-80)));
+  try {
+    localStorage.setItem(READ_STORAGE_KEY, JSON.stringify([...ids].slice(-80)));
+  } catch {}
 }
 
 function readIds() {
-  const arr = safeJsonParse(localStorage.getItem(READ_STORAGE_KEY), []);
+  let raw = null;
+  try {
+    raw = localStorage.getItem(READ_STORAGE_KEY);
+  } catch {}
+  const arr = safeJsonParse(raw, []);
   return new Set(Array.isArray(arr) ? arr.map(String) : []);
 }
 

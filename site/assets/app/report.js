@@ -9,6 +9,10 @@ import {
   isFeedbackProgressClosed,
 } from './feedback-progress.js';
 
+export function feedbackTimeoutSignal(timeout = 20_000, signalApi = globalThis.AbortSignal) {
+  return signalApi?.timeout?.(timeout);
+}
+
 const REPORT_TYPES = {
   site_bug: '站点 Bug / 使用问题',
   card_content: '卡片内容错误',
@@ -223,6 +227,7 @@ async function submitFeedback(ev) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(currentPayload),
+      signal: feedbackTimeoutSignal(),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `提交失败（${res.status}）`);
@@ -310,7 +315,10 @@ async function loadPublicFeedback({ force = false } = {}) {
     list.innerHTML = '<div class="feedback-public-state is-loading"><i></i><span>正在加载公开处理进度…</span></div>';
   }
   try {
-    const response = await fetch('/api/feedback-public', { cache: 'no-store' });
+    const response = await fetch('/api/feedback-public', {
+      cache: 'no-store',
+      signal: feedbackTimeoutSignal(),
+    });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.ok === false) {
       throw new Error(data.error || `加载失败（${response.status}）`);

@@ -1,5 +1,5 @@
 import { state, RANDOM_RECENT_LIMIT, NSFW_LOCKED_MESSAGE } from './state.js';
-import { $, esc, samePath, pathStartsWith, updateSearchClear, prefersReducedMotion } from './utils.js';
+import { $, esc, samePath, pathStartsWith, updateSearchClear, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { isCodexLocked, showNsfwLockedHint, isEntryAccessBlocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, isR18gName } from './access.js';
 import { codexStatusLabel, codexStatusClass, codexStatusTitle } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
@@ -359,6 +359,14 @@ export function updateCodexPickerState() {
 export function accessHiddenCount() {
   if (!state.codex) return 0;
   return accessViewSnapshot().hiddenCount;
+}
+
+export function syncCodexPickerCounts(codex = state.codex) {
+  const meta = state.codexes?.find(item => item.id === codex?.id);
+  if (!meta || !codex) return false;
+  if (typeof codex.entryCount === 'number') meta.entryCount = codex.entryCount;
+  if (typeof codex.imagedCount === 'number') meta.imagedCount = codex.imagedCount;
+  return true;
 }
 
 export function visibleEntryCount() {
@@ -958,6 +966,15 @@ export function updateRailActive() {
 
 /* 法典「关于」气泡：来源 / 贡献者 / 相关链接 */
 const EXT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>';
+let bannerAboutOpen = false;
+
+function safeExternalLinks(links) {
+  return links.flatMap(link => {
+    if (!link || typeof link !== 'object') return [];
+    const url = safeHttpUrl(link.url);
+    return url ? [{ ...link, url }] : [];
+  });
+}
 
 function positionBannerPop(pop, banner) {
   const r = banner.getBoundingClientRect();
@@ -972,13 +989,16 @@ function positionBannerPop(pop, banner) {
 }
 
 function positionOpenBannerPop() {
+  if (!bannerAboutOpen) return;
   const openBtn = document.querySelector('.banner-about-btn.open');
   const openPop = document.querySelector('.banner-pop:not([hidden])');
   const banner = openBtn?.closest('.codex-banner');
   if (openPop && banner) positionBannerPop(openPop, banner);
+  else bannerAboutOpen = false;
 }
 
 function closeBannerAboutDirect() {
+  bannerAboutOpen = false;
   const openBtn = document.querySelector('.banner-about-btn.open');
   const openPop = document.querySelector('.banner-pop:not([hidden])');
   if (openPop) openPop.hidden = true;
@@ -993,6 +1013,7 @@ function openBannerAboutDirect() {
   positionBannerPop(pop, banner);
   pop.hidden = false;
   btn.classList.add('open');
+  bannerAboutOpen = true;
 }
 
 registerHistoryLayer('banner-about', {
@@ -1035,7 +1056,7 @@ export function renderBannerAbout(c, banner) {
     }
     html += '</div>';
   }
-  const validLinks = links.filter(l => l && l.url && l.url !== '#');
+  const validLinks = safeExternalLinks(links);
   if (validLinks.length) {
     html += '<div class="bp-sub">相关链接</div>';
     for (const l of validLinks) {
@@ -1061,6 +1082,7 @@ export function renderBannerAbout(c, banner) {
       positionBannerPop(pop, banner);
       pop.hidden = false;
       btn.classList.add('open');
+      bannerAboutOpen = true;
       openHistoryLayer('banner-about');
     }
   };
@@ -1078,7 +1100,7 @@ export function renderCodexArchive() {
   if (!c || !body) return;
   const pct = c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0;
   const contributors = Array.isArray(c.contributors) ? c.contributors : [];
-  const links = (Array.isArray(c.links) ? c.links : []).filter(l => l && l.url && l.url !== '#');
+  const links = safeExternalLinks(Array.isArray(c.links) ? c.links : []);
   const statRows = [
     ['作者', c.author || '未标注'],
     ['版本', c.version || '未标注'],
@@ -1123,13 +1145,14 @@ export function setupAbout() {
     linkBox.innerHTML = '';
     for (const l of links) {
       if (!l || !l.label) continue;
-      const real = l.url && l.url !== '#';
+      const url = safeHttpUrl(l.url);
+      const real = Boolean(url);
       const el = document.createElement(real ? 'a' : 'div');
       el.className = 'about-link';
-      if (real) { el.href = l.url; el.target = '_blank'; el.rel = 'noopener'; }
+      if (real) { el.href = url; el.target = '_blank'; el.rel = 'noopener'; }
       el.innerHTML =
         `<span class="al-text"><span class="al-label">${esc(l.label)}</span>` +
-        `<span class="al-desc">${esc(l.desc || (real ? l.url : '链接待补充'))}</span></span>` +
+        `<span class="al-desc">${esc(l.desc || (real ? url : '链接待补充'))}</span></span>` +
         (real ? `<span class="al-ext">${EXT_ICON}</span>` : '');
       linkBox.appendChild(el);
     }

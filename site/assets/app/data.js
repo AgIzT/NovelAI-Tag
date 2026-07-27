@@ -19,26 +19,6 @@ export async function loadBootstrapData() {
   };
 }
 
-export async function loadCodexIndex() {
-  const data = await fetchDataJson('codexes.json', { cache: 'no-store' });
-  return Array.isArray(data) ? data : [];
-}
-
-export async function loadMedia() {
-  try {
-    return await fetchDataJson('media.json', { cache: 'no-store' });
-  } catch {}
-  return {};
-}
-
-export async function loadAbout() {
-  try {
-    return await fetchDataJson('about.json', { cache: 'no-store' });
-  } catch {}
-  return EMPTY_ABOUT;
-}
-
-
 export async function fetchCodex(meta) {
   const key = meta.id || meta.dataUrl;
   if (state.codexCache.has(key)) return state.codexCache.get(key);

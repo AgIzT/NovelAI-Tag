@@ -244,6 +244,20 @@ function normalizeCommunityItems(values) {
   return [...new Set(values.map(validateCommunityId))].sort(compareText);
 }
 
+function normalizeStoredItems(values, normalize, errorCode) {
+  const items = [];
+  let skippedCount = 0;
+  values.forEach((value, index) => {
+    try {
+      items.push(normalize(value, index));
+    } catch (error) {
+      if (!(error instanceof FavoritesBackupError) || error.code !== errorCode) throw error;
+      skippedCount += 1;
+    }
+  });
+  return { items, skippedCount };
+}
+
 function unknownCodexInfo(atlas, lookup) {
   const unknownItems = atlas.filter(item => !lookup.canonicalIds.has(item.codexId));
   return {
@@ -304,12 +318,23 @@ export function readStoredFavorites(storage, codexes = []) {
   }
 
   const lookup = createCodexLookup(codexes);
-  const atlas = normalizeAtlasStorageKeys(safeStoredArray(atlasRaw), lookup);
-  const community = normalizeCommunityItems(safeStoredArray(communityRaw));
+  const storedAtlas = normalizeStoredItems(
+    safeStoredArray(atlasRaw),
+    parseAtlasStorageKey,
+    'INVALID_ATLAS_ITEM',
+  );
+  const storedCommunity = normalizeStoredItems(
+    safeStoredArray(communityRaw),
+    validateCommunityId,
+    'INVALID_COMMUNITY_ITEM',
+  );
+  const atlas = normalizeAtlasItems(storedAtlas.items, lookup);
+  const community = normalizeCommunityItems(storedCommunity.items);
   assertTotalItemLimit(atlas, community);
   return {
     atlasKeys: atlas.map(atlasStorageKey),
     communityIds: community,
+    skippedCount: storedAtlas.skippedCount + storedCommunity.skippedCount,
   };
 }
 

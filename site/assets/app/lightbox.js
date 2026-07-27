@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { $, clamp, esc, prefersReducedMotion } from './utils.js';
+import { $, clamp, esc, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt } from './copy.js';
@@ -16,6 +16,9 @@ let lbSeq = 0;
 let lbCloseTimer = 0;
 let lbSourceImg = null;
 let lbFocusReturn = null;
+let lbThumbEntry = null;
+let lbThumbImages = null;
+let lbThumbState = null;
 const lbPreloadCache = new Map();
 const LB_PRELOAD_CACHE_LIMIT = 300;
 
@@ -383,13 +386,18 @@ export function renderLightbox() {
 
   const credit = item.credit || item.author || e.credit || e.author || '';
   const creditUrl = item.creditUrl || item.authorUrl || e.creditUrl || e.authorUrl || '';
+  const safeCreditUrl = safeHttpUrl(creditUrl);
   const creditEl = $('#lightboxCredit');
   if (credit) {
     creditEl.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M5 20a7 7 0 0 1 14 0"/></svg>' +
       `<span>${esc(credit)}</span>`;
-    if (creditUrl) { creditEl.href = creditUrl; creditEl.target = '_blank'; creditEl.rel = 'noopener'; }
-    else creditEl.removeAttribute('href');
+    if (safeCreditUrl) { creditEl.href = safeCreditUrl; creditEl.target = '_blank'; creditEl.rel = 'noopener'; }
+    else {
+      creditEl.removeAttribute('href');
+      creditEl.removeAttribute('target');
+      creditEl.removeAttribute('rel');
+    }
     creditEl.hidden = false;
   } else {
     creditEl.hidden = true;
@@ -443,27 +451,41 @@ export function renderLightbox() {
   const next = $('#lightboxNext');
   prev.hidden = next.hidden = lb.images.length < 2;
   const thumbs = $('#lightboxThumbs');
-  thumbs.innerHTML = '';
+  const reuseThumbs = lbThumbEntry === e
+    && lbThumbImages === lb.images
+    && lbThumbState === lb
+    && thumbs.childElementCount === lb.images.length;
+  if (!reuseThumbs) {
+    thumbs.innerHTML = '';
+    lbThumbEntry = e;
+    lbThumbImages = lb.images;
+    lbThumbState = lb;
+  }
   thumbs.hidden = lb.images.length < 2;
   if (!thumbs.hidden) {
-    lb.images.forEach((image, i) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'lightbox-thumb' + (i === lb.index ? ' active' : '');
-      btn.title = `第 ${i + 1} 张`;
-      const ti = document.createElement('img');
-      ti.alt = '';
-      ti.loading = 'lazy';
-      ti.src = imageItemUrl('image', e, image) || imageItemUrl('original', e, image);
-      btn.appendChild(ti);
-      btn.onclick = ev => {
-        ev.stopPropagation();
-        if (lb.index === i) return;
-        lb.index = i;
-        renderLightbox();
-        syncUrlState({ entry: lb.entry.id, historyMode: 'replace', transition: 'detail' });
-      };
-      thumbs.appendChild(btn);
+    if (!reuseThumbs) {
+      lb.images.forEach((image, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'lightbox-thumb';
+        btn.title = `第 ${i + 1} 张`;
+        const ti = document.createElement('img');
+        ti.alt = '';
+        ti.loading = 'lazy';
+        ti.src = imageItemUrl('image', e, image) || imageItemUrl('original', e, image);
+        btn.appendChild(ti);
+        btn.onclick = ev => {
+          ev.stopPropagation();
+          if (lb.index === i) return;
+          lb.index = i;
+          renderLightbox();
+          syncUrlState({ entry: lb.entry.id, historyMode: 'replace', transition: 'detail' });
+        };
+        thumbs.appendChild(btn);
+      });
+    }
+    thumbs.querySelectorAll('.lightbox-thumb').forEach((btn, i) => {
+      btn.classList.toggle('active', i === lb.index);
     });
     const act = thumbs.querySelector('.lightbox-thumb.active');
     if (act) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });

@@ -139,6 +139,15 @@ export function scheduleBrowseStateSave(entryId) {
   browseSaveTimer = window.setTimeout(() => saveBrowseStateNow(entryId), 180);
 }
 
+export function checkpointBrowseState() {
+  if (Date.now() < browseSaveSuppressedUntil) return false;
+  clearTimeout(browseSaveTimer);
+  saveBrowseStateNow();
+  return true;
+}
+
+window.addEventListener?.('pagehide', checkpointBrowseState);
+
 export function browseDesc(snapshot) {
   if (!snapshot) return '暂无可恢复的位置';
   if (isHiddenR18gHistoryItem(snapshot)) return '上次位置包含 R18G / 重口内容，已隐藏';
@@ -268,15 +277,26 @@ export function restoreBrowseScroll(top, { token } = {}) {
   const seq = ++browseScrollRestoreSeq;
   const target = Math.max(0, Number(top) || 0);
   let attempts = 0;
+  const stopListening = () => {
+    window.removeEventListener?.('wheel', cancelForUserInput);
+    window.removeEventListener?.('touchstart', cancelForUserInput);
+  };
+  const cancelForUserInput = () => {
+    if (seq === browseScrollRestoreSeq) browseScrollRestoreSeq += 1;
+    stopListening();
+  };
+  window.addEventListener?.('wheel', cancelForUserInput, { once: true, passive: true });
+  window.addEventListener?.('touchstart', cancelForUserInput, { once: true, passive: true });
   const run = () => {
-    if (seq !== browseScrollRestoreSeq) return;
-    if (token !== undefined && !isHistoryRestoreToken(token)) return;
+    if (seq !== browseScrollRestoreSeq) { stopListening(); return; }
+    if (token !== undefined && !isHistoryRestoreToken(token)) { stopListening(); return; }
     window.scrollTo({ top: target, left: 0, behavior: 'auto' });
     historyActions.updateVirtualCards(true);
     updateScrollProgress();
     attempts += 1;
     const reached = Math.abs(Math.max(0, window.scrollY) - target) <= 3;
     if (!reached && attempts < 6) window.setTimeout(run, attempts < 2 ? 140 : 220);
+    else stopListening();
   };
   window.setTimeout(run, 160);
 }

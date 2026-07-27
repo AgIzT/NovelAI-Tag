@@ -70,13 +70,19 @@ export function maybeShowOnboarding() {
 }
 
 function finishOnboarding() {
-  localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+  try {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+  } catch {}
   prompted = true;
   closeMask($('#onboarding'));
 }
 
 function isOnboardingDone() {
-  return localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1';
+  try {
+    return localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 function renderOnboardingStep() {

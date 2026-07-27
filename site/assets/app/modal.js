@@ -71,7 +71,7 @@ function closeMaskDirect(mask) {
   }, 240));
 }
 
-function registerMaskHistory(mask) {
+export function registerMaskHistory(mask) {
   if (!mask?.id) return;
   registerHistoryLayer(mask.id, {
     isOpen: () => mask.classList.contains('show'),

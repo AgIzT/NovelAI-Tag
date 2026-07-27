@@ -257,9 +257,26 @@ const readStorage = new MemoryStorage({
 assert.deepEqual(readStoredFavorites(readStorage, codexes), {
   atlasKeys: ['alpha:alpha-2'],
   communityIds: ['a', 'b'],
+  skippedCount: 0,
 });
 readStorage.values.set(ATLAS_FAVORITES_STORAGE_KEY, '{broken');
 assert.deepEqual(readStoredFavorites(readStorage, codexes).atlasKeys, []);
+
+// 本地现存脏键逐条跳过并计数；外部备份仍由上方 INVALID_* 断言保持整包严格拒绝。
+readStorage.values.set(ATLAS_FAVORITES_STORAGE_KEY, JSON.stringify([
+  'alpha:alpha-2',
+  'missing-separator',
+  `alpha:bad\u0000id`,
+]));
+readStorage.values.set(COMMUNITY_FAVORITES_STORAGE_KEY, JSON.stringify([
+  'community-ok',
+  'bad\u007fid',
+]));
+assert.deepEqual(readStoredFavorites(readStorage, codexes), {
+  atlasKeys: ['alpha:alpha-2'],
+  communityIds: ['community-ok'],
+  skippedCount: 3,
+});
 
 // 现存旧键读取时归一并与新键去重，未迁出的 mengshen_pack-0259 保持原归属。
 const ownerMigrationStorage = new MemoryStorage({

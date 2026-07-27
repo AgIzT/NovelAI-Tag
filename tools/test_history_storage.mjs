@@ -9,6 +9,10 @@ const toastElement = {
   },
 };
 
+const windowListeners = new Map();
+let storageWritesFail = true;
+const storageWrites = [];
+
 globalThis.document = {
   documentElement: { scrollHeight: 0 },
   querySelector: selector => selector === '#toast' ? toastElement : null,
@@ -17,6 +21,11 @@ globalThis.window = {
   scrollY: 42,
   innerHeight: 800,
   setTimeout,
+  addEventListener(type, listener) { windowListeners.set(type, listener); },
+  removeEventListener(type, listener) {
+    if (windowListeners.get(type) === listener) windowListeners.delete(type);
+  },
+  scrollTo({ top }) { this.scrollY = top; },
 };
 globalThis.location = {
   hostname: 'localhost',
@@ -24,8 +33,10 @@ globalThis.location = {
   protocol: 'http:',
 };
 globalThis.localStorage = {
-  setItem() {
-    throw new DOMException('storage unavailable', 'QuotaExceededError');
+  getItem() { return null; },
+  setItem(key, value) {
+    if (storageWritesFail) throw new DOMException('storage unavailable', 'QuotaExceededError');
+    storageWrites.push([key, value]);
   },
 };
 
@@ -77,6 +88,37 @@ try {
       '[favorites] 无法保存收藏',
     ],
   );
+
+  // pagehide bypasses the trailing debounce, but must honor restore suppression.
+  storageWritesFail = false;
+  state.lastBrowse = null;
+  window.scrollY = 77;
+  windowListeners.get('pagehide')?.(new Event('pagehide'));
+  assert.equal(state.lastBrowse.scrollY, 77);
+  assert.ok(storageWrites.some(([key]) => key === 'fadian-last-browse'));
+
+  // A real wheel/touch gesture cancels the remaining restore retries.
+  const queued = [];
+  let scrollCalls = 0;
+  window.setTimeout = callback => { queued.push(callback); return queued.length; };
+  window.scrollTo = ({ top }) => {
+    scrollCalls += 1;
+    window.scrollY = Math.min(100, top); // layout clamp forces the retry path
+  };
+  historyModule.restoreBrowseScroll(500);
+  queued.shift()?.();
+  assert.equal(scrollCalls, 1);
+  assert.ok(windowListeners.has('wheel'));
+  windowListeners.get('wheel')?.(new Event('wheel'));
+  while (queued.length) queued.shift()();
+  assert.equal(scrollCalls, 1, 'user input must cancel all pending restore retries');
+  assert.equal(windowListeners.has('touchstart'), false);
+
+  const beforeSuppressedPagehide = state.lastBrowse;
+  historyModule.suppressBrowseStateSave(1000);
+  window.scrollY = 99;
+  windowListeners.get('pagehide')?.(new Event('pagehide'));
+  assert.strictEqual(state.lastBrowse, beforeSuppressedPagehide);
 } finally {
   console.warn = originalWarn;
   globalThis.setTimeout = originalSetTimeout;

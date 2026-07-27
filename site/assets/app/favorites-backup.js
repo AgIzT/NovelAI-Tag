@@ -161,6 +161,9 @@ export function setupFavoritesBackup(options = {}) {
     status.textContent = message || '';
     status.hidden = !message;
   };
+  const skippedStatus = count => count > 0
+    ? `${count} 条本地收藏格式异常，已跳过。`
+    : '';
   const setError = message => {
     if (!errorBox) return;
     errorBox.textContent = message || '';
@@ -208,6 +211,7 @@ export function setupFavoritesBackup(options = {}) {
       exportButton.disabled = busy || empty;
       exportButton.title = empty ? '暂无收藏可备份' : '';
     }
+    if (current.skippedCount) setStatus(skippedStatus(current.skippedCount));
     return current;
   };
 
@@ -356,7 +360,9 @@ export function setupFavoritesBackup(options = {}) {
       const codexes = await resolveCodexes();
       const current = readStoredFavorites(localStorage, codexes);
       if (!current.atlasKeys.length && (localEdition || !current.communityIds.length)) {
-        setStatus('暂无收藏可备份。');
+        setStatus(current.skippedCount
+          ? `暂无有效收藏可备份。${skippedStatus(current.skippedCount)}`
+          : '暂无收藏可备份。');
         return;
       }
       downloadJson(serializeFavoritesBackup({
@@ -365,9 +371,10 @@ export function setupFavoritesBackup(options = {}) {
         codexes,
         exportedAt: new Date().toISOString(),
       }));
-      setStatus(localEdition
+      const exported = localEdition
         ? `备份已导出：本地法典收藏 ${current.atlasKeys.length} 条。`
-        : `备份已导出：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条。`);
+        : `备份已导出：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条。`;
+      setStatus(`${exported}${skippedStatus(current.skippedCount)}`);
     } catch (error) {
       setError(friendlyError(error));
     } finally {
@@ -416,6 +423,10 @@ export function setupFavoritesBackup(options = {}) {
       };
       if (preview) preview.hidden = false;
       renderPlan('merge');
+      if (current.skippedCount) {
+        const currentStatus = status?.textContent || '';
+        setStatus(`${currentStatus}${currentStatus ? ' ' : ''}${skippedStatus(current.skippedCount)}`);
+      }
       restoreButton?.focus();
     } catch (error) {
       setError(friendlyError(error));

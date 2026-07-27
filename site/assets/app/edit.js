@@ -5,7 +5,7 @@ import { state } from './state.js';
 import { $, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
-import { setCodexUiActions, closeCodexPicker, invalidateAccessViewMemo } from './codex-ui.js';
+import { setCodexUiActions, closeCodexPicker, invalidateAccessViewMemo, syncCodexPickerCounts } from './codex-ui.js';
 import { openMask, closeMask, trapFocus } from './modal.js';
 import { fetchDataJson } from '../data-source.js';
 import { invalidateSearchableText } from './search.js';
@@ -398,6 +398,7 @@ function applyServerCounts(res) {
   if (typeof res.entryCount === 'number') state.codex.entryCount = res.entryCount;
   if (typeof res.imagedCount === 'number') state.codex.imagedCount = res.imagedCount;
   if (res.tree) state.codex.tree = res.tree;
+  syncCodexPickerCounts();
 }
 
 /* 结构变化（换分类/增删）后：让缓存失效并原地重载当前书，不整页刷新 */
@@ -426,6 +427,7 @@ async function structuralRefresh({
     parentScrollY: scrollY,
     saveBrowse: false,
   });
+  syncCodexPickerCounts();
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
     window.scrollTo({ top: scrollY, left: 0, behavior: 'auto' });
     resolve();

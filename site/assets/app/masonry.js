@@ -6,7 +6,7 @@ import { currentHighlightTerms, renderHighlightedText } from './search.js';
 import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } from './media.js';
 import { copyText, combinedPrompt } from './copy.js';
 import { isFav } from './favorites.js';
-import { updateResultBar, updateEmptyState, updateReadingSpy } from './codex-ui.js';
+import { updateReadingSpy } from './codex-ui.js';
 
 const masonryActions = {
   openLightbox: () => {},
