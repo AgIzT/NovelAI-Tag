@@ -9,7 +9,10 @@ import {
 import {
   renderAll, renderHeader, renderNav, renderToolbar, renderList, renderDetail,
 } from './render.js';
-import { collectCommunityEdits, collectFeedbackUpdate } from './editor.js';
+import {
+  collectCommunityEdits, collectFeedbackUpdate,
+  resetParamsRecheckMemo, setParamsRecheckErrorHandler,
+} from './editor.js';
 
 let toastTimer;
 let searchTimer;
@@ -17,6 +20,7 @@ let loadSeq = 0;
 let loadController = null;
 
 export function initActions() {
+  setParamsRecheckErrorHandler(handleError);
   syncTheme();
   bindTopbar();
   bindNavigation();
@@ -53,6 +57,7 @@ function bindTopbar() {
     const value = $('#tokenInput').value.trim();
     if (!value) return;
     setToken(value);
+    resetParamsRecheckMemo();
     enter();
   });
   $('#tokenInput').addEventListener('keydown', event => {
@@ -462,8 +467,6 @@ async function runFeedbackAction(action) {
   }
 
   const update = collectFeedbackUpdate();
-  if (action === 'resolve') update.progressStatus = 'completed';
-  if (action === 'ignore') update.progressStatus = 'declined';
   const before = state.feedbackItems.slice();
   const index = before.findIndex(entry => entry.id === item.id);
   setBusy(true);

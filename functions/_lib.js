@@ -355,8 +355,26 @@ export async function moveCommunityRecord(env, found, nextStatus, updates = {}) 
   } else if (status === 'rejected') {
     rec.rejectedAt = now;
   }
+  const nextKey = communityRecordKey(status, rec.id);
   await writeCommunityRecord(env, status, rec);
-  if (fromStatus !== status) await env.STRINGS_BUCKET.delete(found.key);
+  if (fromStatus !== status) {
+    try {
+      await env.STRINGS_BUCKET.delete(found.key);
+    } catch {
+      try {
+        await env.STRINGS_BUCKET.delete(found.key);
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'community_record_move_delete_failed',
+          id: rec.id,
+          fromKey: found.key,
+          toKey: nextKey,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        throw error;
+      }
+    }
+  }
   // 旧调用方默认仍立即刷新公开聚合；统一管理 API 的批量操作可显式延迟，
   // 待整批记录写完后只重建一次。
   if ((fromStatus === 'approved' || status === 'approved') && updates.rebuild !== false) {

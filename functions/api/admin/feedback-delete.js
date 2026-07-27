@@ -19,7 +19,7 @@ export async function onRequestPost(context) {
   if (!STATUSES.has(status)) return err('反馈状态无效');
 
   const keys = (await listAll(env.STRINGS_BUCKET, `feedback/${status}/`))
-    .filter(key => key.endsWith(`/${id}.json`) || key.endsWith(`${id}.json`));
+    .filter(key => key.endsWith(`/${id}.json`));
   const recordKey = keys[0] || '';
   if (!recordKey) return err('该反馈不存在或已被删除', 404);
 

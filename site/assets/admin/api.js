@@ -12,6 +12,13 @@ export function clearToken() {
   sessionStorage.removeItem(KEY);
 }
 
+function unauthorizedError(message) {
+  clearToken();
+  const error = new Error(message || '管理口令错误或已失效');
+  error.unauthorized = true;
+  return error;
+}
+
 export async function adminApi(path, opts = {}) {
   const res = await fetch(path, {
     ...opts,
@@ -22,10 +29,7 @@ export async function adminApi(path, opts = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    clearToken();
-    const error = new Error(data.error || '管理口令错误或已失效');
-    error.unauthorized = true;
-    throw error;
+    throw unauthorizedError(data.error);
   }
   if (!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
   return data;
@@ -52,20 +56,16 @@ export async function fetchCommunityAsset(key) {
   const res = await fetch('/api/admin/community/asset?key=' + encodeURIComponent(key), {
     headers: { authorization: 'Bearer ' + token() },
   });
+  if (res.status === 401) {
+    const data = await res.json().catch(() => ({}));
+    throw unauthorizedError(data.error);
+  }
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.blob();
 }
 
 export function getFeedback(status, opts = {}) {
   return adminApi('/api/admin/feedback?status=' + encodeURIComponent(status), opts);
-}
-
-export function decideFeedback(id, action, sourceStatus = '') {
-  return adminApi('/api/admin/feedback-decide', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id, action, sourceStatus }),
-  });
 }
 
 export function updateFeedback(id, sourceStatus, progressStatus, adminReply, publicVisible) {

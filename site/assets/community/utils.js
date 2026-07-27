@@ -3,6 +3,26 @@ import { STRINGS_R2_BASE } from './constants.js';
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
+export function safeStorageGet(key) {
+  try {
+    const storage = globalThis.localStorage;
+    return storage ? storage.getItem(String(key)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function safeStorageSet(key, value) {
+  try {
+    const storage = globalThis.localStorage;
+    if (!storage) return false;
+    storage.setItem(String(key), String(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function escHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"]/g, char => ({
     '&': '&amp;',
@@ -55,8 +75,13 @@ export async function copyText(text) {
   area.style.left = '-9999px';
   document.body.appendChild(area);
   area.select();
-  document.execCommand('copy');
-  area.remove();
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } finally {
+    area.remove();
+  }
+  if (!copied) throw new Error('复制失败');
 }
 
 export function promptExcerpt(text, max = 120) {

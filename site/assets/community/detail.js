@@ -147,8 +147,12 @@ function renderDetail() {
   detailBody.querySelectorAll('[data-copy]').forEach(button => {
     button.addEventListener('click', async () => {
       const type = button.dataset.copy;
-      await copyText(type === 'negative' ? entry.negative : entry.prompt);
-      toast(type === 'negative' ? '已复制负面 Prompt' : '已复制 Prompt');
+      try {
+        await copyText(type === 'negative' ? entry.negative : entry.prompt);
+        toast(type === 'negative' ? '已复制负面 Prompt' : '已复制 Prompt');
+      } catch {
+        toast('复制失败，请长按/手动选择文本', '!');
+      }
     });
   });
 }
