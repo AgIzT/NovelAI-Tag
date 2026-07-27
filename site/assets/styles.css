@@ -45,9 +45,6 @@ body.tb-hidden .topbar{transform:translateY(-150%)}
 .icon-btn:hover{background:var(--tagbg)}
 .icon-btn svg{display:block}
 .topbar-actions{margin-left:auto;display:flex;align-items:center;gap:4px;flex:none}
-.nav-link{text-decoration:none;font-size:12px;color:var(--muted);padding:6px 12px;border:1px solid var(--line);border-radius:8px;transition:all .15s;white-space:nowrap;cursor:pointer;display:inline-block}
-.nav-link:hover{background:var(--tagbg);color:var(--text)}
-.github-mark{width:20px;height:20px}
 .theme-btn svg{width:21px;height:21px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .settings-top-btn svg{width:19px;height:19px;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .more-wrap{position:relative;flex:none}
@@ -535,8 +532,6 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 /* ---------- 瀑布流 ---------- */
 .masonry{position:relative;min-height:1px;contain:layout paint}
 .masonry.is-filtering{pointer-events:none}
-.col{display:none}
-
 .card{
   background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
   box-shadow:var(--shadow);cursor:pointer;transition:opacity .16s,box-shadow .12s,border-color .12s,transform .28s cubic-bezier(.22,1,.36,1);
@@ -1353,7 +1348,7 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
   position:fixed;left:50%;bottom:40px;transform:translateX(-50%) translateY(20px);
   background:var(--accent);color:#fff;padding:10px 20px;border-radius:999px;font-weight:600;font-size:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;
-  transition:opacity .2s,transform .34s cubic-bezier(.34,1.56,.64,1);z-index:110;
+  transition:opacity .2s,transform .34s cubic-bezier(.34,1.56,.64,1);z-index:1300;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -1426,13 +1421,13 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 8px}
 .lightbox-actions[hidden]{display:none!important}
 .lightbox-actions button,.section-head button{
-  border:none;background:var(--tagbg);color:#fff;font-weight:800;
+  border:none;background:var(--tagbg);color:var(--text);font-weight:800;
   border-radius:999px;padding:7px 12px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,.14);
   transition:filter .12s,transform .12s,box-shadow .12s;
 }
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.18)}
-#copyPositive{background:var(--accent)}
-#copyNegative{background:var(--new)}
+#copyPositive{background:var(--accent);color:#fff}
+#copyNegative{background:var(--new);color:#fff}
 #copyAll,#copyRawTag,#shareLightbox,#reportLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
 #copyAll:hover,#copyRawTag:hover,#shareLightbox:hover,#reportLightbox:hover{background:var(--tagbg-hover);filter:none}
 .lightbox-section{margin-top:12px}

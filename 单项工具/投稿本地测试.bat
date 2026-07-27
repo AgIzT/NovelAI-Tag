@@ -13,10 +13,9 @@ if errorlevel 1 (
 )
 
 REM --- Pages Functions only injects .dev.vars; append missing local-only values without overwriting ---
-if not exist ".dev.vars" (
-  >".dev.vars" echo ADMIN_TOKEN=devtoken
-  >>".dev.vars" echo STRINGS_PUBLIC_BASE=/r2
-)
+if not exist ".dev.vars" type nul >".dev.vars"
+findstr /b /c:"ADMIN_TOKEN=" ".dev.vars" >nul || >>".dev.vars" echo ADMIN_TOKEN=devtoken
+findstr /b /c:"STRINGS_PUBLIC_BASE=" ".dev.vars" >nul || >>".dev.vars" echo STRINGS_PUBLIC_BASE=/r2
 findstr /b /c:"COMMUNITY_LIKES_ENABLED=" ".dev.vars" >nul || >>".dev.vars" echo COMMUNITY_LIKES_ENABLED=true
 findstr /b /c:"ENGAGEMENT_COOKIE_SECRET=" ".dev.vars" >nul || >>".dev.vars" echo ENGAGEMENT_COOKIE_SECRET=local-development-only-5d8c17b4-8f97-4d14-a71a-4bb47f1f17e0
 findstr /b /c:"RATE_LIMIT_SALT=" ".dev.vars" >nul || >>".dev.vars" echo RATE_LIMIT_SALT=local-development-only-community-likes

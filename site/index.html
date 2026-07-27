@@ -85,8 +85,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
   </button>
 
-  <label class="filter-btn" title="只看收藏" aria-label="只看收藏">
-    <input type="checkbox" id="onlyFav">
+  <label class="filter-btn" title="只看收藏">
+    <input type="checkbox" id="onlyFav" aria-label="只看收藏">
     <span class="filter-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none">
         <path d="m12 3.8 2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6L7.1 19l.9-5.5-4-3.9 5.5-.8L12 3.8Z"/>
@@ -579,9 +579,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   </div>
 </div>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-<div id="lightbox" class="lightbox" hidden>
+<div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="图片灯箱" hidden>
   <button id="lightboxClose" class="lb-circle lightbox-close" type="button" aria-label="关闭">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
   </button>
