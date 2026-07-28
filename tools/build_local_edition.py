@@ -32,11 +32,13 @@ PRODUCT_NAME = "法典图鉴本地版"
 LOCAL_CSS = """
 /* 独立本地版：隐藏需要线上后端或公开站点上下文的入口。 */
 body.local-edition #globalReportBtn,
+body.local-edition #communityBrowseLink,
 body.local-edition .more-item[href*="github.com/AgIzT/NovelAI-Tag"],
 body.local-edition #announcementsBtn,
 body.local-edition #announcementsFeedbackLink,
 body.local-edition #announcementsPanel,
 body.local-edition #feedbackPanel,
+body.local-edition #onboardingBtn,
 body.local-edition #onboarding,
 body.local-edition #reportLightbox,
 body.local-edition #shareLightbox,

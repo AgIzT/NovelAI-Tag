@@ -51,6 +51,50 @@ assert.equal(lookupSources.length, 2, '编辑器 reload 换入新数组后应重
 assert.equal(lookupSources[1], reloadedCodexes);
 assert.equal(lookupArguments.at(-1).source, reloadedCodexes);
 
+// 收藏墙灯箱延迟刷新：取消后当前词条仍可立即重新收藏；星标同步到底层卡片，
+// 真正的合成列表重建只在灯箱关闭时显式 flush。
+{
+  const makeButton = () => {
+    const classes = new Set();
+    const attrs = new Map();
+    return {
+      textContent: '',
+      title: '',
+      classList: {
+        toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+        contains(name) { return classes.has(name); },
+      },
+      setAttribute(name, value) { attrs.set(name, String(value)); },
+      getAttribute(name) { return attrs.get(name); },
+    };
+  };
+  const lightboxButton = makeButton();
+  const cardButton = makeButton();
+  state.list = [entry];
+  state.nodes = new Map([[0, { querySelector: selector => selector === '.fav-btn' ? cardButton : null }]]);
+  state.favoritesView = true;
+  let refreshes = 0;
+  favorites.setFavoritesActions({ refreshFavoritesView: () => { refreshes += 1; } });
+  globalThis.localStorage = { setItem() {} };
+
+  favorites.toggleFav(entry, lightboxButton, { deferViewRefresh: true });
+  assert.equal(favorites.isFav(entry), false);
+  assert.equal(refreshes, 0);
+  assert.equal(lightboxButton.getAttribute('aria-pressed'), 'false');
+  assert.equal(cardButton.getAttribute('aria-pressed'), 'false');
+  assert.equal(cardButton.textContent, '☆');
+  assert.equal(favorites.flushDeferredFavoritesViewRefresh(), true);
+  assert.equal(refreshes, 1);
+  assert.equal(favorites.flushDeferredFavoritesViewRefresh(), false, '重复关闭不应重复刷新');
+
+  favorites.toggleFav(entry, lightboxButton, { deferViewRefresh: true });
+  assert.equal(favorites.isFav(entry), true, '刷新前仍应能把当前词条重新收藏');
+  assert.equal(lightboxButton.getAttribute('aria-pressed'), 'true');
+  assert.equal(cardButton.textContent, '★');
+  favorites.flushDeferredFavoritesViewRefresh();
+  assert.equal(refreshes, 2);
+}
+
 // 保留对 localStorage 受限/写入失败的既有容错。
 const previousStorage = globalThis.localStorage;
 const previousWarn = console.warn;

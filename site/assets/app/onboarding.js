@@ -10,7 +10,13 @@ const STEPS = [
     cls: 'obs-1',
     scene: `<div class="ob-grid"><i></i><i></i><i class="ob-t"></i><i></i></div><div class="ob-ck"><svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>${CUR}`,
     title: '看图，点一下就复制',
-    body: '看中哪张例图，点卡片即复制它的法典提示词，直接粘进 NovelAI。',
+    body: '这里是社区整理的 NovelAI 提示词法典图鉴。看中哪张例图，点卡片即复制它的法典提示词，直接粘进 NovelAI。',
+  },
+  {
+    cls: 'obs-3',
+    scene: `<div class="ob-searchbox"><b>本书</b><i></i><span></span></div><div class="ob-searchscope"><i>本书</i><b>全站</b></div>${CUR}`,
+    title: '十本法典随时切，也能全站搜',
+    body: '点顶栏书名可在十本法典间切换；搜索栏左侧还能在“本书”和“全站”间切换，并用 path:、has:image、fav:true 等高级语法精确筛选。',
   },
   {
     cls: 'obs-2',
@@ -19,7 +25,7 @@ const STEPS = [
     body: '列表是缩略图不含参数。点图右上角放大成原图，再把大图拖进 NovelAI，多数能直接读出生成参数。',
   },
   {
-    cls: 'obs-3',
+    cls: 'obs-4',
     scene: `<div class="ob-card"><b></b></div><div class="ob-panel"><u></u><u></u></div><div class="ob-fb">!</div>${CUR}`,
     title: '有问题，点反馈',
     body: '海量词条配对难免出错，如遇词条卡片有错、图打不开、复制不对，点反馈说一声，我们会尽快修复更正。',
@@ -60,13 +66,20 @@ export function maybeShowOnboarding() {
   // 独立本地版由可编辑 Demo 直接教学，通用的线上浏览/反馈引导会造成误导。
   if (document.body.classList.contains('local-edition')) return;
   if (prompted || initialRouteUrl || isOnboardingDone()) return;
-  const mask = $('#onboarding');
-  if (!mask) return;
   if (document.querySelector('.settings-mask.show')) return;
+  return openOnboarding();
+}
+
+export function openOnboarding({ trigger = document.activeElement, historyMode = 'push' } = {}) {
+  // 本地发行版不含线上社区与反馈能力，手动入口也不能把通用引导带回来。
+  if (document.body.classList.contains('local-edition')) return false;
+  const mask = $('#onboarding');
+  if (!mask) return false;
   prompted = true;
   step = 0;
   renderOnboardingStep();
-  openMask(mask);
+  if (!mask.classList.contains('show')) openMask(mask, trigger, { historyMode });
+  return true;
 }
 
 function finishOnboarding() {

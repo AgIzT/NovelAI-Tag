@@ -117,9 +117,22 @@ export function imageItemPath(kind, e, item) {
 }
 
 export function entryImages(e) {
-  return (e.images && e.images.length)
+  const images = (e.images && e.images.length)
     ? e.images
-    : (e.image ? [{ path: e.image, original: e.original || e.image }] : []);
+    : (e.image ? [{ path: e.image, original: e.original || '', _hasOriginal: Boolean(e.original) }] : []);
+  return images.map(item => {
+    const hasOriginal = item?._hasOriginal === undefined
+      ? Boolean(item?.original)
+      : Boolean(item._hasOriginal);
+    return item?._hasOriginal === hasOriginal ? item : { ...item, _hasOriginal: hasOriginal };
+  });
+}
+
+/* imageItemUrl('original') 为兼容旧调用会回退到缩略图路径；需要向用户声明
+   “真实原图”时必须看这个显式标记，不能把 fallback 误报成 original。 */
+export function imageItemHasOriginal(item, entry = null) {
+  if (item?._hasOriginal !== undefined) return Boolean(item._hasOriginal);
+  return Boolean(item?.original || (entry?.original && !item));
 }
 
 export function isAbsoluteUrl(url) {

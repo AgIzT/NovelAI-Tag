@@ -116,9 +116,11 @@ const isMaskOpen = () => false;
 const openMask = () => {};
 const trapFocus = () => {};
 const toast = globalThis.__communityDetailLowRiskTest.toast;
+const novelAiToastAction = () => null;
 const goBackFrom = () => false;
 const createLikeButton = () => null;
 const syncCommunityHistory = () => {};
+const communityUrlForRoute = route => '/strings.html?entry=' + encodeURIComponent(route.entry || '');
 const state = { activeEntryId: '', activeImageIndex: 0 };
 const $ = () => null;
 const copyText = (...args) => globalThis.__communityDetailLowRiskTest.copyText(...args);
@@ -165,6 +167,8 @@ const readImageParams = (...args) => globalThis.${testKey}.readImageParams(...ar
 const $ = selector => globalThis.${testKey}.elements.get(selector) || null;
 const $$ = () => [];
 const escHtml = value => String(value ?? '');
+const rememberOwnedRecord = () => {};
+const COMMUNITY_SUBMISSIONS_KEY = 'test-community-submissions';
 ${source}`;
   });
 }
@@ -219,7 +223,7 @@ ${source}`;
     assert.equal(mask.open, true, '旧请求成功回调不得关闭新会话');
     assert.equal(prompt.value, 'new prompt');
     assert.equal(title.value, 'new title');
-    assert.equal(globalThis.__communitySubmitUploadRace.toasts.at(-1)?.[0], '投稿已提交');
+    assert.equal(globalThis.__communitySubmitUploadRace.toasts.at(-1)?.[0], '投稿已提交，审核通过后会公开');
   } finally {
     if (fetchDescriptor) Object.defineProperty(globalThis, 'fetch', fetchDescriptor);
     else delete globalThis.fetch;

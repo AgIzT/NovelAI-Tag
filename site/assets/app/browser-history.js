@@ -235,6 +235,17 @@ function reconcileLayers(targetLayers = [], preservedIds = []) {
   for (const id of targetIds) directOpenLayer(id);
 }
 
+/* 直接 Back 关闭 transient layer 时，页面路由本身没有变化。此时只关闭
+   departing history record 相比 parent 多出的 layer；注册在同一 modal
+   registry、但由 route 维持的详情框不属于 departingLayers，必须保留。 */
+function reconcileDirectLayerClose(departingIds = [], targetIds = []) {
+  const keepIds = new Set(targetIds);
+  for (const id of [...departingIds].reverse()) {
+    if (!keepIds.has(id)) directCloseLayer(id);
+  }
+  for (const id of targetIds) directOpenLayer(id);
+}
+
 export function openHistoryLayer(id, { mode = 'push' } = {}) {
   id = String(id || '');
   if (!id || !initialized || !currentEntry) return false;
@@ -489,14 +500,14 @@ async function handlePopState(event) {
     });
     writeState('replace', target);
     if (sameSearchSession && config.isEmptySearchRoute?.(target.route) && target.parentId) {
-      reconcileLayers(target.layers);
+      reconcileDirectLayerClose(departingLayers, targetLayers);
       browserWindow().queueMicrotask(() => requestHistoryBack());
       return;
     }
     /* 纯关浮层：route 已继承自离开记录，界面本来就与之一致。只收敛浮层，
        跳过路由重放与滚动恢复——否则列表会先被 resetScroll 跳到顶部、再被
        延迟的滚动恢复弹回原位，产生肉眼可见的闪屏。 */
-    reconcileLayers(target.layers);
+    reconcileDirectLayerClose(departingLayers, targetLayers);
     return;
   }
   currentEntry = target;

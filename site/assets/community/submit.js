@@ -8,6 +8,8 @@ import {
   SUBMIT_DISABLED_MESSAGE,
 } from './constants.js';
 import { readImageParams } from './png-metadata.js';
+import { rememberOwnedRecord } from '../app/local-ownership.js';
+import { COMMUNITY_SUBMISSIONS_KEY } from './my-submissions.js';
 import { $, $$, escHtml } from './utils.js';
 
 let submitMask;
@@ -30,6 +32,7 @@ export function initSubmitDialog(options = {}) {
   bindDialog();
   bindDropZone();
   bindCategoryChips();
+  bindSuccessActions();
   updateSubmitDisabledUI();
   setCategory(DEFAULT_COMMUNITY_CATEGORY);
   setPromptSource('manual');
@@ -42,6 +45,7 @@ export function openSubmitDialog(trigger = document.activeElement) {
   }
   if (!submitMask) return;
   if (!isMaskOpen(submitMask)) dialogGeneration += 1;
+  showSubmitForm();
   clearError();
   openMask(submitMask, trigger);
 }
@@ -75,6 +79,33 @@ function bindDialog() {
   });
   $('[data-close-submit]', submitMask)?.addEventListener('click', closeSubmitDialog);
   submitForm.addEventListener('submit', submitCommunity);
+}
+
+function bindSuccessActions() {
+  $('[data-submit-another]', submitMask)?.addEventListener('click', () => {
+    showSubmitForm();
+    $('#subDrop')?.focus();
+  });
+  $('[data-close-submit-success]', submitMask)?.addEventListener('click', closeSubmitDialog);
+}
+
+function showSubmitForm() {
+  submitForm?.classList?.remove('is-success');
+  const success = $('#subSuccess');
+  if (success) success.hidden = true;
+  const title = $('#submitTitle');
+  if (title) title.textContent = '投稿到共创广场';
+}
+
+function showSubmitSuccess() {
+  submitForm?.classList?.add('is-success');
+  const success = $('#subSuccess');
+  if (success) success.hidden = false;
+  const title = $('#submitTitle');
+  if (title) title.textContent = '投稿已提交';
+  const focusButton = () => success?.querySelector('button')?.focus();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focusButton);
+  else focusButton();
 }
 
 function bindDropZone() {
@@ -329,6 +360,7 @@ async function submitCommunity(event) {
     return;
   }
   const generation = dialogGeneration;
+  const submittedTitle = $('#subTitle').value.trim() || '未命名投稿';
 
   const fd = new FormData();
   fd.append('title', $('#subTitle').value.trim());
@@ -368,12 +400,20 @@ async function submitCommunity(event) {
       }
       return;
     }
+    const submittedAt = Date.now();
+    if (data.id) {
+      rememberOwnedRecord(COMMUNITY_SUBMISSIONS_KEY, {
+        id: data.id,
+        title: submittedTitle,
+        createdAt: submittedAt,
+      });
+    }
     if (generation === dialogGeneration) {
       resetSubmitForm();
-      closeSubmitDialog();
+      showSubmitSuccess();
     }
-    toast('投稿已提交');
-    onSubmitted?.();
+    toast('投稿已提交，审核通过后会公开');
+    onSubmitted?.({ id: data.id || '', title: submittedTitle, createdAt: submittedAt });
   } catch {
     if (generation === dialogGeneration) showError('网络错误，请稍后重试');
   } finally {

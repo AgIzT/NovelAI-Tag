@@ -471,6 +471,40 @@ assert.equal(replaced.parentId, entry.parentId);
   assert.equal(calls.restoreScroll, 1);
 }
 
+// A route-backed detail dialog shares the modal registry but is not a transient
+// history layer. Closing a clipboard/settings layer above it must preserve the
+// detail UI and its route while still skipping route replay.
+{
+  const calls = { applyRoute: 0, restoreScroll: 0 };
+  const env = configure('community', async () => { calls.applyRoute += 1; });
+  let detailOpen = true;
+  let clipboardFallbackOpen = false;
+  registerHistoryLayer('route-backed-detail', {
+    isOpen: () => detailOpen,
+    open: () => { detailOpen = true; },
+    close: () => { detailOpen = false; },
+  });
+  registerHistoryLayer('clipboard-fallback-test', {
+    isOpen: () => clipboardFallbackOpen,
+    open: () => { clipboardFallbackOpen = true; },
+    close: () => { clipboardFallbackOpen = false; },
+  });
+  env.route = { view: 'all', q: '', entry: 'post-1', imageIndex: 0 };
+  const detail = initializeBrowserHistory({ transition: 'detail' });
+  clipboardFallbackOpen = true;
+  openHistoryLayer('clipboard-fallback-test');
+
+  env.window.history.back();
+  await tick();
+  assert.equal(clipboardFallbackOpen, false);
+  assert.equal(detailOpen, true);
+  assert.equal(getManagedHistoryEntry().id, detail.id);
+  assert.equal(getManagedHistoryEntry().route.entry, 'post-1');
+  assert.equal(calls.applyRoute, 0);
+  assert.equal(calls.restoreScroll, 0);
+  detailOpen = false; // avoid leaking a deliberately visible registered modal into later cases
+}
+
 // Every managed popstate invalidates an older async restore, including the
 // pure-layer-close fast path. The stale restore must neither overwrite the
 // parent slot nor leave history writes permanently locked.

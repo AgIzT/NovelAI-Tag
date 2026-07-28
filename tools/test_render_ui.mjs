@@ -53,7 +53,8 @@ globalThis.window = {
 };
 globalThis.document = {
   activeElement: null,
-  documentElement: { clientHeight: 800, scrollHeight: 2000 },
+  documentElement: { clientHeight: 800, scrollHeight: 2000, classList: fakeClassList() },
+  body: { classList: fakeClassList() },
   querySelector: selector => dom.get(selector) || null,
   querySelectorAll: () => [],
 };
@@ -78,18 +79,29 @@ const {
   cleanupCard,
 } = await import('../site/assets/app/masonry.js');
 const {
+  canUseNativeShare,
+  getLightboxStepTarget,
   isLightboxKeydownBlocked,
+  lightboxNavigationContext,
+  lightboxOriginalCopy,
   preloadImage,
   preloadLightboxNeighbors,
+  setLightboxScrollLocked,
 } = await import('../site/assets/app/lightbox.js');
+const { entryImages, imageItemHasOriginal } = await import('../site/assets/app/media.js');
+const { normalizeImageList } = await import('../site/assets/app/data.js');
 const {
   accessHiddenCount,
+  imageSyntaxFilterValue,
   invalidateAccessViewMemo,
+  lockedCodexCount,
+  railRevealDelta,
   syncCodexPickerCounts,
   visibleEntryCount,
   visibleTree,
 } = await import('../site/assets/app/codex-ui.js');
-const { feedbackTimeoutSignal, setupReport } = await import('../site/assets/app/report.js');
+const { nextDensity } = await import('../site/assets/app/ui.js');
+const { buildFeedbackContext, feedbackTimeoutSignal, setupReport } = await import('../site/assets/app/report.js');
 const { safeHttpUrl } = await import('../site/assets/app/utils.js');
 const { atlasUrlForRoute, readUrlState } = await import('../site/assets/app/router.js');
 const { loadAnnouncements } = await import('../site/assets/app/announcements.js');
@@ -271,6 +283,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(images.length, beforeOldestRetry + 1, '超过上限后最旧 URL 应已被淘汰');
 
   state.codex = { id: 'book', assetPathMode: 'relative', assetBaseUrl: 'https://assets.test' };
+  state.list = [];
   state.lightbox = {
     entry: { id: 'entry', assetRev: 'r1' },
     index: 0,
@@ -285,6 +298,111 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(images.length, beforeNeighbors + 4, '前后邻图应各保留缩略图+原图预热');
 }
 
+// 灯箱把当前过滤列表展平成循环画廊：图内优先，边界跨词条，跳过无图/受限项；
+// 不在列表的深链只保留原有多图循环，不擅自跨词条。
+{
+  state.codex = { id: 'book', assetPathMode: 'relative', assetBaseUrl: 'https://assets.test' };
+  state.allowNsfw = false;
+  state.allowR18g = false;
+  const first = {
+    id: 'first', path: ['A'],
+    images: [{ path: 'first-1.jpg' }, { path: 'first-2.jpg' }],
+  };
+  const noImage = { id: 'empty', path: ['A'] };
+  const blocked = { id: 'blocked', path: ['A'], rating: 'r18', image: 'blocked.jpg' };
+  const last = { id: 'last', path: ['A'], image: 'last.jpg' };
+  state.list = [first, noImage, blocked, last];
+
+  const firstBox = { entry: first, images: entryImages(first), index: 0 };
+  assert.equal(getLightboxStepTarget(1, firstBox).index, 1, '同词条应先切下一张');
+  assert.equal(getLightboxStepTarget(-1, firstBox).entry, last, '首图向前应跨列表首尾循环');
+  const firstEnd = { ...firstBox, index: 1 };
+  const nextEntry = getLightboxStepTarget(1, firstEnd);
+  assert.equal(nextEntry.entry, last);
+  assert.equal(nextEntry.crossEntry, true);
+  const lastBox = { entry: last, images: entryImages(last), index: 0 };
+  assert.equal(getLightboxStepTarget(1, lastBox).entry, first, '末条向后应回到过滤列表首条');
+  assert.equal(getLightboxStepTarget(-1, lastBox).index, 1, '上一条多图时应落到其末图');
+  const sharedNavigation = lightboxNavigationContext(last);
+  assert.deepEqual(
+    { ...sharedNavigation, entries: undefined },
+    { entries: undefined, index: 1, position: 2, total: 2 },
+  );
+  let accessReads = 0;
+  const counted = state.list.map(entry => ({
+    ...entry,
+    get rating() {
+      accessReads += 1;
+      return entry.rating;
+    },
+  }));
+  const countedEntry = counted.at(-1);
+  const countedBox = { entry: countedEntry, images: entryImages(countedEntry), index: 0 };
+  const countedNavigation = lightboxNavigationContext(countedEntry, counted);
+  const readsAfterContext = accessReads;
+  getLightboxStepTarget(-1, countedBox, counted, countedNavigation);
+  getLightboxStepTarget(1, countedBox, counted, countedNavigation);
+  assert.equal(
+    accessReads,
+    readsAfterContext,
+    '同一轮 render 的前后目标必须复用 nav context，不再重复扫描访问状态',
+  );
+
+  const deep = { id: 'deep', images: [{ path: 'deep-1.jpg' }, { path: 'deep-2.jpg' }] };
+  const deepBox = { entry: deep, images: entryImages(deep), index: 1 };
+  const deepNext = getLightboxStepTarget(1, deepBox);
+  assert.equal(deepNext.entry, deep);
+  assert.equal(deepNext.index, 0);
+  assert.equal(deepNext.crossEntry, false);
+  assert.equal(getLightboxStepTarget(1, { entry: { id: 'single', image: 'one.jpg' }, images: [{ path: 'one.jpg' }], index: 0 }), null);
+}
+
+// 物理 original 与缩略 fallback 分开；提示是否承诺可读参数还要看来源 hasOriginal。
+{
+  assert.equal(imageItemHasOriginal(entryImages({ image: 'thumb.jpg' })[0]), false);
+  assert.equal(imageItemHasOriginal(entryImages({ image: 'thumb.jpg', original: 'source.png' })[0]), true);
+  const normalizedFallback = normalizeImageList({
+    image: 'same.jpg',
+    images: [{ path: 'same.jpg' }],
+  })[0];
+  assert.equal(imageItemHasOriginal(normalizedFallback), false, '归一化补出的同路径 fallback 不能冒充原图');
+  const sameNamePhysicalOriginal = normalizeImageList({
+    image: 'same.jpg',
+    original: 'same.jpg',
+    images: [{ path: 'same.jpg', original: 'same.jpg' }],
+  })[0];
+  assert.equal(imageItemHasOriginal(sameNamePhysicalOriginal), true, 'images/ 与 originals/ 分目录时同名仍是物理原图');
+  const multiWithOriginalRoot = {
+    image: 'first.jpg', original: 'first.png',
+    images: [{ path: 'second.jpg', original: 'second.jpg' }],
+  };
+  assert.equal(imageItemHasOriginal(entryImages(multiWithOriginalRoot)[0], multiWithOriginalRoot), true);
+  assert.equal(lightboxOriginalCopy('ready', true).tip, '可拖入 NovelAI 读取生成参数');
+  assert.match(lightboxOriginalCopy('ready', false).tip, /不提供可读取的生成参数/);
+  assert.match(lightboxOriginalCopy('failed', true).label, /失败/);
+  assert.match(lightboxOriginalCopy('thumbnail', false).label, /仅缩略图/);
+}
+
+// 原生分享只在触屏设备启用；桌面即使暴露 navigator.share 也维持复制路径。
+{
+  const share = async () => {};
+  assert.equal(canUseNativeShare({ maxTouchPoints: 0, share }, () => ({ matches: false })), false);
+  assert.equal(canUseNativeShare({ maxTouchPoints: 1, share }, () => ({ matches: false })), false);
+  assert.equal(canUseNativeShare({ maxTouchPoints: 0, share }, () => ({ matches: true })), true);
+  assert.equal(canUseNativeShare({ maxTouchPoints: 1, share }, null), true);
+  assert.equal(canUseNativeShare({ maxTouchPoints: 1 }, () => ({ matches: true })), false);
+}
+
+// 锁滚同时覆盖根元素和 body，并可幂等解锁。
+{
+  setLightboxScrollLocked(true);
+  assert.equal(document.documentElement.classList.contains('lightbox-open'), true);
+  assert.equal(document.body.classList.contains('lightbox-open'), true);
+  setLightboxScrollLocked(false);
+  assert.equal(document.documentElement.classList.contains('lightbox-open'), false);
+  assert.equal(document.body.classList.contains('lightbox-open'), false);
+}
+
 // 访问树与隐藏数共享 memo；同长度编辑只要 entries 换引用就必须失效。
 {
   const entries = [
@@ -293,8 +411,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     { id: 'gore', path: ['R18G'], rating: 'r18g' },
   ];
   state.codex = { id: 'memo', entryCount: 3, entries, emptyCategories: [] };
+  state.codexes = [{ id: 'safe' }, { id: 'adult', nsfw: true }, { id: 'adult-2', nsfw: true }];
   state.allowNsfw = false;
   state.allowR18g = false;
+  assert.equal(lockedCodexCount(), 2);
   const tree = visibleTree();
   assert.equal(visibleTree(), tree, '相同 entries 引用和访问开关应复用树对象');
   assert.equal(accessHiddenCount(), 2);
@@ -311,6 +431,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.ok(r18gTree.some(node => node.name === 'R18G'));
   state.allowNsfw = true;
   assert.equal(accessHiddenCount(), 0);
+  assert.equal(lockedCodexCount(), 0);
 
   // 编辑器仅改 rating 时会原地合并词条；显式失效入口覆盖这种引用不变的写路径。
   state.allowNsfw = false;
@@ -318,6 +439,40 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   state.codex.entries[0].rating = 'r18';
   invalidateAccessViewMemo();
   assert.equal(accessHiddenCount(), 3);
+}
+
+// 反馈上下文只能在显式确认存在原图时打包 originalUrl，不能把缩略 fallback 误报成原图。
+{
+  state.favoritesView = false;
+  state.siteSearchView = false;
+  state.codex = {
+    id: 'report',
+    title: 'Report',
+    assetPathMode: 'relative',
+    assetBaseUrl: '/assets',
+  };
+  const entry = {
+    id: 'thumb-only',
+    title: 'Thumb only',
+    image: 'thumb.jpg',
+    images: [{ path: 'thumb.jpg', original: 'thumb.jpg', _hasOriginal: false }],
+  };
+  assert.equal(buildFeedbackContext({ entry }).entry.originalUrl, '');
+  entry.images[0] = { ...entry.images[0], _hasOriginal: true };
+  assert.match(buildFeedbackContext({ entry }).entry.originalUrl, /thumb\.jpg/);
+}
+
+// 快速密度循环不改变默认值；分类 rail 只为被裁切的 active 胶囊计算横向位移。
+{
+  assert.equal(nextDensity('standard'), 'compact');
+  assert.equal(nextDensity('compact'), 'comfort');
+  assert.equal(nextDensity('comfort'), 'standard');
+  assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: 12, right: 88 }), 0);
+  assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: -14, right: 42 }), -14);
+  assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: 72, right: 118 }), 18);
+  assert.equal(imageSyntaxFilterValue({ isSyntax: true, hasImage: true }), true);
+  assert.equal(imageSyntaxFilterValue({ isSyntax: true, hasImage: false }), false);
+  assert.equal(imageSyntaxFilterValue({ isSyntax: false, hasImage: false }), null);
 }
 
 // 编辑器把当前书计数同步回选择器索引；零值也不能被旧计数吞掉。
@@ -418,12 +573,16 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     '../site/assets/app/codex-ui.js',
     '../site/assets/app/modal.js',
     '../site/assets/app/ui.js',
+    '../site/assets/app/history.js',
     '../site/assets/app/onboarding.js',
     '../site/assets/app/announcements.js',
     '../site/assets/app/report.js',
     '../site/assets/app/edit.js',
+    '../site/assets/app.js',
+    '../site/index.html',
     '../site/assets/styles.css',
     '../site/assets/edit.css',
+    './build_local_edition.py',
   ];
   const [
     dataSource,
@@ -433,12 +592,16 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     codexUiSource,
     modalSource,
     uiSource,
+    historySource,
     onboardingSource,
     announcementsSource,
     reportSource,
     editSource,
+    appSource,
+    indexSource,
     stylesSource,
     editCssSource,
+    localEditionBuilderSource,
   ] = await Promise.all(paths.map(path => readFile(new URL(path, import.meta.url), 'utf8')));
 
   assert.doesNotMatch(dataSource, /export async function load(?:CodexIndex|Media|About)\b/);
@@ -447,6 +610,22 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(lightboxSource, /const reuseThumbs = lbThumbEntry === e[\s\S]*if \(!reuseThumbs\) \{\s*thumbs\.innerHTML = '';/);
   assert.match(lightboxSource, /&& lbThumbState === lb/);
   assert.match(lightboxSource, /const safeCreditUrl = safeHttpUrl\(creditUrl\)/);
+  assert.match(lightboxSource, /historyMode: 'replace', transition: 'detail'/);
+  assert.match(lightboxSource, /error\?\.name === 'AbortError'/);
+  assert.match(indexSource, /id="favoriteLightbox"[^>]*aria-pressed="false"/);
+  assert.match(indexSource, /id="lightboxOriginalStatus"[^>]*aria-live="polite"/);
+  assert.match(indexSource, /id="sdPositivePreview"[^>]*aria-pressed="false"[^>]*hidden/);
+  assert.match(indexSource, /id="sdNegativePreview"[^>]*aria-pressed="false"[^>]*hidden/);
+  assert.match(lightboxSource, /pre\.textContent = naiToSd\(source\)/);
+  assert.match(appSource, /state\.allowNsfw = localStorage\.getItem\(NSFW_STORAGE_KEY\) === '1';[\s\S]*if \(state\.allowNsfw\) localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
+  assert.match(uiSource, /localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
+  assert.match(indexSource, /id="homeShortcutBtn"[^>]*role="menuitem"[^>]*hidden/);
+  assert.match(uiSource, /setupHomeShortcutGuide\(\)/);
+  assert.match(indexSource, /class="search-match-chip" hidden/);
+  assert.match(masonrySource, /hiddenSearchMatch\(e, highlightTerms\)/);
+  assert.match(indexSource, /class="zoom-btn"[^>]*type="button"[^>]*aria-label="放大查看"/);
+  assert.match(stylesSource, /html\.lightbox-open,body\.lightbox-open\{overflow:hidden;overscroll-behavior:none\}/);
+  assert.match(stylesSource, /@media \(hover:none\), \(pointer:coarse\)\{[\s\S]*\.zoom-btn\{[\s\S]*width:44px;height:44px/);
   assert.match(codexUiSource, /function positionOpenBannerPop\(\) \{\s*if \(!bannerAboutOpen\) return;/);
   assert.match(codexUiSource, /const validLinks = safeExternalLinks\(links\)/);
   assert.match(codexUiSource, /const links = safeExternalLinks\(Array\.isArray\(c\.links\)/);
@@ -454,9 +633,53 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(modalSource, /export function registerMaskHistory\(mask\)/);
   assert.match(uiSource, /querySelectorAll\('\.settings-mask\[id\], \.favorites-backup-mask\[id\]'\)[\s\S]*forEach\(registerMaskHistory\)/);
   assert.match(onboardingSource, /function finishOnboarding\(\) \{\s*try \{\s*localStorage\.setItem/);
+  assert.match(onboardingSource, /export function openOnboarding\(\{ trigger = document\.activeElement, historyMode = 'push' \} = \{\}\)/);
+  assert.equal((onboardingSource.match(/cls: 'obs-[1-4]'/g) || []).length, 4);
+  assert.match(onboardingSource, /十本法典随时切，也能全站搜/);
+  assert.match(onboardingSource, /点顶栏书名可在十本法典间切换/);
+  assert.match(onboardingSource, /社区整理的 NovelAI 提示词法典图鉴/);
+  assert.match(indexSource, /id="onboardingStep"[^>]*>1 \/ 4</);
+  assert.equal((indexSource.match(/class="onboarding-dot(?: active)?"/g) || []).length, 4);
+  assert.match(indexSource, /id="onboardingBtn"/);
+  assert.match(uiSource, /onboardingBtn\.onclick = \(\) => \{[\s\S]*openOnboarding\(\{/);
+  assert.match(indexSource, /id="communityBrowseLink"[^>]*href="\/strings\.html"/);
+  assert.match(codexUiSource, /<span class="cd-name">社区共建 · 去投稿<\/span>/);
+  assert.match(codexUiSource, /图片与提示词作品/);
+  assert.doesNotMatch(codexUiSource, /这里是大家的画风串/);
+  assert.match(localEditionBuilderSource, /body\.local-edition #communityBrowseLink,/);
+  assert.match(localEditionBuilderSource, /body\.local-edition #onboardingBtn,/);
+  assert.match(codexUiSource, /const hiddenCount = \(!state\.siteSearchView && !state\.favoritesView\) \? accessHiddenCount\(\) : 0;/);
+  assert.match(codexUiSource, /另有 \$\{hiddenCount\} 条受限内容/);
+  assert.match(codexUiSource, /另有 \$\{lockedBooks\} 本受限法典未解锁，未纳入全站搜索/);
+  assert.match(codexUiSource, /查看未解锁范围[\s\S]*access-hint/);
+  assert.match(reportSource, /image && imageItemHasOriginal\(image, entry\)/);
+  assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*path:构图[\s\S]*has:image[\s\S]*fav:true/);
+  assert.match(stylesSource, /\.search-wrap:focus-within #search:placeholder-shown~\.search-syntax-hint/);
+  assert.match(uiSource, /searchInput\.addEventListener\('compositionstart'/);
+  assert.match(uiSource, /searchInput\.addEventListener\('compositionend'/);
+  assert.match(uiSource, /if \(searchComposing \|\| e\.isComposing\)/);
+  assert.match(indexSource, /id="sidebar"[\s\S]*id="sidebarBackdrop"[\s\S]*id="main"/);
+  assert.match(stylesSource, /\.sidebar:not\(\.closed\)\+\.sidebar-backdrop\{[\s\S]*z-index:24[\s\S]*touch-action:none/);
+  assert.match(stylesSource, /\.tree\{overscroll-behavior:contain\}/);
+  assert.match(uiSource, /sidebarBackdrop\?\.addEventListener\('click', \(\) => \{\s*if \(closeHistoryLayer\('mobile-sidebar'\)\) return;/);
+  assert.match(indexSource, /id="densityQuickBtn"/);
+  assert.match(uiSource, /densityQuickBtn\.onclick = \(\) => applyDensity\(nextDensity\(state\.density\), \{ render: true, announce: true \}\)/);
+  const railActiveSource = codexUiSource.match(/export function updateRailActive\(\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(railActiveSource, /rail\.scrollTo\(\{[\s\S]*left,[\s\S]*top: rail\.scrollTop/);
+  assert.doesNotMatch(railActiveSource, /window\.scroll|scrollIntoView/);
+  assert.match(indexSource, /id="onlyImagedResultBtn"[^>]*aria-pressed="false"/);
+  assert.match(codexUiSource, /btn\.hidden = Boolean\(state\.onlyNew\)/);
+  assert.match(codexUiSource, /搜索已限定有图/);
+  assert.match(codexUiSource, /搜索已限定无图/);
+  assert.match(appSource, /state\.onlyImaged && !state\.onlyNew && imageSyntaxFilterValue\(plan\) === null/);
+  assert.equal((`${appSource}\n${codexUiSource}\n${historySource}\n${uiSource}`.match(/state\.onlyImaged\s*=/g) || []).length, 1);
+  assert.match(historySource, /historyActions\.setOnlyImaged\(snapshot\.onlyImaged, \{ apply: false, syncHistory: false \}\)/);
   assert.match(announcementsSource, /function markVisibleAnnouncementsRead\(\) \{[\s\S]*try \{\s*localStorage\.setItem/);
   assert.equal((announcementsSource.match(/loaded = true/g) || []).length, 1);
   assert.equal((reportSource.match(/signal: feedbackTimeoutSignal\(\)/g) || []).length, 2);
+  assert.match(reportSource, /const result = await writeClipboardText\(text\)/);
+  assert.match(reportSource, /showClipboardFallback\(text, \{ trigger \}\)/);
+  assert.doesNotMatch(reportSource, /document\.execCommand\('copy'\)/);
   assert.equal((editSource.match(/syncCodexPickerCounts\(\);/g) || []).length, 2);
   const toastZ = Number(stylesSource.match(/\.toast\s*\{[^}]*z-index:(\d+)/)?.[1]);
   const editMenuZ = Number(editCssSource.match(/\.edit-menu\s*\{[^}]*z-index:(\d+)/)?.[1]);

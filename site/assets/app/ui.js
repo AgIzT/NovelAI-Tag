@@ -1,4 +1,4 @@
-import { state, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { toast } from './feedback.js';
@@ -11,7 +11,8 @@ import { bindLightboxControls } from './lightbox.js';
 import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
 import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
-import { setupOnboarding } from './onboarding.js';
+import { openOnboarding, setupOnboarding } from './onboarding.js';
+import { setupHomeShortcutGuide } from './home-shortcut.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -41,11 +42,27 @@ export function setUiActions(actions = {}) {
   Object.assign(uiActions, actions);
 }
 
+const DENSITY_ORDER = Object.keys(DENSITY_PRESETS);
+
+export function nextDensity(value) {
+  const current = normalizeDensity(value);
+  const index = DENSITY_ORDER.indexOf(current);
+  return DENSITY_ORDER[(index + 1) % DENSITY_ORDER.length];
+}
+
 export function updateDensityControls() {
   for (const btn of document.querySelectorAll('[data-density]')) {
     const active = btn.dataset.density === state.density;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+  const quick = $('#densityQuickBtn');
+  if (quick) {
+    const currentLabel = DENSITY_PRESETS[state.density]?.label || densityConfig().label;
+    const nextLabel = DENSITY_PRESETS[nextDensity(state.density)].label;
+    const label = `卡片密度：${currentLabel}；点击切换到${nextLabel}`;
+    quick.title = label;
+    quick.setAttribute('aria-label', label);
   }
 }
 
@@ -74,6 +91,28 @@ export function applyDensity(value, { render = true, announce = false } = {}) {
   updateVirtualCards(true);
   updateScrollProgress();
   if (announce) toast(`卡片密度：${densityConfig().label}`);
+}
+
+export function setOnlyImaged(value, {
+  apply = true,
+  syncHistory = true,
+  resetScroll = true,
+  transition = 'filter',
+  historyMode = 'replace',
+} = {}) {
+  const next = Boolean(value);
+  const changed = state.onlyImaged !== next;
+  state.onlyImaged = next;
+  const checkbox = $('#onlyImaged');
+  if (checkbox) checkbox.checked = next;
+  const resultButton = $('#onlyImagedResultBtn');
+  if (resultButton && resultButton.dataset.queryControlled !== '1') {
+    resultButton.setAttribute('aria-pressed', next ? 'true' : 'false');
+  }
+  if (!changed || !apply) return changed;
+  uiActions.applyFilter({ resetScroll, transition });
+  if (syncHistory) syncUrlState({ historyMode });
+  return changed;
 }
 
 export function bindUI() {
@@ -166,11 +205,10 @@ export function bindUI() {
       }
     });
   }
-  searchInput.oninput = e => {
-    updateSearchClear();
+  let searchComposing = false;
+  const scheduleSearchInput = value => {
     clearTimeout(st);
     st = setTimeout(() => {
-      const value = e.target.value;
       if (value.trim()) {
         if (!state.siteSearchView) document.querySelectorAll('.tree-row.active').forEach(r => r.classList.remove('active'));   // 全站搜索保留目录收窄的高亮
       } else if (!state.siteSearchView) {
@@ -178,6 +216,23 @@ export function bindUI() {
       }
       void applySearchInput(value);
     }, 180);
+  };
+  searchInput.addEventListener('compositionstart', () => {
+    searchComposing = true;
+    clearTimeout(st);
+  });
+  searchInput.addEventListener('compositionend', e => {
+    searchComposing = false;
+    updateSearchClear();
+    scheduleSearchInput(e.currentTarget.value);
+  });
+  searchInput.oninput = e => {
+    updateSearchClear();
+    if (searchComposing || e.isComposing) {
+      clearTimeout(st);
+      return;
+    }
+    scheduleSearchInput(e.target.value);
   };
   if (searchClear) {
     searchClear.onclick = () => {
@@ -190,11 +245,15 @@ export function bindUI() {
     };
   }
 
-  $('#onlyImaged').onchange = e => {
-    state.onlyImaged = e.target.checked;
-    uiActions.applyFilter({ resetScroll: true, transition: 'filter' });
-    syncUrlState({ historyMode: 'replace' });
-  };
+  const onlyImaged = $('#onlyImaged');
+  if (onlyImaged) onlyImaged.onchange = e => setOnlyImaged(e.target.checked);
+  const onlyImagedResultBtn = $('#onlyImagedResultBtn');
+  if (onlyImagedResultBtn) {
+    onlyImagedResultBtn.onclick = () => {
+      if (onlyImagedResultBtn.disabled) return;
+      setOnlyImaged(!state.onlyImaged);
+    };
+  }
   const newUpdateFilterBtn = $('#newUpdateFilterBtn');
   if (newUpdateFilterBtn) {
     newUpdateFilterBtn.onclick = () => {
@@ -271,9 +330,14 @@ export function bindUI() {
   for (const btn of document.querySelectorAll('[data-density]')) {
     btn.onclick = () => applyDensity(btn.dataset.density, { render: true, announce: true });
   }
+  const densityQuickBtn = $('#densityQuickBtn');
+  if (densityQuickBtn) {
+    densityQuickBtn.onclick = () => applyDensity(nextDensity(state.density), { render: true, announce: true });
+  }
   updateDensityControls();
 
   const sidebar = $('#sidebar');
+  const sidebarBackdrop = $('#sidebarBackdrop');
   const savedSidebar = localStorage.getItem('fadian-sidebar');
   if (savedSidebar === 'closed' || (savedSidebar === null && window.innerWidth <= 600)) {
     sidebar.classList.add('closed');
@@ -286,6 +350,11 @@ export function bindUI() {
     isOpen: () => mobileQuery.matches && !sidebar.classList.contains('closed'),
     open: () => setSidebarOpenDirect(true),
     close: () => setSidebarOpenDirect(false),
+  });
+  sidebarBackdrop?.addEventListener('click', () => {
+    if (closeHistoryLayer('mobile-sidebar')) return;
+    setSidebarOpenDirect(false);
+    forgetHistoryLayer('mobile-sidebar');
   });
   $('#menuBtn').onclick = () => {
     const opening = sidebar.classList.contains('closed');
@@ -300,7 +369,8 @@ export function bindUI() {
 
   const moreBtn = $('#moreBtn');
   const moreMenu = $('#moreMenu');
-  const moreItems = () => [...moreMenu.querySelectorAll('.more-item')];
+  const moreItems = () => [...moreMenu.querySelectorAll('.more-item')]
+    .filter(item => item.offsetParent !== null);
   const closeMoreDirect = ({ focusButton = false } = {}) => {
     if (!moreMenu || moreMenu.hidden) return;
     moreMenu.hidden = true;
@@ -363,6 +433,7 @@ export function bindUI() {
     historyMode: () => mobileQuery.matches ? 'replace' : 'push',
   });
   setupOnboarding();
+  setupHomeShortcutGuide();
   const globalReportBtn = $('#globalReportBtn');
   if (globalReportBtn) {
     globalReportBtn.onclick = () => {
@@ -405,6 +476,7 @@ export function bindUI() {
     state.allowNsfw = Boolean(on);
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
     localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
+    if (state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     if (nsfwToggle) nsfwToggle.checked = state.allowNsfw;
     if (!state.allowNsfw) setR18gAccess(false);  // R18G 依赖 NSFW，关掉 NSFW 一并强制关闭 R18G
     if (!state.allowNsfw && (state.activePath || []).some(isNsfwPathSegment)) state.activePath = [];
@@ -535,6 +607,19 @@ export function bindUI() {
     if (topLayer === 'banner-about') closeBannerAbout();
     openMask(mask, trigger, { historyMode: replaceLayer ? 'replace' : 'push' });
   };
+  const onboardingBtn = $('#onboardingBtn');
+  if (onboardingBtn) {
+    onboardingBtn.onclick = () => {
+      const topLayer = topHistoryLayerId();
+      const replaceLayer = topLayer === 'more-menu' || topLayer === 'banner-about';
+      closeMore({ historyMode: 'none' });
+      if (topLayer === 'banner-about') closeBannerAbout();
+      openOnboarding({
+        trigger: moreBtn || onboardingBtn,
+        historyMode: replaceLayer ? 'replace' : 'push',
+      });
+    };
+  }
   $('#shortcutBtn').onclick = () => openFromMore(shortcutMask);
   $('#shortcutClose').onclick = () => closeMask(shortcutMask);
   shortcutMask.onclick = ev => { if (ev.target === shortcutMask) closeMask(shortcutMask); };

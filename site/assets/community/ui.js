@@ -4,7 +4,13 @@ import { goBackFrom, scheduleHistoryScrollCheckpoint } from '../app/browser-hist
 import { COMMUNITY_CATEGORIES } from './constants.js';
 import { favoriteCountForEntries, isFavorite, toggleFavorite } from './favorites.js';
 import { currentCommunityHistorySession, syncCommunityHistory } from './router.js';
-import { state } from './state.js';
+import { requestCommunityNsfwAccess } from './nsfw-confirm.js';
+import { ADULT_CONFIRMATION_STORAGE_KEY } from '../app/state.js';
+import {
+  COMMUNITY_NSFW_PREFERENCE_KEY,
+  hasAdultNsfwConfirmation,
+  state,
+} from './state.js';
 import { $, $$, safeStorageSet } from './utils.js';
 import { renderCategoryRail, renderEmptyState, renderGrid, renderResultBar } from './render.js';
 
@@ -63,13 +69,7 @@ export function applyCommunityFilters({ scrollTop = false } = {}) {
     onClearSearch: clearSearch,
     onShowAll: showAll,
     onShowFavoritesAll: showFavoritesAll,
-    onShowNSFW: () => {
-      state.showNSFW = true;
-      safeStorageSet('strings-nsfw', 'true');
-      updateNSFWButton();
-      applyCommunityFilters({ scrollTop: true });
-      syncCommunityHistory({ historyMode: 'replace' });
-    },
+    onShowNSFW: () => requestShowCommunityNsfw(),
   });
 
   if (scrollTop) {
@@ -170,12 +170,41 @@ function bindSearch() {
 }
 
 function bindNsfw() {
-  $('#nsfwBtn')?.addEventListener('click', () => {
-    state.showNSFW = !state.showNSFW;
-    safeStorageSet('strings-nsfw', state.showNSFW);
+  $('#nsfwBtn')?.addEventListener('click', event => {
+    if (!state.showNSFW) {
+      requestShowCommunityNsfw({ trigger: event.currentTarget });
+      return;
+    }
+    state.showNSFW = false;
+    safeStorageSet(COMMUNITY_NSFW_PREFERENCE_KEY, false);
     updateNSFWButton();
     applyCommunityFilters({ scrollTop: true });
     syncCommunityHistory({ historyMode: 'replace' });
+  });
+}
+
+export function requestShowCommunityNsfw({ trigger = document.activeElement, onEnabled } = {}) {
+  if (state.showNSFW) {
+    onEnabled?.({ consumeLayer: false });
+    return;
+  }
+  const enable = ({ consumeLayer = false } = {}) => {
+    state.showNSFW = true;
+    safeStorageSet(COMMUNITY_NSFW_PREFERENCE_KEY, true);
+    safeStorageSet(ADULT_CONFIRMATION_STORAGE_KEY, '1');
+    updateNSFWButton();
+    applyCommunityFilters({ scrollTop: true });
+    if (onEnabled) onEnabled({ consumeLayer });
+    else syncCommunityHistory({ historyMode: 'replace', consumeLayer });
+  };
+  // 主站已经完成过同一份成人确认时，不重复打扰；只恢复广场偏好。
+  if (hasAdultNsfwConfirmation()) {
+    enable();
+    return;
+  }
+  requestCommunityNsfwAccess({
+    trigger,
+    onAccept: enable,
   });
 }
 

@@ -2,12 +2,15 @@ import { state } from './state.js';
 import { $, clamp, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { openMask, closeMask, trapFocus } from './modal.js';
-import { entryImages, imageItemUrl, thumbUrl, originalUrl, hasEntryImage } from './media.js';
+import { entryImages, imageItemHasOriginal, imageItemUrl, thumbUrl, hasEntryImage } from './media.js';
 import {
   feedbackProgressMeta,
   feedbackProgressFlow,
   isFeedbackProgressClosed,
 } from './feedback-progress.js';
+import { ownedRecordIds, readOwnedRecords, rememberOwnedRecord } from './local-ownership.js';
+import { writeClipboardText } from './clipboard.js';
+import { showClipboardFallback } from './clipboard-fallback.js';
 
 export function feedbackTimeoutSignal(timeout = 20_000, signalApi = globalThis.AbortSignal) {
   return signalApi?.timeout?.(timeout);
@@ -26,6 +29,7 @@ const MAX_DESC = 1000;
 const MIN_DESC = 10;
 const MAX_CONTACT = 120;
 const MAX_SNIPPET = 420;
+const OWNED_FEEDBACK_KEY = 'fadian-feedback-owned-v1';
 
 let currentPayload = null;
 let currentTrigger = null;
@@ -134,7 +138,9 @@ export function buildFeedbackContext({ source = 'global', entry = null, imageInd
       imageCount: images.length,
       selectedImageIndex: image ? index : -1,
       thumbnailUrl: image ? imageItemUrl('image', entry, image) : (hasEntryImage(entry) ? thumbUrl(entry) : ''),
-      originalUrl: image ? imageItemUrl('original', entry, image) : (hasEntryImage(entry) ? originalUrl(entry) : ''),
+      originalUrl: image && imageItemHasOriginal(image, entry)
+        ? imageItemUrl('original', entry, image)
+        : '',
       imageError: Boolean(imageError),
       tagsSnippet: snippet(entry.tags),
       negativeSnippet: snippet(entry.negative),
@@ -231,6 +237,12 @@ async function submitFeedback(ev) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `提交失败（${res.status}）`);
+    if (data.id) {
+      rememberOwnedRecord(OWNED_FEEDBACK_KEY, {
+        id: data.id,
+        createdAt: Date.now(),
+      });
+    }
     toast('反馈已提交，感谢你帮忙把这里修得更好');
     $('#feedbackDesc').value = '';
     $('#feedbackContact').value = '';
@@ -270,17 +282,19 @@ function showFallback(text) {
 async function copyFallbackText() {
   const text = $('#feedbackFallbackText')?.value || '';
   if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
+  const trigger = $('#feedbackCopyFallback');
+  const result = await writeClipboardText(text);
+  if (result.ok) {
+    toast('反馈文本已复制');
+    return;
   }
-  toast('反馈文本已复制');
+  const manualFallbackShown = showClipboardFallback(text, { trigger });
+  toast(
+    manualFallbackShown
+      ? '自动复制未成功，已打开手动复制面板'
+      : '自动复制未成功，请长按/手动选择文本',
+    '!',
+  );
 }
 
 function selectFeedbackTab(value) {
@@ -354,32 +368,42 @@ function renderPublicFeedback() {
   document.querySelectorAll('[data-feedback-filter]').forEach(button => {
     button.setAttribute('aria-pressed', button.dataset.feedbackFilter === publicFeedbackFilter ? 'true' : 'false');
   });
+  const ownedRecords = readOwnedRecords(OWNED_FEEDBACK_KEY);
+  const ownedIds = ownedRecordIds(OWNED_FEEDBACK_KEY);
+  const publicOwnedCount = publicFeedbackItems.filter(item => ownedIds.has(String(item.id || ''))).length;
   const items = publicFeedbackItems.filter(item => {
     const closed = isFeedbackProgressClosed(item.progressStatus);
     if (publicFeedbackFilter === 'open') return !closed;
     if (publicFeedbackFilter === 'closed') return closed;
     return true;
-  });
+  }).sort((a, b) => Number(ownedIds.has(String(b.id || ''))) - Number(ownedIds.has(String(a.id || ''))));
   if (!items.length) {
     const message = publicFeedbackItems.length
       ? '当前筛选下没有公开反馈。'
       : '还没有公开反馈。由维护者确认公开后，会显示在这里。';
-    list.innerHTML = `<div class="feedback-public-state">${esc(message)}</div>`;
+    const owned = ownedRecords.length
+      ? `<small>本设备提交过 ${ownedRecords.length} 条，其中 ${publicOwnedCount} 条已公开；未公开不代表丢失。</small>`
+      : '';
+    list.innerHTML = `<div class="feedback-public-state">${esc(message)}${owned}</div>`;
     return;
   }
-  list.innerHTML = items.map(renderPublicFeedbackCard).join('');
+  const ownedSummary = ownedRecords.length
+    ? `<div class="feedback-public-owned-summary">本设备提交过 ${ownedRecords.length} 条，其中 ${publicOwnedCount} 条已公开；记录仅保存在当前浏览器。</div>`
+    : '';
+  list.innerHTML = ownedSummary + items.map(item => renderPublicFeedbackCard(item, ownedIds)).join('');
 }
 
-function renderPublicFeedbackCard(item) {
+function renderPublicFeedbackCard(item, ownedIds = new Set()) {
   const progress = feedbackProgressMeta(item.progressStatus);
   const context = publicFeedbackContext(item.context);
   const updatedAt = Number(item.updatedAt || item.replyUpdatedAt || item.progressStatusUpdatedAt || item.createdAt || 0);
   const dateTime = updatedAt ? ` datetime="${new Date(updatedAt).toISOString()}"` : '';
+  const owned = ownedIds.has(String(item.id || ''));
   return `
-    <details class="feedback-public-card">
+    <details class="feedback-public-card${owned ? ' is-owned' : ''}">
       <summary>
         <span class="feedback-public-card-top">
-          <span class="feedback-public-type">${esc(item.typeLabel || item.type || '反馈')}</span>
+          <span class="feedback-public-type">${esc(item.typeLabel || item.type || '反馈')}${owned ? '<b>我提交的</b>' : ''}</span>
           <span class="feedback-public-status ${publicProgressTone(item.progressStatus)}">${esc(progress.label)}</span>
         </span>
         <span class="feedback-public-description">${esc(item.description || '无反馈内容')}</span>

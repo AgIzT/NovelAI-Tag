@@ -18,6 +18,9 @@ import {
 } from './favorites-backup-core.js';
 import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
 import { fetchDataJson } from '../data-source.js';
+import { decodeFavoritesTransfer, encodeFavoritesTransfer } from './favorites-transfer.js';
+import { writeClipboardText } from './clipboard.js';
+import { showClipboardFallback } from './clipboard-fallback.js';
 
 const CHANGE_EVENT = 'novelai-tag:favorites-changed';
 
@@ -132,7 +135,10 @@ export function setupFavoritesBackup(options = {}) {
 
   const closeButton = byId('favoritesBackupClose');
   const exportButton = byId('favoritesExportBtn');
+  const exportTextButton = byId('favoritesExportTextBtn');
   const fileInput = byId('favoritesImportFile');
+  const textInput = byId('favoritesImportText');
+  const importTextButton = byId('favoritesImportTextBtn');
   const preview = byId('favoritesImportPreview');
   const summary = byId('favoritesImportSummary');
   const restoreButton = byId('favoritesRestoreBtn');
@@ -173,9 +179,12 @@ export function setupFavoritesBackup(options = {}) {
     busy = Boolean(value);
     panel.setAttribute('aria-busy', String(busy));
     if (fileInput) fileInput.disabled = busy;
+    if (textInput) textInput.disabled = busy;
+    if (importTextButton) importTextButton.disabled = busy;
     if (restoreButton) restoreButton.disabled = busy || restoreButton.dataset.noop === '1';
     if (replaceConfirmButton) replaceConfirmButton.disabled = busy;
     if (exportButton) exportButton.disabled = busy || exportButton.dataset.empty === '1';
+    if (exportTextButton) exportTextButton.disabled = busy || exportTextButton.dataset.empty === '1';
   };
 
   const resolveCodexes = async () => {
@@ -210,6 +219,11 @@ export function setupFavoritesBackup(options = {}) {
       exportButton.dataset.empty = empty ? '1' : '0';
       exportButton.disabled = busy || empty;
       exportButton.title = empty ? '暂无收藏可备份' : '';
+    }
+    if (exportTextButton) {
+      exportTextButton.dataset.empty = empty ? '1' : '0';
+      exportTextButton.disabled = busy || empty;
+      exportTextButton.title = empty ? '暂无收藏可备份' : '';
     }
     if (current.skippedCount) setStatus(skippedStatus(current.skippedCount));
     return current;
@@ -287,6 +301,48 @@ export function setupFavoritesBackup(options = {}) {
     if (merge) merge.checked = true;
     setStatus('');
     setError('');
+  };
+
+  const prepareImportText = async (text, label) => {
+    const bytes = new TextEncoder().encode(String(text || '')).byteLength;
+    if (bytes > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
+      throw new FavoritesBackupError('FILE_TOO_LARGE', '备份文本超过 2 MiB，无法处理');
+    }
+    selectedFileName = label;
+    const codexes = await resolveCodexes();
+    parsedBackup = parseFavoritesBackup(text, codexes);
+    const current = readStoredFavorites(localStorage, codexes);
+    if (localEdition) {
+      parsedBackup = {
+        ...parsedBackup,
+        // 底层恢复事务仍会同时写两处存储；把当前共创值原样带入计划，
+        // 确保本地版既不导入备份中的共创收藏，也不清空同源已有数据。
+        favorites: { ...parsedBackup.favorites, community: current.communityIds },
+      };
+    }
+    plans = {
+      merge: createFavoritesRestorePlan({
+        backup: parsedBackup,
+        currentAtlasKeys: current.atlasKeys,
+        currentCommunityIds: current.communityIds,
+        mode: 'merge',
+        codexes,
+      }),
+      replace: createFavoritesRestorePlan({
+        backup: parsedBackup,
+        currentAtlasKeys: current.atlasKeys,
+        currentCommunityIds: current.communityIds,
+        mode: 'replace',
+        codexes,
+      }),
+    };
+    if (preview) preview.hidden = false;
+    renderPlan('merge');
+    if (current.skippedCount) {
+      const currentStatus = status?.textContent || '';
+      setStatus(`${currentStatus}${currentStatus ? ' ' : ''}${skippedStatus(current.skippedCount)}`);
+    }
+    restoreButton?.focus();
   };
 
   const close = () => {
@@ -382,6 +438,38 @@ export function setupFavoritesBackup(options = {}) {
     }
   });
 
+  exportTextButton?.addEventListener('click', async () => {
+    setBusy(true);
+    setError('');
+    setStatus('');
+    try {
+      const codexes = await resolveCodexes();
+      const current = readStoredFavorites(localStorage, codexes);
+      if (!current.atlasKeys.length && (localEdition || !current.communityIds.length)) {
+        setStatus('暂无收藏可备份。');
+        return;
+      }
+      const json = serializeFavoritesBackup({
+        atlasKeys: current.atlasKeys,
+        communityIds: localEdition ? [] : current.communityIds,
+        codexes,
+        exportedAt: new Date().toISOString(),
+      });
+      const transfer = await encodeFavoritesTransfer(json);
+      const result = await writeClipboardText(transfer);
+      if (!result.ok) {
+        const shown = showClipboardFallback(transfer, { trigger: exportTextButton });
+        setStatus(shown ? '自动复制未成功，已打开手动复制面板。' : '自动复制未成功，请改用 JSON 文件。');
+        return;
+      }
+      setStatus(`${transfer.length > 10_000 ? '迁移文本较长，聊天工具可能截断；建议同时保留 JSON 文件。' : '迁移文本已复制，可发送给自己并在另一台设备粘贴恢复。'}${skippedStatus(current.skippedCount)}`);
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setBusy(false);
+    }
+  });
+
   fileInput?.addEventListener('change', async () => {
     const file = fileInput.files?.[0];
     fileInput.value = '';
@@ -394,40 +482,25 @@ export function setupFavoritesBackup(options = {}) {
     }
     setBusy(true);
     try {
-      const codexes = await resolveCodexes();
-      parsedBackup = parseFavoritesBackup(await file.text(), codexes);
-      const current = readStoredFavorites(localStorage, codexes);
-      if (localEdition) {
-        parsedBackup = {
-          ...parsedBackup,
-          // 底层恢复事务仍会同时写两处存储；把当前共创值原样带入计划，
-          // 确保本地版既不导入备份中的共创收藏，也不清空同源已有数据。
-          favorites: { ...parsedBackup.favorites, community: current.communityIds },
-        };
-      }
-      plans = {
-        merge: createFavoritesRestorePlan({
-          backup: parsedBackup,
-          currentAtlasKeys: current.atlasKeys,
-          currentCommunityIds: current.communityIds,
-          mode: 'merge',
-          codexes,
-        }),
-        replace: createFavoritesRestorePlan({
-          backup: parsedBackup,
-          currentAtlasKeys: current.atlasKeys,
-          currentCommunityIds: current.communityIds,
-          mode: 'replace',
-          codexes,
-        }),
-      };
-      if (preview) preview.hidden = false;
-      renderPlan('merge');
-      if (current.skippedCount) {
-        const currentStatus = status?.textContent || '';
-        setStatus(`${currentStatus}${currentStatus ? ' ' : ''}${skippedStatus(current.skippedCount)}`);
-      }
-      restoreButton?.focus();
+      await prepareImportText(await file.text(), file.name);
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  importTextButton?.addEventListener('click', async () => {
+    const source = textInput?.value || '';
+    resetImport();
+    if (!source.trim()) {
+      setError('请先粘贴迁移文本或 JSON。');
+      return;
+    }
+    setBusy(true);
+    try {
+      const decoded = await decodeFavoritesTransfer(source);
+      await prepareImportText(decoded, '粘贴的迁移文本');
     } catch (error) {
       setError(friendlyError(error));
     } finally {

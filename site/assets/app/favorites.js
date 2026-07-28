@@ -10,6 +10,7 @@ import {
 const favoriteActions = { applyFilter: () => {}, refreshFavoritesView: () => {} };
 let codexLookupSource = null;
 let codexLookup = null;
+let deferredFavoritesViewRefresh = false;
 
 export function setFavoritesActions(actions = {}) {
   Object.assign(favoriteActions, actions);
@@ -47,19 +48,56 @@ export function saveFavs() {
   }
 }
 
-export function toggleFav(e, btn) {
+export function setFavoriteButtonState(btn, on) {
+  if (!btn) return;
+  btn.textContent = on ? '★' : '☆';
+  btn.classList.toggle('on', on);
+  btn.title = on ? '取消收藏' : '收藏';
+  btn.setAttribute('aria-label', on ? '取消收藏' : '收藏');
+  btn.setAttribute('aria-pressed', String(on));
+}
+
+function sameFavoriteEntry(a, b) {
+  if (!a || !b) return false;
+  try {
+    return favKey(a) === favKey(b);
+  } catch {
+    return false;
+  }
+}
+
+function syncRenderedFavoriteButtons(e, on) {
+  if (!(state.nodes instanceof Map) || !Array.isArray(state.list)) return;
+  for (const [index, node] of state.nodes) {
+    if (!sameFavoriteEntry(state.list[index], e)) continue;
+    setFavoriteButtonState(node?.querySelector?.('.fav-btn'), on);
+  }
+}
+
+/* 收藏墙灯箱中先只更新星标，保留当前合成词条以支持立即反悔；灯箱关闭时
+   再统一重建背景列表，避免“取消后词条永久从合成 codex 消失”而无法重新收藏。 */
+export function flushDeferredFavoritesViewRefresh(options = { transition: 'filter' }) {
+  if (!deferredFavoritesViewRefresh) return false;
+  deferredFavoritesViewRefresh = false;
+  if (state.favoritesView) favoriteActions.refreshFavoritesView(options);
+  return true;
+}
+
+export function toggleFav(e, btn, options = {}) {
   const keys = favKeys(e);
   const k = keys[0];
   if (isFav(e)) keys.forEach(key => state.favs.delete(key));
   else state.favs.add(k);
   saveFavs();
-  const on = state.favs.has(k);
-  if (btn) {
-    btn.textContent = on ? '★' : '☆';
-    btn.classList.toggle('on', on);
-    btn.title = on ? '取消收藏' : '收藏';
-    btn.setAttribute('aria-label', on ? '取消收藏' : '收藏');
+  const on = isFav(e);
+  setFavoriteButtonState(btn, on);
+  syncRenderedFavoriteButtons(e, on);
+  if (state.favoritesView) {
+    if (options.deferViewRefresh) deferredFavoritesViewRefresh = true;
+    else {
+      deferredFavoritesViewRefresh = false;
+      favoriteActions.refreshFavoritesView({ transition: 'filter' });
+    }
   }
-  if (state.favoritesView) favoriteActions.refreshFavoritesView({ transition: 'filter' });   // 收藏视图里取消收藏：卡片就地消失 + 目录树/计数同步刷新
   toast(on ? `已收藏：${e.title}` : `已取消收藏：${e.title}`);
 }

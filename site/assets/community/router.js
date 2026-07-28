@@ -7,7 +7,7 @@ import {
   persistedHistoryState,
 } from '../app/browser-history.js';
 import { COMMUNITY_CATEGORIES } from './constants.js';
-import { state } from './state.js';
+import { canShowCommunityEntry, state } from './state.js';
 
 const routerActions = {
   applyListRoute: async () => {},
@@ -17,6 +17,10 @@ const routerActions = {
 };
 
 let scrollRestoreToken = 0;
+
+function normalizedImageIndex(value) {
+  return Math.max(0, Math.trunc(Number(value) || 0));
+}
 
 export function setCommunityRouterActions(actions = {}) {
   Object.assign(routerActions, actions);
@@ -29,8 +33,33 @@ function normalizeRoute(route = {}) {
     q: String(route.q || ''),
     onlyFavorites: Boolean(route.onlyFavorites),
     entry: String(route.entry || ''),
-    imageIndex: Math.max(0, Number(route.imageIndex) || 0),
+    imageIndex: normalizedImageIndex(route.imageIndex),
   };
+}
+
+export function readCommunityUrlState(search = globalThis.location?.search || '') {
+  const params = new URLSearchParams(String(search || ''));
+  const entry = String(params.get('entry') || '').trim();
+  const image = Math.max(1, Math.trunc(Number(params.get('image')) || 1));
+  return {
+    entry,
+    imageIndex: entry ? image - 1 : 0,
+  };
+}
+
+export function communityUrlForRoute(route = {}, href = globalThis.location?.href || 'https://example.invalid/strings.html') {
+  const url = new URL(href, 'https://example.invalid/');
+  const entry = String(route.entry || '').trim();
+  if (entry) {
+    url.searchParams.set('entry', entry);
+    const imageIndex = normalizedImageIndex(route.imageIndex);
+    if (imageIndex) url.searchParams.set('image', String(imageIndex + 1));
+    else url.searchParams.delete('image');
+  } else {
+    url.searchParams.delete('entry');
+    url.searchParams.delete('image');
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function captureCommunityRoute(entryOverride, imageIndexOverride) {
@@ -50,10 +79,15 @@ async function applyCommunityHistoryRoute(route, context = {}) {
 
   if (normalized.entry) {
     const entry = routerActions.findEntry(normalized.entry);
-    if (entry) {
+    if (canShowCommunityEntry(entry)) {
       const lastIndex = Math.max(0, (entry.images || []).length - 1);
       normalized.imageIndex = Math.min(normalized.imageIndex, lastIndex);
-      routerActions.openDetail(entry, normalized.imageIndex, { historyMode: 'none' });
+      const opened = routerActions.openDetail(entry, normalized.imageIndex, { historyMode: 'none' });
+      if (opened === false) {
+        normalized = { ...normalized, entry: '', imageIndex: 0 };
+        routerActions.closeDetail({ historyMode: 'none' });
+        return normalized;
+      }
     } else {
       normalized = { ...normalized, entry: '', imageIndex: 0 };
       routerActions.closeDetail({ historyMode: 'none' });
@@ -84,22 +118,22 @@ export function configureCommunityHistory() {
   configureBrowserHistory({
     page: 'community',
     captureRoute: captureCommunityRoute,
+    urlForRoute: communityUrlForRoute,
     applyRoute: applyCommunityHistoryRoute,
     restoreScroll: restoreCommunityScroll,
   });
 }
 
-/* strings.html 的路由只存在 history.state 里（地址栏不带参数）：刷新或跨文档
-   返回时，把上次记录的分类/搜索/收藏筛选先应用回列表，再初始化托管历史。
-   详情弹窗不自动复原，只回列表态。 */
+/* 分类、搜索、收藏筛选仍只存在 history.state；可分享详情额外写入 entry/image
+   查询参数。刷新或跨文档返回时先恢复列表态，再由初始化流程按门控打开详情。 */
 export async function restoreCommunityHistorySnapshot() {
   const previous = persistedHistoryState();
   if (!previous) return;
   await routerActions.applyListRoute(normalizeRoute(previous.route), { target: previous });
 }
 
-export function initializeCommunityHistory() {
-  return initializeBrowserHistory({ route: captureCommunityRoute('', 0) });
+export function initializeCommunityHistory(route) {
+  return initializeBrowserHistory({ route: route || captureCommunityRoute('', 0) });
 }
 
 export function syncCommunityHistory({

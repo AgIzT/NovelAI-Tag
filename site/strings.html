@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>共创广场 · 法典图鉴</title>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#15a06a">
 <script>/* 跨页 View Transition 抵达打标：vt-arrived 永久关掉入场编排避免叠影；vt-live 只活到过渡结束 */
 addEventListener('pagereveal',e=>{if(e.viewTransition){const h=document.documentElement;h.classList.add('vt-arrived','vt-live');e.viewTransition.finished.finally(()=>h.classList.remove('vt-live'))}},{once:true});
 if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
@@ -23,11 +26,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/community/favorites.js">
 <link rel="modulepreload" href="assets/community/render.js">
 <link rel="modulepreload" href="assets/community/detail.js">
+<link rel="modulepreload" href="assets/community/sd-mode.js">
 <link rel="modulepreload" href="assets/community/submit.js">
 <link rel="modulepreload" href="assets/community/png-metadata.js">
 <link rel="modulepreload" href="assets/community/ui.js">
 <link rel="modulepreload" href="assets/app/modal.js">
 <link rel="modulepreload" href="assets/app/feedback.js">
+<link rel="modulepreload" href="assets/app/clipboard.js">
+<link rel="modulepreload" href="assets/app/clipboard-fallback.js">
+<link rel="modulepreload" href="assets/app/nai-sd.js">
+<link rel="modulepreload" href="assets/app/sd-mode.js">
 <link rel="modulepreload" href="assets/app/utils.js">
 </head>
 <body>
@@ -47,6 +55,11 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <div class="brand">共创<span>广场</span></div>
   <a class="home-link" href="/index.html" aria-label="返回法典图鉴">← <span>法典图鉴</span></a>
   <div class="topbar-actions">
+    <button id="communitySdBadge" class="community-sd-badge" type="button" title="正在以 Stable Diffusion 格式复制 · 点击关闭" aria-label="SD 权重模式已开启，点击关闭" aria-hidden="true" hidden>
+      <span aria-hidden="true">SD</span>
+      <span>权重</span>
+      <i aria-hidden="true">×</i>
+    </button>
     <button id="submitOpenBtn" class="submit-top-btn" type="button" data-open-submit title="分享你的作品">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       <span>投稿</span>
@@ -87,6 +100,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </button>
         <button class="ghost-btn" type="button" data-focus-search>
           浏览投稿
+        </button>
+        <button class="ghost-btn" type="button" data-my-submissions-open>
+          我的投稿 <span class="my-submissions-count" data-my-submissions-count hidden></span>
         </button>
         <span id="communityCount" class="result-bar">正在加载…</span>
       </div>
@@ -130,7 +146,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <form id="submitForm" class="dialog-panel submit-panel">
     <button class="dialog-close" type="button" data-close-submit aria-label="关闭投稿弹窗">×</button>
     <h2 id="submitTitle">投稿到共创广场</h2>
-    <p class="submit-intro">上传作品，选择最贴近的内容类型。</p>
+    <p class="submit-intro">上传作品，选择最贴近的内容类型。投稿会先由维护者审核，通过后才会出现在广场；审核时间视维护情况而定。</p>
 
     <div class="sub-field">
       <label>作品 *</label>
@@ -191,6 +207,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <button id="subGo" type="submit">提交投稿</button>
       <div id="subErr" class="sub-err" aria-live="polite"></div>
     </div>
+    <section id="subSuccess" class="submit-success" aria-live="polite" hidden>
+      <span aria-hidden="true">✓</span>
+      <h3>投稿已提交</h3>
+      <p>维护者审核通过后，作品会出现在共创广场。你可以在当前浏览器的“我的投稿”里查看是否已经公开。</p>
+      <div>
+        <button class="primary-btn" type="button" data-my-submissions-open>查看我的投稿</button>
+        <button class="ghost-btn" type="button" data-submit-another>再投一条</button>
+        <button class="ghost-btn" type="button" data-close-submit-success>完成</button>
+      </div>
+    </section>
   </form>
 </div>
 
@@ -214,7 +240,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <h3 id="favoritesCurrentTitle">当前收藏</h3>
             <p>一份文件会同时包含两处收藏。</p>
           </div>
-          <button id="favoritesExportBtn" class="favorites-backup-primary" type="button">导出 JSON</button>
+          <div class="favorites-backup-heading-actions">
+            <button id="favoritesExportTextBtn" class="favorites-backup-secondary" type="button">复制迁移文本</button>
+            <button id="favoritesExportBtn" class="favorites-backup-primary" type="button">导出 JSON</button>
+          </div>
         </div>
         <dl class="favorites-backup-stats">
           <div>
@@ -253,6 +282,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <small>最大 2 MiB，仅在浏览器中读取</small>
         </label>
         <input id="favoritesImportFile" class="favorites-backup-file-input" type="file" accept=".json,application/json">
+
+        <details class="favorites-transfer">
+          <summary>或用文本粘贴</summary>
+          <p>把另一台设备复制出的迁移文本粘贴到这里；也接受完整 JSON。</p>
+          <textarea id="favoritesImportText" rows="4" spellcheck="false" placeholder="NAITAG1.… 或完整 JSON"></textarea>
+          <button id="favoritesImportTextBtn" class="favorites-backup-secondary" type="button">从文本检查并恢复</button>
+        </details>
 
         <div id="favoritesImportPreview" class="favorites-import-preview" aria-live="polite" hidden>
           <h4>恢复预览</h4>
