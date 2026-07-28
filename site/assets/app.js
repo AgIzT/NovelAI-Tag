@@ -15,10 +15,11 @@ import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
-import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
+import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, imageSyntaxFilterValue } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
-import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
+import { bindUI, applyDensity, setOnlyImaged, setUiActions, updateSearchScopeControl } from './app/ui.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
+import { setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
 
 let codexLoadSeq = 0;
@@ -175,7 +176,8 @@ export async function init() {
         await openSiteSearchView({ urlState: state.pendingUrlState, historyMode: 'none', saveBrowse: false });
       }
       initializeAtlasHistory(captureAtlasRoute(state.pendingUrlState.entry || ''));
-      maybeShowOnboarding();
+      const onboardingShown = maybeShowOnboarding();
+      setupResumePrompt({ route: state.pendingUrlState, onboardingShown });
     } else {
       hideSkeleton(initSkeletonToken);
       setLoading('还没有可显示的法典数据');
@@ -484,7 +486,7 @@ export function applyFilter(options = {}) {
     list = byActivePath(list);
   }
   if (state.onlyNew) list = list.filter(e => e.isNew === true);
-  if (state.onlyImaged && !state.onlyNew) list = list.filter(hasEntryImage);
+  if (state.onlyImaged && !state.onlyNew && imageSyntaxFilterValue(plan) === null) list = list.filter(hasEntryImage);
   if (state.favoritesView) list = list.filter(isFav);   // 收藏视图里取消收藏即时消卡
   list = list.filter(e => !isEntryAccessBlocked(e));  // NSFW/R18G 条目级访问控制
   state.list = list;
@@ -568,9 +570,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
   state.searchHistorySessionId = String(context.target?.sessionId || '');
   suppressBrowseStateSave(2000);
   try {
-    state.onlyImaged = Boolean(route.onlyImaged);
-    const onlyImaged = $('#onlyImaged');
-    if (onlyImaged) onlyImaged.checked = state.onlyImaged;
+    setOnlyImaged(route.onlyImaged, { apply: false, syncHistory: false });
     state.searchReturnPath = Array.isArray(route.searchReturnPath) ? [...route.searchReturnPath] : [];
 
     if (route.favorites) {
@@ -644,6 +644,7 @@ setCodexUiActions({
   applyFilter,
   applySearch,
   syncUrlState,
+  setOnlyImaged,
   openLightbox,
   updateVirtualCards,
 });
@@ -655,6 +656,7 @@ setHistoryActions({
   openEntryDeepLink,
   renderTree,
   applyFilter,
+  setOnlyImaged,
   updateVirtualCards,
 });
 

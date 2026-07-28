@@ -209,6 +209,39 @@ export function currentHighlightTerms() {
   return state.searchPlan?.highlightTerms || [];
 }
 
+export function hiddenSearchMatch(entry, terms = currentHighlightTerms()) {
+  const needles = [...new Set((terms || []).map(term => String(term || '').toLowerCase()).filter(Boolean))];
+  if (!needles.length) return null;
+  const visible = `${entry?.title || ''}\n${entry?.tags || ''}`.toLowerCase();
+  const unresolved = needles.filter(term => !visible.includes(term));
+  if (!unresolved.length) return null;
+  const characterText = (entry?.characterPrompts || [])
+    .flatMap(item => [item?.label, item?.prompt, item?.negative])
+    .filter(Boolean)
+    .join('\n');
+  const fields = [
+    ['负面词', entry?.negative],
+    ['备注', entry?.note],
+    ['Raw', entry?.rawTags],
+    ['角色词', characterText],
+    ['路径', (entry?.path || []).join(' › ')],
+  ];
+  for (const [label, value] of fields) {
+    const raw = String(value || '').replace(/\s+/g, ' ').trim();
+    const lower = raw.toLowerCase();
+    const term = unresolved.find(candidate => lower.includes(candidate));
+    if (!term) continue;
+    const index = lower.indexOf(term);
+    const start = Math.max(0, index - 22);
+    const end = Math.min(raw.length, index + term.length + 32);
+    return {
+      label,
+      excerpt: `${start ? '…' : ''}${raw.slice(start, end)}${end < raw.length ? '…' : ''}`,
+    };
+  }
+  return null;
+}
+
 export function renderHighlightedText(el, text, terms = []) {
   if (!el) return;
   const raw = String(text || '');

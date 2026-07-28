@@ -3,13 +3,20 @@ import { $, clamp, esc, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt } from './copy.js';
+import { naiToSd } from './nai-sd.js';
 import { recordRecentEntry } from './history.js';
 import { syncUrlState } from './router.js';
 import { findCodexMeta } from './data.js';
-import { entryImages, imageItemUrl } from './media.js';
+import { entryImages, hasEntryImage, imageItemHasOriginal, imageItemUrl } from './media.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { openReportDialog } from './report.js';
 import { goBackFrom } from './browser-history.js';
+import {
+  flushDeferredFavoritesViewRefresh,
+  isFav,
+  setFavoriteButtonState,
+  toggleFav,
+} from './favorites.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -19,8 +26,116 @@ let lbFocusReturn = null;
 let lbThumbEntry = null;
 let lbThumbImages = null;
 let lbThumbState = null;
+let lbOriginalStatusTimer = 0;
+let lbRecentTimer = 0;
 const lbPreloadCache = new Map();
 const LB_PRELOAD_CACHE_LIMIT = 300;
+
+export function setLightboxScrollLocked(locked) {
+  document.documentElement?.classList?.toggle('lightbox-open', Boolean(locked));
+  document.body?.classList?.toggle('lightbox-open', Boolean(locked));
+}
+
+function clearLightboxEntryTimers() {
+  clearTimeout(lbOriginalStatusTimer);
+  clearTimeout(lbRecentTimer);
+  lbOriginalStatusTimer = 0;
+  lbRecentTimer = 0;
+}
+
+function scheduleRecentEntry(entry) {
+  clearTimeout(lbRecentTimer);
+  lbRecentTimer = window.setTimeout(() => {
+    lbRecentTimer = 0;
+    if (state.lightbox.entry === entry) recordRecentEntry(entry);
+  }, 1000);
+}
+
+function lightboxEntrySourceId(entry) {
+  return String(entry?._srcCodexId || state.codex?.id || '');
+}
+
+function sameLightboxEntry(a, b) {
+  return Boolean(a && b && a.id === b.id && lightboxEntrySourceId(a) === lightboxEntrySourceId(b));
+}
+
+function entryIndexInList(entry, list) {
+  const exact = list.indexOf(entry);
+  if (exact >= 0) return exact;
+  return list.findIndex(candidate => sameLightboxEntry(candidate, entry));
+}
+
+export function lightboxNavigationContext(entry = state.lightbox.entry, list = state.list) {
+  if (!entry || !Array.isArray(list) || entryIndexInList(entry, list) < 0) {
+    return { entries: [], index: -1, position: 0, total: 0 };
+  }
+  const entries = list.filter(candidate =>
+    hasEntryImage(candidate) && !isEntryAccessBlocked(candidate) && !isR18gBlocked(candidate));
+  const index = entryIndexInList(entry, entries);
+  if (index < 0) return { entries: [], index: -1, position: 0, total: 0 };
+  return { entries, index, position: index + 1, total: entries.length };
+}
+
+export function getLightboxStepTarget(delta, lightbox = state.lightbox, list = state.list) {
+  const direction = Math.sign(Number(delta) || 0);
+  const entry = lightbox?.entry;
+  const images = Array.isArray(lightbox?.images) ? lightbox.images : [];
+  if (!direction || !entry || !images.length) return null;
+  if (direction > 0 && lightbox.index < images.length - 1) {
+    return { entry, images, index: lightbox.index + 1, crossEntry: false };
+  }
+  if (direction < 0 && lightbox.index > 0) {
+    return { entry, images, index: lightbox.index - 1, crossEntry: false };
+  }
+  const nav = lightboxNavigationContext(entry, list);
+  if (nav.index < 0) {
+    if (images.length < 2) return null;
+    return {
+      entry,
+      images,
+      index: direction > 0 ? 0 : images.length - 1,
+      crossEntry: false,
+    };
+  }
+  if (nav.entries.length < 2) {
+    if (images.length < 2) return null;
+    return {
+      entry,
+      images,
+      index: direction > 0 ? 0 : images.length - 1,
+      crossEntry: false,
+    };
+  }
+  const nextIndex = (nav.index + direction + nav.entries.length) % nav.entries.length;
+  const nextEntry = nav.entries[nextIndex];
+  const nextImages = entryImages(nextEntry);
+  if (!nextImages.length) return null;
+  return {
+    entry: nextEntry,
+    images: nextImages,
+    index: direction > 0 ? 0 : nextImages.length - 1,
+    crossEntry: true,
+  };
+}
+
+export function canUseNativeShare(
+  nav = globalThis.navigator,
+  matchMedia = globalThis.window?.matchMedia?.bind(globalThis.window),
+) {
+  const touchDevice = Number(nav?.maxTouchPoints || 0) > 0
+    || Boolean(matchMedia?.('(pointer: coarse)')?.matches);
+  return touchDevice && typeof nav?.share === 'function';
+}
+
+function sourceSupportsReadableOriginal(entry) {
+  const sourceId = lightboxEntrySourceId(entry);
+  const source = findCodexMeta(sourceId) || (state.codex?.id === sourceId ? state.codex : null);
+  return Boolean(source?.hasOriginal);
+}
+
+function lightboxItemHasOriginal(entry, item) {
+  return imageItemHasOriginal(item, entry);
+}
 
 
 export function applyFlyRect(el, rect, radius) {
@@ -135,6 +250,7 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
     ? sourceImages
     : (options.allowEmpty ? [{ _editPlaceholder: true }] : []);
   if (!images.length) return;
+  clearLightboxEntryTimers();
   if (options.recordRecent !== false) recordRecentEntry(entry);
   state.lightbox = {
     entry,
@@ -166,6 +282,7 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
     closeLightbox();
     return;
   }
+  setLightboxScrollLocked(true);
   void lb.offsetWidth;
   lb.classList.add('is-open');
   lbFocusReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -175,13 +292,23 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
 
 export function closeLightbox(options = {}) {
   const lb = $('#lightbox');
-  if (lb.hidden) return;
+  if (lb.hidden) {
+    setLightboxScrollLocked(false);
+    flushDeferredFavoritesViewRefresh();
+    return;
+  }
   const historyMode = options.historyMode || 'back';
-  if (historyMode === 'back' && goBackFrom('detail')) return;
+  if (historyMode === 'back' && goBackFrom('detail')) {
+    clearTimeout(lbRecentTimer);
+    lbRecentTimer = 0;
+    return;
+  }
   syncUrlState({ entry: '', historyMode: historyMode === 'none' ? 'none' : 'replace' });
-  lbSeq++;
+  const closeSeq = ++lbSeq;
   clearTimeout(lbCloseTimer);
+  clearLightboxEntryTimers();
   const done = () => {
+    if (closeSeq !== lbSeq) return;
     lb.hidden = true;
     lb.classList.remove('is-open', 'flying');
     clearFlyClones();
@@ -191,6 +318,8 @@ export function closeLightbox(options = {}) {
     img.removeAttribute('src');
     state.lightbox = { entry: null, images: [], index: 0 };
     lbSourceImg = null;
+    setLightboxScrollLocked(false);
+    flushDeferredFavoritesViewRefresh();
     if (lbFocusReturn?.isConnected) lbFocusReturn.focus({ preventScroll: true });
     lbFocusReturn = null;
   };
@@ -230,11 +359,38 @@ export function closeLightbox(options = {}) {
 }
 
 export function stepLightbox(delta) {
-  const lb = state.lightbox;
-  if (!lb.entry || lb.images.length < 2) return;
-  lb.index = (lb.index + delta + lb.images.length) % lb.images.length;
-  renderLightbox();
-  syncUrlState({ entry: lb.entry.id, historyMode: 'replace' });
+  const previous = state.lightbox;
+  const previousIndex = previous.index;
+  const target = getLightboxStepTarget(delta, previous, state.list);
+  if (!target) return false;
+  const previousSource = lbSourceImg;
+  if (target.crossEntry) {
+    clearTimeout(lbRecentTimer);
+    lbRecentTimer = 0;
+    state.lightbox = { entry: target.entry, images: target.images, index: target.index };
+    lbSourceImg = null;  // 已离开首张卡片，关闭时不能再飞回错误来源。
+    clearFlyClones();
+    $('#lightbox').classList.remove('flying');
+  } else {
+    previous.index = target.index;
+  }
+  try {
+    renderLightbox();
+  } catch (err) {
+    console.error('[lightbox] 切换失败，保留当前图片', err);
+    if (target.crossEntry) {
+      state.lightbox = previous;
+      lbSourceImg = previousSource;
+    } else {
+      previous.index = previousIndex;
+    }
+    try { renderLightbox(); } catch {}
+    return false;
+  }
+  const current = state.lightbox.entry;
+  syncUrlState({ entry: current.id, historyMode: 'replace', transition: 'detail' });
+  if (target.crossEntry) scheduleRecentEntry(current);
+  return true;
 }
 
 export function preloadImage(url) {
@@ -275,15 +431,22 @@ export function preloadImage(url) {
 export function preloadLightboxNeighbors() {
   const lb = state.lightbox;
   const e = lb.entry;
-  if (!e || lb.images.length < 2) return;
-  const indexes = [
-    (lb.index - 1 + lb.images.length) % lb.images.length,
-    (lb.index + 1) % lb.images.length,
-  ];
-  for (const i of [...new Set(indexes)]) {
-    const item = lb.images[i];
-    preloadImage(imageItemUrl('image', e, item));
-    preloadImage(imageItemUrl('original', e, item));
+  if (!e) return;
+  const targets = [-1, 1]
+    .map(delta => getLightboxStepTarget(delta, lb, state.list))
+    .filter(Boolean);
+  const seen = new Set();
+  for (const target of targets) {
+    const item = target.images[target.index];
+    const thumb = imageItemUrl('image', target.entry, item);
+    const original = lightboxItemHasOriginal(target.entry, item)
+      ? imageItemUrl('original', target.entry, item)
+      : '';
+    for (const url of [thumb, original]) {
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      preloadImage(url);
+    }
   }
 }
 
@@ -316,7 +479,7 @@ export function renderCharacterPrompts(entry) {
     copy.textContent = `复制 ${labelText}`;
     copy.onclick = ev => {
       ev.stopPropagation();
-      copyText(prompt, `${message}：${entry.title}`, copy);
+      copyText(prompt, `${message}：${entry.title}`, copy, { offerNovelAi: true });
     };
     head.append(label, copy);
     const content = document.createElement('pre');
@@ -339,6 +502,49 @@ export function renderCharacterPrompts(entry) {
   }
 }
 
+export function lightboxOriginalCopy(status, readable) {
+  if (status === 'loading') {
+    return {
+      label: '原图加载中…',
+      tip: readable ? '原图加载中，拖入 NovelAI 请稍候' : '原图加载中，仅供查看或保存',
+    };
+  }
+  if (status === 'ready') {
+    return {
+      label: '原图 ✓',
+      tip: readable
+        ? '可拖入 NovelAI 读取生成参数'
+        : '原图可查看或保存；此来源不提供可读取的生成参数',
+    };
+  }
+  if (status === 'failed') {
+    return { label: '原图加载失败', tip: '原图加载失败；当前缩略图不含生成参数' };
+  }
+  return { label: '仅缩略图', tip: '仅提供缩略图，无法从图片读取生成参数' };
+}
+
+function applyOriginalPresentation(seq, status, readable) {
+  if (seq !== lbSeq) return;
+  clearTimeout(lbOriginalStatusTimer);
+  lbOriginalStatusTimer = 0;
+  const statusEl = $('#lightboxOriginalStatus');
+  const tip = $('#lightboxTip') || document.querySelector('.lightbox-tip');
+  const copy = lightboxOriginalCopy(status, readable);
+  if (statusEl) {
+    statusEl.hidden = false;
+    statusEl.dataset.state = status;
+    statusEl.classList.remove('is-faded');
+    statusEl.textContent = copy.label;
+  }
+  if (tip) tip.textContent = copy.tip;
+  if (status === 'ready' && statusEl) {
+    lbOriginalStatusTimer = window.setTimeout(() => {
+      lbOriginalStatusTimer = 0;
+      if (seq === lbSeq) statusEl.classList.add('is-faded');
+    }, 2000);
+  }
+}
+
 export function renderLightbox() {
   const lb = state.lightbox;
   const e = lb.entry;
@@ -346,42 +552,70 @@ export function renderLightbox() {
   if (!e || !item) return;
   const emptyImage = item._editPlaceholder === true;
   const seq = ++lbSeq;
+  clearTimeout(lbOriginalStatusTimer);
+  lbOriginalStatusTimer = 0;
   const img = $('#lightboxImg');
   const stage = $('#lightboxStage');
+  $('#lightbox').classList.toggle('has-thumbs', lb.images.length > 1);
   stage.classList.toggle('edit-empty', emptyImage);
   img.hidden = emptyImage;
   const thumbSrc = emptyImage ? '' : imageItemUrl('image', e, item);
-  const origSrc = emptyImage ? '' : imageItemUrl('original', e, item);
+  const hasOriginal = !emptyImage && lightboxItemHasOriginal(e, item);
+  const origSrc = hasOriginal ? imageItemUrl('original', e, item) : '';
   const origAbs = resolvedUrl(origSrc);
+  const readableOriginal = hasOriginal && sourceSupportsReadableOriginal(e);
   img.onload = null;
   img.onerror = emptyImage ? null : () => {
     if (seq !== lbSeq) return;
-    if (origSrc && resolvedUrl(img.currentSrc || img.src) !== origAbs) {
+    if (hasOriginal && resolvedUrl(img.currentSrc || img.src) !== origAbs) {
       img.src = origSrc;
       return;
     }
+    if (hasOriginal) applyOriginalPresentation(seq, 'failed', readableOriginal);
     notifyImageLoadError(e);
+  };
+  img.onload = emptyImage ? null : () => {
+    if (seq !== lbSeq || !hasOriginal) return;
+    if (resolvedUrl(img.currentSrc || img.src) === origAbs) {
+      applyOriginalPresentation(seq, 'ready', readableOriginal);
+    }
   };
   /* 垫底加载：先上缩略图，原图加载完成后替换 */
   const showImage = () => {
     if (seq !== lbSeq) return;
     img.src = thumbSrc || origSrc;
-    if (origSrc && origSrc !== thumbSrc) {
+    if (hasOriginal && origSrc !== thumbSrc) {
       const pre = new Image();
+      pre.decoding = 'async';
       pre.onload = () => {
+        pre.onload = null;
+        pre.onerror = null;
         if (seq === lbSeq && state.lightbox.entry === e) img.src = origSrc;
+      };
+      pre.onerror = () => {
+        pre.onload = null;
+        pre.onerror = null;
+        applyOriginalPresentation(seq, 'failed', readableOriginal);
       };
       pre.src = origSrc;
     }
   };
-  if (emptyImage) img.removeAttribute('src');
-  else showImage();
+  const statusEl = $('#lightboxOriginalStatus');
+  if (emptyImage) {
+    img.removeAttribute('src');
+    if (statusEl) statusEl.hidden = true;
+  } else {
+    applyOriginalPresentation(seq, hasOriginal ? 'loading' : 'thumbnail', readableOriginal);
+    showImage();
+  }
 
   $('#lightboxTitle').textContent = e.title;
+  const nav = lightboxNavigationContext(e, state.list);
+  const entryPosition = nav.index >= 0 ? ` · 第 ${nav.position} / ${nav.total} 条` : '';
   $('#lightboxMeta').textContent = emptyImage
     ? `暂无图片 · ${e.path.join(' › ')}`
-    : `${lb.index + 1} / ${lb.images.length} · ${e.path.join(' › ')}`;
-  const tip = document.querySelector('.lightbox-tip');
+    : `${lb.index + 1} / ${lb.images.length}${entryPosition} · ${e.path.join(' › ')}`;
+  const tip = $('#lightboxTip') || document.querySelector('.lightbox-tip');
   if (tip) tip.hidden = emptyImage;
 
   const credit = item.credit || item.author || e.credit || e.author || '';
@@ -406,28 +640,100 @@ export function renderLightbox() {
 
   const hasPositive = Boolean(String(e.tags || '').trim());
   if (hasPositive) renderHighlightedText($('#lightboxTags'), e.tags || '', currentHighlightTerms());
-  else $('#lightboxTags').textContent = '暂无站内可复制 tags；可尝试将原图拖入 NovelAI 读取。';
+  else $('#lightboxTags').textContent = readableOriginal
+    ? '暂无站内可复制 tags；原图就绪后可尝试拖入 NovelAI 读取。'
+    : '暂无站内可复制 tags。';
   renderCharacterPrompts(e);
   $('#lightboxNegative').textContent = e.negative || '';
   $('#lightboxNote').textContent = e.note || '';
   $('#negativeBlock').hidden = !e.negative;
   $('#noteBlock').hidden = !e.note;
 
+  const bindSdPreview = (button, pre, source, { highlighted = false } = {}) => {
+    if (!button || !pre) return;
+    const available = Boolean(state.sdMode && String(source || '').trim());
+    button.hidden = !available;
+    button.setAttribute('aria-pressed', 'false');
+    button.textContent = 'SD 预览';
+    pre.classList.remove('sd-previewing');
+    button.onclick = available ? event => {
+      event.stopPropagation();
+      const enabled = button.getAttribute('aria-pressed') !== 'true';
+      button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      button.textContent = enabled ? '恢复原文' : 'SD 预览';
+      pre.classList.toggle('sd-previewing', enabled);
+      if (enabled) pre.textContent = naiToSd(source);
+      else if (highlighted) renderHighlightedText(pre, source, currentHighlightTerms());
+      else pre.textContent = source;
+    } : null;
+  };
+  bindSdPreview($('#sdPositivePreview'), $('#lightboxTags'), e.tags || '', { highlighted: true });
+  bindSdPreview($('#sdNegativePreview'), $('#lightboxNegative'), e.negative || '');
+
   $('#copyPositive').hidden = !hasPositive;
-  $('#copyPositive').onclick = ev => { ev.stopPropagation(); copyText(e.tags, `已复制正向：${e.title}`); };
+  $('#copyPositive').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
+  $('#copyPositive').onclick = ev => {
+    ev.stopPropagation();
+    copyText(e.tags, `已复制正向：${e.title}`, ev.currentTarget, {
+      offerNovelAi: true,
+      followUp: String(e.negative || '').trim() ? {
+        label: '再复制负面',
+        text: e.negative,
+        message: `已复制负面：${e.title}`,
+      } : null,
+    });
+  };
   $('#copyNegative').hidden = !e.negative;
-  $('#copyNegative').onclick = ev => { ev.stopPropagation(); copyText(e.negative, `已复制负面：${e.title}`); };
+  $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
+  $('#copyNegative').onclick = ev => {
+    ev.stopPropagation();
+    copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget, { offerNovelAi: true });
+  };
   $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
-  $('#copyAll').onclick = ev => { ev.stopPropagation(); copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`); };
+  $('#copyAll').onclick = ev => {
+    ev.stopPropagation();
+    copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, ev.currentTarget, { offerNovelAi: true });
+  };
   $('#copyRawTag').hidden = !item.rawTag;
-  $('#copyRawTag').onclick = ev => { ev.stopPropagation(); copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`); };
+  $('#copyRawTag').onclick = ev => {
+    ev.stopPropagation();
+    copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`, ev.currentTarget, { offerNovelAi: true });
+  };
+  const favoriteBtn = $('#favoriteLightbox');
+  if (favoriteBtn) {
+    favoriteBtn.hidden = emptyImage;
+    setFavoriteButtonState(favoriteBtn, isFav(e));
+    favoriteBtn.onclick = ev => {
+      ev.stopPropagation();
+      toggleFav(e, favoriteBtn, { deferViewRefresh: true });
+    };
+  }
+  const originalBtn = $('#viewOriginal');
+  if (originalBtn) {
+    originalBtn.hidden = !hasOriginal || !origSrc;
+    originalBtn.onclick = ev => {
+      ev.stopPropagation();
+      if (!origSrc) return;
+      const opened = window.open(origSrc, '_blank', 'noopener');
+      if (opened) opened.opener = null;
+    };
+  }
   const shareBtn = $('#shareLightbox');
   const shareUrl = shareUrlForEntry(e);
   if (shareBtn) {
     shareBtn.hidden = emptyImage || !shareUrl;
-    shareBtn.onclick = ev => {
+    shareBtn.onclick = async ev => {
       ev.stopPropagation();
-      if (shareUrl) copyText(shareUrl, '已复制分享链接', shareBtn, { convert: false });
+      if (!shareUrl) return;
+      if (canUseNativeShare()) {
+        try {
+          await navigator.share({ title: e.title, url: shareUrl });
+          return;
+        } catch (error) {
+          if (error?.name === 'AbortError') return;
+        }
+      }
+      await copyText(shareUrl, '已复制分享链接', shareBtn, { convert: false });
     };
   }
   const reportBtn = $('#reportLightbox');
@@ -445,11 +751,31 @@ export function renderLightbox() {
     };
   }
   const actions = document.querySelector('.lightbox-actions');
-  if (actions) actions.hidden = $('#copyAll').hidden && $('#copyRawTag').hidden && shareBtn?.hidden && reportBtn?.hidden;
+  if (actions) {
+    actions.hidden = [favoriteBtn, $('#copyAll'), $('#copyRawTag'), originalBtn, shareBtn, reportBtn]
+      .filter(Boolean)
+      .every(button => button.hidden);
+  }
 
   const prev = $('#lightboxPrev');
   const next = $('#lightboxNext');
-  prev.hidden = next.hidden = lb.images.length < 2;
+  const prevTarget = getLightboxStepTarget(-1, lb, state.list);
+  const nextTarget = getLightboxStepTarget(1, lb, state.list);
+  const configureNavButton = (button, target, direction) => {
+    button.hidden = !target;
+    if (!target) {
+      button.removeAttribute('data-nav-label');
+      return;
+    }
+    const word = direction < 0 ? '上一' : '下一';
+    const label = target.crossEntry ? `${word}条：${target.entry.title}` : `${word}张`;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    if (target.crossEntry) button.dataset.navLabel = label;
+    else button.removeAttribute('data-nav-label');
+  };
+  configureNavButton(prev, prevTarget, -1);
+  configureNavButton(next, nextTarget, 1);
   const thumbs = $('#lightboxThumbs');
   const reuseThumbs = lbThumbEntry === e
     && lbThumbImages === lb.images
@@ -519,9 +845,10 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   const canStartLightboxSwipe = target =>
     !target.closest('.lightbox-info,.lightbox-thumbs,.lb-circle,.lb-fold');
   const commitLightboxSwipe = (dx, dy, elapsed) => {
-    if (state.lightbox.images.length < 2) return false;
     if (elapsed > 800 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.2) return false;
-    stepLightbox(dx < 0 ? 1 : -1);
+    const direction = dx < 0 ? 1 : -1;
+    if (!getLightboxStepTarget(direction, state.lightbox, state.list)) return false;
+    if (!stepLightbox(direction)) return false;
     lastLightboxSwipeAt = Date.now();
     suppressLightboxClick = true;
     window.setTimeout(() => { suppressLightboxClick = false; }, 80);

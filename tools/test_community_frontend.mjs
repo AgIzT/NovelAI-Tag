@@ -36,6 +36,7 @@ const setupFavoritesBackup = () => {};
 const setCommunityRouterActions = () => {};
 const subscribeFavoritesChanges = () => {};
 const reloadFavorites = () => {};
+const renderMySubmissions = () => {};
 const restoreCommunityHistorySnapshot = async () => {};
 const initializeCommunityHistory = () => {};
 const closeCommunityDetail = () => {};

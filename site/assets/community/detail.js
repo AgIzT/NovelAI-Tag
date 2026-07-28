@@ -1,9 +1,10 @@
 import { closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
 import { toast } from '../app/feedback.js';
+import { novelAiToastAction } from '../app/novelai-link.js';
 import { goBackFrom } from '../app/browser-history.js';
 import { createLikeButton } from './likes.js';
-import { syncCommunityHistory } from './router.js';
-import { state } from './state.js';
+import { communityUrlForRoute, syncCommunityHistory } from './router.js';
+import { canShowCommunityEntry, state } from './state.js';
 import { $, copyText, escAttr, escHtml, imageUrl } from './utils.js';
 
 let detailMask;
@@ -31,10 +32,17 @@ export function initDetailDialog() {
 }
 
 export function openCommunityDetail(entry, imageIndex = 0, options = {}) {
-  if (!detailMask || !detailBody || !entry) return;
+  if (!detailMask || !detailBody || !entry) return false;
+  if (!canShowCommunityEntry(entry)) {
+    toast('请先开启 NSFW 并完成成人确认', '!');
+    return false;
+  }
   const parentScrollY = Math.max(0, window.scrollY || 0);
   activeEntry = entry;
-  activeImageIndex = Math.max(0, Math.min(imageIndex, (entry.images || []).length - 1));
+  activeImageIndex = Math.max(0, Math.min(
+    Math.trunc(Number(imageIndex) || 0),
+    (entry.images || []).length - 1,
+  ));
   state.activeEntryId = String(entry.id || '');
   state.activeImageIndex = activeImageIndex;
   renderDetail();
@@ -50,6 +58,7 @@ export function openCommunityDetail(entry, imageIndex = 0, options = {}) {
       parentScrollY,
     });
   }
+  return true;
 }
 
 export function closeCommunityDetail(options = {}) {
@@ -78,15 +87,25 @@ function renderDetail() {
   const paramsTitle = params
     ? `生成参数读取自 ${params.source || '图片'}${params.via === 'stealth' ? '（隐写通道）' : ''}，原图已原样保留`
     : '';
+  const shareOrigin = globalThis.location?.origin || 'https://example.invalid';
+  const sharePath = globalThis.location?.pathname || '/strings.html';
+  const shareUrl = new URL(
+    communityUrlForRoute(
+      { entry: entry.id, imageIndex: activeImageIndex },
+      `${shareOrigin}${sharePath}`,
+    ),
+    shareOrigin,
+  ).href;
 
   detailBody.innerHTML = `
     <button class="dialog-close" type="button" data-close-detail aria-label="关闭">×</button>
     <div class="community-detail-shell">
       <section class="community-detail-media${images.length > 1 ? ' has-thumbs' : ''}" aria-label="投稿图片">
         ${current ? `<div class="community-detail-stage"><img id="detailImage" src="${escAttr(currentUrl)}" alt="${escAttr(title)}" decoding="async"></div>` : '<div class="community-detail-stage community-detail-stage-empty"><div class="community-detail-no-image">这条投稿没有例图</div></div>'}
-        ${params || originalUrl ? `<div class="community-detail-mediabar">
+        ${params || originalUrl || entry.id ? `<div class="community-detail-mediabar">
           ${params ? `<span class="orig-param-badge" title="${escAttr(paramsTitle)}">✦ 原图 · 含生成参数</span>` : ''}
           ${originalUrl ? `<a class="orig-link" href="${escAttr(originalUrl)}" target="_blank" rel="noopener">查看原图</a>` : ''}
+          ${entry.id ? '<button class="orig-link" type="button" data-copy-link>复制链接</button>' : ''}
         </div>` : ''}
         ${entry.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
         ${images.length > 1 ? `<div class="community-detail-thumbs">${images.map((image, index) => `
@@ -148,11 +167,53 @@ function renderDetail() {
     button.addEventListener('click', async () => {
       const type = button.dataset.copy;
       try {
-        await copyText(type === 'negative' ? entry.negative : entry.prompt);
-        toast(type === 'negative' ? '已复制负面 Prompt' : '已复制 Prompt');
-      } catch {
-        toast('复制失败，请长按/手动选择文本', '!');
+        const result = await copyText(type === 'negative' ? entry.negative : entry.prompt, {
+          trigger: button,
+        });
+        const action = type !== 'negative' && String(entry.negative || '').trim()
+          ? {
+            label: '再复制负面',
+            duration: 5_000,
+            onClick: async () => {
+              try {
+                const negativeResult = await copyText(entry.negative, { trigger: button });
+                toast(
+                  `已复制负面 Prompt${negativeResult?.converted ? '（SD 格式）' : ''}`,
+                  '✓',
+                  novelAiToastAction(),
+                );
+              } catch (error) {
+                toast(
+                  error?.copyResult?.manualFallbackShown
+                    ? '自动复制未成功，请在弹窗中手动复制'
+                    : '复制失败，请长按/手动选择文本',
+                  '!',
+                );
+              }
+            },
+          }
+          : novelAiToastAction();
+        toast(
+          `${type === 'negative' ? '已复制负面 Prompt' : '已复制 Prompt'}${result?.converted ? '（SD 格式）' : ''}`,
+          '✓',
+          action,
+        );
+      } catch (error) {
+        toast(
+          error?.copyResult?.manualFallbackShown
+            ? '自动复制未成功，请在弹窗中手动复制'
+            : '复制失败，请长按/手动选择文本',
+          '!',
+        );
       }
     });
+  });
+  detailBody.querySelector('[data-copy-link]')?.addEventListener('click', async event => {
+    try {
+      await copyText(shareUrl, { convert: false, trigger: event.currentTarget });
+      toast('投稿链接已复制');
+    } catch (error) {
+      toast(error?.copyResult?.manualFallbackShown ? '请在弹窗中手动复制链接' : '链接复制失败', '!');
+    }
   });
 }

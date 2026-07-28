@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>法典图鉴 · NovelAI 提示词</title>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#15a06a">
 <script>/* 跨页 View Transition 抵达打标：vt-arrived 永久关掉入场编排避免叠影；
    vt-live 只活到过渡结束，专供跨页专属的上滑动画选择器（站内同文档过渡不带它） */
 addEventListener('pagereveal',e=>{if(e.viewTransition){const h=document.documentElement;h.classList.add('vt-arrived','vt-live');e.viewTransition.finished.finally(()=>h.classList.remove('vt-live'))}},{once:true});
@@ -43,6 +46,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/report.js">
 <link rel="modulepreload" href="assets/app/announcements.js">
 <link rel="modulepreload" href="assets/app/onboarding.js">
+<link rel="modulepreload" href="assets/app/home-shortcut.js">
+<link rel="modulepreload" href="assets/app/resume-prompt.js">
+<link rel="modulepreload" href="assets/app/favorites-transfer.js">
 <link rel="modulepreload" href="assets/app/ui.js">
 </head>
 <body>
@@ -72,7 +78,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
   <div class="search-wrap">
     <button id="searchScopeBtn" class="search-scope" type="button" aria-label="搜索范围：全站" title="当前搜索范围：全站。点击切到当前法典">全站</button>
-    <input id="search" type="search" placeholder="搜索词条或 tag（中 / 英）…" autocomplete="off">
+    <input id="search" type="search" placeholder="搜索词条或 tag（中 / 英）…" autocomplete="off" aria-describedby="searchSyntaxHint">
+    <span id="searchSyntaxHint" class="search-syntax-hint" role="note">高级示例：<code>path:构图</code> · <code>has:image</code> · <code>fav:true</code></span>
     <button id="searchClear" class="search-clear" type="button" aria-label="清空搜索" title="清空搜索" hidden>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
     </button>
@@ -112,6 +119,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
           <span><b>反馈与进度</b><small>提交反馈 · 查看处理进展</small></span>
         </button>
+        <a id="communityBrowseLink" class="more-item" href="/strings.html" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
+          <span><b>浏览共创广场</b><small>查看图片与提示词作品</small></span>
+        </a>
         <a class="more-item" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
           <span><b>GitHub 仓库</b><small>查看项目源码</small></span>
@@ -119,6 +130,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button id="shortcutBtn" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 13h.01M6 13h8M8 17h8"/></svg>
           <span><b>快捷键</b><small>查看当前可用操作</small></span>
+        </button>
+        <button id="onboardingBtn" class="more-item" type="button" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h9a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3z"/><path d="M17 8h2a2 2 0 0 1 2 2v10h-4M9 9h4M9 13h4"/></svg>
+          <span><b>使用引导</b><small>重看复制、搜索与反馈说明</small></span>
+        </button>
+        <button id="homeShortcutBtn" class="more-item" type="button" role="menuitem" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 5.5h4M12 17v-7M9.5 12.5 12 10l2.5 2.5"/></svg>
+          <span><b>添加到主屏幕</b><small>查看当前手机的浏览器步骤</small></span>
         </button>
         <button id="historyBtn" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
@@ -147,6 +166,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </button>
     </div>
   </aside>
+  <button id="sidebarBackdrop" class="sidebar-backdrop" type="button" tabindex="-1" aria-label="关闭目录"></button>
 
   <main class="main" id="main">
     <aside class="favorites-migration-banner" data-favorites-migration-banner hidden>
@@ -164,6 +184,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div id="chipRail" class="chip-rail"></div>
     <div class="result-bar">
       <span id="resultInfo"></span>
+      <button id="onlyImagedResultBtn" class="result-filter-btn" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
+        <span id="onlyImagedResultLabel">只看有图</span>
+      </button>
       <button id="newUpdateFilterBtn" class="new-update-filter-btn" type="button" aria-pressed="false" hidden>
         <span class="new-update-filter-mark">NEW</span>
         <span id="newUpdateFilterLabel"></span>
@@ -202,6 +226,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <circle cx="12" cy="12" r="1"/>
       <circle cx="15.5" cy="15.5" r="1"/>
     </svg>
+  </button>
+  <button id="densityQuickBtn" class="float-btn density-quick-btn" type="button" title="卡片密度：标准；点击切换到紧凑" aria-label="卡片密度：标准；点击切换到紧凑">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>
   </button>
   <button id="backTop" class="float-btn back-top" type="button" title="回到顶部" aria-label="回到顶部">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 14 7-7 7 7"/></svg>
@@ -358,7 +385,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <h3 id="favoritesCurrentTitle">当前收藏</h3>
             <p>一份文件会同时包含两处收藏。</p>
           </div>
-          <button id="favoritesExportBtn" class="favorites-backup-primary" type="button">导出 JSON</button>
+          <div class="favorites-backup-heading-actions">
+            <button id="favoritesExportTextBtn" class="favorites-backup-secondary" type="button">复制迁移文本</button>
+            <button id="favoritesExportBtn" class="favorites-backup-primary" type="button">导出 JSON</button>
+          </div>
         </div>
         <dl class="favorites-backup-stats">
           <div>
@@ -397,6 +427,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <small>最大 2 MiB，仅在浏览器中读取</small>
         </label>
         <input id="favoritesImportFile" class="favorites-backup-file-input" type="file" accept=".json,application/json">
+
+        <details class="favorites-transfer">
+          <summary>或用文本粘贴</summary>
+          <p>把另一台设备复制出的迁移文本粘贴到这里；也接受完整 JSON。</p>
+          <textarea id="favoritesImportText" rows="4" spellcheck="false" placeholder="NAITAG1.… 或完整 JSON"></textarea>
+          <button id="favoritesImportTextBtn" class="favorites-backup-secondary" type="button">从文本检查并恢复</button>
+        </details>
 
         <div id="favoritesImportPreview" class="favorites-import-preview" aria-live="polite" hidden>
           <h4>恢复预览</h4>
@@ -557,7 +594,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <div id="onboarding" class="settings-mask" hidden>
   <div class="settings-panel onboarding-panel" role="dialog" aria-modal="true" aria-label="快速引导">
     <div class="onboarding-top">
-      <span id="onboardingStep" class="onboarding-step">1 / 3</span>
+      <span id="onboardingStep" class="onboarding-step">1 / 4</span>
       <button id="onboardingSkip" class="onboarding-skip" type="button">跳过</button>
     </div>
     <div class="onboarding-row">
@@ -569,6 +606,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </div>
     <div class="onboarding-dots" aria-hidden="true">
       <i class="onboarding-dot active"></i>
+      <i class="onboarding-dot"></i>
       <i class="onboarding-dot"></i>
       <i class="onboarding-dot"></i>
     </div>
@@ -589,6 +627,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <button id="lightboxNext" class="lb-circle lightbox-nav lightbox-next" type="button" aria-label="下一张">›</button>
   <div class="lightbox-stage" id="lightboxStage">
     <img id="lightboxImg" alt="例图">
+    <div id="lightboxOriginalStatus" class="lightbox-original-status" role="status" aria-live="polite" hidden></div>
   </div>
   <div id="lightboxThumbs" class="lightbox-thumbs" hidden></div>
   <button id="lightboxFold" class="lb-fold" type="button" title="收起 / 展开信息栏" aria-label="收起或展开信息栏">
@@ -598,18 +637,21 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="lightbox-head">
         <h2 id="lightboxTitle"></h2>
         <div id="lightboxMeta" class="lightbox-meta"></div>
-        <div class="lightbox-tip">拖入 NovelAI 获取元数据</div>
+        <div id="lightboxTip" class="lightbox-tip">拖入 NovelAI 获取元数据</div>
         <a id="lightboxCredit" class="lightbox-credit" hidden></a>
       </div>
       <div class="lightbox-actions">
+        <button id="favoriteLightbox" type="button" aria-label="收藏" aria-pressed="false">☆</button>
         <button id="copyAll" type="button">复制全部</button>
         <button id="copyRawTag" type="button">复制当前图 Raw</button>
+        <button id="viewOriginal" type="button">查看原图</button>
         <button id="shareLightbox" type="button">分享</button>
         <button id="reportLightbox" type="button">反馈此图</button>
       </div>
       <div class="lightbox-section">
         <div class="section-head">
           <div class="section-label">正向 tags</div>
+          <button id="sdPositivePreview" class="sd-preview-toggle" type="button" aria-pressed="false" hidden>SD 预览</button>
           <button id="copyPositive" type="button">复制正向</button>
         </div>
         <pre id="lightboxTags"></pre>
@@ -621,6 +663,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div id="negativeBlock" class="lightbox-section">
         <div class="section-head">
           <div class="section-label">Negative</div>
+          <button id="sdNegativePreview" class="sd-preview-toggle" type="button" aria-pressed="false" hidden>SD 预览</button>
           <button id="copyNegative" type="button">复制负面</button>
         </div>
         <pre id="lightboxNegative"></pre>
@@ -640,7 +683,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="badge-neg" hidden>负面词</span>
         <span class="badge-count" hidden><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 4.25A2.25 2.25 0 014.25 2h6.5A2.25 2.25 0 0113 4.25V5.5H9.25A3.75 3.75 0 005.5 9.25V13H4.25A2.25 2.25 0 012 10.75z"/><path d="M9.25 7A2.25 2.25 0 007 9.25v6.5A2.25 2.25 0 009.25 18h6.5A2.25 2.25 0 0018 15.75v-6.5A2.25 2.25 0 0015.75 7z"/></svg><span class="badge-count-n">1</span></span>
       </div>
-      <button class="zoom-btn" title="放大查看">🔍</button>
+      <button class="zoom-btn" type="button" title="放大查看" aria-label="放大查看">🔍</button>
       <button class="img-retry" type="button" hidden>重试</button>
     </div>
     <div class="card-body">
@@ -652,6 +695,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
       <div class="card-tags"></div>
       <div class="card-foot">
+        <span class="search-match-chip" hidden></span>
         <span class="card-path"></span>
         <span class="card-actions">
           <button class="mini-copy copy-negative" type="button" hidden>负面</button>

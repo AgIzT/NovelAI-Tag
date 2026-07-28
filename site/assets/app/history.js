@@ -16,6 +16,7 @@ const historyActions = {
   openEntryDeepLink: () => {},
   renderTree: () => {},
   applyFilter: () => {},
+  setOnlyImaged: () => {},
   updateVirtualCards: () => {},
 };
 
@@ -89,7 +90,7 @@ export function recordRecentEntry(e) {
   saveRecentEntries();
 }
 
-function isHiddenR18gHistoryItem(item) {
+export function isHiddenR18gHistoryItem(item) {
   return !state.allowR18g && isR18gPath(item?.path || []);
 }
 
@@ -156,7 +157,7 @@ export function browseDesc(snapshot) {
     if (snapshot.path?.length) return `全部收藏 · ${snapshot.path.join(' › ')}`;
     return `全部收藏 · ${formatRecentTime(snapshot.at)}`;
   }
-  if (snapshot.siteSearchView || snapshot.searchScope === 'site') {
+  if (snapshot.siteSearchView || (snapshot.searchScope === 'site' && snapshot.q)) {
     if (snapshot.q) return `全站搜索 · “${snapshot.q}”`;
     if (snapshot.path?.length) return `全站搜索 · ${snapshot.path.join(' › ')}`;
     return `全站搜索 · ${formatRecentTime(snapshot.at)}`;
@@ -242,15 +243,13 @@ export function renderHistoryPanel() {
 }
 
 export function applyBrowseControls(snapshot) {
-  state.onlyImaged = Boolean(snapshot.onlyImaged);
+  historyActions.setOnlyImaged(snapshot.onlyImaged, { apply: false, syncHistory: false });
   const newFilterMeta = findCodexMeta(snapshot.codexId);
   state.onlyNew = Boolean(
     snapshot.onlyNew && !snapshot.favoritesView && !snapshot.siteSearchView && newFilterMeta?.newFilterLabel
   );
   state.onlyFav = Boolean(snapshot.favoritesView || snapshot.onlyFav);
-  const onlyImaged = $('#onlyImaged');
   const onlyFav = $('#onlyFav');
-  if (onlyImaged) onlyImaged.checked = state.onlyImaged;
   if (onlyFav) onlyFav.checked = state.onlyFav;
 }
 
@@ -380,14 +379,12 @@ export async function openRecentEntry(item, options = {}) {
   };
   if (!state.codex || state.codex.id !== targetId || state.siteSearchView) {
     state.onlyFav = false;
-    state.onlyImaged = false;
     applyBrowseControls({ onlyFav: false, onlyImaged: false });
     await historyActions.loadCodex(targetId, { urlState, ...finalHistory });
   } else {
     state.query = '';
     state.activePath = item.path || [];
     state.onlyFav = false;
-    state.onlyImaged = false;
     applyBrowseControls({ onlyFav: false, onlyImaged: false });
     const search = $('#search');
     if (search) search.value = '';

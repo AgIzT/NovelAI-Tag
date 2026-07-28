@@ -2,11 +2,18 @@ import assert from 'node:assert/strict';
 
 const toastElement = {
   textContent: '',
+  children: [],
   offsetWidth: 1,
   classList: {
     add: () => {},
     remove: () => {},
+    toggle: () => {},
   },
+  replaceChildren() { this.children = []; },
+  appendChild(child) { this.children.push(child); },
+  querySelector: () => null,
+  setAttribute: () => {},
+  removeAttribute: () => {},
 };
 
 const windowListeners = new Map();
@@ -16,6 +23,7 @@ const storageWrites = [];
 globalThis.document = {
   documentElement: { scrollHeight: 0 },
   querySelector: selector => selector === '#toast' ? toastElement : null,
+  createElement: tag => ({ tagName: tag.toUpperCase(), className: '', textContent: '' }),
 };
 globalThis.window = {
   scrollY: 42,

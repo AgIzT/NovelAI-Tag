@@ -1,6 +1,6 @@
 import { state, RANDOM_RECENT_LIMIT, NSFW_LOCKED_MESSAGE } from './state.js';
 import { $, esc, samePath, pathStartsWith, updateSearchClear, prefersReducedMotion, safeHttpUrl } from './utils.js';
-import { isCodexLocked, showNsfwLockedHint, isEntryAccessBlocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, isR18gName } from './access.js';
+import { isCodexLocked, showNsfwLockedHint, showR18gLockedHint, isEntryAccessBlocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, isR18gName } from './access.js';
 import { codexStatusLabel, codexStatusClass, codexStatusTitle } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
@@ -49,6 +49,7 @@ const codexUiActions = {
   applyFilter: () => {},
   applySearch: async () => {},
   syncUrlState: () => {},
+  setOnlyImaged: () => {},
   openLightbox: () => {},
   updateVirtualCards: () => {},
 };
@@ -189,12 +190,12 @@ export function setupCodexPicker() {
     const a = document.createElement('a');
     a.className = 'codex-door';
     a.href = '/strings.html';
-    a.setAttribute('aria-label', '前往社区共建，投稿你的画风串');
+    a.setAttribute('aria-label', '前往社区共建，投稿你的图片与提示词作品');
     a.innerHTML =
       `<span class="cd-ico">${DOOR_PLUS_ICON}</span>` +
       `<span class="cd-main">` +
       `<span class="cd-name">社区共建 · 去投稿</span>` +
-      `<span class="cd-sub">这里是大家的画风串，加入你的一条</span>` +
+      `<span class="cd-sub">浏览大家的图片与提示词作品，也加入你的一份</span>` +
       `</span>` +
       `<span class="cd-out">${DOOR_OUT_ICON}</span>`;
     wrap.appendChild(a);
@@ -359,6 +360,15 @@ export function updateCodexPickerState() {
 export function accessHiddenCount() {
   if (!state.codex) return 0;
   return accessViewSnapshot().hiddenCount;
+}
+
+export function lockedCodexCount() {
+  return (state.codexes || []).filter(isCodexLocked).length;
+}
+
+function showAccessLockedHint() {
+  if (!state.allowNsfw) showNsfwLockedHint();
+  else showR18gLockedHint();
 }
 
 export function syncCodexPickerCounts(codex = state.codex) {
@@ -692,12 +702,47 @@ function updateNewFilterControl() {
   btn.setAttribute('aria-label', `NEW ${label} · ${count}${state.onlyNew ? '，当前已开启' : '，点击筛选'}`);
 }
 
+export function imageSyntaxFilterValue(plan) {
+  return plan?.isSyntax && typeof plan.hasImage === 'boolean' ? plan.hasImage : null;
+}
+
+function updateOnlyImagedResultControl() {
+  const btn = $('#onlyImagedResultBtn');
+  const label = $('#onlyImagedResultLabel');
+  if (!btn || !label) return;
+  const syntaxValue = imageSyntaxFilterValue(state.searchPlan);
+  const queryControlled = syntaxValue !== null;
+  btn.hidden = Boolean(state.onlyNew);
+  btn.disabled = Boolean(state.onlyNew || queryControlled);
+  btn.dataset.queryControlled = queryControlled ? '1' : '';
+  btn.classList.toggle('is-query-controlled', queryControlled);
+  if (syntaxValue === true) {
+    label.textContent = '搜索已限定有图';
+    btn.setAttribute('aria-pressed', 'true');
+    btn.title = '当前 has:image 搜索语法已限定为有图结果';
+    btn.setAttribute('aria-label', btn.title);
+    return;
+  }
+  if (syntaxValue === false) {
+    label.textContent = '搜索已限定无图';
+    btn.setAttribute('aria-pressed', 'false');
+    btn.title = '当前 has:noimage 搜索语法已限定为无图结果';
+    btn.setAttribute('aria-label', btn.title);
+    return;
+  }
+  label.textContent = '只看有图';
+  btn.setAttribute('aria-pressed', state.onlyImaged ? 'true' : 'false');
+  btn.title = state.onlyImaged ? '当前只看有图；点击显示全部词条' : '只看有图词条';
+  btn.setAttribute('aria-label', btn.title);
+}
+
 export function updateResultBar() {
   const n = state.list.length;
   const box = $('#resultInfo');
   const favoritesBackupButton = $('#favoritesViewBackupBtn');
   if (favoritesBackupButton) favoritesBackupButton.hidden = !state.favoritesView;
   updateNewFilterControl();
+  updateOnlyImagedResultControl();
   box.innerHTML = '';
   const q = state.query.trim();
 
@@ -743,6 +788,27 @@ export function updateResultBar() {
   count.innerHTML = t;
   box.appendChild(count);
 
+  const hiddenCount = (!state.siteSearchView && !state.favoritesView) ? accessHiddenCount() : 0;
+  if (hiddenCount > 0) {
+    const hiddenHint = document.createElement('button');
+    hiddenHint.type = 'button';
+    hiddenHint.className = 'access-hidden-hint';
+    hiddenHint.textContent = `另有 ${hiddenCount} 条受限内容`;
+    hiddenHint.title = '查看解锁说明';
+    hiddenHint.onclick = showAccessLockedHint;
+    box.appendChild(hiddenHint);
+  }
+  const lockedBooks = state.siteSearchView ? lockedCodexCount() : 0;
+  if (lockedBooks > 0) {
+    const lockedHint = document.createElement('button');
+    lockedHint.type = 'button';
+    lockedHint.className = 'access-hidden-hint';
+    lockedHint.textContent = `另有 ${lockedBooks} 本受限法典未解锁，未纳入全站搜索`;
+    lockedHint.title = '查看解锁说明';
+    lockedHint.onclick = showNsfwLockedHint;
+    box.appendChild(lockedHint);
+  }
+
   updateEmptyState(n);
   updateRailActive();
 }
@@ -767,6 +833,10 @@ export function updateEmptyState(n) {
         ? '删掉一两个筛选条件，或加一个普通关键词继续缩小范围。'
         : '试试换个关键词，或清空搜索回到当前法典。');
     actions.push({ label: '清空搜索', action: 'clear-search' });
+    if (state.siteSearchView && lockedCodexCount() > 0) {
+      desc += ' 部分受限法典尚未解锁，因此没有纳入本次搜索。';
+      actions.push({ label: '查看未解锁范围', action: 'access-hint' });
+    }
   } else if (state.favoritesView && !state.onlyImaged && !state.activePath.length) {
     title = '收藏夹还是空的';
     desc = '逛任意法典时点卡片右上角的星标，收藏就会集中到这里。';
@@ -806,6 +876,10 @@ export function updateEmptyState(n) {
 }
 
 export function handleEmptyAction(action) {
+  if (action === 'access-hint') {
+    showNsfwLockedHint();
+    return;
+  }
   if (action === 'clear-search') {
     state.query = '';
     const search = $('#search');
@@ -813,9 +887,7 @@ export function handleEmptyAction(action) {
     updateSearchClear();
     renderTree();
   } else if (action === 'show-unimaged') {
-    state.onlyImaged = false;
-    const onlyImaged = $('#onlyImaged');
-    if (onlyImaged) onlyImaged.checked = false;
+    codexUiActions.setOnlyImaged(false, { apply: false, syncHistory: false });
   } else if (action === 'show-all-updates') {
     state.activePath = [];
     renderTree();
@@ -825,13 +897,11 @@ export function handleEmptyAction(action) {
     state.query = '';
     state.activePath = [];
     state.onlyFav = false;
-    state.onlyImaged = false;
+    codexUiActions.setOnlyImaged(false, { apply: false, syncHistory: false });
     const search = $('#search');
     if (search) search.value = '';
     const onlyFav = $('#onlyFav');
     if (onlyFav) onlyFav.checked = false;
-    const onlyImaged = $('#onlyImaged');
-    if (onlyImaged) onlyImaged.checked = false;
     updateSearchClear();
     renderTree();
   }
@@ -959,9 +1029,29 @@ export function updateRailActive() {
   const rail = $('#chipRail');
   if (!rail) return;
   const head = (state.query.trim() && !state.siteSearchView) ? null : (state.activePath[0] || '');
+  let activeChip = null;
   rail.querySelectorAll('.rail-chip').forEach(ch => {
-    ch.classList.toggle('active', head !== null && (ch.dataset.path || '') === head);
+    const active = head !== null && (ch.dataset.path || '') === head;
+    ch.classList.toggle('active', active);
+    if (active) activeChip = ch;
   });
+  if (!activeChip) return;
+  const delta = railRevealDelta(rail.getBoundingClientRect(), activeChip.getBoundingClientRect());
+  if (Math.abs(delta) < 0.5) return;
+  const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+  const left = Math.min(maxLeft, Math.max(0, rail.scrollLeft + delta));
+  if (Math.abs(left - rail.scrollLeft) < 0.5) return;
+  rail.scrollTo({
+    left,
+    top: rail.scrollTop,
+    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+  });
+}
+
+export function railRevealDelta(railRect, chipRect) {
+  if (chipRect.left < railRect.left) return chipRect.left - railRect.left;
+  if (chipRect.right > railRect.right) return chipRect.right - railRect.right;
+  return 0;
 }
 
 /* 法典「关于」气泡：来源 / 贡献者 / 相关链接 */

@@ -179,10 +179,14 @@ export function normalizeImageList(entry) {
     const path = item.path || item.image || item.url || item.src;
     if (!path || seen.has(path)) return;
     seen.add(path);
+    const hasOriginal = item._hasOriginal === undefined
+      ? Boolean(item.original)
+      : Boolean(item._hasOriginal);
     const normalized = {
       ...item,
       path,
       original: item.original || path,
+      _hasOriginal: hasOriginal,
       rawTag: item.rawTag || item.rawTags || '',
     };
     if (toFront) out.unshift(normalized);
@@ -190,14 +194,23 @@ export function normalizeImageList(entry) {
   };
   for (const image of entry.images || []) add(image);
   if (entry.image && !seen.has(entry.image)) {
-    add({ path: entry.image, original: entry.original || entry.image }, true);
+    add({
+      path: entry.image,
+      original: entry.original || entry.image,
+      _hasOriginal: Boolean(entry.original),
+    }, true);
   }
   if (entry.image && out.length) {
     const primaryIndex = out.findIndex(image => image.path === entry.image);
     if (primaryIndex > 0) out.unshift(out.splice(primaryIndex, 1)[0]);
-    if (entry.original && out[0]?.path === entry.image) out[0].original = entry.original;
+    if (entry.original && out[0]?.path === entry.image) {
+      out[0].original = entry.original;
+      out[0]._hasOriginal = true;
+    }
   }
-  if (!out.length && entry.original) add({ path: entry.original, original: entry.original });
+  if (!out.length && entry.original) {
+    add({ path: entry.original, original: entry.original, _hasOriginal: true });
+  }
   return out;
 }
 

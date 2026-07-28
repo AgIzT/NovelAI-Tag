@@ -73,6 +73,7 @@
 .favorites-backup-section+.favorites-backup-section{margin-top:12px}
 .favorites-backup-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .favorites-backup-section-heading>div{min-width:0}
+.favorites-backup-heading-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .favorites-backup-section h3{margin:0;font-size:15px;line-height:1.4}
 .favorites-backup-section-heading p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.55}
 
@@ -93,6 +94,7 @@
 .favorites-backup-primary:disabled{cursor:not-allowed;opacity:.46;box-shadow:none}
 .favorites-backup-secondary{border:1px solid var(--line);background:var(--card);color:var(--text)}
 .favorites-backup-secondary:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.favorites-backup-secondary:disabled{cursor:not-allowed;opacity:.46}
 .favorites-backup-danger{border:1px solid transparent;background:var(--red);color:#fff}
 .favorites-backup-danger:hover{translate:0 -1px;box-shadow:0 8px 20px color-mix(in srgb,var(--red) 24%,transparent)}
 
@@ -123,6 +125,12 @@ label.favorites-backup-file small{min-width:0;color:var(--muted);font-size:11px;
   white-space:nowrap!important;border:0!important;
 }
 label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){outline:2px solid var(--accent);outline-offset:3px}
+.favorites-transfer{margin-top:11px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:10px 11px}
+.favorites-transfer summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:800}
+.favorites-transfer p{margin:9px 0 7px;color:var(--muted);font-size:11px;line-height:1.55}
+.favorites-transfer textarea{display:block;width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:9px 10px;color:var(--text);font:10px/1.55 var(--font-mono);overflow-wrap:anywhere}
+.favorites-transfer textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.favorites-transfer .favorites-backup-secondary{margin-top:8px}
 
 .favorites-import-preview{
   margin-top:12px;padding:12px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));
@@ -235,6 +243,20 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 .community-result-row .result-bar{min-width:0;flex:1 1 220px;margin:0}
 .favorites-backup-result-btn{min-height:44px;border-radius:999px;padding-inline:15px}
 
+/* 自动复制被浏览器拒绝时，两页共用的可访问手动复制兜底。 */
+.clipboard-fallback-dialog{width:min(640px,100%)}
+.clipboard-fallback-body{padding-bottom:20px}
+.clipboard-fallback-text{
+  display:block;width:100%;min-height:220px;resize:vertical;padding:14px 16px;
+  border:1px solid var(--line);border-radius:13px;outline:0;background:var(--tagbg);color:var(--text);
+  font-family:var(--font-prompt);font-size:12px;line-height:1.7;white-space:pre-wrap;
+  user-select:text;-webkit-user-select:text;
+}
+.clipboard-fallback-text:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.clipboard-fallback-actions{display:flex;align-items:center;gap:8px}
+.clipboard-fallback-footer{justify-content:flex-end}
+.clipboard-fallback-footer .favorites-backup-status{margin-right:auto}
+
 @media(max-width:520px){
   .favorites-migration-banner{align-items:stretch;flex-direction:column;gap:10px;padding:13px}
   .favorites-migration-banner-actions{width:100%}
@@ -248,8 +270,14 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
   .favorites-backup-section{padding:13px}
   .favorites-backup-section-heading{gap:9px}
   .favorites-backup-section-heading .favorites-backup-primary{padding-inline:11px}
+  .favorites-backup-section-heading{flex-direction:column}
+  .favorites-backup-heading-actions{width:100%;justify-content:stretch}
+  .favorites-backup-heading-actions button{flex:1}
   .favorites-backup-footer{align-items:stretch;flex-direction:column;gap:7px;padding:10px 14px}
   .favorites-backup-footer .favorites-backup-primary{width:100%}
+  .clipboard-fallback-text{min-height:180px}
+  .clipboard-fallback-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}
+  .clipboard-fallback-footer .favorites-backup-status{text-align:center;margin-right:0}
   .favorites-replace-confirm{padding:14px}
   .favorites-replace-card{padding:19px 15px}
   .favorites-replace-actions{flex-direction:column}

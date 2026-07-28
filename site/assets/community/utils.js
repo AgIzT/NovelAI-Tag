@@ -1,4 +1,8 @@
 import { STRINGS_R2_BASE } from './constants.js';
+import { showClipboardFallback } from '../app/clipboard-fallback.js';
+import { writeClipboardText } from '../app/clipboard.js';
+import { formatCopyText } from '../app/nai-sd.js';
+import { isCommunitySdModeEnabled } from './sd-mode.js';
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -62,26 +66,27 @@ export function imageUrl(file) {
   return isLocal() ? path : `${STRINGS_R2_BASE}/${path}`;
 }
 
-export async function copyText(text) {
-  const raw = String(text || '');
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(raw);
-    return;
+export async function copyText(text, options = {}) {
+  const formatted = formatCopyText(text, {
+    sdMode: isCommunitySdModeEnabled(),
+    convert: options.convert !== false,
+  });
+  const result = await writeClipboardText(formatted.text, options.clipboardOptions);
+  if (result.ok) return { ...result, converted: formatted.converted };
+
+  let manualFallbackShown = false;
+  if (options.manualFallback !== false) {
+    try {
+      manualFallbackShown = showClipboardFallback(formatted.text, { trigger: options.trigger });
+    } catch {
+      // Keep failure reporting truthful even if the fallback UI cannot mount.
+    }
   }
-  const area = document.createElement('textarea');
-  area.value = raw;
-  area.setAttribute('readonly', '');
-  area.style.position = 'fixed';
-  area.style.left = '-9999px';
-  document.body.appendChild(area);
-  area.select();
-  let copied = false;
-  try {
-    copied = document.execCommand('copy');
-  } finally {
-    area.remove();
-  }
-  if (!copied) throw new Error('复制失败');
+  const error = new Error(
+    manualFallbackShown ? '复制失败：已打开手动复制面板' : '复制失败',
+  );
+  error.copyResult = { ...result, converted: formatted.converted, manualFallbackShown };
+  throw error;
 }
 
 export function promptExcerpt(text, max = 120) {

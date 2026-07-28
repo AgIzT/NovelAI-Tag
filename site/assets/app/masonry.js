@@ -2,7 +2,7 @@ import { state, VIRTUAL_BUFFER_UP, VIRTUAL_BUFFER_DOWN, IMAGE_LOAD_DELAY, RELAYO
 import { densityConfig } from './state.js';
 import { $, clamp, prefersReducedMotion, updateScrollProgress } from './utils.js';
 import { toast } from './feedback.js';
-import { currentHighlightTerms, renderHighlightedText } from './search.js';
+import { currentHighlightTerms, hiddenSearchMatch, renderHighlightedText } from './search.js';
 import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } from './media.js';
 import { copyText, combinedPrompt } from './copy.js';
 import { isFav } from './favorites.js';
@@ -332,9 +332,17 @@ export function makeCard(placement) {
   node.dataset.index = String(placement.index);
   updateCardPosition(node, placement);
 
-  node.querySelector('.card-title').textContent = e.title;
-  renderHighlightedText(node.querySelector('.card-tags'), e.tags, currentHighlightTerms());
+  const highlightTerms = currentHighlightTerms();
+  renderHighlightedText(node.querySelector('.card-title'), e.title, highlightTerms);
+  renderHighlightedText(node.querySelector('.card-tags'), e.tags, highlightTerms);
   node.querySelector('.card-path').textContent = e.path.join(' › ');
+  const hiddenMatch = hiddenSearchMatch(e, highlightTerms);
+  const hiddenMatchChip = node.querySelector('.search-match-chip');
+  if (hiddenMatchChip && hiddenMatch) {
+    hiddenMatchChip.hidden = false;
+    hiddenMatchChip.textContent = `命中：${hiddenMatch.label}`;
+    hiddenMatchChip.title = hiddenMatch.excerpt;
+  }
   if (e.isNew) node.querySelector('.badge-new').hidden = false;
 
   const hasImage = hasEntryImage(e);
@@ -354,12 +362,18 @@ export function makeCard(placement) {
   const negBtn = node.querySelector('.copy-negative');
   if (negBtn) {
     negBtn.hidden = !e.negative;
-    negBtn.onclick = ev => { ev.stopPropagation(); copyText(e.negative, `已复制负面：${e.title}`, node); };
+    negBtn.onclick = ev => {
+      ev.stopPropagation();
+      copyText(e.negative, `已复制负面：${e.title}`, node, { offerNovelAi: true });
+    };
   }
   const allBtn = node.querySelector('.copy-all');
   if (allBtn) {
     allBtn.hidden = !e.negative;
-    allBtn.onclick = ev => { ev.stopPropagation(); copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, node); };
+    allBtn.onclick = ev => {
+      ev.stopPropagation();
+      copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, node, { offerNovelAi: true });
+    };
   }
 
   const fav = node.querySelector('.fav-btn');

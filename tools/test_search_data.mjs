@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const moduleUrl = name => pathToFileURL(path.resolve(`site/assets/app/${name}`)).href;
 const {
+  hiddenSearchMatch,
   invalidateSearchableText,
   matchSearchPlan,
   parseSearchQuery,
@@ -38,6 +39,22 @@ const { state } = await import(moduleUrl('state.js'));
   assert.deepEqual(plainWords.terms, ['blue', 'red']);
   assert.deepEqual(plainWords.highlightTerms, plainWords.terms);
   assert.deepEqual(splitQueryTokens('path:"a b" "red dress"'), ['path:a b', 'red dress']);
+}
+
+// 标题 / tags 可见命中无需解释；只藏在负面、备注或角色词中的命中要给出可核对摘录。
+{
+  assert.equal(hiddenSearchMatch({ title: 'Blue dress', tags: 'lace' }, ['blue']), null);
+  assert.deepEqual(
+    hiddenSearchMatch({ title: 'A', tags: 'B', negative: 'low quality, blurry' }, ['blurry']),
+    { label: '负面词', excerpt: 'low quality, blurry' },
+  );
+  assert.equal(hiddenSearchMatch({ title: 'red', tags: '', note: 'blue detail' }, ['red', 'blue']).label, '备注');
+  assert.equal(hiddenSearchMatch({
+    title: 'A',
+    tags: '',
+    characterPrompts: [{ label: 'girl', prompt: 'green eyes' }],
+  }, ['green']).label, '角色词');
+  assert.equal(hiddenSearchMatch({ title: 'A', tags: '', note: 'hidden' }, []), null);
 }
 
 // searchableText 按对象缓存，编辑态就地修改后可显式失效。
