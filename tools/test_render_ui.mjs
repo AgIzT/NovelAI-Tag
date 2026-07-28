@@ -422,6 +422,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     '../site/assets/app/announcements.js',
     '../site/assets/app/report.js',
     '../site/assets/app/edit.js',
+    '../site/assets/styles.css',
+    '../site/assets/edit.css',
   ];
   const [
     dataSource,
@@ -435,6 +437,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     announcementsSource,
     reportSource,
     editSource,
+    stylesSource,
+    editCssSource,
   ] = await Promise.all(paths.map(path => readFile(new URL(path, import.meta.url), 'utf8')));
 
   assert.doesNotMatch(dataSource, /export async function load(?:CodexIndex|Media|About)\b/);
@@ -454,6 +458,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal((announcementsSource.match(/loaded = true/g) || []).length, 1);
   assert.equal((reportSource.match(/signal: feedbackTimeoutSignal\(\)/g) || []).length, 2);
   assert.equal((editSource.match(/syncCodexPickerCounts\(\);/g) || []).length, 2);
+  const toastZ = Number(stylesSource.match(/\.toast\s*\{[^}]*z-index:(\d+)/)?.[1]);
+  const editMenuZ = Number(editCssSource.match(/\.edit-menu\s*\{[^}]*z-index:(\d+)/)?.[1]);
+  assert.ok(toastZ > editMenuZ, `toast 层级必须高于编辑菜单（${toastZ} <= ${editMenuZ}）`);
 }
 
 console.log('render UI regressions: PASS');

@@ -179,8 +179,8 @@ try {
     });
     const response = await renderShareResponse(context);
     const html = await response.text();
-    assert.equal(response.headers.get('cache-control'), 'no-store', '双数据源故障的瞬时降级卡不得缓存');
-    assert.match(html, /codex=demo&amp;entry=demo-0001/, '瞬时故障仍应保留请求的深链目标');
+    assert.equal(response.headers.get('cache-control'), 'no-store', '根数据集整体不可用的降级卡不得缓存');
+    assert.match(html, /codex=demo&amp;entry=demo-0001/, '根数据集不可用时仍应保留请求的深链目标');
   }
 
   console.log('share backend tests passed');

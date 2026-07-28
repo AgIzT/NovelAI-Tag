@@ -1135,6 +1135,7 @@ def make_handler(store):
                 raise EditError(403, "bad-origin", "只接受本机页面的写请求")
 
         def _check_host(self):
+            # Origin 对本机 curl/探活可缺省；Host 是每个请求的安全边界，缺失也必须拒绝。
             raw_host = self.headers.get("Host") or ""
             try:
                 host = (urllib.parse.urlsplit("//" + raw_host).hostname or "").casefold()

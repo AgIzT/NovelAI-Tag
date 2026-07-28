@@ -1348,7 +1348,7 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
   position:fixed;left:50%;bottom:40px;transform:translateX(-50%) translateY(20px);
   background:var(--accent);color:#fff;padding:10px 20px;border-radius:999px;font-weight:600;font-size:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;
-  transition:opacity .2s,transform .34s cubic-bezier(.34,1.56,.64,1);z-index:1300;
+  transition:opacity .2s,transform .34s cubic-bezier(.34,1.56,.64,1);z-index:1400;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 

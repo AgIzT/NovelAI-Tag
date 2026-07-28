@@ -210,6 +210,8 @@ async function resolveShareCard(context) {
     dataset = await loadShareDataset(context);
   } catch (ex) {
     console.warn(ex);
+    // 根索引不可用意味着整套分享数据不可用；即使末端错误是 404 也一律不缓存，
+    // 避免修复 release / 部署后仍被 CDN 固化为通用卡。
     return genericCard(
       origin,
       deepLinkUrl(origin, path.codexId, path.entryId),
