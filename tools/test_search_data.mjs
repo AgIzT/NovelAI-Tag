@@ -32,6 +32,11 @@ const { state } = await import(moduleUrl('state.js'));
   assert.deepEqual(plain.terms, ['red dress']);
   assert.equal(matchSearchPlan({ title: 'red dress', path: [] }, plain), true);
   assert.equal(matchSearchPlan({ title: 'red summer dress', path: [] }, plain), false);
+  const plainWords = parseSearchQuery('red blue');
+  assert.equal(plainWords.isSyntax, false);
+  assert.equal(plainWords.text, 'red blue');
+  assert.deepEqual(plainWords.terms, ['blue', 'red']);
+  assert.deepEqual(plainWords.highlightTerms, plainWords.terms);
   assert.deepEqual(splitQueryTokens('path:"a b" "red dress"'), ['path:a b', 'red dress']);
 }
 

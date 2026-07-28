@@ -1,15 +1,27 @@
 import { KEY } from './state.js';
 
+function callStorage(storageName, method, ...args) {
+  try {
+    return globalThis[storageName]?.[method](...args);
+  } catch {
+    return null;
+  }
+}
+
+// 旧版本曾把管理口令写入永久存储；加载新版审核页时立即清掉残留。
+callStorage('localStorage', 'removeItem', KEY);
+
 export function token() {
-  return sessionStorage.getItem(KEY) || '';
+  return callStorage('sessionStorage', 'getItem', KEY) || '';
 }
 
 export function setToken(value) {
-  sessionStorage.setItem(KEY, value || '');
+  callStorage('sessionStorage', 'setItem', KEY, value || '');
 }
 
 export function clearToken() {
-  sessionStorage.removeItem(KEY);
+  callStorage('sessionStorage', 'removeItem', KEY);
+  callStorage('localStorage', 'removeItem', KEY);
 }
 
 function unauthorizedError(message) {

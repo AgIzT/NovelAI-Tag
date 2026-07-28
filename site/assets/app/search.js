@@ -97,11 +97,6 @@ export function parseSearchQuery(raw) {
   plan.text = terms.join(' ').trim().toLowerCase();
   plan.terms = searchTermsFromTokens(termTokens);
   plan.highlightTerms = plan.terms;
-  if (!plan.isSyntax) {
-    plan.text = terms.join(' ').trim().toLowerCase();
-    plan.terms = searchTermsFromTokens(tokens);
-    plan.highlightTerms = plan.terms;
-  }
   return plan;
 }
 

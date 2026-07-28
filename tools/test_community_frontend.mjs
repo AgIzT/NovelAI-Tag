@@ -238,26 +238,63 @@ ${source}
   delete globalThis.__communitySubmitTest;
 }
 
-// 管理口令仅保留在当前浏览器会话，不得再写入永久 localStorage。
+// 管理口令仅保留在当前浏览器会话；加载和退出都清掉旧版 localStorage 残留。
 {
+  const sessionDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+  const localDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   const session = new Map();
-  let localTouches = 0;
-  globalThis.sessionStorage = {
-    getItem: key => session.get(key) ?? null,
-    setItem: (key, value) => session.set(key, String(value)),
-    removeItem: key => session.delete(key),
-  };
-  globalThis.localStorage = {
-    getItem: () => { localTouches += 1; return null; },
-    setItem: () => { localTouches += 1; },
-    removeItem: () => { localTouches += 1; },
-  };
-  const adminApi = await import(new URL('../site/assets/admin/api.js', import.meta.url));
-  adminApi.setToken('session-secret');
-  assert.equal(adminApi.token(), 'session-secret', '同一会话刷新后应能继续读取口令');
-  adminApi.clearToken();
-  assert.equal(adminApi.token(), '');
-  assert.equal(localTouches, 0, '管理口令流程不得访问 localStorage');
+  const local = new Map([['strings-admin-token', 'legacy-secret']]);
+  const localMethods = [];
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: {
+      getItem: key => session.get(key) ?? null,
+      setItem: (key, value) => session.set(key, String(value)),
+      removeItem: key => session.delete(key),
+    },
+  });
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: key => { localMethods.push('getItem'); return local.get(key) ?? null; },
+      setItem: (key, value) => { localMethods.push('setItem'); local.set(key, String(value)); },
+      removeItem: key => { localMethods.push('removeItem'); local.delete(key); },
+    },
+  });
+  try {
+    const adminApi = await import(new URL('../site/assets/admin/api.js?legacy-token-cleanup', import.meta.url));
+    assert.equal(local.has('strings-admin-token'), false, '模块初始化必须删除旧版永久口令');
+    adminApi.setToken('session-secret');
+    assert.equal(adminApi.token(), 'session-secret', '同一会话刷新后应能继续读取口令');
+
+    local.set('strings-admin-token', 'legacy-secret-again');
+    adminApi.clearToken();
+    assert.equal(adminApi.token(), '');
+    assert.equal(local.has('strings-admin-token'), false, '退出必须兜底删除再次出现的旧版永久口令');
+    assert.deepEqual([...new Set(localMethods)], ['removeItem'], '管理口令流程只能删除、不得读写 localStorage');
+
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: () => { throw new Error('session storage denied'); },
+        setItem: () => { throw new Error('session storage denied'); },
+        removeItem: () => { throw new Error('session storage denied'); },
+      },
+    });
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get: () => { throw new Error('local storage denied'); },
+    });
+    const deniedApi = await import(new URL('../site/assets/admin/api.js?storage-denied', import.meta.url));
+    assert.equal(deniedApi.token(), '', '存储受限时应按未登录处理');
+    assert.doesNotThrow(() => deniedApi.setToken('ignored'));
+    assert.doesNotThrow(() => deniedApi.clearToken());
+  } finally {
+    if (sessionDescriptor) Object.defineProperty(globalThis, 'sessionStorage', sessionDescriptor);
+    else delete globalThis.sessionStorage;
+    if (localDescriptor) Object.defineProperty(globalThis, 'localStorage', localDescriptor);
+    else delete globalThis.localStorage;
+  }
 }
 
 console.log('community/admin frontend regressions: PASS');
