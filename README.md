@@ -16,7 +16,7 @@
 
 ## 🚀 本地使用与编辑（Windows）
 
-1. 前往 [GitHub Releases](https://github.com/AgIzT/NovelAI-Tag/releases)，下载最新的 `NovelAI-Tag-Local-YYYYMMDD.zip`（GitHub 资产名限用英文；解压后即「法典图鉴本地版」）。
+1. 前往 [GitHub Releases](https://github.com/AgIzT/NovelAI-Tag/releases)，下载最新的 `NovelAI-Tag-Local-YYYYMMDD.zip`
 2. 完整解压 ZIP。
 3. 双击 `法典图鉴本地版.exe`。如果 EXE 无法直接启动，可改用同目录的 `启动法典图鉴.bat`。
 4. 浏览器会自动打开，编辑模式首次默认开启；可通过顶栏铅笔按钮切换编辑与展示模式。编辑模式下点击卡片可修改词条和图片；点击顶部法典名称，再从菜单底部进入“法典管理”，即可新建、修改或删除法典。
