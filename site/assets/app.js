@@ -1,4 +1,4 @@
-import { state, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
 import { setLoading, showSkeleton, hideSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
@@ -138,6 +138,9 @@ export async function init() {
     state.recentEntries = normalizeRecentEntries(safeJsonParse(localStorage.getItem(RECENT_STORAGE_KEY), []));
     state.lastBrowse = normalizeLastBrowse(safeJsonParse(localStorage.getItem(LAST_BROWSE_STORAGE_KEY), null));
     state.allowNsfw = localStorage.getItem(NSFW_STORAGE_KEY) === '1';
+    // 旧主站 key=1 已代表用户完成过成人确认；单向迁移确认事实，
+    // 使其不再依附于之后可随时关闭的主站展示偏好。
+    if (state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
     state.allowR18g = state.allowNsfw && localStorage.getItem(R18G_STORAGE_KEY) === '1';
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);

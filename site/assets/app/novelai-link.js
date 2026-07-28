@@ -1,3 +1,5 @@
+import { isTouchPrimaryInput } from './utils.js';
+
 export const NOVELAI_IMAGE_URL = 'https://novelai.net/image';
 export const NOVELAI_WINDOW_NAME = 'fadian-novelai-image';
 
@@ -5,12 +7,7 @@ export function canOfferNovelAiLink({
   navigatorApi = globalThis.navigator,
   matchMediaApi = globalThis.window?.matchMedia?.bind(globalThis.window),
 } = {}) {
-  if (Number(navigatorApi?.maxTouchPoints || 0) > 0) return true;
-  try {
-    return Boolean(matchMediaApi?.('(hover: none), (pointer: coarse)')?.matches);
-  } catch {
-    return false;
-  }
+  return isTouchPrimaryInput({ navigatorApi, matchMediaApi });
 }
 
 export function openNovelAiImage({ windowApi = globalThis.window } = {}) {

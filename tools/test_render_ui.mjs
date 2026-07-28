@@ -323,9 +323,29 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const lastBox = { entry: last, images: entryImages(last), index: 0 };
   assert.equal(getLightboxStepTarget(1, lastBox).entry, first, '末条向后应回到过滤列表首条');
   assert.equal(getLightboxStepTarget(-1, lastBox).index, 1, '上一条多图时应落到其末图');
+  const sharedNavigation = lightboxNavigationContext(last);
   assert.deepEqual(
-    { ...lightboxNavigationContext(last), entries: undefined },
+    { ...sharedNavigation, entries: undefined },
     { entries: undefined, index: 1, position: 2, total: 2 },
+  );
+  let accessReads = 0;
+  const counted = state.list.map(entry => ({
+    ...entry,
+    get rating() {
+      accessReads += 1;
+      return entry.rating;
+    },
+  }));
+  const countedEntry = counted.at(-1);
+  const countedBox = { entry: countedEntry, images: entryImages(countedEntry), index: 0 };
+  const countedNavigation = lightboxNavigationContext(countedEntry, counted);
+  const readsAfterContext = accessReads;
+  getLightboxStepTarget(-1, countedBox, counted, countedNavigation);
+  getLightboxStepTarget(1, countedBox, counted, countedNavigation);
+  assert.equal(
+    accessReads,
+    readsAfterContext,
+    '同一轮 render 的前后目标必须复用 nav context，不再重复扫描访问状态',
   );
 
   const deep = { id: 'deep', images: [{ path: 'deep-1.jpg' }, { path: 'deep-2.jpg' }] };
@@ -367,8 +387,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 {
   const share = async () => {};
   assert.equal(canUseNativeShare({ maxTouchPoints: 0, share }, () => ({ matches: false })), false);
-  assert.equal(canUseNativeShare({ maxTouchPoints: 1, share }, () => ({ matches: false })), true);
+  assert.equal(canUseNativeShare({ maxTouchPoints: 1, share }, () => ({ matches: false })), false);
   assert.equal(canUseNativeShare({ maxTouchPoints: 0, share }, () => ({ matches: true })), true);
+  assert.equal(canUseNativeShare({ maxTouchPoints: 1, share }, null), true);
   assert.equal(canUseNativeShare({ maxTouchPoints: 1 }, () => ({ matches: true })), false);
 }
 
@@ -596,6 +617,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(indexSource, /id="sdPositivePreview"[^>]*aria-pressed="false"[^>]*hidden/);
   assert.match(indexSource, /id="sdNegativePreview"[^>]*aria-pressed="false"[^>]*hidden/);
   assert.match(lightboxSource, /pre\.textContent = naiToSd\(source\)/);
+  assert.match(appSource, /state\.allowNsfw = localStorage\.getItem\(NSFW_STORAGE_KEY\) === '1';[\s\S]*if \(state\.allowNsfw\) localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
+  assert.match(uiSource, /localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
   assert.match(indexSource, /id="homeShortcutBtn"[^>]*role="menuitem"[^>]*hidden/);
   assert.match(uiSource, /setupHomeShortcutGuide\(\)/);
   assert.match(indexSource, /class="search-match-chip" hidden/);

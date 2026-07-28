@@ -5,11 +5,14 @@ import {
 } from '../site/assets/community/router.js';
 import {
   COMMUNITY_NSFW_PREFERENCE_KEY,
-  SHARED_NSFW_CONFIRMATION_KEY,
   canShowCommunityEntry,
-  hasSharedNsfwConfirmation,
+  hasAdultNsfwConfirmation,
   shouldRestoreCommunityNsfw,
 } from '../site/assets/community/state.js';
+import {
+  ADULT_CONFIRMATION_STORAGE_KEY,
+  NSFW_STORAGE_KEY,
+} from '../site/assets/app/state.js';
 
 assert.deepEqual(readCommunityUrlState(''), { entry: '', imageIndex: 0 });
 assert.deepEqual(readCommunityUrlState('?entry=post-1'), { entry: 'post-1', imageIndex: 0 });
@@ -38,10 +41,16 @@ assert.equal(
 );
 
 const nsfwRead = values => key => values.get(key) ?? null;
-assert.equal(hasSharedNsfwConfirmation(nsfwRead(new Map([[SHARED_NSFW_CONFIRMATION_KEY, '1']]))), true);
+assert.notEqual(ADULT_CONFIRMATION_STORAGE_KEY, NSFW_STORAGE_KEY);
+assert.equal(hasAdultNsfwConfirmation(nsfwRead(new Map([[ADULT_CONFIRMATION_STORAGE_KEY, '1']]))), true);
+assert.equal(
+  hasAdultNsfwConfirmation(nsfwRead(new Map([[NSFW_STORAGE_KEY, '1']]))),
+  true,
+  '旧主站已解锁状态可单向作为成年确认凭证',
+);
 assert.equal(shouldRestoreCommunityNsfw(nsfwRead(new Map([
   [COMMUNITY_NSFW_PREFERENCE_KEY, 'true'],
-  [SHARED_NSFW_CONFIRMATION_KEY, '1'],
+  [ADULT_CONFIRMATION_STORAGE_KEY, '1'],
 ]))), true);
 assert.equal(shouldRestoreCommunityNsfw(nsfwRead(new Map([
   [COMMUNITY_NSFW_PREFERENCE_KEY, 'true'],

@@ -1,14 +1,34 @@
 import { closeMask, openMask, trapFocus } from './modal.js';
+import { isTouchPrimaryInput } from './utils.js';
 
 export function homeShortcutPlatform(userAgent = globalThis.navigator?.userAgent || '', navigatorLike = globalThis.navigator) {
   const ua = String(userAgent || '');
   const ipadDesktop = navigatorLike?.platform === 'MacIntel' && Number(navigatorLike?.maxTouchPoints) > 1;
-  if (/iPhone|iPad|iPod/i.test(ua) || ipadDesktop) return 'ios';
-  if (/Android/i.test(ua)) return 'android';
-  return 'generic';
+  const platform = /iPhone|iPad|iPod/i.test(ua) || ipadDesktop
+    ? 'ios'
+    : /Android/i.test(ua)
+      ? 'android'
+      : 'generic';
+  const embedded = /MicroMessenger|QQ\//i.test(ua)
+    || (platform === 'android' && /;\s*wv\)/i.test(ua));
+  return embedded ? `${platform}-webview` : platform;
 }
 
 export function homeShortcutCopy(platform) {
+  if (String(platform).endsWith('-webview')) {
+    const ios = String(platform).startsWith('ios');
+    const browser = ios ? 'Safari' : 'Chrome';
+    return {
+      title: `先用 ${browser} 打开本站`,
+      steps: [
+        '点右上角“…”菜单，选择“在浏览器中打开”',
+        `如果没有这个选项，请复制当前链接并粘贴到 ${browser}`,
+        ios
+          ? '在 Safari 点“分享”→“添加到主屏幕”→“添加”'
+          : '在 Chrome 点右上角“⋮”→“添加到主屏幕”并确认',
+      ],
+    };
+  }
   if (platform === 'ios') {
     return {
       title: '装进 iPhone / iPad 主屏幕',
@@ -25,13 +45,6 @@ export function homeShortcutCopy(platform) {
     title: '把法典图鉴放到主屏幕',
     steps: ['打开浏览器菜单或分享菜单', '寻找“添加到主屏幕”或“创建快捷方式”', '按浏览器提示确认'],
   };
-}
-
-function isTouchDevice() {
-  return Boolean(
-    globalThis.matchMedia?.('(hover: none), (pointer: coarse)').matches
-    || Number(globalThis.navigator?.maxTouchPoints) > 0,
-  );
 }
 
 function isStandalone() {
@@ -81,7 +94,7 @@ function ensurePanel() {
 export function setupHomeShortcutGuide() {
   const button = document.getElementById('homeShortcutBtn');
   if (!button) return;
-  const available = isTouchDevice() && !isStandalone() && !document.body.classList.contains('local-edition');
+  const available = isTouchPrimaryInput() && !isStandalone() && !document.body.classList.contains('local-edition');
   button.hidden = !available;
   if (!available || button.dataset.bound === '1') return;
   button.dataset.bound = '1';

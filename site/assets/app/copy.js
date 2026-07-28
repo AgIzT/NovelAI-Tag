@@ -11,9 +11,11 @@ export { fmtSdWeight, naiToSd } from './nai-sd.js';
 export async function copyEntry(e, node) {
   recordRecentEntry(e);
   saveBrowseStateNow();
-  return copyText(e.tags, `已复制正向：${e.title}`, node, {
+  const negative = String(e.negative || '').trim();
+  const message = negative ? `已复制正向：${e.title}` : `已复制：${e.title}`;
+  return copyText(e.tags, message, node, {
     offerNovelAi: true,
-    followUp: String(e.negative || '').trim() ? {
+    followUp: negative ? {
       label: '再复制负面',
       text: e.negative,
       message: `已复制负面：${e.title}`,

@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { $, clamp, esc, prefersReducedMotion, safeHttpUrl } from './utils.js';
+import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt } from './copy.js';
@@ -59,24 +59,31 @@ function sameLightboxEntry(a, b) {
   return Boolean(a && b && a.id === b.id && lightboxEntrySourceId(a) === lightboxEntrySourceId(b));
 }
 
-function entryIndexInList(entry, list) {
-  const exact = list.indexOf(entry);
-  if (exact >= 0) return exact;
-  return list.findIndex(candidate => sameLightboxEntry(candidate, entry));
-}
-
 export function lightboxNavigationContext(entry = state.lightbox.entry, list = state.list) {
-  if (!entry || !Array.isArray(list) || entryIndexInList(entry, list) < 0) {
+  if (!entry || !Array.isArray(list)) {
     return { entries: [], index: -1, position: 0, total: 0 };
   }
-  const entries = list.filter(candidate =>
-    hasEntryImage(candidate) && !isEntryAccessBlocked(candidate) && !isR18gBlocked(candidate));
-  const index = entryIndexInList(entry, entries);
+  const entries = [];
+  let exactIndex = -1;
+  let equivalentIndex = -1;
+  for (const candidate of list) {
+    if (!hasEntryImage(candidate) || isEntryAccessBlocked(candidate)) continue;
+    const index = entries.length;
+    entries.push(candidate);
+    if (candidate === entry) exactIndex = index;
+    else if (equivalentIndex < 0 && sameLightboxEntry(candidate, entry)) equivalentIndex = index;
+  }
+  const index = exactIndex >= 0 ? exactIndex : equivalentIndex;
   if (index < 0) return { entries: [], index: -1, position: 0, total: 0 };
   return { entries, index, position: index + 1, total: entries.length };
 }
 
-export function getLightboxStepTarget(delta, lightbox = state.lightbox, list = state.list) {
+export function getLightboxStepTarget(
+  delta,
+  lightbox = state.lightbox,
+  list = state.list,
+  navigation = null,
+) {
   const direction = Math.sign(Number(delta) || 0);
   const entry = lightbox?.entry;
   const images = Array.isArray(lightbox?.images) ? lightbox.images : [];
@@ -87,7 +94,7 @@ export function getLightboxStepTarget(delta, lightbox = state.lightbox, list = s
   if (direction < 0 && lightbox.index > 0) {
     return { entry, images, index: lightbox.index - 1, crossEntry: false };
   }
-  const nav = lightboxNavigationContext(entry, list);
+  const nav = navigation || lightboxNavigationContext(entry, list);
   if (nav.index < 0) {
     if (images.length < 2) return null;
     return {
@@ -122,8 +129,7 @@ export function canUseNativeShare(
   nav = globalThis.navigator,
   matchMedia = globalThis.window?.matchMedia?.bind(globalThis.window),
 ) {
-  const touchDevice = Number(nav?.maxTouchPoints || 0) > 0
-    || Boolean(matchMedia?.('(pointer: coarse)')?.matches);
+  const touchDevice = isTouchPrimaryInput({ navigatorApi: nav, matchMediaApi: matchMedia });
   return touchDevice && typeof nav?.share === 'function';
 }
 
@@ -428,12 +434,12 @@ export function preloadImage(url) {
   }
 }
 
-export function preloadLightboxNeighbors() {
+export function preloadLightboxNeighbors(navigation = null) {
   const lb = state.lightbox;
   const e = lb.entry;
   if (!e) return;
   const targets = [-1, 1]
-    .map(delta => getLightboxStepTarget(delta, lb, state.list))
+    .map(delta => getLightboxStepTarget(delta, lb, state.list, navigation))
     .filter(Boolean);
   const seen = new Set();
   for (const target of targets) {
@@ -759,8 +765,8 @@ export function renderLightbox() {
 
   const prev = $('#lightboxPrev');
   const next = $('#lightboxNext');
-  const prevTarget = getLightboxStepTarget(-1, lb, state.list);
-  const nextTarget = getLightboxStepTarget(1, lb, state.list);
+  const prevTarget = getLightboxStepTarget(-1, lb, state.list, nav);
+  const nextTarget = getLightboxStepTarget(1, lb, state.list, nav);
   const configureNavButton = (button, target, direction) => {
     button.hidden = !target;
     if (!target) {
@@ -816,7 +822,7 @@ export function renderLightbox() {
     const act = thumbs.querySelector('.lightbox-thumb.active');
     if (act) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
-  preloadLightboxNeighbors();
+  preloadLightboxNeighbors(nav);
   document.dispatchEvent(new CustomEvent('lightbox:rendered', { detail: { entry: e, index: lb.index } }));
 }
 
@@ -847,7 +853,6 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   const commitLightboxSwipe = (dx, dy, elapsed) => {
     if (elapsed > 800 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.2) return false;
     const direction = dx < 0 ? 1 : -1;
-    if (!getLightboxStepTarget(direction, state.lightbox, state.list)) return false;
     if (!stepLightbox(direction)) return false;
     lastLightboxSwipeAt = Date.now();
     suppressLightboxClick = true;

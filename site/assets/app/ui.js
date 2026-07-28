@@ -1,4 +1,4 @@
-import { state, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { toast } from './feedback.js';
@@ -476,6 +476,7 @@ export function bindUI() {
     state.allowNsfw = Boolean(on);
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
     localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
+    if (state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     if (nsfwToggle) nsfwToggle.checked = state.allowNsfw;
     if (!state.allowNsfw) setR18gAccess(false);  // R18G 依赖 NSFW，关掉 NSFW 一并强制关闭 R18G
     if (!state.allowNsfw && (state.activePath || []).some(isNsfwPathSegment)) state.activePath = [];

@@ -16,6 +16,9 @@ import { readSdMode, writeSdMode } from '../site/assets/app/sd-mode.js';
 assert.equal(naiToSd('{x, 1.3::a}'), '(x, (a:1.3):1.05)');
 assert.equal(naiToSd('{1.3::a}, b'), '((a:1.3):1.05), b');
 assert.equal(naiToSd('[x, 1.3::a]'), '(x, (a:1.3):0.952)');
+assert.equal(naiToSd('{{tag}}'), '(tag:1.103)');
+assert.equal(naiToSd('[[tag]]'), '(tag:0.907)');
+assert.equal(naiToSd('{tag'), 'tag', '真正未闭合的左括号只丢弃括号本身');
 
 // 无收尾 :: 且后接逗号的原有回退语义保持不变。
 assert.equal(naiToSd('2.5::a, b'), '(a:2.5), b');
@@ -37,17 +40,21 @@ assert.deepEqual(
   assert.equal(canOfferNovelAiLink({
     navigatorApi: { maxTouchPoints: 1 },
     matchMediaApi: () => ({ matches: false }),
-  }), true);
+  }), false, '触屏笔记本的精细主指针不能触发移动端动作');
   assert.equal(canOfferNovelAiLink({
     navigatorApi: { maxTouchPoints: 0 },
     matchMediaApi: () => ({ matches: true }),
   }), true);
+  assert.equal(canOfferNovelAiLink({
+    navigatorApi: { maxTouchPoints: 1 },
+    matchMediaApi: null,
+  }), true, '媒体查询不可用时才退回触点数');
 
   const calls = [];
   const popup = { opener: {} };
   const options = {
     navigatorApi: { maxTouchPoints: 1 },
-    matchMediaApi: () => ({ matches: false }),
+    matchMediaApi: () => ({ matches: true }),
     windowApi: {
       open(url, target) {
         calls.push([url, target]);
@@ -69,6 +76,7 @@ assert.deepEqual(
 {
   const originalDocument = globalThis.document;
   const classNames = new Set();
+  const liveOrder = [];
   const toastElement = {
     children: [],
     offsetWidth: 10,
@@ -80,7 +88,7 @@ assert.deepEqual(
         else classNames.delete(name);
       },
     },
-    replaceChildren() { this.children = []; },
+    replaceChildren() { liveOrder.push('content'); this.children = []; },
     appendChild(child) { this.children.push(child); },
     contains(node) { return this.children.includes(node); },
     querySelector(selector) {
@@ -88,8 +96,8 @@ assert.deepEqual(
         ? this.children.find(child => child.className === 'toast-action') || null
         : null;
     },
-    setAttribute() {},
-    removeAttribute() {},
+    setAttribute(name) { if (name === 'aria-hidden') liveOrder.push('hide'); },
+    removeAttribute(name) { if (name === 'aria-hidden') liveOrder.push('show'); },
   };
   const focusTrigger = {
     isConnected: true,
@@ -116,6 +124,14 @@ assert.deepEqual(
     assert.equal(classNames.has('show'), true);
     assert.equal(toastElement.children[0].textContent, '✓ 已复制正向');
     assert.equal(toastElement.children[1].textContent, '再复制负面');
+    const liveShowIndex = liveOrder.indexOf('show');
+    const liveContentIndex = liveOrder.indexOf('content');
+    assert.ok(liveShowIndex >= 0, `live region 必须恢复可见，实际顺序：${liveOrder.join(' > ')}`);
+    assert.ok(liveContentIndex >= 0, `toast 必须写入消息，实际顺序：${liveOrder.join(' > ')}`);
+    assert.ok(
+      liveShowIndex < liveContentIndex,
+      `live region 必须先恢复再改消息，实际顺序：${liveOrder.join(' > ')}`,
+    );
     globalThis.document.activeElement = toastElement.children[1];
     toastElement.children[1].listeners.click({ stopPropagation() {} });
     assert.equal(clicked, 1);
@@ -266,6 +282,7 @@ function execDocument(result) {
     readFile(new URL('../site/assets/community/detail.js', import.meta.url), 'utf8'),
   ]);
   assert.match(copySource, /label: '再复制负面'[\s\S]*offerNovelAi: true/);
+  assert.match(copySource, /const message = negative \? `已复制正向：\$\{e\.title\}` : `已复制：\$\{e\.title\}`/);
   assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false \}\)/);
   assert.match(communityDetailSource, /type !== 'negative'[\s\S]*label: '再复制负面'/);
   assert.match(communityDetailSource, /toast\([\s\S]*novelAiToastAction\(\)/);

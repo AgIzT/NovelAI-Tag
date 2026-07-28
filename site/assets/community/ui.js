@@ -5,10 +5,10 @@ import { COMMUNITY_CATEGORIES } from './constants.js';
 import { favoriteCountForEntries, isFavorite, toggleFavorite } from './favorites.js';
 import { currentCommunityHistorySession, syncCommunityHistory } from './router.js';
 import { requestCommunityNsfwAccess } from './nsfw-confirm.js';
+import { ADULT_CONFIRMATION_STORAGE_KEY } from '../app/state.js';
 import {
   COMMUNITY_NSFW_PREFERENCE_KEY,
-  SHARED_NSFW_CONFIRMATION_KEY,
-  hasSharedNsfwConfirmation,
+  hasAdultNsfwConfirmation,
   state,
 } from './state.js';
 import { $, $$, safeStorageSet } from './utils.js';
@@ -191,14 +191,14 @@ export function requestShowCommunityNsfw({ trigger = document.activeElement, onE
   const enable = ({ consumeLayer = false } = {}) => {
     state.showNSFW = true;
     safeStorageSet(COMMUNITY_NSFW_PREFERENCE_KEY, true);
-    safeStorageSet(SHARED_NSFW_CONFIRMATION_KEY, '1');
+    safeStorageSet(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     updateNSFWButton();
     applyCommunityFilters({ scrollTop: true });
     if (onEnabled) onEnabled({ consumeLayer });
     else syncCommunityHistory({ historyMode: 'replace', consumeLayer });
   };
   // 主站已经完成过同一份成人确认时，不重复打扰；只恢复广场偏好。
-  if (hasSharedNsfwConfirmation()) {
+  if (hasAdultNsfwConfirmation()) {
     enable();
     return;
   }

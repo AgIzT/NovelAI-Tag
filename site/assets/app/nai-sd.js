@@ -3,6 +3,11 @@
    exact same conversion semantics without importing the atlas copy/history
    pipeline. */
 
+/* NAI → SD 权重格式转换：NAI 每层括号 ×1.05 / ÷1.05。
+   {tag}→(tag:1.05)  {{tag}}→(tag:1.103)  [tag]→(tag:0.952)  1.3::tag::→(tag:1.3)
+   支持括号嵌套；真正未闭合的左括号只丢弃括号本身，避免把后续普通 tag 无声扩大加权。
+   已知限制：1.3::a 1.5::b:: c:: 这类数字权重自身嵌套时，:: 的就近闭合存在歧义，
+   暂不作递归解析；不要在没有全库语料回归与输出快照证据时“修正”这条兼容语义。 */
 const NAI_WEIGHT_BASE = 1.05;
 
 export function fmtSdWeight(weight) {

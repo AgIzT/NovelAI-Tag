@@ -122,6 +122,8 @@ export function toast(msg, icon = '✓', action = null) {
   hideToast(t);
   const active = globalThis.document?.activeElement;
   toastFocusReturn = active && !t.contains?.(active) ? active : null;
+  // 先恢复 live region，再改变其文本；否则辅助技术可能错过整次更新。
+  t.removeAttribute?.('aria-hidden');
   t.replaceChildren();
   const message = document.createElement('span');
   message.className = 'toast-message';
@@ -151,7 +153,6 @@ export function toast(msg, icon = '✓', action = null) {
   }
   t.classList.remove('show');
   void t.offsetWidth;
-  t.removeAttribute?.('aria-hidden');
   t.classList.add('show');
   const duration = hasAction
     ? Math.max(4_000, Math.min(10_000, Number(action.duration) || 5_000))

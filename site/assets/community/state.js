@@ -1,15 +1,17 @@
 import { safeStorageGet } from './utils.js';
+import { ADULT_CONFIRMATION_STORAGE_KEY, NSFW_STORAGE_KEY } from '../app/state.js';
 
 export const COMMUNITY_NSFW_PREFERENCE_KEY = 'strings-nsfw';
-export const SHARED_NSFW_CONFIRMATION_KEY = 'fadian-nsfw-ok';
 
-export function hasSharedNsfwConfirmation(read = safeStorageGet) {
-  return read(SHARED_NSFW_CONFIRMATION_KEY) === '1';
+export function hasAdultNsfwConfirmation(read = safeStorageGet) {
+  return read(ADULT_CONFIRMATION_STORAGE_KEY) === '1'
+    // 旧主站键为 1 证明用户走过主站确认；只允许它单向作为广场凭证。
+    || read(NSFW_STORAGE_KEY) === '1';
 }
 
 export function shouldRestoreCommunityNsfw(read = safeStorageGet) {
   return read(COMMUNITY_NSFW_PREFERENCE_KEY) === 'true'
-    && hasSharedNsfwConfirmation(read);
+    && hasAdultNsfwConfirmation(read);
 }
 
 export const state = {

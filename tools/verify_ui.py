@@ -428,6 +428,66 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if entry.get("rating") == "safe" and not entry.get("characterPrompts")
     )
 
+    def assert_copy_feedback(label: str, success_fragment: str = "已复制") -> dict:
+        success_literal = js_string(success_fragment)
+        outcome_expr = """
+(() => {
+  const toast = document.querySelector('#toast')?.textContent || '';
+  return toast.includes(__SUCCESS__) || toast.includes('自动复制未成功');
+})()
+""".replace("__SUCCESS__", success_literal)
+        wait_for(cdp, outcome_expr, label, timeout=6)
+
+        snapshot_expr = """
+(() => {
+  const toast = document.querySelector('#toast')?.textContent || '';
+  const mask = document.querySelector('#clipboardFallback');
+  return {
+    toast,
+    success: toast.includes(__SUCCESS__),
+    failure: toast.includes('自动复制未成功'),
+    fallbackVisible: Boolean(mask && !mask.hidden && mask.classList.contains('show')),
+    manualText: mask?.querySelector('.clipboard-fallback-text')?.value || '',
+  };
+})()
+""".replace("__SUCCESS__", success_literal)
+        feedback = cdp.eval(snapshot_expr)
+        if feedback["success"] == feedback["failure"]:
+            raise CheckFailed(f"Copy feedback was not a truthful exclusive outcome: {feedback}")
+        if feedback["success"] and feedback["fallbackVisible"]:
+            raise CheckFailed(f"Copy claimed success while the manual fallback was open: {feedback}")
+        if feedback["failure"]:
+            wait_for(
+                cdp,
+                """(() => {
+                  const mask = document.querySelector('#clipboardFallback');
+                  return Boolean(
+                    mask
+                    && !mask.hidden
+                    && mask.classList.contains('show')
+                    && mask.querySelector('.clipboard-fallback-text')?.value.trim()
+                  );
+                })()""",
+                f"{label} manual fallback",
+                timeout=6,
+            )
+            feedback = cdp.eval(snapshot_expr)
+            if feedback["success"] or not feedback["fallbackVisible"] or not feedback["manualText"].strip():
+                raise CheckFailed(f"Failed copy did not expose a truthful manual fallback: {feedback}")
+
+        manual_text = feedback.pop("manualText", "") or ""
+        feedback["manualLength"] = len(manual_text)
+        if feedback["fallbackVisible"]:
+            cdp.eval("document.querySelector('#clipboardFallback [data-clipboard-close]')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#clipboardFallback')?.hidden === true && !document.querySelector('#clipboardFallback')?.classList.contains('show')",
+                f"{label} fallback close",
+                timeout=6,
+            )
+            feedback["fallbackClosed"] = True
+        return feedback
+
     def desktop_load():
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
         navigate(cdp, base + "?codex=suozhang")
@@ -742,7 +802,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 (() => {
   const cards = [...document.querySelectorAll('.card')];
   return {
-    text: document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\s+/g, ' ').trim() || '',
+    text: document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g, ' ').trim() || '',
     result: document.querySelector('#resultInfo')?.textContent || '',
     onlyImaged: Boolean(document.querySelector('#onlyImaged')?.checked),
     cards: cards.length,
@@ -841,8 +901,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 """)
         if not copied:
             raise CheckFailed("No card was available to copy")
-        wait_for(cdp, "document.querySelector('#toast')?.textContent.includes('已复制')", "copy toast", timeout=6)
-        data = cdp.eval("({toast: document.querySelector('#toast')?.textContent || '', recent: JSON.parse(localStorage.getItem('fadian-recent') || '[]').length})")
+        feedback = assert_copy_feedback("copy feedback")
+        data = {
+            **feedback,
+            "recent": cdp.eval("JSON.parse(localStorage.getItem('fadian-recent') || '[]').length"),
+        }
         if data["recent"] <= 0:
             raise CheckFailed("Copy did not record a recent entry")
         check_no_errors(cdp)
@@ -881,8 +944,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if data["copyAllHidden"] or data["horizontalOverflow"]:
             raise CheckFailed(f"Character prompt actions overflowed or copy-all stayed hidden: {data}")
         cdp.eval("document.querySelector('#lightboxCharacterPrompts .character-prompt > .section-head button')?.click()")
-        wait_for(cdp, "document.querySelector('#toast')?.textContent.includes('已复制 char1')", "character prompt copy toast")
-        data["toast"] = cdp.eval("document.querySelector('#toast')?.textContent || ''")
+        copy_feedback = assert_copy_feedback("character prompt copy feedback", "已复制 char1")
+        data["toast"] = copy_feedback["toast"]
+        data["copyFeedback"] = copy_feedback
         shot = screenshot(cdp, out_dir, "pack-character-prompts")
 
         negative_id = urllib.parse.quote(negative_character_entry["id"])
@@ -978,6 +1042,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         clear_errors(cdp)
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "recent source cards")
+        cdp.eval("localStorage.removeItem('fadian-recent'); location.reload(); true")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "recent source cards after reset")
         cdp.eval("""
 (() => {
   const card = [...document.querySelectorAll('.card')].find(node => !node.classList.contains('no-img')) || document.querySelector('.card');
@@ -985,7 +1051,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   return true;
 })()
 """)
-        wait_for(cdp, "document.querySelector('#toast')?.textContent.includes('已复制')", "recent copy toast", timeout=6)
+        wait_for(
+            cdp,
+            "JSON.parse(localStorage.getItem('fadian-recent') || '[]').length === 1",
+            "recent entry recorded",
+            timeout=6,
+        )
+        copy_feedback = assert_copy_feedback("recent copy feedback")
         cdp.eval("document.querySelector('#moreBtn').click(); document.querySelector('#historyBtn').click();")
         wait_for(cdp, "!document.querySelector('#historyPanel')?.hidden && !!document.querySelector('.recent-item')", "recent history item", timeout=6)
         cdp.eval("document.querySelector('.recent-item').click()")
@@ -996,7 +1068,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("Recent entry did not open a titled lightbox")
         cdp.eval("document.querySelector('#lightboxClose')?.click()")
         check_no_errors(cdp)
-        return data
+        return {**data, "copyFeedback": copy_feedback}
 
     def codex_switch():
         clear_errors(cdp)
@@ -1358,7 +1430,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     def community_history():
         clear_errors(cdp)
         navigate(cdp, base + "strings.html")
-        cdp.eval("localStorage.setItem('community-only-favorites','false'); localStorage.setItem('strings-nsfw','false')")
+        cdp.eval("""
+(() => {
+  localStorage.setItem('community-only-favorites', 'false');
+  localStorage.setItem('strings-nsfw', 'false');
+  localStorage.removeItem('fadian-adult-confirmed-v1');
+  localStorage.removeItem('fadian-nsfw-ok');
+  localStorage.removeItem('fadian-r18g-ok');
+})()
+""")
         cdp.command("Page.reload", {"ignoreCache": True})
         try:
             wait_for(cdp, "history.state?.page === 'community' && document.querySelectorAll('.community-card').length >= 1", "managed community history", timeout=12)
@@ -1366,6 +1446,51 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             boot = cdp.eval("({ready:document.readyState,state:history.state,cards:document.querySelectorAll('.community-card').length,errors:window.__qaErrors||[],text:document.querySelector('#resultInfo')?.textContent||''})")
             raise CheckFailed(f"{exc}; boot={boot}") from exc
         initial = cdp.eval("({length:history.length,id:history.state.id,url:location.href,path:location.pathname})")
+
+        # The first NSFW enable is an adult-confirmation history layer. Accepting
+        # it consumes that layer into a new list baseline and must never unlock
+        # the main atlas's independent display preference.
+        cdp.eval("document.querySelector('#nsfwBtn')?.click()")
+        wait_for(
+            cdp,
+            "document.querySelector('#communityNsfwConfirm')?.classList.contains('show')",
+            "community first adult confirmation",
+        )
+        confirm_layer = cdp.eval(
+            "({length:history.length,id:history.state.id,url:location.href,layers:history.state.layers||[]})"
+        )
+        if confirm_layer["length"] != initial["length"] + 1:
+            raise CheckFailed(f"Community adult confirmation did not add exactly one history layer: {confirm_layer}")
+        if confirm_layer["url"] != initial["url"]:
+            raise CheckFailed("Community adult confirmation changed the address bar")
+        cdp.eval("document.querySelector('#communityNsfwConfirm [data-community-nsfw-accept]')?.click()")
+        wait_for(
+            cdp,
+            """document.querySelector('#communityNsfwConfirm')?.hidden === true
+               && !document.querySelector('#communityNsfwConfirm')?.classList.contains('show')
+               && document.querySelector('#nsfwBtn')?.getAttribute('aria-pressed') === 'true'
+               && localStorage.getItem('strings-nsfw') === 'true'
+               && localStorage.getItem('fadian-adult-confirmed-v1') === '1'""",
+            "community adult confirmation accepted",
+        )
+        initial = cdp.eval("""({
+          length: history.length,
+          id: history.state.id,
+          url: location.href,
+          path: location.pathname,
+          adultConfirmed: localStorage.getItem('fadian-adult-confirmed-v1'),
+          mainNsfw: localStorage.getItem('fadian-nsfw-ok'),
+          nsfwPressed: document.querySelector('#nsfwBtn')?.getAttribute('aria-pressed'),
+        })""")
+        if initial["length"] != confirm_layer["length"]:
+            raise CheckFailed("Accepting community adult confirmation added another history record")
+        if initial["url"] != confirm_layer["url"]:
+            raise CheckFailed("Accepting community adult confirmation changed the address bar")
+        if initial["adultConfirmed"] != "1" or initial["nsfwPressed"] != "true":
+            raise CheckFailed(f"Community adult confirmation did not enable NSFW cleanly: {initial}")
+        if initial["mainNsfw"] is not None:
+            raise CheckFailed("Community adult confirmation wrote the main atlas fadian-nsfw-ok key")
+
         initial_scroll = cdp.eval("Math.min(250, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
         cdp.eval(f"scrollTo(0,{int(initial_scroll)})")
         settle(cdp, 200)
@@ -1405,13 +1530,29 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if cdp.eval("history.length") != search_length:
             raise CheckFailed("Continuous community search increased history depth")
 
-        # Persistent safety/favorite filters replace the current record and never touch the URL.
-        cdp.eval("document.querySelector('#nsfwBtn')?.click(); document.querySelector('#favFilterBtn')?.click(); document.querySelector('#favFilterBtn')?.click()")
+        # Once adult confirmation exists, disabling/re-enabling NSFW and toggling
+        # favorites are pure persistent filters: they replace the current record.
+        cdp.eval("document.querySelector('#nsfwBtn')?.click(); document.querySelector('#nsfwBtn')?.click(); document.querySelector('#favFilterBtn')?.click(); document.querySelector('#favFilterBtn')?.click()")
         settle(cdp, 180)
         if cdp.eval("history.length") != search_length:
             raise CheckFailed("Community filters increased history depth")
         if cdp.eval("location.href") != initial["url"]:
             raise CheckFailed("Community route/filter state changed the address bar")
+        filter_state = cdp.eval("""({
+          nsfwPressed: document.querySelector('#nsfwBtn')?.getAttribute('aria-pressed'),
+          favoritePressed: document.querySelector('#favFilterBtn')?.getAttribute('aria-pressed'),
+          confirmVisible: document.querySelector('#communityNsfwConfirm')?.classList.contains('show') || false,
+          adultConfirmed: localStorage.getItem('fadian-adult-confirmed-v1'),
+          mainNsfw: localStorage.getItem('fadian-nsfw-ok'),
+        })""")
+        if (
+            filter_state["nsfwPressed"] != "true"
+            or filter_state["favoritePressed"] != "false"
+            or filter_state["confirmVisible"]
+            or filter_state["adultConfirmed"] != "1"
+            or filter_state["mainNsfw"] is not None
+        ):
+            raise CheckFailed(f"Community persistent filters did not return to their confirmed baseline: {filter_state}")
 
         # The strings.html list context lives only in history.state; reload must
         # restore category/search from the persisted managed record.
@@ -1439,22 +1580,35 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("history.back()")
         wait_for(cdp, "!document.querySelector('#detailMask')?.classList.contains('show') && history.state?.route?.q === 'sample composition'", "community detail back")
 
-        # Community details are intentionally not reopened after reload. Their
-        # now-invisible child record must be folded back to the list parent
-        # during initialization instead of consuming the user's next Back.
-        discarded_detail_parent = cdp.eval("history.state.id")
+        # Shareable community details keep ?entry= in the address bar. Reload
+        # must reopen the same gated detail without adding a physical record;
+        # the next Back then returns to the exact list parent.
+        reload_detail_parent = cdp.eval("history.state.id")
         cdp.eval("document.querySelector('.community-card')?.click()")
-        wait_for(cdp, "history.state?.transition === 'detail' && document.querySelector('#detailMask')?.classList.contains('show')", "community detail before reload collapse")
-        discarded_detail_length = cdp.eval("history.length")
+        wait_for(cdp, "history.state?.transition === 'detail' && document.querySelector('#detailMask')?.classList.contains('show')", "community detail before reload")
+        reload_detail = cdp.eval(
+            "({length:history.length,id:history.state.id,parentId:history.state.parentId,entry:history.state.route.entry})"
+        )
         cdp.command("Page.reload", {})
         wait_for(
             cdp,
-            "!document.querySelector('#detailMask')?.classList.contains('show') && history.state?.id === " + js_string(discarded_detail_parent) + " && !history.state?.route?.entry",
-            "community reload collapses discarded detail",
+            "document.querySelector('#detailMask')?.classList.contains('show')"
+            + " && history.state?.id === " + js_string(reload_detail["id"])
+            + " && history.state?.route?.entry === " + js_string(reload_detail["entry"]),
+            "community reload restores shareable detail",
             timeout=12,
         )
-        if cdp.eval("history.length") != discarded_detail_length:
-            raise CheckFailed("Collapsing the discarded community detail changed physical history depth")
+        if cdp.eval("history.length") != reload_detail["length"]:
+            raise CheckFailed("Reloading the shareable community detail changed physical history depth")
+        cdp.eval("history.back()")
+        wait_for(
+            cdp,
+            "!document.querySelector('#detailMask')?.classList.contains('show')"
+            + " && history.state?.id === " + js_string(reload_detail_parent)
+            + " && !history.state?.route?.entry"
+            + " && history.state?.route?.q === 'sample composition'",
+            "community reloaded detail back",
+        )
 
         # Form DOM survives same-document back/forward.
         cdp.eval("document.querySelector('#submitOpenBtn')?.click()")
@@ -1492,17 +1646,27 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
         # Drain only managed parents; the following back must be the one that leaves strings.html.
         drained = 0
+        baseline_scroll_checked = initial_scroll <= 80
         while cdp.eval("Boolean(history.state?.parentId)"):
             current_id = cdp.eval("history.state.id")
             cdp.eval("history.back()")
             wait_for(cdp, "history.state?.id !== " + js_string(current_id), "drain community history")
             if cdp.eval("location.pathname") != initial["path"]:
                 raise CheckFailed("Community page exited before managed records were exhausted")
+            if cdp.eval("history.state?.id") == initial["id"]:
+                if initial_scroll > 80:
+                    wait_for(
+                        cdp,
+                        f"Math.abs(scrollY - {int(initial_scroll)}) < 70",
+                        "community scroll restoration",
+                        timeout=8,
+                    )
+                baseline_scroll_checked = True
             drained += 1
             if drained > 12:
                 raise CheckFailed("Community managed history did not terminate")
-        if initial_scroll > 80:
-            wait_for(cdp, f"Math.abs(scrollY - {int(initial_scroll)}) < 70", "community scroll restoration", timeout=8)
+        if not baseline_scroll_checked:
+            raise CheckFailed("Community history never restored the accepted adult-confirmation baseline")
         check_no_errors(cdp)
         cdp.eval("setTimeout(() => history.back(), 0); true")
         wait_for(cdp, "location.pathname !== '/strings.html'", "leave community after managed history", timeout=10)
@@ -1514,6 +1678,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             "submitLength": submit_length,
             "drainedRecords": drained,
             "urlStayed": initial["url"],
+            "adultConfirmationLength": confirm_layer["length"],
+            "adultConfirmationKey": initial["adultConfirmed"],
+            "mainNsfwKey": initial["mainNsfw"],
         }
 
     checks = [

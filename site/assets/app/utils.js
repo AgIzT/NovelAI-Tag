@@ -30,6 +30,23 @@ export function prefersReducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+/* 触点数量只说明设备带触屏，不代表当前主输入是触屏（例如 Windows 触屏本）。
+   浏览器能回答输入媒体特征时以它为准；只有 API 缺失/不可用时才退回 maxTouchPoints。 */
+export function isTouchPrimaryInput({
+  navigatorApi = globalThis.navigator,
+  matchMediaApi = globalThis.window?.matchMedia?.bind(globalThis.window)
+    || globalThis.matchMedia?.bind(globalThis),
+} = {}) {
+  if (typeof matchMediaApi === 'function') {
+    try {
+      return Boolean(matchMediaApi('(hover: none), (pointer: coarse)')?.matches);
+    } catch {
+      // 受限 WebView 可能暴露但拒绝 matchMedia；按 API 不可用处理。
+    }
+  }
+  return Number(navigatorApi?.maxTouchPoints || 0) > 0;
+}
+
 export function updateSearchClear() {
   const btn = $('#searchClear');
   const input = $('#search');
