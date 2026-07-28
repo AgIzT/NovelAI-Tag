@@ -60,7 +60,11 @@ export function normalizeLastBrowse(value) {
 
 /* ---------------- 浏览记录 ---------------- */
 export function saveRecentEntries() {
-  localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(state.recentEntries));
+  try {
+    localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(state.recentEntries));
+  } catch (error) {
+    console.warn('[history] 无法保存最近浏览记录', error);
+  }
 }
 
 export function recordRecentEntry(e) {
@@ -122,7 +126,11 @@ export function saveBrowseStateNow(entryId) {
   const snapshot = currentBrowseSnapshot(entryId);
   if (!snapshot) return;
   state.lastBrowse = snapshot;
-  localStorage.setItem(LAST_BROWSE_STORAGE_KEY, JSON.stringify(snapshot));
+  try {
+    localStorage.setItem(LAST_BROWSE_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch (error) {
+    console.warn('[history] 无法保存浏览位置', error);
+  }
 }
 
 export function scheduleBrowseStateSave(entryId) {
@@ -130,6 +138,15 @@ export function scheduleBrowseStateSave(entryId) {
   clearTimeout(browseSaveTimer);
   browseSaveTimer = window.setTimeout(() => saveBrowseStateNow(entryId), 180);
 }
+
+export function checkpointBrowseState() {
+  if (Date.now() < browseSaveSuppressedUntil) return false;
+  clearTimeout(browseSaveTimer);
+  saveBrowseStateNow();
+  return true;
+}
+
+window.addEventListener?.('pagehide', checkpointBrowseState);
 
 export function browseDesc(snapshot) {
   if (!snapshot) return '暂无可恢复的位置';
@@ -260,15 +277,26 @@ export function restoreBrowseScroll(top, { token } = {}) {
   const seq = ++browseScrollRestoreSeq;
   const target = Math.max(0, Number(top) || 0);
   let attempts = 0;
+  const stopListening = () => {
+    window.removeEventListener?.('wheel', cancelForUserInput);
+    window.removeEventListener?.('touchmove', cancelForUserInput);
+  };
+  const cancelForUserInput = () => {
+    if (seq === browseScrollRestoreSeq) browseScrollRestoreSeq += 1;
+    stopListening();
+  };
+  window.addEventListener?.('wheel', cancelForUserInput, { once: true, passive: true });
+  window.addEventListener?.('touchmove', cancelForUserInput, { once: true, passive: true });
   const run = () => {
-    if (seq !== browseScrollRestoreSeq) return;
-    if (token !== undefined && !isHistoryRestoreToken(token)) return;
+    if (seq !== browseScrollRestoreSeq) { stopListening(); return; }
+    if (token !== undefined && !isHistoryRestoreToken(token)) { stopListening(); return; }
     window.scrollTo({ top: target, left: 0, behavior: 'auto' });
     historyActions.updateVirtualCards(true);
     updateScrollProgress();
     attempts += 1;
     const reached = Math.abs(Math.max(0, window.scrollY) - target) <= 3;
     if (!reached && attempts < 6) window.setTimeout(run, attempts < 2 ? 140 : 220);
+    else stopListening();
   };
   window.setTimeout(run, 160);
 }

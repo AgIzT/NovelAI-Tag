@@ -1,15 +1,34 @@
 import { KEY } from './state.js';
 
+function callStorage(storageName, method, ...args) {
+  try {
+    return globalThis[storageName]?.[method](...args);
+  } catch {
+    return null;
+  }
+}
+
+// 旧版本曾把管理口令写入永久存储；加载新版审核页时立即清掉残留。
+callStorage('localStorage', 'removeItem', KEY);
+
 export function token() {
-  return localStorage.getItem(KEY) || '';
+  return callStorage('sessionStorage', 'getItem', KEY) || '';
 }
 
 export function setToken(value) {
-  localStorage.setItem(KEY, value || '');
+  callStorage('sessionStorage', 'setItem', KEY, value || '');
 }
 
 export function clearToken() {
-  localStorage.removeItem(KEY);
+  callStorage('sessionStorage', 'removeItem', KEY);
+  callStorage('localStorage', 'removeItem', KEY);
+}
+
+function unauthorizedError(message) {
+  clearToken();
+  const error = new Error(message || '管理口令错误或已失效');
+  error.unauthorized = true;
+  return error;
 }
 
 export async function adminApi(path, opts = {}) {
@@ -22,10 +41,7 @@ export async function adminApi(path, opts = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    clearToken();
-    const error = new Error(data.error || '管理口令错误或已失效');
-    error.unauthorized = true;
-    throw error;
+    throw unauthorizedError(data.error);
   }
   if (!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
   return data;
@@ -52,20 +68,16 @@ export async function fetchCommunityAsset(key) {
   const res = await fetch('/api/admin/community/asset?key=' + encodeURIComponent(key), {
     headers: { authorization: 'Bearer ' + token() },
   });
+  if (res.status === 401) {
+    const data = await res.json().catch(() => ({}));
+    throw unauthorizedError(data.error);
+  }
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.blob();
 }
 
 export function getFeedback(status, opts = {}) {
   return adminApi('/api/admin/feedback?status=' + encodeURIComponent(status), opts);
-}
-
-export function decideFeedback(id, action, sourceStatus = '') {
-  return adminApi('/api/admin/feedback-decide', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id, action, sourceStatus }),
-  });
 }
 
 export function updateFeedback(id, sourceStatus, progressStatus, adminReply, publicVisible) {

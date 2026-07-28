@@ -322,7 +322,10 @@ def js_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def wait_for(cdp: CDP, expr: str, label: str, timeout: float = 8.0, interval: float = 0.25):
+def wait_for(cdp: CDP, expr: str, label: str, timeout: float = 12.0, interval: float = 0.25):
+    # 近 2 万词条的真实数据 + 机器有其他负载时，8s 不够渲染完：copyable cards /
+    # nsfw confirm 等用例会随机超时（失败点还会漂移，看着像回归其实是等不够）。
+    # 条件一满足就立即返回，所以调高只延长「失败前的等待」，绿灯路径不会变慢。
     end = time.time() + timeout
     last = None
     while time.time() < end:
@@ -1040,7 +1043,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             f"localStorage.setItem('fadian-favs', JSON.stringify({favorite_keys}))"
         )
         navigate(cdp, base + "?codex=artist_nai45_strings&fav=1")
-        wait_for(cdp, "!document.querySelector('#favoritesViewBackupBtn')?.hidden", "favorites backup entry", timeout=10)
+        wait_for(cdp, "!document.querySelector('#favoritesViewBackupBtn')?.hidden", "favorites backup entry")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 3", "favorite cards", timeout=15)
         cdp.eval("document.querySelector('#favoritesViewBackupBtn').click()")
         wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.hidden", "favorites backup dialog")

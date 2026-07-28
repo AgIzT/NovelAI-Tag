@@ -1,10 +1,11 @@
 import { COMMUNITY_FAVORITES_STORAGE_KEY } from '../app/favorites-backup-core.js';
+import { safeStorageGet, safeStorageSet } from './utils.js';
 
 let favorites = loadFavorites();
 
 function loadFavorites() {
   try {
-    const raw = JSON.parse(localStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY) || '[]');
+    const raw = JSON.parse(safeStorageGet(COMMUNITY_FAVORITES_STORAGE_KEY) || '[]');
     return new Set(Array.isArray(raw) ? raw.map(String) : []);
   } catch {
     return new Set();
@@ -12,7 +13,7 @@ function loadFavorites() {
 }
 
 function saveFavorites() {
-  localStorage.setItem(COMMUNITY_FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
+  safeStorageSet(COMMUNITY_FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
 }
 
 export function reloadFavorites() {

@@ -69,12 +69,12 @@ export function atlasUrlForRoute(route) {
   if (q) {
     params.set('q', q);
     params.set('scope', route.siteSearch || route.scope === 'site' ? 'site' : 'codex');
-    if (route.siteSearch) {
-      for (const seg of route.path || []) params.append('path', seg);
-    }
-  } else {
-    for (const seg of route.path || []) params.append('path', seg);
   }
+  const path = q && !route.siteSearch ? [] : (route.path || []);
+  for (const seg of path) params.append('path', seg);
+  // A single value is the legacy slash-delimited format. An empty second value
+  // marks the segmented format; readUrlState filters the marker back out.
+  if (path.length === 1) params.append('path', '');
   if (route.entry) params.set('entry', route.entry);
   const query = params.toString();
   return `${location.pathname}${query ? `?${query}` : ''}`;

@@ -4,9 +4,12 @@ import { findCodexMeta } from './data.js';
 import {
   ATLAS_FAVORITES_STORAGE_KEY,
   atlasFavoriteStorageKeys,
+  createCodexLookup,
 } from './favorites-backup-core.js';
 
 const favoriteActions = { applyFilter: () => {}, refreshFavoritesView: () => {} };
+let codexLookupSource = null;
+let codexLookup = null;
 
 export function setFavoritesActions(actions = {}) {
   Object.assign(favoriteActions, actions);
@@ -18,10 +21,18 @@ function ownerCodex(e) {
   return (e?._srcCodexId && findCodexMeta(e._srcCodexId)) || state.codex;
 }
 
+function favoriteCodexLookup() {
+  if (codexLookupSource !== state.codexes) {
+    codexLookupSource = state.codexes;
+    codexLookup = createCodexLookup(state.codexes);
+  }
+  return codexLookup;
+}
+
 export function favKeys(e, codex = ownerCodex(e)) {
   return atlasFavoriteStorageKeys(
     { codexId: codex.id, entryId: e.id },
-    state.codexes,
+    favoriteCodexLookup(),
   );
 }
 
@@ -29,7 +40,11 @@ export function favKey(e) { return favKeys(e)[0]; }
 export function isFav(e) { return favKeys(e).some(key => state.favs.has(key)); }
 
 export function saveFavs() {
-  localStorage.setItem(ATLAS_FAVORITES_STORAGE_KEY, JSON.stringify([...state.favs]));
+  try {
+    localStorage.setItem(ATLAS_FAVORITES_STORAGE_KEY, JSON.stringify([...state.favs]));
+  } catch (error) {
+    console.warn('[favorites] 无法保存收藏', error);
+  }
 }
 
 export function toggleFav(e, btn) {

@@ -5,7 +5,7 @@ import { COMMUNITY_CATEGORIES } from './constants.js';
 import { favoriteCountForEntries, isFavorite, toggleFavorite } from './favorites.js';
 import { currentCommunityHistorySession, syncCommunityHistory } from './router.js';
 import { state } from './state.js';
-import { $, $$ } from './utils.js';
+import { $, $$, safeStorageSet } from './utils.js';
 import { renderCategoryRail, renderEmptyState, renderGrid, renderResultBar } from './render.js';
 
 let openDetail = null;
@@ -65,7 +65,7 @@ export function applyCommunityFilters({ scrollTop = false } = {}) {
     onShowFavoritesAll: showFavoritesAll,
     onShowNSFW: () => {
       state.showNSFW = true;
-      localStorage.setItem('strings-nsfw', 'true');
+      safeStorageSet('strings-nsfw', 'true');
       updateNSFWButton();
       applyCommunityFilters({ scrollTop: true });
       syncCommunityHistory({ historyMode: 'replace' });
@@ -123,7 +123,7 @@ function showAll() {
 
 function showFavoritesAll() {
   state.onlyFavorites = false;
-  localStorage.setItem('community-only-favorites', 'false');
+  safeStorageSet('community-only-favorites', 'false');
   updateFavoriteButton();
   applyCommunityFilters({ scrollTop: true });
   syncCommunityHistory({ historyMode: 'replace' });
@@ -172,7 +172,7 @@ function bindSearch() {
 function bindNsfw() {
   $('#nsfwBtn')?.addEventListener('click', () => {
     state.showNSFW = !state.showNSFW;
-    localStorage.setItem('strings-nsfw', String(state.showNSFW));
+    safeStorageSet('strings-nsfw', state.showNSFW);
     updateNSFWButton();
     applyCommunityFilters({ scrollTop: true });
     syncCommunityHistory({ historyMode: 'replace' });
@@ -182,7 +182,7 @@ function bindNsfw() {
 function bindFavorites() {
   $('#favFilterBtn')?.addEventListener('click', () => {
     state.onlyFavorites = !state.onlyFavorites;
-    localStorage.setItem('community-only-favorites', String(state.onlyFavorites));
+    safeStorageSet('community-only-favorites', state.onlyFavorites);
     updateFavoriteButton();
     applyCommunityFilters({ scrollTop: true });
     syncCommunityHistory({ historyMode: 'replace' });
@@ -213,7 +213,7 @@ function bindTheme() {
     const dark = !document.body.classList.contains('dark');
     document.body.classList.toggle('dark', dark);
     document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-    localStorage.setItem('fadian-dark', dark ? '1' : '0');
+    safeStorageSet('fadian-dark', dark ? '1' : '0');
   });
 }
 

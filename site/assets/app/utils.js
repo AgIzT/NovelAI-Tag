@@ -13,6 +13,11 @@ export function stripTrailingSlash(url) {
   return String(url || '').replace(/\/+$/, '');
 }
 
+export function safeHttpUrl(value) {
+  const url = String(value || '').trim();
+  return /^https?:\/\//i.test(url) ? url : '';
+}
+
 export function samePath(a, b) {
   return a.length === b.length && a.every((seg, i) => seg === b[i]);
 }

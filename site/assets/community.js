@@ -24,20 +24,23 @@ let favoritesBackupBound = false;
 
 async function loadAndRender() {
   state.loading = true;
+  state.loadError = false;
   applyCommunityFilters();
 
   try {
-    const { collection, data, entries } = await loadCommunityData();
+    const { collection, data, entries, source } = await loadCommunityData();
     state.collection = collection;
     state.features = data.features;
     state.entries = entries;
+    state.loadError = source === 'fallback' && entries.length === 0;
     $('#communityTitle').textContent = data.title || '共创广场';
-    $('#communityCount').textContent = `${entries.length} 条投稿`;
+    $('#communityCount').textContent = state.loadError ? '加载失败' : `${entries.length} 条投稿`;
   } catch (error) {
     console.error('共创广场加载失败', error);
     state.features = { likes: false };
     state.entries = [];
-    $('#communityCount').textContent = '0 条投稿';
+    state.loadError = true;
+    $('#communityCount').textContent = '加载失败';
   } finally {
     state.loading = false;
     syncAfterLoad();

@@ -3,18 +3,30 @@ import { esc } from './utils.js';
 import { entryImages, hasEntryImage } from './media.js';
 import { isFav } from './favorites.js';
 
+const searchableTextCache = new WeakMap();
+
 export function searchableText(e) {
+  const cached = searchableTextCache.get(e);
+  if (cached !== undefined) return cached;
   const characterText = (e.characterPrompts || [])
     .flatMap(item => [item.label, item.prompt, item.negative]);
-  return [e.title, e.tags, e.negative, ...characterText, e.note, e.rawTags, ...(e.path || [])]
+  const text = [e.title, e.tags, e.negative, ...characterText, e.note, e.rawTags, ...(e.path || [])]
     .join('\n')
     .toLowerCase();
+  searchableTextCache.set(e, text);
+  return text;
+}
+
+export function invalidateSearchableText(e) {
+  return e && (typeof e === 'object' || typeof e === 'function')
+    ? searchableTextCache.delete(e)
+    : false;
 }
 
 export function parseSearchQuery(raw) {
   const input = String(raw || '').trim();
   if (!input) return { raw: '', isSyntax: false, text: '', highlightTerms: [] };
-  const tokens = splitQueryTokens(input);
+  const tokens = tokenizeQuery(input);
   const plan = {
     raw: input,
     isSyntax: false,
@@ -31,10 +43,13 @@ export function parseSearchQuery(raw) {
   const terms = [];
   let invalidSyntax = false;
 
-  for (const token of tokens) {
+  const termTokens = [];
+  for (const tokenInfo of tokens) {
+    const token = tokenInfo.value;
     const match = token.match(/^(path|has|fav|author|codex|book|source|type):(.+)$/i);
     if (!match) {
       terms.push(token);
+      termTokens.push(tokenInfo);
       continue;
     }
     plan.isSyntax = true;
@@ -69,29 +84,31 @@ export function parseSearchQuery(raw) {
   }
 
   if (invalidSyntax) {
+    const fallbackTerms = searchTermsFromTokens(tokens);
     return {
       raw: input,
       isSyntax: false,
-      text: input.toLowerCase(),
-      highlightTerms: highlightTermsFromText(input),
+      text: tokens.map(token => token.value).join(' ').toLowerCase(),
+      terms: fallbackTerms,
+      highlightTerms: fallbackTerms,
     };
   }
 
   plan.text = terms.join(' ').trim().toLowerCase();
-  plan.terms = highlightTermsFromText(terms.join(' '));
+  plan.terms = searchTermsFromTokens(termTokens);
   plan.highlightTerms = plan.terms;
-  if (!plan.isSyntax) {
-    plan.text = input.toLowerCase();
-    plan.terms = highlightTermsFromText(input);
-    plan.highlightTerms = plan.terms;
-  }
   return plan;
 }
 
 export function splitQueryTokens(input) {
+  return tokenizeQuery(input).map(token => token.value);
+}
+
+function tokenizeQuery(input) {
   const tokens = [];
   let buf = '';
   let quote = '';
+  let quoted = false;
   for (const ch of input) {
     if (quote) {
       if (ch === quote) quote = '';
@@ -100,26 +117,41 @@ export function splitQueryTokens(input) {
     }
     if (ch === '"' || ch === "'") {
       quote = ch;
+      quoted = true;
       continue;
     }
     if (/\s/.test(ch)) {
       if (buf) {
-        tokens.push(buf);
+        tokens.push({ value: buf, quoted });
         buf = '';
+        quoted = false;
       }
       continue;
     }
     buf += ch;
   }
-  if (buf) tokens.push(buf);
+  if (buf) tokens.push({ value: buf, quoted });
   return tokens;
 }
 
+function searchTermsFromTokens(tokens) {
+  const terms = tokens.flatMap(token => (
+    token.quoted
+      ? [String(token.value || '').trim().toLowerCase()]
+      : highlightTermsFromText(token.value)
+  )).filter(Boolean);
+  return [...new Set(terms)]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 10);
+}
+
 export function matchSearchPlan(e, plan) {
-  const text = searchableText(e);
   const terms = plan.terms?.length ? plan.terms : (plan.text ? [plan.text] : []);
-  if (!plan.isSyntax) return terms.every(term => text.includes(term));
-  if (terms.length && !terms.every(term => text.includes(term))) return false;
+  if (terms.length) {
+    const text = searchableText(e);
+    if (!terms.every(term => text.includes(term))) return false;
+  }
+  if (!plan.isSyntax) return true;
   if (plan.path && !pathMatchesQuery(e.path || [], plan.path)) return false;
   if (plan.hasImage !== null && hasEntryImage(e) !== plan.hasImage) return false;
   if (plan.fav !== null && isFav(e) !== plan.fav) return false;

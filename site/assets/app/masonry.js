@@ -6,7 +6,7 @@ import { currentHighlightTerms, renderHighlightedText } from './search.js';
 import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } from './media.js';
 import { copyText, combinedPrompt } from './copy.js';
 import { isFav } from './favorites.js';
-import { updateResultBar, updateEmptyState, updateReadingSpy } from './codex-ui.js';
+import { updateReadingSpy } from './codex-ui.js';
 
 const masonryActions = {
   openLightbox: () => {},
@@ -288,6 +288,7 @@ export function updateVirtualCards(force = false) {
   const rangeTop = Math.max(0, viewportTop - viewportHeight * VIRTUAL_BUFFER_UP);
   const rangeBottom = viewportTop + viewportHeight * (1 + VIRTUAL_BUFFER_DOWN);
   const next = new Set();
+  const calibrations = [];
 
   for (const placement of state.placements) {
     if (placement.top + placement.height < rangeTop || placement.top > rangeBottom) continue;
@@ -297,12 +298,16 @@ export function updateVirtualCards(force = false) {
       node = makeCard(placement);
       state.nodes.set(placement.index, node);
       m.appendChild(node);
-      if (!relayoutAnimating) calibrateCardHeight(node, placement);
+      if (!relayoutAnimating) calibrations.push({ node, placement });
     } else if (force) {
       updateCardPosition(node, placement);
-      if (!relayoutAnimating) calibrateCardHeight(node, placement);
+      if (!relayoutAnimating) calibrations.push({ node, placement });
     }
   }
+
+  /* 新卡先全部入 DOM，再统一写开标签高度、统一读取真实尺寸。这样一批卡
+     只触发一次布局结算，后续位置修正也只需按列累计一次。 */
+  const layoutChanged = calibrations.length && calibrateCardHeights(calibrations);
 
   for (const [index, node] of state.nodes) {
     if (next.has(index)) continue;
@@ -316,6 +321,8 @@ export function updateVirtualCards(force = false) {
     state.nodes.delete(index);
   }
   state.rendered = next.size;
+  // 批量校准可能让缓冲区边缘的 placement 进出范围；下一帧按新位置收敛虚拟节点。
+  if (layoutChanged) scheduleVirtualUpdate();
   updateReadingSpy();   // 借这里现成的 rAF 滚动节流驱动目录浏览指示条
 }
 
@@ -434,48 +441,115 @@ export function maybeAnimateCardEntry(node, placement) {
 }
 
 export function calibrateCardHeight(node, placement) {
-  const tags = node.querySelector('.card-tags');
-  if (tags) {
-    const cfg = densityConfig();
-    tags.style.height = 'auto';
-    const naturalTagsHeight = Math.ceil(tags.scrollHeight);
-    const tagsHeight = clamp(naturalTagsHeight, cfg.minTagHeight, cfg.maxTagHeight);
-    tags.style.height = `${tagsHeight}px`;
-    tags.classList.toggle('is-clipped', naturalTagsHeight > tagsHeight + 1);
-    placement.tagsHeight = tagsHeight;
+  calibrateCardHeights([{ node, placement }]);
+}
+
+export function calibrateCardHeights(cards) {
+  const cfg = densityConfig();
+  const prepared = [];
+  for (const card of cards || []) {
+    if (!card?.node || !card?.placement) continue;
+    prepared.push({
+      ...card,
+      tags: card.node.querySelector('.card-tags'),
+      wrap: card.node.querySelector('.card-img-wrap'),
+      body: card.node.querySelector('.card-body'),
+    });
   }
 
-  const wrap = node.querySelector('.card-img-wrap');
-  const body = node.querySelector('.card-body');
-  const imageHeight = wrap && !wrap.hidden && getComputedStyle(wrap).display !== 'none'
-    ? wrap.getBoundingClientRect().height
-    : 0;
-  const bodyHeight = body ? body.getBoundingClientRect().height : 0;
-  const measuredHeight = Math.ceil(imageHeight + bodyHeight);
-  if (measuredHeight > 0 && Math.abs(measuredHeight - placement.height) > 2) {
-    shiftColumnAfterHeightChange(placement, measuredHeight);
+  // 写阶段 1：先让整批标签恢复自然高度，中间不穿插任何尺寸读取。
+  for (const card of prepared) {
+    if (card.tags) card.tags.style.height = 'auto';
   }
+
+  // 读阶段：第一张卡会结算上面的整批写入，随后读取不再反复弄脏布局。
+  const measurements = prepared.map(card => {
+    const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
+    const naturalTagsBoxHeight = card.tags ? card.tags.getBoundingClientRect().height : 0;
+    const tagsHeight = card.tags
+      ? clamp(naturalTagsHeight, cfg.minTagHeight, cfg.maxTagHeight)
+      : card.placement.tagsHeight;
+    const imageHeight = card.wrap && !card.wrap.hidden && getComputedStyle(card.wrap).display !== 'none'
+      ? card.wrap.getBoundingClientRect().height
+      : 0;
+    const naturalBodyHeight = card.body ? card.body.getBoundingClientRect().height : 0;
+    // body 是在 tags:auto 时读取的；扣掉自然标签盒、加回钳制后的盒高，
+    // 即可保持旧版“先钳制标签再量 body”的结果，又不引入第二轮布局读取。
+    const bodyHeight = card.tags
+      ? Math.max(0, naturalBodyHeight - naturalTagsBoxHeight + tagsHeight)
+      : naturalBodyHeight;
+    return {
+      ...card,
+      naturalTagsHeight,
+      tagsHeight,
+      measuredHeight: Math.ceil(imageHeight + bodyHeight),
+    };
+  });
+
+  // 写阶段 2：统一落标签高度，再一次性修正各列后续 placement。
+  const heightChanges = [];
+  for (const measurement of measurements) {
+    const { tags, placement, naturalTagsHeight, tagsHeight, measuredHeight } = measurement;
+    if (tags) {
+      tags.style.height = `${tagsHeight}px`;
+      tags.classList.toggle('is-clipped', naturalTagsHeight > tagsHeight + 1);
+      placement.tagsHeight = tagsHeight;
+    }
+    if (measuredHeight > 0 && Math.abs(measuredHeight - placement.height) > 2) {
+      heightChanges.push({ placement, nextHeight: measuredHeight });
+    }
+  }
+  return applyCardHeightChanges(heightChanges);
 }
 
 export function shiftColumnAfterHeightChange(placement, nextHeight) {
-  const delta = nextHeight - placement.height;
-  placement.height = nextHeight;
-  const currentNode = state.nodes.get(placement.index);
-  if (currentNode) currentNode.style.height = `${placement.height}px`;
+  return applyCardHeightChanges([{ placement, nextHeight }]);
+}
 
-  for (const next of state.placements) {
-    if (next === placement || next.col !== placement.col || next.top <= placement.top) continue;
-    next.top += delta;
-    const node = state.nodes.get(next.index);
-    if (node) updateCardPosition(node, next);
+export function applyCardHeightChanges(changes) {
+  if (!changes?.length) return false;
+  const nextHeights = new Map();
+  for (const { placement, nextHeight } of changes) {
+    if (placement && Number.isFinite(nextHeight)) nextHeights.set(placement, nextHeight);
   }
-  syncMasonryHeight();
+  if (!nextHeights.size) return false;
+
+  const columnDeltas = [];
+  let changed = false;
+  for (const placement of state.placements) {
+    const col = placement.col;
+    const shift = columnDeltas[col] || 0;
+    let positionChanged = false;
+    if (shift) {
+      placement.top += shift;
+      positionChanged = true;
+    }
+
+    const nextHeight = nextHeights.get(placement);
+    if (nextHeight !== undefined) {
+      const delta = nextHeight - placement.height;
+      if (delta) {
+        placement.height = nextHeight;
+        columnDeltas[col] = shift + delta;
+        positionChanged = true;
+        changed = true;
+      }
+    }
+
+    const node = positionChanged ? state.nodes.get(placement.index) : null;
+    if (node) updateCardPosition(node, placement);
+  }
+  if (changed) syncMasonryHeight();
+  return changed;
 }
 
 export function syncMasonryHeight() {
   const m = $('#masonry');
   if (!m || !state.placements.length) return;
-  const totalHeight = Math.max(...state.placements.map(p => p.top + p.height));
+  let totalHeight = 0;
+  for (const placement of state.placements) {
+    totalHeight = Math.max(totalHeight, placement.top + placement.height);
+  }
   m.style.height = `${Math.max(0, Math.ceil(totalHeight))}px`;
 }
 
@@ -558,6 +632,12 @@ export function cleanupCard(node) {
     clearTimeout(node._imageTimer);
     node._imageTimer = 0;
   }
+  const img = node.querySelector('.card-img');
+  if (!img) return;
+  const wrap = node.querySelector('.card-img-wrap');
+  img.onload = null;
+  img.onerror = null;
+  if (wrap?.classList.contains('is-loading')) img.removeAttribute('src');
 }
 
 export function imageKey(e, url) {

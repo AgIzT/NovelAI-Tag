@@ -91,7 +91,7 @@ export async function findFeedbackRecord(bucket, id, preferredStatus = '') {
   const statuses = preferred ? [preferred] : FEEDBACK_STATUSES;
   for (const status of statuses) {
     const keys = await listAll(bucket, `feedback/${status}/`);
-    const key = keys.find(item => item.endsWith(`/${id}.json`) || item.endsWith(`${id}.json`));
+    const key = keys.find(item => item.endsWith(`/${id}.json`));
     if (!key) continue;
     const record = await readJson(bucket, key);
     if (record) return { status, key, record };

@@ -39,6 +39,10 @@ export function renderResultBar() {
     result.textContent = '正在加载共创广场…';
     return;
   }
+  if (state.loadError) {
+    result.textContent = '共创广场加载失败';
+    return;
+  }
 
   const parts = [];
   if (state.activeCategory) parts.push(`分类: ${state.activeCategory}`);
@@ -61,7 +65,11 @@ export function renderEmptyState({ onSubmit, onClearSearch, onShowAll, onShowNSF
   let desc = '提交作品信息，之后会进入这里。';
   const actions = [];
 
-  if (!hasEntries) {
+  if (state.loadError) {
+    title = '共创广场加载失败';
+    desc = '暂时无法取得投稿数据，请刷新后重试。';
+    actions.push({ label: '刷新重试', action: () => window.location.reload() });
+  } else if (!hasEntries) {
     actions.push({ label: '分享你的作品', action: onSubmit });
   } else if (state.onlyFavorites) {
     title = '还没有收藏的投稿';

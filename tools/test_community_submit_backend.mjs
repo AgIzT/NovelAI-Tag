@@ -112,6 +112,21 @@ const env = {
   ADMIN_TOKEN: 'test-token',
 };
 
+// ---- 0. Content-Length 预检：超大 multipart 在 formData 缓冲前直接拒绝 ----
+{
+  const res = await submitPost({
+    env,
+    request: new Request('https://example.test/api/submit', {
+      method: 'POST',
+      headers: { 'content-length': String(69 * 1024 * 1024) },
+    }),
+  });
+  const data = await res.json();
+  assert.equal(res.status, 413, JSON.stringify(data));
+  assert.match(data.error, /总体积过大/);
+  assert.equal(bucket.objects.size, 0, '请求体预检失败不得写入 R2');
+}
+
 async function pendingRecord(id) {
   return (await bucket.get(`community/pending/${id}.json`)).json();
 }

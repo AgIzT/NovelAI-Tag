@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 const coreUrl = new URL('../site/assets/app/favorites-backup-core.js', import.meta.url);
 const coreSource = await readFile(coreUrl, 'utf8');
 const core = await import(`data:text/javascript;base64,${Buffer.from(coreSource).toString('base64')}`);
+const backupUiUrl = new URL('../site/assets/app/favorites-backup.js', import.meta.url);
+const backupUiSource = await readFile(backupUiUrl, 'utf8');
 
 const {
   ATLAS_FAVORITES_STORAGE_KEY,
@@ -255,9 +257,26 @@ const readStorage = new MemoryStorage({
 assert.deepEqual(readStoredFavorites(readStorage, codexes), {
   atlasKeys: ['alpha:alpha-2'],
   communityIds: ['a', 'b'],
+  skippedCount: 0,
 });
 readStorage.values.set(ATLAS_FAVORITES_STORAGE_KEY, '{broken');
 assert.deepEqual(readStoredFavorites(readStorage, codexes).atlasKeys, []);
+
+// 本地现存脏键逐条跳过并计数；外部备份仍由上方 INVALID_* 断言保持整包严格拒绝。
+readStorage.values.set(ATLAS_FAVORITES_STORAGE_KEY, JSON.stringify([
+  'alpha:alpha-2',
+  'missing-separator',
+  `alpha:bad\u0000id`,
+]));
+readStorage.values.set(COMMUNITY_FAVORITES_STORAGE_KEY, JSON.stringify([
+  'community-ok',
+  'bad\u007fid',
+]));
+assert.deepEqual(readStoredFavorites(readStorage, codexes), {
+  atlasKeys: ['alpha:alpha-2'],
+  communityIds: ['community-ok'],
+  skippedCount: 3,
+});
 
 // 现存旧键读取时归一并与新键去重，未迁出的 mengshen_pack-0259 保持原归属。
 const ownerMigrationStorage = new MemoryStorage({
@@ -356,5 +375,34 @@ rollbackStorage.failOnceFor = COMMUNITY_FAVORITES_STORAGE_KEY;
 expectCode('STORAGE_WRITE_FAILED', () => commitFavoritesRestore(rollbackStorage, replacePlan));
 assert.equal(rollbackStorage.getItem(ATLAS_FAVORITES_STORAGE_KEY), oldAtlasRaw);
 assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), oldCommunityRaw);
+
+// 法典索引网络请求瞬时失败只影响本次操作，下次操作会重试；成功结果仍复用。
+const resolverSource = backupUiSource.match(
+  /  const resolveCodexes = async \(\) => \{[\s\S]*?\n  \};/,
+)?.[0];
+assert.ok(resolverSource, 'missing resolveCodexes implementation');
+const makeResolver = new Function('options', 'fetchDataJson', 'console', `
+  let codexesPromise = null;
+${resolverSource}
+  return resolveCodexes;
+`);
+let fetchAttempts = 0;
+const resolverWarnings = [];
+const resolveCodexes = makeResolver(
+  {},
+  async () => {
+    fetchAttempts += 1;
+    if (fetchAttempts === 1) throw new Error('temporary network failure');
+    return codexes;
+  },
+  { warn: (...args) => resolverWarnings.push(args) },
+);
+assert.deepEqual(await resolveCodexes(), []);
+assert.equal(fetchAttempts, 1);
+assert.equal(resolverWarnings.length, 1);
+assert.equal((await resolveCodexes()), codexes);
+assert.equal(fetchAttempts, 2);
+assert.equal((await resolveCodexes()), codexes);
+assert.equal(fetchAttempts, 2, '成功读取后应继续复用缓存');
 
 console.log('favorites backup core: all tests passed');

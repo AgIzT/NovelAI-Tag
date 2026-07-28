@@ -1,4 +1,5 @@
 @echo off
+setlocal
 chcp 65001 >nul
 cd /d "%~dp0.."
 
@@ -8,15 +9,15 @@ if defined PYTHON_EXE (
 )
 if not defined PY (
   py -3 -c "import sys" >nul 2>nul
-  if %errorlevel%==0 set "PY=py -3"
+  if not errorlevel 1 set "PY=py -3"
 )
 if not defined PY (
   py -c "import sys" >nul 2>nul
-  if %errorlevel%==0 set "PY=py"
+  if not errorlevel 1 set "PY=py"
 )
 if not defined PY (
   python -c "import sys" >nul 2>nul
-  if %errorlevel%==0 set PY=python
+  if not errorlevel 1 set PY=python
 )
 
 if not defined PY (
@@ -31,6 +32,7 @@ echo Retention: keep newest 5 ui-regression runs, newest report per family; dele
 echo.
 %PY% tools\cleanup_output.py
 echo.
+set "CONFIRM="
 set /p CONFIRM=Type Y then Enter to delete the items listed above (anything else cancels):
 if /i not "%CONFIRM%"=="Y" (
   echo Cancelled. Nothing was deleted.

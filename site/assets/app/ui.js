@@ -8,7 +8,7 @@ import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls } from './lightbox.js';
-import { openMask, closeMask, trapFocus } from './modal.js';
+import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
 import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
 import { setupOnboarding } from './onboarding.js';
@@ -77,6 +77,8 @@ export function applyDensity(value, { render = true, announce = false } = {}) {
 }
 
 export function bindUI() {
+  document.querySelectorAll('.settings-mask[id], .favorites-backup-mask[id]')
+    .forEach(registerMaskHistory);
   let st;
   const searchInput = $('#search');
   const searchClear = $('#searchClear');

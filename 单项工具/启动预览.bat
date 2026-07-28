@@ -17,3 +17,4 @@ if not defined PY (
 echo Opening http://localhost:8766  (close this window to stop)
 start "" http://localhost:8766
 %PY% tools\preview_server.py
+pause

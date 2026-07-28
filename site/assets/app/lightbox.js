@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { $, clamp, esc, prefersReducedMotion } from './utils.js';
+import { $, clamp, esc, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt } from './copy.js';
@@ -16,7 +16,11 @@ let lbSeq = 0;
 let lbCloseTimer = 0;
 let lbSourceImg = null;
 let lbFocusReturn = null;
-const lbPreloadCache = new Set();
+let lbThumbEntry = null;
+let lbThumbImages = null;
+let lbThumbState = null;
+const lbPreloadCache = new Map();
+const LB_PRELOAD_CACHE_LIMIT = 300;
 
 
 export function applyFlyRect(el, rect, radius) {
@@ -234,11 +238,38 @@ export function stepLightbox(delta) {
 }
 
 export function preloadImage(url) {
-  if (!url || lbPreloadCache.has(url)) return;
-  lbPreloadCache.add(url);
+  if (!url) return;
+  if (lbPreloadCache.has(url)) {
+    // Map 的插入顺序兼作轻量 LRU；命中时挪到队尾。
+    const token = lbPreloadCache.get(url);
+    lbPreloadCache.delete(url);
+    lbPreloadCache.set(url, token);
+    return;
+  }
+  while (lbPreloadCache.size >= LB_PRELOAD_CACHE_LIMIT) {
+    lbPreloadCache.delete(lbPreloadCache.keys().next().value);
+  }
+  const token = {};
+  lbPreloadCache.set(url, token);
   const img = new Image();
   img.decoding = 'async';
-  img.src = url;
+  img.onload = () => {
+    img.onload = null;
+    img.onerror = null;
+  };
+  img.onerror = () => {
+    // 失败不留永久命中；下次成为邻图时可以重新预热。
+    if (lbPreloadCache.get(url) === token) lbPreloadCache.delete(url);
+    img.onload = null;
+    img.onerror = null;
+  };
+  try {
+    img.src = url;
+  } catch {
+    if (lbPreloadCache.get(url) === token) lbPreloadCache.delete(url);
+    img.onload = null;
+    img.onerror = null;
+  }
 }
 
 export function preloadLightboxNeighbors() {
@@ -254,6 +285,14 @@ export function preloadLightboxNeighbors() {
     preloadImage(imageItemUrl('image', e, item));
     preloadImage(imageItemUrl('original', e, item));
   }
+}
+
+export function isLightboxKeydownBlocked(ev) {
+  const target = ev.target instanceof HTMLElement ? ev.target : document.activeElement;
+  const tag = target?.tagName;
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
+  const feedbackPanel = $('#feedbackPanel');
+  return Boolean(ev.defaultPrevented || typing || (feedbackPanel && !feedbackPanel.hidden));
 }
 
 export function renderCharacterPrompts(entry) {
@@ -347,13 +386,18 @@ export function renderLightbox() {
 
   const credit = item.credit || item.author || e.credit || e.author || '';
   const creditUrl = item.creditUrl || item.authorUrl || e.creditUrl || e.authorUrl || '';
+  const safeCreditUrl = safeHttpUrl(creditUrl);
   const creditEl = $('#lightboxCredit');
   if (credit) {
     creditEl.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M5 20a7 7 0 0 1 14 0"/></svg>' +
       `<span>${esc(credit)}</span>`;
-    if (creditUrl) { creditEl.href = creditUrl; creditEl.target = '_blank'; creditEl.rel = 'noopener'; }
-    else creditEl.removeAttribute('href');
+    if (safeCreditUrl) { creditEl.href = safeCreditUrl; creditEl.target = '_blank'; creditEl.rel = 'noopener'; }
+    else {
+      creditEl.removeAttribute('href');
+      creditEl.removeAttribute('target');
+      creditEl.removeAttribute('rel');
+    }
     creditEl.hidden = false;
   } else {
     creditEl.hidden = true;
@@ -407,27 +451,41 @@ export function renderLightbox() {
   const next = $('#lightboxNext');
   prev.hidden = next.hidden = lb.images.length < 2;
   const thumbs = $('#lightboxThumbs');
-  thumbs.innerHTML = '';
+  const reuseThumbs = lbThumbEntry === e
+    && lbThumbImages === lb.images
+    && lbThumbState === lb
+    && thumbs.childElementCount === lb.images.length;
+  if (!reuseThumbs) {
+    thumbs.innerHTML = '';
+    lbThumbEntry = e;
+    lbThumbImages = lb.images;
+    lbThumbState = lb;
+  }
   thumbs.hidden = lb.images.length < 2;
   if (!thumbs.hidden) {
-    lb.images.forEach((image, i) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'lightbox-thumb' + (i === lb.index ? ' active' : '');
-      btn.title = `第 ${i + 1} 张`;
-      const ti = document.createElement('img');
-      ti.alt = '';
-      ti.loading = 'lazy';
-      ti.src = imageItemUrl('image', e, image) || imageItemUrl('original', e, image);
-      btn.appendChild(ti);
-      btn.onclick = ev => {
-        ev.stopPropagation();
-        if (lb.index === i) return;
-        lb.index = i;
-        renderLightbox();
-        syncUrlState({ entry: lb.entry.id, historyMode: 'replace', transition: 'detail' });
-      };
-      thumbs.appendChild(btn);
+    if (!reuseThumbs) {
+      lb.images.forEach((image, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'lightbox-thumb';
+        btn.title = `第 ${i + 1} 张`;
+        const ti = document.createElement('img');
+        ti.alt = '';
+        ti.loading = 'lazy';
+        ti.src = imageItemUrl('image', e, image) || imageItemUrl('original', e, image);
+        btn.appendChild(ti);
+        btn.onclick = ev => {
+          ev.stopPropagation();
+          if (lb.index === i) return;
+          lb.index = i;
+          renderLightbox();
+          syncUrlState({ entry: lb.entry.id, historyMode: 'replace', transition: 'detail' });
+        };
+        thumbs.appendChild(btn);
+      });
+    }
+    thumbs.querySelectorAll('.lightbox-thumb').forEach((btn, i) => {
+      btn.classList.toggle('active', i === lb.index);
     });
     const act = thumbs.querySelector('.lightbox-thumb.active');
     if (act) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -518,6 +576,7 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   });
   window.addEventListener('keydown', ev => {
     if ($('#lightbox').hidden) return;
+    if (isLightboxKeydownBlocked(ev)) return;
     if (ev.key === 'Escape') closeLightbox();
     if (ev.key === 'ArrowLeft') stepLightbox(-1);
     if (ev.key === 'ArrowRight') stepLightbox(1);

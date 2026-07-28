@@ -20,6 +20,7 @@ import mimetypes
 import os
 import posixpath
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -60,8 +61,20 @@ def load_json(path, default=None):
 
 
 def write_json(path, data, indent=None):
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=indent)
+    path = Path(path)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=indent)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def sha256_hex(path):
@@ -190,10 +203,12 @@ def media_from_config(cfg):
 
 def codex_files():
     for path in sorted(DATA_DIR.glob("*.json")):
-        if path.name in ("codexes.json", "media.json"):
+        if path.name in ("codexes.json", "media.json") or path.name.startswith("strings"):
             continue
         data = load_json(path, {})
         if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+            continue
+        if not isinstance(data.get("id"), str) or not data["id"] or data["id"] != path.stem:
             continue
         yield path
 
@@ -485,7 +500,7 @@ class R2Client:
                 continue
             return status, response_headers, response_body
 
-        raise RuntimeError(f"request failed after {attempts} attempt(s): {label}")
+        raise AssertionError("unreachable")
 
     def head(self, key):
         return self._request("HEAD", key, retry_statuses=RETRYABLE_REQUEST_STATUSES)
@@ -496,6 +511,13 @@ class R2Client:
     def put_file(self, key, path, sha, cache_control):
         with open(path, "rb") as fh:
             body = fh.read()
+        actual_sha = hashlib.sha256(body).hexdigest()
+        if actual_sha != sha:
+            raise RuntimeError(
+                f"file changed during upload: {path} "
+                f"(planned sha256 {sha}, current sha256 {actual_sha}); "
+                "close the editor/image tool and rerun"
+            )
         return self.put_bytes(key, body, sha, guess_type(path), cache_control)
 
     def put_bytes(self, key, body, sha, content_type, cache_control):
@@ -621,7 +643,7 @@ def put_file_with_retries(client, key, path, sha, cache_control, retries, base_d
         if wait:
             time.sleep(wait)
 
-    return 0, {}, b"", attempts
+    raise AssertionError("unreachable")
 
 
 def sync_strings_assets(args, cfg, assets):
@@ -808,7 +830,13 @@ def sync_assets(args, cfg, assets, manifest_objects=None):
             list(pool.map(_upload, pending))
 
     if not args.dry_run and not args.check_only and not failures:
-        write_manifest(cfg, next_manifest)
+        full_manifest = {
+            key: value
+            for key, value in load_manifest().items()
+            if key.startswith("images/strings/")
+        }
+        full_manifest.update(next_manifest)
+        write_manifest(cfg, full_manifest)
         print(f"local sync manifest updated: {MANIFEST_PATH.name}", flush=True)
 
     return counts, failures

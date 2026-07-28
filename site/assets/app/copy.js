@@ -10,7 +10,8 @@ export async function copyEntry(e, node) {
 
 /* NAI → SD 权重格式转换：NAI 每层括号 ×1.05 / ÷1.05。
    {tag}→(tag:1.05)  {{tag}}→(tag:1.103)  [tag]→(tag:0.952)  1.3::tag::→(tag:1.3)
-   支持嵌套；真正未闭合的左括号只丢弃括号本身，避免把后续普通 tag 无声扩大加权。 */
+   支持括号嵌套；真正未闭合的左括号只丢弃括号本身，避免把后续普通 tag 无声扩大加权。
+   已知限制：1.3::a 1.5::b:: c:: 这类数字权重自身嵌套时，:: 的就近闭合存在歧义，暂不作递归解析。 */
 const NAI_WEIGHT_BASE = 1.05;
 export function fmtSdWeight(w) { return parseFloat(w.toFixed(3)).toString(); }
 export function naiToSd(text) {
@@ -30,7 +31,7 @@ export function naiToSd(text) {
     const empty = text.slice(pos).match(/^([+-]?\d+(?:\.\d+)?)::(?=[,\n]|$)/);
     if (empty) return { out: '', pos: pos + empty[0].length };
     const m = text.slice(pos).match(/^([+-]?\d+(?:\.\d+)?)::([\s\S]*?)::/)
-      || text.slice(pos).match(/^([+-]?\d+(?:\.\d+)?)::([^,\n]*)/);
+      || text.slice(pos).match(/^([+-]?\d+(?:\.\d+)?)::([^,\n}\]]*)/);
     if (!m) return null;
     const content = naiToSd(cleanWeightContent(m[2]));
     if (!content) return { out: '', pos: pos + m[0].length };

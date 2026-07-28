@@ -301,6 +301,15 @@ if (typeof document !== 'undefined') {
    打开详情时在审核端浏览器用同一套识别核心对存储的原图复检，并把结论写回记录：
    检出 → verified:true；未检出 → 移除标注（公开页徽标随之消失）。 */
 const paramsChecked = new Set(); // `${id}:${index}`，成功复检过的本会话不重跑
+let paramsRecheckErrorHandler = null;
+
+export function setParamsRecheckErrorHandler(handler) {
+  paramsRecheckErrorHandler = typeof handler === 'function' ? handler : null;
+}
+
+export function resetParamsRecheckMemo() {
+  paramsChecked.clear();
+}
 
 export function verifyPendingParams(item) {
   if (!item || !Array.isArray(item.images)) return;
@@ -311,6 +320,10 @@ export function verifyPendingParams(item) {
     if (paramsChecked.has(memoKey)) continue;
     paramsChecked.add(memoKey);
     recheckImageParams(item, image, index).catch(error => {
+      if (error?.unauthorized) {
+        paramsRecheckErrorHandler?.(error);
+        return;
+      }
       paramsChecked.delete(memoKey); // 失败允许下次打开时重试
       console.warn('隐写参数复检失败', error);
     });

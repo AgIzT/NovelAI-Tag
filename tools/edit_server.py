@@ -288,7 +288,9 @@ class EditStore:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, **kwargs)
-            os.replace(tmp_name, path)
+                fh.flush()
+                os.fsync(fh.fileno())
+            self._replace_with_retries(tmp_name, path)
         except Exception:
             try:
                 os.unlink(tmp_name)
@@ -306,7 +308,7 @@ class EditStore:
                 fh.write(payload)
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(tmp_name, path)
+            self._replace_with_retries(tmp_name, path)
         except Exception:
             try:
                 os.unlink(tmp_name)
@@ -321,13 +323,27 @@ class EditStore:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
-            os.replace(tmp_name, path)
+                fh.flush()
+                os.fsync(fh.fileno())
+            self._replace_with_retries(tmp_name, path)
         except Exception:
             try:
                 os.unlink(tmp_name)
             except OSError:
                 pass
             raise
+
+    @staticmethod
+    def _replace_with_retries(source, target):
+        for retry in range(6):
+            try:
+                os.replace(source, target)
+                return
+            except PermissionError:
+                if retry >= 5:
+                    raise
+                time.sleep(0.05)
+        raise AssertionError("unreachable")
 
     @staticmethod
     def _safe_child_path(directory, filename):
@@ -998,6 +1014,10 @@ def make_handler(store):
             super().end_headers()
 
         def do_GET(self):
+            try:
+                self._check_host()
+            except EditError as ex:
+                return self._json({"ok": False, "error": ex.message, "code": ex.code}, ex.status)
             path = self.path.split("?", 1)[0]
             if path == "/__edit__/ping":
                 try:
@@ -1009,16 +1029,17 @@ def make_handler(store):
             return super().do_GET()
 
         def do_POST(self):
-            path = self.path.split("?", 1)[0]
-            routes = {
-                "/__edit__/entry": ENTRY_MAX_BYTES,
-                "/__edit__/image": IMAGE_MAX_BYTES,
-                "/__edit__/category": ENTRY_MAX_BYTES,
-                "/__edit__/codex": ENTRY_MAX_BYTES,
-            }
-            if path not in routes:
-                return self._json({"ok": False, "error": "未知端点", "code": "not-found"}, 404)
             try:
+                self._check_host()
+                path = self.path.split("?", 1)[0]
+                routes = {
+                    "/__edit__/entry": ENTRY_MAX_BYTES,
+                    "/__edit__/image": IMAGE_MAX_BYTES,
+                    "/__edit__/category": ENTRY_MAX_BYTES,
+                    "/__edit__/codex": ENTRY_MAX_BYTES,
+                }
+                if path not in routes:
+                    return self._json({"ok": False, "error": "未知端点", "code": "not-found"}, 404)
                 self._check_origin()
                 length = int(self.headers.get("Content-Length") or 0)
                 if length <= 0:
@@ -1112,6 +1133,16 @@ def make_handler(store):
                 host = ""
             if host not in _LOOPBACK_HOSTS:
                 raise EditError(403, "bad-origin", "只接受本机页面的写请求")
+
+        def _check_host(self):
+            # Origin 对本机 curl/探活可缺省；Host 是每个请求的安全边界，缺失也必须拒绝。
+            raw_host = self.headers.get("Host") or ""
+            try:
+                host = (urllib.parse.urlsplit("//" + raw_host).hostname or "").casefold()
+            except ValueError:
+                host = ""
+            if host not in _LOOPBACK_HOSTS:
+                raise EditError(403, "bad-host", "只接受本机 Host 的请求")
 
         def _serve_original(self):
             rel = urllib.parse.unquote(self.path.split("?", 1)[0].lstrip("/")).replace("/", os.sep)

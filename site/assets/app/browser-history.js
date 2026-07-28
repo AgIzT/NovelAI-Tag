@@ -10,6 +10,7 @@ let currentEntry = null;
 let scrollTimer = 0;
 let idCounter = 0;
 let reloadCollapse = null;
+let deferredLayerOpens = [];
 const layerRegistry = new Map();
 
 const cloneValue = value => {
@@ -143,6 +144,7 @@ export function configureBrowserHistory(options = {}) {
   pendingBack = false;
   currentEntry = null;
   reloadCollapse = null;
+  deferredLayerOpens = [];
   if ('scrollRestoration' in win.history) win.history.scrollRestoration = 'manual';
   win.addEventListener('popstate', handlePopState);
   win.addEventListener('pagehide', checkpointHistoryScroll);
@@ -223,18 +225,24 @@ function directOpenLayer(id) {
   if (handler?.isOpen?.() !== true) handler?.open?.();
 }
 
-function reconcileLayers(targetLayers = []) {
+function reconcileLayers(targetLayers = [], preservedIds = []) {
   const targetIds = targetLayers.map(layer => layer?.id).filter(Boolean);
+  const keepIds = new Set([...targetIds, ...preservedIds]);
   const currentIds = [...layerRegistry.keys()].filter(id => layerRegistry.get(id)?.isOpen?.());
   for (const id of currentIds.reverse()) {
-    if (!targetIds.includes(id)) directCloseLayer(id);
+    if (!keepIds.has(id)) directCloseLayer(id);
   }
   for (const id of targetIds) directOpenLayer(id);
 }
 
 export function openHistoryLayer(id, { mode = 'push' } = {}) {
   id = String(id || '');
-  if (!id || !initialized || restoring || !currentEntry) return false;
+  if (!id || !initialized || !currentEntry) return false;
+  if (restoring) {
+    deferredLayerOpens = deferredLayerOpens.filter(item => item.token !== restoreToken || item.id !== id);
+    deferredLayerOpens.push({ id, mode, token: restoreToken });
+    return false;
+  }
   const ids = layerIds(currentEntry);
   if (ids[ids.length - 1] === id) return true;
   const layers = ids.map(layerId => ({ id: layerId }));
@@ -422,6 +430,11 @@ export function scheduleHistoryScrollCheckpoint(delay = 150) {
 async function handlePopState(event) {
   pendingBack = false;
   if (!config || !isManagedHistoryEntry(event.state, config.page)) return;
+  /* 每个托管 popstate 都会取代上一轮恢复；早退分支同样必须作废旧 token，
+     并主动解锁写历史，避免旧 finally 因 token 失配后再也无法清 restoring。 */
+  const token = ++restoreToken;
+  restoring = false;
+  deferredLayerOpens = [];
   clearTimeout(scrollTimer);
   scrollTimer = 0;
   const departing = currentEntry;
@@ -488,7 +501,6 @@ async function handlePopState(event) {
   }
   currentEntry = target;
 
-  const token = ++restoreToken;
   restoring = true;
   reconcileLayers(target.layers);
   try {
@@ -503,11 +515,25 @@ async function handlePopState(event) {
       target = replaceManagedHistoryEntry(target, changes);
       writeState('replace', target);
     }
-    reconcileLayers(target.layers);
+    /* 用户可能在慢速 applyRoute 期间直接打开了浮层。只保留确实仍可见且
+       调用过 openHistoryLayer 的新层；恢复结束后再按原 mode 正常登记。 */
+    const preservedIds = deferredLayerOpens
+      .filter(item => item.token === token && layerRegistry.get(item.id)?.isOpen?.())
+      .map(item => item.id);
+    reconcileLayers(target.layers, preservedIds);
     await config.restoreScroll?.(target.scrollY, { token });
   } catch (error) {
     console.error('[history] 恢复页面状态失败', error);
   } finally {
-    if (token === restoreToken) restoring = false;
+    if (token === restoreToken) {
+      restoring = false;
+      const pending = deferredLayerOpens.filter(item => item.token === token);
+      deferredLayerOpens = deferredLayerOpens.filter(item => item.token !== token);
+      for (const item of pending) {
+        if (layerRegistry.get(item.id)?.isOpen?.()) {
+          openHistoryLayer(item.id, { mode: item.mode });
+        }
+      }
+    }
   }
 }

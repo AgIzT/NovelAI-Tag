@@ -17,6 +17,8 @@ let files = [];
 let busy = false;
 let metadataConsumed = false;
 let onSubmitted = null;
+let addQueue = Promise.resolve();
+let dialogGeneration = 0;
 
 export function initSubmitDialog(options = {}) {
   submitMask = $('#submitMask');
@@ -39,12 +41,14 @@ export function openSubmitDialog(trigger = document.activeElement) {
     return;
   }
   if (!submitMask) return;
+  if (!isMaskOpen(submitMask)) dialogGeneration += 1;
   clearError();
   openMask(submitMask, trigger);
 }
 
 export function closeSubmitDialog() {
   if (!submitMask || !isMaskOpen(submitMask)) return;
+  dialogGeneration += 1;
   closeMask(submitMask);
 }
 
@@ -153,8 +157,21 @@ function showError(message) {
   if (error) error.textContent = message || '';
 }
 
-async function addFiles(list) {
+export function addFiles(list) {
+  const batch = Array.from(list || []);
+  const generation = dialogGeneration;
+  const job = addQueue.then(() => addFilesInner(batch, generation));
+  addQueue = job.catch(error => {
+    if (generation !== dialogGeneration) return;
+    console.error('图片处理队列失败', error);
+    showError(error?.message || '图片处理失败');
+  });
+  return job;
+}
+
+async function addFilesInner(list, generation) {
   for (const file of list) {
+    if (generation !== dialogGeneration) return;
     if (files.length >= LIMITS.imageCount) {
       showError(`图片最多 ${LIMITS.imageCount} 张`);
       break;
@@ -164,6 +181,7 @@ async function addFiles(list) {
     try {
       // 每张图都读参数（文本块 → EXIF → 隐写），角标与"含参数原图"标注按图记录；表单只吃第一张命中的
       const meta = await readImageParams(file);
+      if (generation !== dialogGeneration) return;
       if (!metadataConsumed) {
         if (meta && (meta.prompt || meta.negative)) {
           metadataConsumed = true;
@@ -176,6 +194,7 @@ async function addFiles(list) {
       }
 
       const { blob, width, height } = await compressImage(file);
+      if (generation !== dialogGeneration) return;
       const item = {
         blob,
         url: URL.createObjectURL(blob),
@@ -197,10 +216,11 @@ async function addFiles(list) {
       files.push(item);
       clearError();
     } catch (error) {
+      if (generation !== dialogGeneration) return;
       showError(error.message || '图片处理失败');
     }
   }
-  renderPreviews();
+  if (generation === dialogGeneration) renderPreviews();
 }
 
 function totalUploadBytes() {
@@ -308,6 +328,7 @@ async function submitCommunity(event) {
     showError('请填写 Prompt');
     return;
   }
+  const generation = dialogGeneration;
 
   const fd = new FormData();
   fd.append('title', $('#subTitle').value.trim());
@@ -342,15 +363,19 @@ async function submitCommunity(event) {
     const response = await fetch('/api/submit', { method: 'POST', body: fd });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) {
-      showError(data.error || `提交失败（HTTP ${response.status}）`);
+      if (generation === dialogGeneration) {
+        showError(data.error || `提交失败（HTTP ${response.status}）`);
+      }
       return;
     }
-    resetSubmitForm();
-    closeSubmitDialog();
+    if (generation === dialogGeneration) {
+      resetSubmitForm();
+      closeSubmitDialog();
+    }
     toast('投稿已提交');
     onSubmitted?.();
   } catch {
-    showError('网络错误，请稍后重试');
+    if (generation === dialogGeneration) showError('网络错误，请稍后重试');
   } finally {
     busy = false;
     submit.disabled = false;

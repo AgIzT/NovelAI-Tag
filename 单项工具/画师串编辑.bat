@@ -20,3 +20,4 @@ echo   Editor  : http://localhost:8768/__editor__
 echo.
 start "" http://localhost:8768/__editor__
 %PY% tools\strings_server.py
+pause

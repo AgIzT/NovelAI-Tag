@@ -9,17 +9,44 @@
                        · 更新 site/data/<codexId>.json 的 entry.image / original / assetRev
 用法：python tools/imgserver.py  （或双击 配图工具.bat）
 """
-import http.server, socketserver, json, base64, io, os, threading, hashlib, mimetypes, urllib.parse, re
+import http.server, socketserver, json, base64, io, os, threading, hashlib, mimetypes, urllib.parse, re, tempfile
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
 DATA = os.path.join(SITE, "data")
+INDEX = os.path.join(DATA, "codexes.json")
 ORIG = os.path.join(ROOT, "originals")     # 原图（本地保留，不进仓库）
 TOOL_HTML = os.path.join(os.path.dirname(__file__), "pei.html")
 MAXDIM = 1100          # 缩略图最长边压到 1100px
 PORT = 8767
 LOCK = threading.Lock()
+SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]+$")
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _is_loopback_origin(origin):
+    if not origin:
+        return True
+    try:
+        host = urllib.parse.urlsplit(origin).hostname or ""
+    except ValueError:
+        host = ""
+    return host in LOOPBACK_HOSTS
+
+
+def _safe_component(value, label):
+    if not isinstance(value, str) or not SAFE_PATH_COMPONENT.fullmatch(value):
+        raise ValueError(f"invalid {label}")
+    return value
+
+
+def _safe_child_path(directory, *parts):
+    base = os.path.abspath(directory)
+    target = os.path.abspath(os.path.join(base, *parts))
+    if not (target == base or target.startswith(base + os.sep)):
+        raise ValueError("invalid output path")
+    return target
 
 
 def _hash_file(path):
@@ -57,12 +84,43 @@ def _write_json_like(path, data):
     kwargs = {"ensure_ascii": False}
     if before.startswith('{"id":"') or before.startswith("[{"):
         kwargs["separators"] = (",", ":")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, **kwargs)
+    _atomic_write_json(path, data, **kwargs)
+
+
+def _atomic_write_json(path, data, **kwargs):
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, **kwargs)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_text(path, text):
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _update_index_counts(cid, entry_count, imaged_count):
-    ip = os.path.join(DATA, "codexes.json")
+    ip = INDEX
     if not os.path.exists(ip):
         return
     with open(ip, encoding="utf-8") as f:
@@ -77,8 +135,7 @@ def _update_index_counts(cid, entry_count, imaged_count):
                 item["imagedCount"] = imaged_count
                 item["entryCount"] = entry_count
                 break
-        with open(ip, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False, indent=2)
+        _atomic_write_json(ip, index, ensure_ascii=False, indent=2)
         return
 
     start = text.rfind("  {", 0, id_pos)
@@ -89,40 +146,44 @@ def _update_index_counts(cid, entry_count, imaged_count):
     block = text[start:end]
     block = re.sub(r'("entryCount":\s*)\d+', lambda m: m.group(1) + str(entry_count), block, count=1)
     block = re.sub(r'("imagedCount":\s*)\d+', lambda m: m.group(1) + str(imaged_count), block, count=1)
-    with open(ip, "w", encoding="utf-8") as f:
-        f.write(text[:start] + block + text[end:])
+    _atomic_write_text(ip, text[:start] + block + text[end:])
 
 
 def save_image(cid, eid, durl):
     """存原图(原样) + 缩略图, 并更新法典 JSON。返回结果 dict。"""
+    cid = _safe_component(cid, "codexId")
+    eid = _safe_component(eid, "entryId")
     raw = base64.b64decode(durl.split(",", 1)[1])
+    ext = _safe_component(_ext_from_dataurl(durl), "image extension")
     with LOCK:
-        jp = os.path.join(DATA, cid + ".json")
+        jp = _safe_child_path(DATA, cid + ".json")
         with open(jp, encoding="utf-8") as f:
             d = json.load(f)
         target = next((e for e in d["entries"] if e["id"] == eid), None)
         if target is None:
             raise ValueError(f"Unknown entry id for {cid}: {eid}")
 
+        with Image.open(io.BytesIO(raw)) as source:
+            source.load()
+            im = source.copy()
+
         # 1) 原图：原始字节直接落盘，不经 Pillow 重编码（保留 NAI 在 PNG 里的元数据）
-        ext = _ext_from_dataurl(durl)
-        odir = os.path.join(ORIG, cid)
+        odir = _safe_child_path(ORIG, cid)
         os.makedirs(odir, exist_ok=True)
         ofn = eid + "." + ext
-        op = os.path.join(odir, ofn)
+        op = _safe_child_path(odir, ofn)
         with open(op, "wb") as f:
             f.write(raw)
 
         # 2) 缩略图：压到 MAXDIM，存 JPEG（展示/部署用）
-        im = Image.open(io.BytesIO(raw))
         if im.mode not in ("RGB", "L"):
             im = im.convert("RGB")
         im.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
         thumb_w, thumb_h = im.size
-        tdir = os.path.join(SITE, "images", cid)
+        tdir = _safe_child_path(os.path.join(SITE, "images"), cid)
         os.makedirs(tdir, exist_ok=True)
         tfn = eid + ".jpg"
-        tp = os.path.join(tdir, tfn)
+        tp = _safe_child_path(tdir, tfn)
         im.save(tp, "JPEG", quality=86, optimize=True)
         rev = _asset_rev(tp, op)
 
@@ -203,6 +264,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/__upload__":
             self.send_error(404); return
+        if not _is_loopback_origin(self.headers.get("Origin")):
+            self._json({"ok": False, "error": "只接受本机页面的写请求"}, 403)
+            return
         try:
             ln = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(ln))

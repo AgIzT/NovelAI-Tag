@@ -158,6 +158,49 @@ class EditStoreTest(unittest.TestCase):
             fn(*args, **kwargs)
         self.assertEqual((ctx.exception.status, ctx.exception.code), (status, code))
 
+    def test_text_and_json_atomic_writes_flush_to_disk(self):
+        json_path = os.path.join(self.data, "testbook.json")
+        text_path = os.path.join(self.data, "notes.txt")
+        with mock.patch("edit_server.os.fsync") as fsync:
+            self.store.atomic_write_json_styled(json_path, {"id": "testbook", "entries": []})
+            self.store._atomic_write_text(text_path, "saved")
+        self.assertEqual(fsync.call_count, 2)
+
+    def test_atomic_replace_retries_transient_permission_error(self):
+        path = os.path.join(self.data, "retry.txt")
+        _write(path, "before")
+        real_replace = os.replace
+        calls = []
+
+        def flaky_replace(source, target):
+            calls.append((source, target))
+            if len(calls) == 1:
+                raise PermissionError("temporarily locked")
+            return real_replace(source, target)
+
+        with mock.patch("edit_server.os.replace", side_effect=flaky_replace), \
+                mock.patch("edit_server.time.sleep") as sleep:
+            self.store._atomic_write_text(path, "after")
+
+        self.assertEqual(_read(path), "after")
+        self.assertEqual(len(calls), 2)
+        sleep.assert_called_once_with(0.05)
+
+    def test_atomic_replace_stops_after_five_retries(self):
+        path = os.path.join(self.data, "retry-limit.txt")
+        _write(path, "before")
+        with mock.patch(
+            "edit_server.os.replace",
+            side_effect=PermissionError("still locked"),
+        ) as replace, mock.patch("edit_server.time.sleep") as sleep:
+            with self.assertRaisesRegex(PermissionError, "still locked"):
+                self.store._atomic_write_text(path, "after")
+
+        self.assertEqual(_read(path), "before")
+        self.assertEqual(replace.call_count, 6)
+        self.assertEqual(sleep.call_args_list, [mock.call(0.05)] * 5)
+        self.assertEqual(glob.glob(path + ".*.tmp"), [])
+
     # ---------- update ----------
 
     def test_update_whitelist_fields_and_preserve_others(self):
@@ -785,6 +828,22 @@ class HttpSmokeTest(unittest.TestCase):
             headers={"Origin": "https://evil.example"},
         )
         self.assertEqual((status, data["code"]), (403, "bad-origin"))
+        on_disk = json.loads(_read(os.path.join(self.root, "site", "data", "testbook.json")))
+        self.assertEqual(len(on_disk["entries"]), 3)
+
+    def test_foreign_host_rejected_for_get_and_post(self):
+        status, data = self.request(
+            "/__edit__/ping",
+            headers={"Host": "evil.example"},
+        )
+        self.assertEqual((status, data["code"]), (403, "bad-host"))
+
+        status, data = self.request(
+            "/__edit__/entry",
+            {"codexId": "testbook", "op": "delete", "entryId": "testbook-0001"},
+            headers={"Host": "evil.example"},
+        )
+        self.assertEqual((status, data["code"]), (403, "bad-host"))
         on_disk = json.loads(_read(os.path.join(self.root, "site", "data", "testbook.json")))
         self.assertEqual(len(on_disk["entries"]), 3)
 
