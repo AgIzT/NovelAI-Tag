@@ -279,14 +279,14 @@ export function restoreBrowseScroll(top, { token } = {}) {
   let attempts = 0;
   const stopListening = () => {
     window.removeEventListener?.('wheel', cancelForUserInput);
-    window.removeEventListener?.('touchstart', cancelForUserInput);
+    window.removeEventListener?.('touchmove', cancelForUserInput);
   };
   const cancelForUserInput = () => {
     if (seq === browseScrollRestoreSeq) browseScrollRestoreSeq += 1;
     stopListening();
   };
   window.addEventListener?.('wheel', cancelForUserInput, { once: true, passive: true });
-  window.addEventListener?.('touchstart', cancelForUserInput, { once: true, passive: true });
+  window.addEventListener?.('touchmove', cancelForUserInput, { once: true, passive: true });
   const run = () => {
     if (seq !== browseScrollRestoreSeq) { stopListening(); return; }
     if (token !== undefined && !isHistoryRestoreToken(token)) { stopListening(); return; }

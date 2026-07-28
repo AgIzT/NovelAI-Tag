@@ -97,7 +97,8 @@ try {
   assert.equal(state.lastBrowse.scrollY, 77);
   assert.ok(storageWrites.some(([key]) => key === 'fadian-last-browse'));
 
-  // A real wheel/touch gesture cancels the remaining restore retries.
+  // A real wheel/touch scroll cancels restoration both before its delayed first
+  // scroll and between retries. A plain touchstart is not a scroll intent.
   const queued = [];
   let scrollCalls = 0;
   window.setTimeout = callback => { queued.push(callback); return queued.length; };
@@ -106,13 +107,37 @@ try {
     window.scrollY = Math.min(100, top); // layout clamp forces the retry path
   };
   historyModule.restoreBrowseScroll(500);
+  assert.ok(windowListeners.has('wheel'));
+  assert.ok(windowListeners.has('touchmove'));
+  assert.equal(windowListeners.has('touchstart'), false);
+  windowListeners.get('touchstart')?.(new Event('touchstart'));
   queued.shift()?.();
   assert.equal(scrollCalls, 1);
   assert.ok(windowListeners.has('wheel'));
-  windowListeners.get('wheel')?.(new Event('wheel'));
+  assert.ok(windowListeners.has('touchmove'));
+  windowListeners.get('touchmove')?.(new Event('touchmove'));
   while (queued.length) queued.shift()();
   assert.equal(scrollCalls, 1, 'user input must cancel all pending restore retries');
-  assert.equal(windowListeners.has('touchstart'), false);
+  assert.equal(windowListeners.has('wheel'), false);
+  assert.equal(windowListeners.has('touchmove'), false);
+
+  historyModule.restoreBrowseScroll(500);
+  windowListeners.get('wheel')?.(new Event('wheel'));
+  while (queued.length) queued.shift()();
+  assert.equal(scrollCalls, 1, 'wheel before the first scroll must cancel restoration');
+
+  historyModule.restoreBrowseScroll(500);
+  windowListeners.get('touchmove')?.(new Event('touchmove'));
+  while (queued.length) queued.shift()();
+  assert.equal(scrollCalls, 1, 'touchmove before the first scroll must cancel restoration');
+
+  // A second restore supersedes the first without creating an unguarded input
+  // window before either delayed callback runs.
+  historyModule.restoreBrowseScroll(500);
+  historyModule.restoreBrowseScroll(600);
+  windowListeners.get('wheel')?.(new Event('wheel'));
+  while (queued.length) queued.shift()();
+  assert.equal(scrollCalls, 1, 'input must cancel the newest overlapping restore');
 
   const beforeSuppressedPagehide = state.lastBrowse;
   historyModule.suppressBrowseStateSave(1000);
