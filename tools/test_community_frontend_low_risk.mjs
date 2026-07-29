@@ -116,7 +116,6 @@ const isMaskOpen = () => false;
 const openMask = () => {};
 const trapFocus = () => {};
 const toast = globalThis.__communityDetailLowRiskTest.toast;
-const novelAiToastAction = () => null;
 const goBackFrom = () => false;
 const createLikeButton = () => null;
 const syncCommunityHistory = () => {};

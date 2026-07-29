@@ -3,13 +3,6 @@ import { readFile } from 'node:fs/promises';
 
 import { writeClipboardText } from '../site/assets/app/clipboard.js';
 import { formatCopyText, naiToSd } from '../site/assets/app/nai-sd.js';
-import {
-  canOfferNovelAiLink,
-  NOVELAI_IMAGE_URL,
-  NOVELAI_WINDOW_NAME,
-  novelAiToastAction,
-  openNovelAiImage,
-} from '../site/assets/app/novelai-link.js';
 import { readSdMode, writeSdMode } from '../site/assets/app/sd-mode.js';
 
 // NAI v3 括号与 v4 数字权重混排时，数字权重的回退分支不得吞掉外层收尾括号。
@@ -30,47 +23,6 @@ assert.deepEqual(
   formatCopyText('{x}', { sdMode: true, convert: false }),
   { source: '{x}', text: '{x}', converted: false },
 );
-
-// 「打开 NovelAI」只在触屏/粗指针环境出现，并复用同一个命名标签页。
-{
-  assert.equal(canOfferNovelAiLink({
-    navigatorApi: { maxTouchPoints: 0 },
-    matchMediaApi: () => ({ matches: false }),
-  }), false);
-  assert.equal(canOfferNovelAiLink({
-    navigatorApi: { maxTouchPoints: 1 },
-    matchMediaApi: () => ({ matches: false }),
-  }), false, '触屏笔记本的精细主指针不能触发移动端动作');
-  assert.equal(canOfferNovelAiLink({
-    navigatorApi: { maxTouchPoints: 0 },
-    matchMediaApi: () => ({ matches: true }),
-  }), true);
-  assert.equal(canOfferNovelAiLink({
-    navigatorApi: { maxTouchPoints: 1 },
-    matchMediaApi: null,
-  }), true, '媒体查询不可用时才退回触点数');
-
-  const calls = [];
-  const popup = { opener: {} };
-  const options = {
-    navigatorApi: { maxTouchPoints: 1 },
-    matchMediaApi: () => ({ matches: true }),
-    windowApi: {
-      open(url, target) {
-        calls.push([url, target]);
-        return popup;
-      },
-    },
-  };
-  assert.equal(openNovelAiImage(options), true);
-  assert.deepEqual(calls, [[NOVELAI_IMAGE_URL, NOVELAI_WINDOW_NAME]]);
-  assert.equal(popup.opener, null);
-  const action = novelAiToastAction(options);
-  assert.equal(action.label, '打开 NovelAI（需粘贴）↗');
-  assert.match(action.failureMessage, /未能打开 NovelAI/);
-  assert.equal(action.onClick(), true);
-  assert.deepEqual(calls[1], [NOVELAI_IMAGE_URL, NOVELAI_WINDOW_NAME]);
-}
 
 // 可交互 toast 必须承载真实按钮，点击后先关闭旧 toast 再执行动作。
 {
@@ -274,18 +226,20 @@ function execDocument(result) {
   }
 }
 
-// 主站正向复制接入负面接力，分享链接不得误带 NovelAI 外链动作；社区同样按 prompt 类型接线。
+// 主站与共创广场保留正向→负面接力，但复制成功后不再附加 NovelAI 外链动作。
 {
   const [copySource, lightboxSource, communityDetailSource] = await Promise.all([
     readFile(new URL('../site/assets/app/copy.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/community/detail.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(copySource, /label: '再复制负面'[\s\S]*offerNovelAi: true/);
+  assert.match(copySource, /label: '再复制负面'/);
   assert.match(copySource, /const message = negative \? `已复制正向：\$\{e\.title\}` : `已复制：\$\{e\.title\}`/);
+  assert.doesNotMatch(copySource, /offerNovelAi|novelAiToastAction/);
   assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false \}\)/);
+  assert.doesNotMatch(lightboxSource, /offerNovelAi|novelAiToastAction/);
   assert.match(communityDetailSource, /type !== 'negative'[\s\S]*label: '再复制负面'/);
-  assert.match(communityDetailSource, /toast\([\s\S]*novelAiToastAction\(\)/);
+  assert.doesNotMatch(communityDetailSource, /novelAiToastAction|novelai-link/);
 }
 
 console.log('copy: all tests passed');

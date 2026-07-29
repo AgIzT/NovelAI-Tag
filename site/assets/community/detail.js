@@ -1,6 +1,5 @@
 import { closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
 import { toast } from '../app/feedback.js';
-import { novelAiToastAction } from '../app/novelai-link.js';
 import { goBackFrom } from '../app/browser-history.js';
 import { createLikeButton } from './likes.js';
 import { communityUrlForRoute, syncCommunityHistory } from './router.js';
@@ -180,7 +179,6 @@ function renderDetail() {
                 toast(
                   `已复制负面 Prompt${negativeResult?.converted ? '（SD 格式）' : ''}`,
                   '✓',
-                  novelAiToastAction(),
                 );
               } catch (error) {
                 toast(
@@ -192,7 +190,7 @@ function renderDetail() {
               }
             },
           }
-          : novelAiToastAction();
+          : null;
         toast(
           `${type === 'negative' ? '已复制负面 Prompt' : '已复制 Prompt'}${result?.converted ? '（SD 格式）' : ''}`,
           '✓',
