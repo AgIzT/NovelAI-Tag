@@ -21,6 +21,7 @@ const FILTER_EXIT_PAD_MS = 24;
 let filterTransitionSeq = 0;
 let filterTransitionTimer = 0;
 let forceEntryAnim = false;
+let suppressNextInitialEntryBatch = false;
 
 export function setMasonryActions(actions = {}) {
   Object.assign(masonryActions, actions);
@@ -287,6 +288,12 @@ export function updateVirtualCards(force = false) {
   const viewportHeight = view.viewportHeight;
   const rangeTop = Math.max(0, viewportTop - viewportHeight * VIRTUAL_BUFFER_UP);
   const rangeBottom = viewportTop + viewportHeight * (1 + VIRTUAL_BUFFER_DOWN);
+  /* 虚拟缓冲区负责预建 DOM / 预载图，不等于用户已经看见。进场只在接近真实视口时触发，
+     否则动画会在下方 1.4 屏白播，真正滚到时只剩终态。 */
+  const entryMargin = Math.min(120, viewportHeight * 0.15);
+  const entryTop = Math.max(0, viewportTop - entryMargin);
+  const entryBottom = viewportTop + viewportHeight + entryMargin;
+  const suppressThisBatch = suppressNextInitialEntryBatch;
   const next = new Set();
   const calibrations = [];
 
@@ -296,6 +303,7 @@ export function updateVirtualCards(force = false) {
     let node = state.nodes.get(placement.index);
     if (!node) {
       node = makeCard(placement);
+      node.dataset.entryPending = '1';
       state.nodes.set(placement.index, node);
       m.appendChild(node);
       if (!relayoutAnimating) calibrations.push({ node, placement });
@@ -303,7 +311,18 @@ export function updateVirtualCards(force = false) {
       updateCardPosition(node, placement);
       if (!relayoutAnimating) calibrations.push({ node, placement });
     }
+    const nearViewport = placement.top + placement.height >= entryTop && placement.top <= entryBottom;
+    if (node.dataset.entryPending === '1' && nearViewport) {
+      delete node.dataset.entryPending;
+      if (suppressThisBatch) {
+        state.seenAnimated.add(`${state.codex.id}:${placement.entry.id}`);
+        settleCardEntry(node, { immediate: true });
+      } else {
+        maybeAnimateCardEntry(node, placement);
+      }
+    }
   }
+  if (suppressThisBatch && next.size) suppressNextInitialEntryBatch = false;
 
   /* 新卡先全部入 DOM，再统一写开标签高度、统一读取真实尺寸。这样一批卡
      只触发一次布局结算，后续位置修正也只需按列累计一次。 */
@@ -364,7 +383,10 @@ export function makeCard(placement) {
     negBtn.hidden = !e.negative;
     negBtn.onclick = ev => {
       ev.stopPropagation();
-      copyText(e.negative, `已复制负面：${e.title}`, node, { offerNovelAi: true });
+      copyText(e.negative, `已复制负面：${e.title}`, node, {
+        offerNovelAi: true,
+        sampleLabel: '已复制负面',
+      });
     };
   }
   const allBtn = node.querySelector('.copy-all');
@@ -416,7 +438,6 @@ export function makeCard(placement) {
     }
     masonryActions.copyEntry(e, node);
   };
-  maybeAnimateCardEntry(node, placement);
   return node;
 }
 
@@ -433,25 +454,154 @@ export function updateCardPosition(node, placement) {
   if (tags) tags.style.height = `${placement.tagsHeight}px`;
 }
 
+/* 卡片进场 = 显影术：壳只做合成友好的位移/透明度，滤镜只落在图片层。
+   原型页的 blur12→5→0 是一张小卡；把它放到真实瀑布流整卡上会连文字、阴影一起重栅格化，
+   快速滚动时尤其容易掉帧。图片显影仍保留，但目标数和半径都收窄，避免「糊成一片」。 */
+const ENTRY_WAVES = {
+  intro: {
+    lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
+    imageBlur: 6, imageDur: 300, base: 30, step: 24, cap: 110, imageLead: 80,
+  },
+  scroll: {
+    lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
+    imageBlur: 4, imageDur: 220, base: 0, step: 18, cap: 90, imageLead: 0,
+  },
+};
+
+/* 大图的滤镜预算按「列」而不是按固定张数分配：移动端一张图已经占掉大半屏，
+   同时显影三张只是白做两层栅格化；桌面每列较窄，最多保留三列的焦点波。 */
+function introFocusCount() {
+  if (window.matchMedia('(max-width: 600px)').matches) return 1;
+  return Math.min(3, Math.max(1, state.colN));
+}
+
 export function maybeAnimateCardEntry(node, placement) {
   if (prefersReducedMotion() || relayoutAnimating || !state.codex) return;
+  // 急滑门控：滚得比阈值快时直接落终态。快速掠过的卡还去演一遍显影，只会糊成一片拖影
+  if (isFlinging()) return;
   const key = `${state.codex.id}:${placement.entry.id}`;
   if (!forceEntryAnim && state.seenAnimated.has(key)) return;
   state.seenAnimated.add(key);
 
-  const delay = Math.min(210, placement.col * 30 + (placement.index % Math.max(1, state.colN)) * 10);
-  node.style.setProperty('--entry-offset', '18px');
+  const html = document.documentElement;
+  /* 开场期间卡片是在幕布背后渲染的。进场走的是 CSS 过渡，过渡**没法像动画那样 paused**，
+     所以这里只摆好起始态（抬起 + 透明，图片显影另行暂停），等 intro:reveal 掀幕那一刻再统一放行——
+     不然开场结束掀开幕布，卡片早就自己演完了，只剩终态。 */
+  const introHold = html.classList.contains('intro-run') && !html.classList.contains('intro-reveal');
+  const wave = introHold || html.classList.contains('intro-reveal')
+    ? ENTRY_WAVES.intro
+    : ENTRY_WAVES.scroll;
+  const stagger = placement.col * wave.step + (placement.index % Math.max(1, state.colN)) * 10;
+  const delay = wave.base + Math.min(wave.cap, stagger);
+  const imageDelay = Math.max(0, delay - (wave.imageLead || 0));
+  node.style.setProperty('--entry-offset', `${wave.lift}px`);
   node.style.setProperty('--entry-delay', `${delay}ms`);
+  node.style.setProperty('--entry-image-delay', `${imageDelay}ms`);
+  node.style.setProperty('--entry-dur', `${wave.dur}ms`);
+  node.style.setProperty('--entry-image-blur', `${wave.imageBlur}px`);
+  node.style.setProperty('--entry-image-dur', `${wave.imageDur}ms`);
+  node.style.setProperty('--entry-ease', wave.ease);
+  const image = node.querySelector('.card-img');
+  if (html.classList.contains('intro-run')) {
+    /* 开场只挑首排一列（移动）/ 最多三列（桌面）做真正的显影，其他卡片保持轻量的壳动画。
+       placement.index 比 nth-child 稳定，虚拟列表重插时不会把滤镜错给屏外卡。 */
+    const focusCount = introFocusCount();
+    const imageRank = hasEntryImage(placement.entry)
+      ? state.placements.slice(0, placement.index)
+        .filter(candidate => hasEntryImage(candidate.entry)).length
+      : focusCount;
+    if (imageRank < focusCount) {
+      node.classList.add('intro-focus');
+      image?.classList.add('card-img-diffusion');
+    }
+  } else if (hasEntryImage(placement.entry) && image?.classList.contains('is-loaded')) {
+    /* 缓冲区预载命中时才做滚动显影；图片尚未回来就让既有 load settle 接管，
+       避免动画迟到开跑后又被固定 cleanup 时刻截断。 */
+    image?.classList.add('card-img-diffusion');
+  }
   node.classList.add('card-enter');
+  if (introHold) {
+    introHeld.add(node);
+    return;
+  }
+  releaseCardEntry(node, cleanupMsFor(wave, delay));
+}
+
+/* 清理要等到卡片壳与图片显影都跑完；图片可提前于壳起跑，壳的 delay 仍是最晚结束点。 */
+function cleanupMsFor(wave, delay) {
+  return delay + Math.max(wave.dur, wave.imageDur || 0) + 180;
+}
+
+function releaseCardEntry(node, cleanupMs) {
   requestAnimationFrame(() => {
-    if (!node.isConnected) return;
+    if (!node.isConnected || !node.classList.contains('card-enter')) return;
     node.classList.add('is-entered');
     node.style.setProperty('--entry-offset', '0px');
   });
-  window.setTimeout(() => {
-    node.classList.remove('card-enter', 'is-entered');
-    node.style.removeProperty('--entry-delay');
-  }, delay + 560);
+  window.setTimeout(() => settleCardEntry(node), cleanupMs);
+}
+
+function settleCardEntry(node, { immediate = false } = {}) {
+  /* skip/late-settle 要真落终态：直接摘 card-enter 时会重新命中 .card 的 opacity .16s，
+     从当前半透明值补播一小段淡入。先用 inline transition:none 结算一帧，再恢复基础规则。 */
+  const previousTransition = node.style.transition;
+  if (immediate) node.style.transition = 'none';
+  node.classList.remove('card-enter', 'is-entered', 'intro-focus');
+  for (const prop of ['--entry-delay', '--entry-image-delay', '--entry-dur', '--entry-image-blur', '--entry-image-dur', '--entry-ease']) {
+    node.style.removeProperty(prop);
+  }
+  node.querySelector('.card-img')?.classList.remove('card-img-diffusion', 'intro-image-ready');
+  node.style.setProperty('--entry-offset', '0px');
+  introHeld.delete(node);
+  if (immediate) {
+    requestAnimationFrame(() => {
+      if (previousTransition) node.style.transition = previousTransition;
+      else node.style.removeProperty('transition');
+    });
+  }
+}
+
+/* 掀幕 → 把攒着的首屏卡片一次性放行；开场被跳过 → 直接落终态。
+   ⚠ intro:settle 这条兜底不能省：用户在打字机阶段就点/滑走时没有掀幕事件，
+   攒下的卡片会永远停在 opacity:0 + blur 的起始态（= 首屏空白）。 */
+const introHeld = new Set();
+if (typeof document !== 'undefined') {
+  document.addEventListener('intro:reveal', () => {
+    const cleanup = cleanupMsFor(ENTRY_WAVES.intro, ENTRY_WAVES.intro.base + ENTRY_WAVES.intro.cap);
+    for (const node of introHeld) releaseCardEntry(node, cleanup);
+    introHeld.clear();
+  }, { once: true });
+  document.addEventListener('intro:settle', event => {
+    const active = new Set([...introHeld, ...document.querySelectorAll('.masonry .card.card-enter')]);
+    for (const node of active) settleCardEntry(node, { immediate: true });
+    introHeld.clear();
+    /* 用户在数据回来前就跳过：下一次首次虚拟批次必须直接终态，不能被当成 scroll wave
+       给整个 2.4 屏缓冲区重新挂 blur。屏外 pending 卡之后靠近视口仍可正常播放。 */
+    if (event.detail?.skipped && !state.nodes.size) suppressNextInitialEntryBatch = true;
+  });
+}
+
+/* 急滑判定：采两次滚动位置算瞬时速度，超过 3.5px/ms（≈3500px/s）就算「在甩」，跳过进场直接落终态。
+   阈值刻意留高：正常阅读式滚动约 0.5–1.5px/ms、快速滚轮约 2–3px/ms，都应该照常显影；
+   只有真甩起来（以及 scrollTo 瞬移）才门控——那时候每张卡都演一遍只会糊成拖影。
+   ⚠ 一批渲染里共用一次采样：按张采样的话批内第一张 dt 正常、其余 dt≈0 判成静止，
+   同一批卡会一半有进场一半没有，参差得很明显。 */
+let flingLastY = 0;
+let flingLastT = 0;
+let flingOn = false;
+let flingSampledAt = -1;
+const FLING_PX_PER_MS = 3.5;
+
+function isFlinging() {
+  const now = performance.now();
+  if (now - flingSampledAt < 16) return flingOn;
+  flingSampledAt = now;
+  const y = window.scrollY;
+  const dt = now - flingLastT;
+  flingOn = dt > 0 && dt < 260 && Math.abs(y - flingLastY) / dt > FLING_PX_PER_MS;
+  flingLastY = y;
+  flingLastT = now;
+  return flingOn;
 }
 
 export function calibrateCardHeight(node, placement) {

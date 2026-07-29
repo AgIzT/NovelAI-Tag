@@ -19,6 +19,7 @@ import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, ren
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
 import { bindUI, applyDensity, setOnlyImaged, setUiActions, updateSearchScopeControl } from './app/ui.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
+import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
 
@@ -130,6 +131,8 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
 export async function init() {
   const initSkeletonToken = 'init';
   try {
+    /* 开场脚本先起跑，不等任何网络请求：打字机与 step 计数就是数据加载期的等待画面 */
+    startIntro();
     configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
     setLoading('');
@@ -169,6 +172,9 @@ export async function init() {
     if (initialMeta && isCodexLocked(initialMeta)) showNsfwLockedHint();
     if (codexes.length) {
       hideSkeleton(initSkeletonToken);
+      /* ⚠ 必须在首次渲染之前：开场靠 html.intro-run 给**新插入**的横幅/胶囊/卡片换一套入场动画，
+         节点建好之后再打标就赶不上了 */
+      beginIntroReveal();
       const initialUrlState = wantsFavorites
         ? null
         : (wantsSiteSearch ? { ...state.pendingUrlState, q: '' } : state.pendingUrlState);
@@ -178,10 +184,13 @@ export async function init() {
       } else if (wantsSiteSearch) {
         await openSiteSearchView({ urlState: state.pendingUrlState, historyMode: 'none', saveBrowse: false });
       }
+      markIntroDataReady();
       initializeAtlasHistory(captureAtlasRoute(state.pendingUrlState.entry || ''));
+      await introSettled();   // 开场落幕再弹引导；没播开场时立即 resolve
       const onboardingShown = maybeShowOnboarding();
       setupResumePrompt({ route: state.pendingUrlState, onboardingShown });
     } else {
+      markIntroDataReady();
       hideSkeleton(initSkeletonToken);
       setLoading('还没有可显示的法典数据');
       const codexBtnText = $('#codexBtnText');
@@ -192,6 +201,7 @@ export async function init() {
     maybeLoadEditMode();
   } catch (ex) {
     console.error(ex);
+    markIntroDataReady();
     hideSkeleton(initSkeletonToken);
     setLoading('加载失败，请刷新页面重试');
   }

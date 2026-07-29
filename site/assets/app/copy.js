@@ -5,6 +5,7 @@ import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
 import { novelAiToastAction } from './novelai-link.js';
+import { playCopySample } from './copy-fx.js';
 
 export { fmtSdWeight, naiToSd } from './nai-sd.js';
 
@@ -53,6 +54,8 @@ export async function copyText(text, message, node, options = {}) {
     node.classList.add('copied');
     setTimeout(() => node.classList.remove('copied'), 600);
   }
+  /* 「采样」反馈严格排在剪贴板写入成功之后：失败路径走的是上面的手动复制面板，不该有庆祝动作 */
+  playCopySample(node, formatted.text, options.sampleLabel);
   const followUp = options.followUp;
   const action = followUp?.label && String(followUp.text || '').trim()
     ? {
@@ -60,6 +63,7 @@ export async function copyText(text, message, node, options = {}) {
       duration: 5_000,
       onClick: () => copyText(followUp.text, followUp.message || '已复制负面', node, {
         offerNovelAi: true,
+        sampleLabel: '已复制负面',
       }),
     }
     : (options.offerNovelAi ? novelAiToastAction() : null);

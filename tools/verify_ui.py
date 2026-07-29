@@ -339,6 +339,19 @@ def wait_for(cdp: CDP, expr: str, label: str, timeout: float = 12.0, interval: f
     raise CheckFailed(f"Timed out waiting for {label}; last={last!r}")
 
 
+def disable_motion(cdp: CDP) -> None:
+    """截图器要的是静止帧：把「开场动画」偏好预置成关闭，全站动画/过渡时长随之压到 0。
+
+    走文档启动脚本而不是 ?motion=off，是因为站点的 URL 由 atlasUrlForRoute 从路由重建，
+    附加的查询参数会在第一次 syncUrlState 后消失，反而让「前进后退 URL 应完全一致」这类断言漂移。
+    """
+    cdp.command("Page.enable")
+    cdp.command(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "try{localStorage.setItem('fadian-motion','off')}catch(e){}"},
+    )
+
+
 def navigate(cdp: CDP, url: str) -> None:
     cdp.command("Page.navigate", {"url": url}, timeout=10)
     wait_for(cdp, "document.readyState === 'complete' || document.readyState === 'interactive'", "document ready", timeout=10)
@@ -1770,6 +1783,7 @@ def main() -> int:
         chrome_proc = start_chrome(out_dir, port)
         ws_url = page_ws_url(port)
         cdp = CDP(ws_url)
+        disable_motion(cdp)
         results = run_suite(base_url, out_dir, cdp, only=args.only)
         write_report(out_dir, base_url, results)
         log("")
