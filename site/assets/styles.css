@@ -566,8 +566,33 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
   box-shadow:var(--shadow);cursor:pointer;transition:opacity .16s,box-shadow .12s,border-color .12s,transform .28s cubic-bezier(.22,1,.36,1);
   position:absolute;left:0;top:0;contain:layout paint style;will-change:transform;backface-visibility:hidden;
 }
-.card.card-enter{opacity:0;transition-delay:var(--entry-delay,0ms)}
-.card.card-enter.is-entered{opacity:1}
+/* 进场 = 显影：卡片壳只做透明度 + 位移，避免 filter 把整张卡（文字、阴影、图片）
+   一起拉进逐帧重栅格。图片层仍有短促的显影波形，参数由 masonry.js 写入。 */
+.card.card-enter{
+  /* 近零而不写死 0：首访时浏览器仍会在不透明幕布下预栅格图片滤镜，避免揭幕首帧才建层。 */
+  opacity:.001;
+  /* 起始态必须是真 hold：把 transition 写在这里会让卡片在幕布下自己从 1 过渡到 0，
+     资产等待多出一两帧时尤其明显。等 is-entered flip 再同时挂 transition。 */
+  transition:none;
+}
+.card.card-enter.is-entered{
+  opacity:1;
+  transition:
+    opacity var(--entry-dur,350ms) linear var(--entry-delay,0ms),
+    transform var(--entry-dur,350ms) var(--entry-ease,linear) var(--entry-delay,0ms);
+}
+.card.card-enter .card-img-diffusion.is-loaded{
+  animation:cardImageDiffusion var(--entry-image-dur,260ms) linear var(--entry-image-delay,var(--entry-delay,0ms)) both;
+  animation-play-state:paused;
+  will-change:filter;
+}
+.card.card-enter.is-entered .card-img-diffusion.is-loaded{animation-play-state:running}
+@keyframes cardImageDiffusion{
+  0%{filter:blur(var(--entry-image-blur,4px)) saturate(.76)}
+  38%{filter:blur(2.4px) saturate(.88)}
+  72%{filter:blur(.8px) saturate(.98)}
+  100%{filter:blur(0) saturate(1)}
+}
 .card.card-leaving{
   opacity:0;
   transition:opacity .14s linear;
@@ -588,14 +613,41 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 }
 .card:hover{box-shadow:0 0 0 1px rgba(111,92,242,.22),var(--shadow-hover);border-color:transparent}
 body.dark .card:hover{box-shadow:0 0 0 1px rgba(139,124,248,.32),var(--shadow-hover)}
-.card.copied{outline:0;box-shadow:0 0 0 2px rgba(111,92,242,.42),var(--shadow-hover)}
-.card.copied::after{
-  content:"";position:absolute;inset:-28%;z-index:10;pointer-events:none;
-  background:linear-gradient(100deg,transparent 28%,rgba(255,255,255,.62) 48%,transparent 68%);
-  transform:translateX(-120%) rotate(10deg);animation:copySweep .58s ease-out;
+/* 复制签名 =「采样」：一圈采样环从卡片边缘扩出去（原方案 0→3px α.8→6px α0 / 340ms）。
+   环必须画在卡片外侧，只能用 box-shadow——.card 有 overflow:hidden，伪元素撑不出去。
+   配套的图面噪声与种子芯片在 app/copy-fx.js。 */
+.card.copied{outline:0;animation:copySample .34s ease-out}
+@keyframes copySample{
+  0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 0%,transparent),var(--shadow-hover)}
+  50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 80%,transparent),var(--shadow-hover)}
+  100%{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 0%,transparent),var(--shadow-hover)}
 }
-body.dark .card.copied::after{background:linear-gradient(100deg,transparent 28%,rgba(180,170,255,.30) 48%,transparent 68%)}
-@keyframes copySweep{to{transform:translateX(120%) rotate(10deg)}}
+/* tag 框同步扫过一道光（借掌灯方案的 sweep）：复制走的是这一框里的字，光扫在哪儿、取的就是哪儿。
+   ⚠ 走伪元素而不是插一个真 div——masonry 要量 .card-tags 的 scrollHeight 定卡片高度，
+   往里塞节点会把测量弄脏（绝对定位的子元素不进 scrollHeight，但 innerHTML 重渲染会把它冲掉）。 */
+.card.copied .card-tags::after{
+  content:"";position:absolute;top:0;bottom:0;left:-40%;width:40%;pointer-events:none;
+  background:linear-gradient(100deg,transparent,color-mix(in srgb,var(--accent) 35%,transparent),transparent);
+  animation:copyTagSweep .38s cubic-bezier(.2,0,0,1);
+}
+@keyframes copyTagSweep{to{left:110%}}
+/* 图面闪回一帧噪声：单例节点由 copy-fx.js 搬进当前卡片的图框 */
+.copy-sample-noise{
+  position:absolute;inset:0;z-index:6;opacity:0;pointer-events:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.9'/%3E%3C/svg%3E");
+  background-size:120px 120px;
+}
+/* 种子芯片：挂 body + fixed，才能逃出 .masonry 的 contain:layout paint */
+.copy-seed-chip{
+  position:fixed;z-index:60;pointer-events:none;white-space:nowrap;
+  transform:translate(-50%,-100%);
+  opacity:1;filter:none;translate:0 -8px;
+  background:var(--popover-glass);border:1px solid var(--accent);color:var(--accent);
+  border-radius:999px;padding:5px 12px;
+  font-family:var(--font-prompt);font-size:11px;line-height:1.4;
+  box-shadow:0 6px 18px var(--accent-glow);
+}
+.copy-seed-chip[hidden]{display:none}
 .card-img-wrap{
   position:relative;line-height:0;background:var(--tagbg);overflow:hidden;
 }
@@ -689,6 +741,7 @@ body.dark .badge-neg-chip{
 .fav-btn.on{color:#f5b301}
 .card.no-img .card-title{font-size:13.8px}
 .card-tags{
+  position:relative;   /* 复制时的扫光挂在 ::after 上 */
   font-size:12px;color:var(--muted);background:var(--tagbg);border-radius:9px;padding:8px 9px;
   font-family:var(--font-prompt);line-height:1.45;
   white-space:pre-wrap;word-break:break-word;overflow:hidden;
@@ -776,7 +829,7 @@ body.density-compact .copy-hint{display:none}
   .codex-banner,.chip-rail,.result-bar,.banner-cover img{
     transition:none;
   }
-  .more-menu,.codex-menu,.banner-pop,.card-img-wrap.is-loading::before,.card.copied::after,
+  .more-menu,.codex-menu,.banner-pop,.card-img-wrap.is-loading::before,.card.copied,
   .skeleton-thumb,.skeleton-line,
   .main.skeleton-visible .codex-banner:empty::before,
   .main.skeleton-visible .codex-banner:empty::after,
@@ -1830,6 +1883,195 @@ html.vt-codex::view-transition-new(root){animation-duration:.3s}
 html.vt-codex::view-transition-old(codex-banner),
 html.vt-codex::view-transition-new(codex-banner){animation-duration:.3s}
 
+/* ---------- 首访开场「显影」 ----------
+   照搬 `珍贵的优化建议/动效方案演示.html` 的 INTROS.diffusion 分镜（编排与等待逻辑在 app/intro.js）。
+   全站固定播放，只让 prefers-reduced-motion 与 motion=off。
+
+   两段状态机：
+     html.intro-arm            幕布落下 = 采样中（打字机 + step N/28）。真实 UI 的显影动画**已挂上但暂停**，
+                               这样节点插入的时机（数据到位）与播放的时机（开幕）可以分开——
+                               否则内容会在幕布背后自己演完，掀开时只剩终态。
+     html.intro-arm.intro-run  数据就绪，新插入的横幅/胶囊/卡片带着显影动画进场，仍暂停。
+     html.intro-reveal         开幕：统一放行，全部开始跑。
+     html.intro-done           落幕后永久留下，压掉静态骨架的常规入场；首批动态节点由
+                               .intro-no-replay 单独压住。不能全局压 rail-chip/banner 内容，
+                               否则以后切换法典新建的节点也失去入场动画。
+
+   红线：不做全屏 blur/filter；较强的分段显影只给单个横幅封面，首排卡片图只做短显影，
+   位移一律用独立 translate 属性（transform 被卡片定位与顶栏收起占着）。 */
+
+/* --- 幕布本体：静态标签在 body 最前，第一帧就盖住，避免 JS 建节点前闪一下真实 UI --- */
+.intro-stage{display:none}
+html.intro-arm .intro-stage{
+  display:block;position:fixed;inset:0;z-index:90;pointer-events:none;
+}
+html.intro-arm .intro-veil{position:absolute;inset:0;background:var(--bg);pointer-events:auto}
+/* 采样读数独立于幕布：原方案里 prompt 与 step N/28 是一路陪着三段去模糊跑完的，
+   真站横幅比演示舞台更靠上，幕布打开时读数就退场，避免压住标题和进度条。
+   ⚠ 靠上居中而不是屏幕正中：正中会正好压在首排卡片脸上，
+   靠上则落在顶栏与横幅之间的空档，掀幕后那几百毫秒不挡内容。 */
+html.intro-arm .intro-console{
+  position:absolute;left:50%;top:clamp(96px,17vh,190px);translate:-50% 0;
+  text-align:center;padding:0 24px;max-width:min(680px,92vw);
+}
+/* ⚠ 这个高度会压在横幅上，是**比过之后的选择**：页面上半屏没有真正的空档——
+   往下挪到分类轨那一带会变成「文字压文字」，比压在横幅上更难读；
+   而掀幕时横幅还是个虚影，读数搁上面反而清楚，且只停留约 0.5s。 */
+.intro-prompt{
+  font-family:var(--font-prompt);font-size:clamp(12px,2.6vw,14px);line-height:1.7;
+  color:color-mix(in srgb,var(--text) 74%,transparent);word-break:break-word;min-height:1.7em;
+}
+.intro-step{
+  margin-top:10px;font-family:var(--font-prompt);font-size:11px;letter-spacing:.5px;
+  color:var(--muted);opacity:0;
+}
+/* 噪声层活得比幕布久：要一直盖到封面显影完（原方案 .14→.05→0 三段，由 intro.js 驱动） */
+html.intro-arm .intro-noise{
+  position:absolute;inset:0;display:block;opacity:0;pointer-events:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.9'/%3E%3C/svg%3E");
+  background-size:120px 120px;
+}
+
+/* --- 开幕前：所有 intro 动画一律暂停，等 intro-reveal 才放行 --- */
+html.intro-arm:not(.intro-reveal) .topbar,
+html.intro-arm:not(.intro-reveal) .topbar::after,
+html.intro-arm:not(.intro-reveal) .brand,
+html.intro-arm:not(.intro-reveal) .sidebar,
+html.intro-arm:not(.intro-reveal) .main,
+html.intro-arm:not(.intro-reveal) .float-actions,
+html.intro-arm:not(.intro-reveal) .codex-banner,
+html.intro-arm:not(.intro-reveal) .codex-banner::after,
+html.intro-arm:not(.intro-reveal) .sb-head,
+html.intro-arm:not(.intro-reveal) .banner-title,
+html.intro-arm:not(.intro-reveal) .banner-meta,
+html.intro-arm:not(.intro-reveal) .banner-about-btn,
+html.intro-arm:not(.intro-reveal) .banner-cover img,
+html.intro-arm:not(.intro-reveal) .card-img,
+html.intro-arm:not(.intro-reveal) .tree.tree-entering .tree-row>span,
+html.intro-arm:not(.intro-reveal) .skeleton-thumb,
+html.intro-arm:not(.intro-reveal) .skeleton-line,
+html.intro-arm:not(.intro-reveal) .result-bar.result-entering,
+html.intro-arm:not(.intro-reveal) .rail-chip{animation-play-state:paused}
+
+/* --- 骨架编排：顶栏落下 → 内容上浮 → 侧栏滑入 → 题名写出 → 采样线扫过 --- */
+html.intro-arm .topbar{animation:introBarIn .46s cubic-bezier(.22,1,.36,1) backwards}
+html.intro-arm .main{animation:introMainIn .38s cubic-bezier(.22,1,.36,1) .05s backwards}
+html.intro-arm .float-actions{animation:pageEnterUp .5s cubic-bezier(.22,1,.36,1) .8s backwards}
+@media (min-width:601px){
+  html.intro-arm .sidebar{animation:introSideIn .52s cubic-bezier(.22,1,.36,1) .12s backwards}
+}
+html.intro-arm .brand{animation:introBrandWipe .46s cubic-bezier(.22,1,.36,1) .18s backwards}
+@keyframes introBarIn{from{opacity:0;translate:0 -22px;scale:.97}}
+/* 幕布已经负责整页明暗；main 再淡入会让大图在揭幕后才开始栅格，也叠出一层白雾。 */
+@keyframes introMainIn{from{translate:0 18px}}
+@keyframes introSideIn{from{opacity:0;translate:-20px 0}}
+@keyframes introBrandWipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+
+/* 采样线：一道细亮线扫过一次，像扫描仪把这一栏读进来。
+   ⚠ 别做成「一大片半透明光晕」——浅色主题的面板本来就是白的，比白更亮做不到，
+   洇上去只会是一团脏影；只有**细而亮的线**在深浅两套主题里都读得出来。
+   用 background-position 推进而非位移子层：免得为了裁切给顶栏加 overflow:hidden
+   （下拉菜单正是从顶栏里溢出去的） */
+html.intro-arm .topbar::after,
+html.intro-run .codex-banner::after{
+  content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;opacity:0;
+  background:linear-gradient(100deg,
+    transparent 48.4%,
+    color-mix(in srgb,var(--accent) 22%,transparent) 49.5%,
+    color-mix(in srgb,var(--accent) 78%,transparent) 50%,
+    color-mix(in srgb,var(--accent) 22%,transparent) 50.5%,
+    transparent 51.6%);
+  background-size:260% 100%;background-repeat:no-repeat;
+}
+html.intro-arm .topbar::after{animation:introSweep .4s linear .18s backwards}
+html.intro-run .codex-banner::after{animation:introSweep .34s linear .14s backwards}
+/* ⚠ 起止值卡在「刚出左边」到「刚出右边」，配 linear 匀速：
+   范围放太宽（如 150%→-60%）时线只在中间一小段时间里掠过画面，看着是闪一下而不是扫一道。 */
+@keyframes introSweep{
+  from{background-position:90% 0;opacity:1}
+  85%{opacity:1}
+  to{background-position:10% 0;opacity:0}
+}
+
+/* --- 内容显影：这些节点都是数据到位后新建的，插入即挂上动画（此时仍 paused），开幕才跑 --- */
+html.intro-run .codex-banner{animation:introBannerIn .52s cubic-bezier(.22,1,.36,1) backwards}
+html.intro-run .sb-head{animation:introBannerIn .46s cubic-bezier(.22,1,.36,1) .1s backwards}
+html.intro-run .banner-title{animation:introTitleResolve .32s cubic-bezier(.22,1,.36,1) .05s backwards}
+html.intro-run .banner-meta,
+html.intro-run .banner-about-btn{animation:introBannerIn .36s ease .14s backwards}
+@keyframes introBannerIn{from{opacity:0;translate:0 16px}}
+@keyframes introTitleResolve{from{opacity:0;letter-spacing:2px;filter:blur(2px)}}
+
+/* 横幅保留分段显影，但真实照片上不再用 steps()：概念稿的小色块可以靠两次跳变表达采样，
+   真图会被读成「卡帧」。这里改成连续且前快后慢的桌面 12→4.5→1.2→0、
+   移动 8→3→.8→0；卡片图面积远大于横幅，移动 5px / 桌面 6px 起步，
+   让中段模糊在幕布退开后公开收敛，而不是在用户看不见时先跑完。 */
+html.intro-run .banner-cover img{
+  --intro-hero-blur-start:12px;--intro-hero-blur-mid:4.5px;--intro-hero-blur-fine:1.2px;
+  animation:introDevelop .52s linear .02s backwards;
+  will-change:filter;
+}
+@media (max-width:600px){
+  html.intro-run .banner-cover img{
+    --intro-hero-blur-start:8px;--intro-hero-blur-mid:3px;--intro-hero-blur-fine:.8px;
+  }
+}
+/* 420ms 资产等待超时后才到的图直接走既有 load settle；不要迟到再开一条基础 blur，
+   否则会在固定 cleanup 时刻被硬切清晰。 */
+html.intro-run .masonry .card.intro-focus .card-img-diffusion.is-loaded:not(.intro-image-ready){animation:none}
+html.intro-run .masonry .card.intro-focus .card-img-diffusion.intro-image-ready{
+  animation:introCardDevelop var(--entry-image-dur,340ms) linear var(--entry-image-delay,0ms) both;
+  animation-play-state:paused;
+}
+html.intro-run.intro-reveal .masonry .card.intro-focus .card-img-diffusion.intro-image-ready{
+  animation-play-state:running;
+}
+html.intro-run:not(.intro-reveal) .masonry .card.intro-focus .card-img-diffusion.intro-image-ready{
+  animation-play-state:paused;
+}
+@keyframes introCardDevelop{
+  0%{filter:blur(var(--entry-image-blur,6px)) saturate(.68)}
+  32%{filter:blur(3px) saturate(.84)}
+  68%{filter:blur(1px) saturate(.97)}
+  100%{filter:blur(0) saturate(1)}
+}
+@keyframes introDevelop{
+  0%{filter:blur(var(--intro-hero-blur-start)) saturate(.4)}
+  24%{filter:blur(var(--intro-hero-blur-mid)) saturate(.74)}
+  58%{filter:blur(var(--intro-hero-blur-fine)) saturate(.96)}
+  100%{filter:blur(0) saturate(1)}
+}
+
+/* 分类胶囊 = 原方案的 dots：scale(.4)→1，200ms，错峰 50ms（原 60ms，随整体提速压了一档） */
+html.intro-run .rail-chip{
+  animation:introChipIn .2s cubic-bezier(.16,1,.3,1) backwards;
+  animation-delay:calc(var(--chip-i,0) * 50ms);
+}
+@keyframes introChipIn{from{opacity:0;scale:.4}}
+
+/* --- 落幕后：静态骨架 + 被标记的首批动态节点不重播；以后新建的切书节点仍可正常入场 --- */
+html.intro-done .topbar,html.intro-done .sidebar,html.intro-done .main,
+html.intro-done .float-actions,html.intro-done .codex-banner,
+html.intro-done .intro-no-replay{animation:none}
+
+/* 从 strings.html 经跨页过渡抵达时，骨架那段编排让位给 View Transition（否则整页上滑与顶栏落下叠影）；
+   内容显影不在此列——它演的是数据到位那一刻，与怎么进来的无关。
+   ⚠ 必须写在上面 html.intro-* 规则之后：同特异度靠书写顺序定胜负 */
+html.vt-arrived.intro-arm .topbar,html.vt-arrived.intro-arm .sidebar,
+html.vt-arrived.intro-arm .main,html.vt-arrived.intro-arm .float-actions,
+html.vt-arrived.intro-arm .brand,html.vt-arrived.intro-arm .topbar::after{animation:none}
+
+/* motion=off：给截图器 / 回归脚本一条直达静止帧的路（URL 参数或 localStorage，UI 里不暴露）。
+   只压时长不清 animation-name——有回归用例断言刷新图标的 animation-name 仍在 */
+html.motion-off *,html.motion-off *::before,html.motion-off *::after{
+  animation-duration:.001ms!important;
+  animation-delay:0s!important;
+  animation-iteration-count:1!important;
+  transition-duration:.001ms!important;
+  transition-delay:0s!important;
+}
+html.motion-off{scroll-behavior:auto!important}
+
 /* 页面动效段在全局 reduced-motion 规则之后追加，需在末尾再兜一次，避免后写规则覆盖系统偏好 */
 @media (prefers-reduced-motion: reduce){
   .topbar,.sidebar,.main,.float-actions,
@@ -1837,7 +2079,9 @@ html.vt-codex::view-transition-new(codex-banner){animation-duration:.3s}
   .codex-banner,.chip-rail,.result-bar,
   .banner-cover,.banner-info,.banner-about-btn,.banner-cover img,
   .tree.tree-entering .tree-row>span,
-  .rail-chip,.card-img,.tree-spy,
+  .rail-chip,.card-img,.card-img-diffusion,.tree-spy,
+  .brand,.sb-head,.banner-title,.banner-meta,.card.card-enter,
+  .topbar::after,.codex-banner::after,.intro-noise,.copy-sample-noise,.copy-seed-chip,
   .feedback-public-state.is-loading i,.feedback-progress-intro button[aria-busy="true"] span{
     animation:none!important;
     transition:none!important;

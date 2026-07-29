@@ -37,6 +37,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/router.js">
 <link rel="modulepreload" href="assets/app/media.js">
 <link rel="modulepreload" href="assets/app/copy.js">
+<link rel="modulepreload" href="assets/app/copy-fx.js">
 <link rel="modulepreload" href="assets/app/favorites.js">
 <link rel="modulepreload" href="assets/app/site-search.js">
 <link rel="modulepreload" href="assets/app/codex-ui.js">
@@ -45,6 +46,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/history.js">
 <link rel="modulepreload" href="assets/app/report.js">
 <link rel="modulepreload" href="assets/app/announcements.js">
+<link rel="modulepreload" href="assets/app/intro.js">
 <link rel="modulepreload" href="assets/app/onboarding.js">
 <link rel="modulepreload" href="assets/app/home-shortcut.js">
 <link rel="modulepreload" href="assets/app/resume-prompt.js">
@@ -61,7 +63,42 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   const d=localStorage.getItem('fadian-density');
   if(d==='comfort'||d==='standard'||d==='compact')c.add('density-'+d);
 }catch(e){}})();
+/* 开场档位判定：必须在首帧前定好，晚一步就会先闪一下常规入场再切开场。
+   开场**固定播放**、不做用户设置；只有两条豁免：
+     · prefers-reduced-motion（系统级无障碍偏好，不是站点设置，必须让）
+     · motion=off —— 给截图器/回归脚本用的静止帧开关，URL 参数或 localStorage 都认，UI 里不暴露
+   ⚠ 这里只判定并写进 <html data-motion>，编排在 assets/app/intro.js。 */
+(()=>{try{
+  const h=document.documentElement,q=new URLSearchParams(location.search);
+  const off=q.get('motion')==='off'||localStorage.getItem('fadian-motion')==='off';
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const mode=off?'off':(reduce?'brief':'full');
+  h.dataset.motion=mode;
+  if(off)h.classList.add('motion-off');
+  if(mode==='full'){
+    h.classList.add('intro-arm');
+    /* 兜底：模块没加载成功也别把页面锁在开场幕后面 */
+    setTimeout(()=>{
+      if(!h.classList.contains('intro-arm'))return;
+      h.classList.remove('intro-arm','intro-run','intro-reveal');h.classList.add('intro-done');
+      /* 模块已经起跑但数据仍未回来时，通知它一并 resolve 内部 Promise；
+         只摘 class 会让 app.js 永久卡在 await introSettled()。 */
+      document.dispatchEvent(new CustomEvent('intro:timeout'));
+    },8000);
+  }
+}catch(e){}})();
 </script>
+<!-- 开场幕：必须是静态标签、且排在 body 最前，才能在第一帧就盖住页面（JS 建节点会先闪一下真实 UI）。
+     .intro-veil 是纯色幕 + 采样控制台，数据就绪后淡出；.intro-noise 活得更久，
+     要一直盖到封面/卡片显影完（对应原方案 noise 的 0→.14→.05→0 三段）。 -->
+<div id="introStage" class="intro-stage" aria-hidden="true">
+  <div class="intro-veil"></div>
+  <i class="intro-noise"></i>
+  <div id="introConsole" class="intro-console">
+    <div id="introPrompt" class="intro-prompt"></div>
+    <div id="introStep" class="intro-step">step 0/28</div>
+  </div>
+</div>
 <div id="scrollProgress" class="scroll-progress" aria-hidden="true"></div>
 <header class="topbar">
   <button id="menuBtn" class="icon-btn" title="目录">☰</button>

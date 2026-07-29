@@ -4,8 +4,27 @@ import { recordRecentEntry, saveBrowseStateNow } from './history.js';
 import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
+import { playCopySample } from './copy-fx.js';
 
 export { fmtSdWeight, naiToSd } from './nai-sd.js';
+
+const copiedClassTimers = new WeakMap();
+
+function replayCopiedClass(node) {
+  const previous = copiedClassTimers.get(node);
+  if (previous) {
+    clearTimeout(previous);
+    node.classList.remove('copied');
+    void node.offsetWidth; // 同一节点连点时强制重新建立采样环 / tag 扫光动画
+  }
+  node.classList.add('copied');
+  const timer = setTimeout(() => {
+    if (copiedClassTimers.get(node) !== timer) return;
+    node.classList.remove('copied');
+    copiedClassTimers.delete(node);
+  }, 600);
+  copiedClassTimers.set(node, timer);
+}
 
 export async function copyEntry(e, node) {
   recordRecentEntry(e);
@@ -48,15 +67,18 @@ export async function copyText(text, message, node, options = {}) {
   }
 
   if (node) {
-    node.classList.add('copied');
-    setTimeout(() => node.classList.remove('copied'), 600);
+    replayCopiedClass(node);
   }
+  /* 「采样」反馈严格排在剪贴板写入成功之后：失败路径走的是上面的手动复制面板，不该有庆祝动作 */
+  playCopySample(node, formatted.text, options.sampleLabel);
   const followUp = options.followUp;
   const action = followUp?.label && String(followUp.text || '').trim()
     ? {
       label: followUp.label,
       duration: 5_000,
-      onClick: () => copyText(followUp.text, followUp.message || '已复制负面', node),
+      onClick: () => copyText(followUp.text, followUp.message || '已复制负面', node, {
+        sampleLabel: '已复制负面',
+      }),
     }
     : null;
   toast(`${message}${formatted.converted ? '（SD 格式）' : ''}`, '✓', action);
