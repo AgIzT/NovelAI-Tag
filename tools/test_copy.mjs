@@ -228,18 +228,28 @@ function execDocument(result) {
 
 // 主站与共创广场保留正向→负面接力，但复制成功后不再附加 NovelAI 外链动作。
 {
-  const [copySource, lightboxSource, communityDetailSource] = await Promise.all([
+  const [copySource, lightboxSource, masonrySource, moduleMapSource, communityDetailSource] = await Promise.all([
     readFile(new URL('../site/assets/app/copy.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/masonry.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/MODULE_MAP.md', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/community/detail.js', import.meta.url), 'utf8'),
   ]);
   assert.match(copySource, /label: '再复制负面'/);
   assert.match(copySource, /const message = negative \? `已复制正向：\$\{e\.title\}` : `已复制：\$\{e\.title\}`/);
-  assert.doesNotMatch(copySource, /offerNovelAi|novelAiToastAction/);
+  assert.match(copySource, /playCopySample\(node, formatted\.text, options\.sampleLabel\)/);
   assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false \}\)/);
-  assert.doesNotMatch(lightboxSource, /offerNovelAi|novelAiToastAction/);
+  assert.match(lightboxSource, /copyText\(e\.negative[\s\S]*sampleLabel: '已复制负面'/);
+  assert.match(masonrySource, /copyText\(e\.negative[\s\S]*sampleLabel: '已复制负面'/);
+  assert.match(moduleMapSource, /`copy-fx\.js`/);
   assert.match(communityDetailSource, /type !== 'negative'[\s\S]*label: '再复制负面'/);
-  assert.doesNotMatch(communityDetailSource, /novelAiToastAction|novelai-link/);
+  for (const source of [copySource, lightboxSource, masonrySource, moduleMapSource, communityDetailSource]) {
+    assert.doesNotMatch(source, /offerNovelAi|novelAiToastAction|novelai-link/);
+  }
+  await assert.rejects(
+    readFile(new URL('../site/assets/app/novelai-link.js', import.meta.url), 'utf8'),
+    error => error?.code === 'ENOENT',
+  );
 }
 
 console.log('copy: all tests passed');

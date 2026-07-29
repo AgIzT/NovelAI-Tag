@@ -582,15 +582,15 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
     transform var(--entry-dur,350ms) var(--entry-ease,linear) var(--entry-delay,0ms);
 }
 .card.card-enter .card-img-diffusion.is-loaded{
-  animation:cardImageDiffusion var(--entry-image-dur,280ms) linear var(--entry-image-delay,var(--entry-delay,0ms)) both;
+  animation:cardImageDiffusion var(--entry-image-dur,260ms) linear var(--entry-image-delay,var(--entry-delay,0ms)) both;
   animation-play-state:paused;
   will-change:filter;
 }
 .card.card-enter.is-entered .card-img-diffusion.is-loaded{animation-play-state:running}
 @keyframes cardImageDiffusion{
-  0%{filter:blur(var(--entry-image-blur,4px)) saturate(.78)}
-  30%{filter:blur(1.6px) saturate(.92)}
-  65%{filter:blur(.4px) saturate(1)}
+  0%{filter:blur(var(--entry-image-blur,4px)) saturate(.76)}
+  38%{filter:blur(2.4px) saturate(.88)}
+  72%{filter:blur(.8px) saturate(.98)}
   100%{filter:blur(0) saturate(1)}
 }
 .card.card-leaving{
@@ -2003,8 +2003,8 @@ html.intro-run .banner-about-btn{animation:introBannerIn .36s ease .14s backward
 
 /* 横幅保留分段显影，但真实照片上不再用 steps()：概念稿的小色块可以靠两次跳变表达采样，
    真图会被读成「卡帧」。这里改成连续且前快后慢的桌面 12→4.5→1.2→0、
-   移动 8→3→.8→0；卡片图面积远大于横幅，只做 6→2.2→.6→0 的轻显影，
-   并把主要清晰度变化提前在幕布下跑掉。 */
+   移动 8→3→.8→0；卡片图面积远大于横幅，移动 5px / 桌面 6px 起步，
+   让中段模糊在幕布退开后公开收敛，而不是在用户看不见时先跑完。 */
 html.intro-run .banner-cover img{
   --intro-hero-blur-start:12px;--intro-hero-blur-mid:4.5px;--intro-hero-blur-fine:1.2px;
   animation:introDevelop .52s linear .02s backwards;
@@ -2019,7 +2019,7 @@ html.intro-run .banner-cover img{
    否则会在固定 cleanup 时刻被硬切清晰。 */
 html.intro-run .masonry .card.intro-focus .card-img-diffusion.is-loaded:not(.intro-image-ready){animation:none}
 html.intro-run .masonry .card.intro-focus .card-img-diffusion.intro-image-ready{
-  animation:introCardDevelop var(--entry-image-dur,300ms) linear var(--entry-image-delay,0ms) both;
+  animation:introCardDevelop var(--entry-image-dur,340ms) linear var(--entry-image-delay,0ms) both;
   animation-play-state:paused;
 }
 html.intro-run.intro-reveal .masonry .card.intro-focus .card-img-diffusion.intro-image-ready{
@@ -2029,9 +2029,9 @@ html.intro-run:not(.intro-reveal) .masonry .card.intro-focus .card-img-diffusion
   animation-play-state:paused;
 }
 @keyframes introCardDevelop{
-  0%{filter:blur(6px) saturate(.55)}
-  30%{filter:blur(2.2px) saturate(.84)}
-  64%{filter:blur(.6px) saturate(.98)}
+  0%{filter:blur(var(--entry-image-blur,6px)) saturate(.68)}
+  32%{filter:blur(3px) saturate(.84)}
+  68%{filter:blur(1px) saturate(.97)}
   100%{filter:blur(0) saturate(1)}
 }
 @keyframes introDevelop{

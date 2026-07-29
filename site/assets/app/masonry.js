@@ -459,11 +459,11 @@ export function updateCardPosition(node, placement) {
 const ENTRY_WAVES = {
   intro: {
     lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
-    imageBlur: 6, imageDur: 300, base: 30, step: 24, cap: 110, imageLead: 80,
+    imageBlur: 6, imageDur: 340, base: 30, step: 24, cap: 110, imageOffset: 30,
   },
   scroll: {
     lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
-    imageBlur: 4, imageDur: 220, base: 0, step: 18, cap: 90, imageLead: 0,
+    imageBlur: 4, imageDur: 260, base: 0, step: 18, cap: 90, imageOffset: 0,
   },
 };
 
@@ -492,12 +492,15 @@ export function maybeAnimateCardEntry(node, placement) {
     : ENTRY_WAVES.scroll;
   const stagger = placement.col * wave.step + (placement.index % Math.max(1, state.colN)) * 10;
   const delay = wave.base + Math.min(wave.cap, stagger);
-  const imageDelay = Math.max(0, delay - (wave.imageLead || 0));
+  const imageDelay = Math.max(0, delay + (wave.imageOffset || 0));
+  const imageBlur = wave === ENTRY_WAVES.intro && window.matchMedia('(max-width: 600px)').matches
+    ? 5
+    : wave.imageBlur;
   node.style.setProperty('--entry-offset', `${wave.lift}px`);
   node.style.setProperty('--entry-delay', `${delay}ms`);
   node.style.setProperty('--entry-image-delay', `${imageDelay}ms`);
   node.style.setProperty('--entry-dur', `${wave.dur}ms`);
-  node.style.setProperty('--entry-image-blur', `${wave.imageBlur}px`);
+  node.style.setProperty('--entry-image-blur', `${imageBlur}px`);
   node.style.setProperty('--entry-image-dur', `${wave.imageDur}ms`);
   node.style.setProperty('--entry-ease', wave.ease);
   const image = node.querySelector('.card-img');
@@ -526,9 +529,10 @@ export function maybeAnimateCardEntry(node, placement) {
   releaseCardEntry(node, cleanupMsFor(wave, delay));
 }
 
-/* 清理要等到卡片壳与图片显影都跑完；图片可提前于壳起跑，壳的 delay 仍是最晚结束点。 */
+/* 清理要等到卡片壳与图片显影都跑完；intro 图片现在比壳晚 30ms，不能再只按壳的结束点算。 */
 function cleanupMsFor(wave, delay) {
-  return delay + Math.max(wave.dur, wave.imageDur || 0) + 180;
+  const imageDelay = Math.max(0, delay + (wave.imageOffset || 0));
+  return Math.max(delay + wave.dur, imageDelay + (wave.imageDur || 0)) + 180;
 }
 
 function releaseCardEntry(node, cleanupMs) {

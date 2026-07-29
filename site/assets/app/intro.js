@@ -9,7 +9,7 @@
                       不再把概念稿的 steps(2) 搬到真实照片上（那会被眼睛读成卡帧）
 
    然后才是收尾的两波（照原方案的形，节奏整体提速一档）：分类圆点 scale(.4)→1 / 200ms / 错峰 50ms；
-   卡片壳延迟 30ms 做 translateY(6px)+线性透明度，图片显影提前在幕布下预跑；移动端只取 1 张、
+   卡片壳延迟 30ms 做 translateY(6px)+线性透明度，图片在幕布退开时晚 30ms 公开显影；移动端只取 1 张、
    桌面最多 3 张，并且必须在 420ms 内完成 load + decode，避免冷启动把解码塞进第一帧 filter paint。
 
    纪律：静止帧 = 终态（收尾把 intro-* 全摘掉；intro-done 只压静态页面骨架，首批动态节点另打
@@ -29,6 +29,7 @@ const STEP_TICK_MS = 90;
 const STEP_ADD = 3;
 const DEVELOP_MS = 520;      // hero 封面显影，与 CSS 的 introDevelop 必须同长
 const TAIL_MS = 180;         // 等首排图片/分类波落稳；最后一帧不靠 finish() 硬切
+const VEIL_MS = 130;         // 幕布只负责交接；不能盖住卡片最有辨识度的模糊→清晰阶段
 const INTRO_ASSET_WAIT_MS = 420;
 const PROGRESS_DELAY_MS = 90;
 const PROGRESS_MS = 520;
@@ -107,11 +108,11 @@ async function runIntro() {
   const stepEl = $('#introStep');
 
   // ① 噪声铺开：站点先是「一片未成形」
-  // ⚠ 原方案的 .14 是按近黑舞台（#07080d）调的；同样的灰噪点铺在浅色底上对比度低得多，
-  //   几乎看不出来。浅色主题按比例抬一档，两套主题才是同一个「颗粒感」。
+  // ⚠ 原方案的 .14 是按近黑舞台（#07080d）调的；浅色主题略抬一档，但不能让噪声盖住
+  //   幕布退开后的图片显影。
   const dark = document.body.classList.contains('dark');
-  const peak = dark ? 0.14 : 0.2;
-  const mid = dark ? 0.05 : 0.08;
+  const peak = dark ? 0.14 : 0.16;
+  const mid = dark ? 0.05 : 0.065;
   const noiseIn = noise?.animate([{ opacity: 0 }, { opacity: peak }], { duration: 200, fill: 'both' });
   if (finished) return;
 
@@ -147,8 +148,8 @@ async function runIntro() {
   html.classList.add('intro-reveal');
   noiseIn?.finish();
   const veil = document.querySelector('.intro-veil');
-  veil?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: 'ease-out', fill: 'forwards' });
-  timers.push(window.setTimeout(() => { if (veil) veil.style.display = 'none'; }, 180));
+  veil?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: VEIL_MS, easing: 'ease-out', fill: 'forwards' });
+  timers.push(window.setTimeout(() => { if (veil) veil.style.display = 'none'; }, VEIL_MS));
   document.dispatchEvent(new CustomEvent('intro:reveal'));
 
   // 真站横幅比演示舞台更靠上，读数在幕布打开时就退场，避免压住标题/进度条
@@ -159,7 +160,7 @@ async function runIntro() {
   // 噪声跟着显影两段退场：先在轮廓成形时回落，再在细节清晰时退净
   timers.push(window.setTimeout(() => {
     noise?.animate([{ opacity: peak }, { opacity: mid }], { duration: 180, fill: 'both' });
-  }, 180));
+  }, VEIL_MS));
   timers.push(window.setTimeout(() => {
     noise?.animate([{ opacity: mid }, { opacity: 0 }], { duration: 160, fill: 'both' });
   }, DEVELOP_MS));

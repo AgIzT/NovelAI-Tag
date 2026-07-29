@@ -692,7 +692,9 @@ export function renderLightbox() {
   $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyNegative').onclick = ev => {
     ev.stopPropagation();
-    copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget);
+    copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget, {
+      sampleLabel: '已复制负面',
+    });
   };
   $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
   $('#copyAll').onclick = ev => {
