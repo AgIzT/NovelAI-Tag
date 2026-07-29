@@ -4,7 +4,7 @@
      ① 图面闪回一帧噪声   opacity 0 → .28(offset .4) → 0，180ms —— 图像短暂退回未去噪的样子
      ② 卡片一圈采样环     box-shadow 0 → 3px(α.8) → 6px(α0)，340ms
      ③ 种子芯片浮起       乱码 4 帧 × 30ms 重组成「✓ 已采样 · N tags」，
-                          +6px → -8px 浮起 260ms，停 1000ms，再带 blur(3px) 淡出 260ms
+                          +6px → -8px 浮起 260ms，停 1000ms，再用位移 + 透明度退场 180ms
 
    与原方案的两处差异（都有原因，别当漏做）：
      · 颜色用 var(--accent) 而不是写死的 #8b7cf8 —— 本站有四套主题，写死会在樱粉/暖金下串色
@@ -18,11 +18,15 @@ const GLYPHS = '▓▒░#*+=%$@!?';
 const SCRAMBLE_FRAMES = 4;
 const SCRAMBLE_MS = 30;
 const COMBO_MS = 600;
+const EXIT_MS = 180;
+const EXIT_CLEANUP_GRACE_MS = 80;
 
 let chipEl = null;
 let noiseEl = null;
 let chipTimers = [];
 let chipGen = 0;        // 每次播放一个代号：上一次的收尾回调不许再碰这一次的芯片
+let riseAnimation = null;
+let exitAnimation = null;
 let lastAt = 0;
 let pointer = null;
 
@@ -57,6 +61,29 @@ function clearChipTimers() {
   chipTimers = [];
 }
 
+function cancelAnimation(animation) {
+  if (!animation) return;
+  try { animation.cancel(); } catch { /* 已结束或已被浏览器回收 */ }
+}
+
+/* 不把 fill:forwards 的终态留给下一轮复用。Chrome 后台标签页会把已结束、
+   已不再出现在 getAnimations() 里的合成结果继续显示；旧 blur/opacity 因而可能
+   压住整段下一轮停留期。句柄主动销毁 + 明确的清晰基础态可切断这条残留链。 */
+function resetChipAnimations(chip) {
+  cancelAnimation(riseAnimation);
+  cancelAnimation(exitAnimation);
+  riseAnimation = null;
+  exitAnimation = null;
+  chip.getAnimations().forEach(cancelAnimation);
+}
+
+function setChipClearState(chip, hidden = chip.hidden) {
+  chip.style.opacity = '1';
+  chip.style.filter = 'none';
+  chip.style.translate = '0 -8px';
+  chip.hidden = hidden;
+}
+
 function countTags(text) {
   return String(text || '')
     .split(',')
@@ -82,7 +109,7 @@ function anchorFor(node) {
 export function playCopySample(node, text, label = '已复制正面') {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const now = performance.now();
-  const combo = now - lastAt < COMBO_MS;      // 连点降格：只留芯片，不再闪噪声、不再乱码重组
+  const combo = lastAt > 0 && now - lastAt < COMBO_MS; // 首次点击不能因页面刚加载而误判成连点
   lastAt = now;
   const gen = ++chipGen;
 
@@ -106,19 +133,12 @@ export function playCopySample(node, text, label = '已复制正面') {
   // ③ 种子芯片
   const chip = ensureChip();
   clearChipTimers();
-  chip.getAnimations().forEach(a => { try { a.cancel(); } catch { /* 已结束 */ } });
-  /* ⚠ 淡出用的是 fill:'forwards' 的 blur(3px)。取消动画理论上会撤掉填充值，
-     但连点时上一轮的收尾回调仍可能抢在后面执行，把这一轮的芯片按成「糊着 / 隐藏」。
-     所以这里显式把视觉状态归零，再配 chipGen 让过期回调整个作废——
-     这就是「芯片一直模糊、快消失了才清晰」那个 bug 的根。 */
-  chip.style.filter = 'none';
-  chip.style.opacity = '';
+  resetChipAnimations(chip);
+  setChipClearState(chip, false);
   const target = `✓ ${label} · ${countTags(text)} tags`;
   const { x, y } = anchorFor(node);
   chip.style.left = `${Math.round(x)}px`;
   chip.style.top = `${Math.round(y - 14)}px`;
-  chip.hidden = false;
-
   if (combo) {
     chip.textContent = target;
   } else {
@@ -138,22 +158,49 @@ export function playCopySample(node, text, label = '已复制正面') {
   }
 
   const riseMs = combo ? 120 : 260;
-  chip.animate([
+  const rise = chip.animate([
     { opacity: 0, translate: '0 6px' },
     { opacity: 1, translate: '0 -8px' },
-  ], { duration: riseMs, easing: 'cubic-bezier(0.16,1,0.3,1)', fill: 'forwards' });
+  ], { duration: riseMs, easing: 'cubic-bezier(0.16,1,0.3,1)' });
+  riseAnimation = rise;
+  rise.finished.then(
+    () => {
+      if (gen !== chipGen || riseAnimation !== rise) return;
+      riseAnimation = null;
+      cancelAnimation(rise);
+      setChipClearState(chip, false);
+    },
+    () => { if (riseAnimation === rise) riseAnimation = null; },
+  );
 
   const holdMs = combo ? 700 : 1000;
   chipTimers.push(window.setTimeout(() => {
     if (gen !== chipGen) return;
-    chip.style.filter = '';   // 交还给动画，别和内联的 none 打架
-    chip.animate(
-      [{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(3px)' }],
-      { duration: 260, fill: 'forwards' },
-    ).finished.then(
-      () => { if (gen === chipGen) chip.hidden = true; },
-      () => {},   // ⚠ 必须用两参 then：写成 .catch(()=>{}).then(...) 的话，
-                  //   被取消的动画也会走进成功分支，把下一次的芯片藏掉
+    cancelAnimation(riseAnimation);
+    riseAnimation = null;
+    setChipClearState(chip, false);
+    const exit = chip.animate(
+      [
+        { opacity: 1, translate: '0 -8px', offset: 0 },
+        { opacity: 1, translate: '0 -8px', offset: 0.5 },
+        { opacity: 0, translate: '0 -13px', offset: 1 },
+      ],
+      { duration: EXIT_MS, easing: 'linear' },
     );
+    exitAnimation = exit;
+    const finishExit = () => {
+      if (gen !== chipGen || exitAnimation !== exit) return;
+      chip.hidden = true;   // 先停止绘制，再撤销动画，避免清晰基础态闪一帧
+      exitAnimation = null;
+      cancelAnimation(exit);
+      setChipClearState(chip, true);
+    };
+    exit.finished.then(
+      finishExit,
+      finishExit, // 当前轮若被浏览器主动取消也必须收口；新一轮会被 gen / 句柄双重拦住
+    );
+    /* 后台标签页可能冻结 WAAPI 时间线，却继续推进 setTimeout。不能只等 finished，
+       否则芯片会停在退场首帧直到标签页重新获得前台。 */
+    chipTimers.push(window.setTimeout(finishExit, EXIT_MS + EXIT_CLEANUP_GRACE_MS));
   }, riseMs + holdMs));
 }

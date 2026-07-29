@@ -226,6 +226,187 @@ function execDocument(result) {
   }
 }
 
+// 种子芯片必须在后台标签页 / 连点重入后仍从清晰基础态开始，且不能留下 forwards 动画终态。
+{
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const timers = new Map();
+  const createdAnimations = [];
+  let timerId = 0;
+
+  class FakeAnimation {
+    constructor(element, keyframes, options) {
+      this.element = element;
+      this.keyframes = keyframes;
+      this.options = options;
+      this.cancelled = false;
+      this.settled = false;
+      this.handlers = [];
+      this.finished = {
+        then: (resolve, reject) => {
+          this.handlers.push({ resolve, reject });
+          return this.finished;
+        },
+      };
+    }
+
+    detach() {
+      this.element.animations = this.element.animations.filter(item => item !== this);
+    }
+
+    cancel() {
+      this.cancelled = true;
+      this.detach();
+      if (this.settled) return;
+      this.settled = true;
+      for (const handler of this.handlers) handler.reject?.(new Error('cancelled'));
+    }
+
+    finish() {
+      if (this.settled) return;
+      this.settled = true;
+      this.detach();
+      for (const handler of this.handlers) handler.resolve?.();
+    }
+
+    // 模拟一个已经过期、却晚到本轮之后的成功回调；chipGen 必须令它失效。
+    forceResolve() {
+      for (const handler of this.handlers) handler.resolve?.();
+    }
+  }
+
+  const chip = {
+    animations: [],
+    className: '',
+    hidden: true,
+    isConnected: false,
+    style: {},
+    textContent: '',
+    setAttribute() {},
+    getAnimations() { return this.animations.slice(); },
+    animate(keyframes, options) {
+      const animation = new FakeAnimation(this, keyframes, options);
+      this.animations.push(animation);
+      createdAnimations.push(animation);
+      return animation;
+    },
+  };
+  const fakeWindow = {
+    innerHeight: 800,
+    innerWidth: 1200,
+    addEventListener() {},
+    matchMedia: () => ({ matches: false }),
+    setTimeout(fn, delay) {
+      const id = ++timerId;
+      timers.set(id, { fn, delay, interval: false });
+      return id;
+    },
+    setInterval(fn, delay) {
+      const id = ++timerId;
+      timers.set(id, { fn, delay, interval: true });
+      return id;
+    },
+    clearTimeout(id) { timers.delete(id); },
+    clearInterval(id) { timers.delete(id); },
+  };
+  const fakeDocument = {
+    body: {
+      appendChild(node) { node.isConnected = true; },
+    },
+    createElement(tag) {
+      assert.equal(tag, 'div', '无卡片节点时只应创建种子芯片');
+      return chip;
+    },
+  };
+  const runTimeout = delay => {
+    const found = [...timers].find(([, timer]) => !timer.interval && timer.delay === delay);
+    assert.ok(found, `应存在 ${delay}ms 的芯片收尾定时器`);
+    const [id, timer] = found;
+    timers.delete(id);
+    timer.fn();
+  };
+
+  globalThis.window = fakeWindow;
+  globalThis.document = fakeDocument;
+  try {
+    const { playCopySample } = await import('../site/assets/app/copy-fx.js?chip-lifecycle-test');
+
+    playCopySample(null, 'alpha,beta', '已复制正面');
+    assert.equal(chip.hidden, false);
+    assert.equal(chip.style.filter, 'none');
+    assert.equal(chip.style.opacity, '1');
+    const firstRise = createdAnimations.at(-1);
+    assert.equal(firstRise.options.fill, undefined, '入场不得保留 forwards 终态');
+    assert.equal(firstRise.keyframes.some(frame => 'filter' in frame), false);
+    firstRise.finish();
+    runTimeout(1260);
+    const staleExit = createdAnimations.at(-1);
+    assert.equal(staleExit.options.fill, undefined, '退场不得保留 forwards 终态');
+    assert.equal(staleExit.keyframes.some(frame => 'filter' in frame), false, '芯片退场不再使用 blur');
+
+    playCopySample(null, 'negative,noise,artifact', '已复制负面');
+    assert.equal(staleExit.cancelled, true, '新一轮必须主动销毁旧退场动画');
+    assert.equal(chip.hidden, false);
+    assert.equal(chip.style.filter, 'none');
+    assert.equal(chip.textContent, '✓ 已复制负面 · 3 tags');
+    staleExit.forceResolve();
+    assert.equal(chip.hidden, false, '过期回调不得隐藏当前芯片');
+    assert.equal(chip.style.filter, 'none');
+
+    const secondRise = createdAnimations.at(-1);
+    secondRise.finish();
+    runTimeout(820);
+    const currentExit = createdAnimations.at(-1);
+    currentExit.finish();
+    assert.equal(chip.hidden, true);
+    assert.equal(chip.style.filter, 'none');
+    assert.equal(chip.style.opacity, '1');
+    assert.equal(chip.style.translate, '0 -8px');
+    assert.equal(chip.getAnimations().length, 0, '隐藏后不能遗留动画 effect');
+
+    playCopySample(null, 'fresh', '已复制正面');
+    assert.equal(chip.hidden, false);
+    assert.equal(chip.style.filter, 'none', '从隐藏态重播仍必须清晰');
+
+    const thirdRise = createdAnimations.at(-1);
+    thirdRise.finish();
+    runTimeout(820);
+    const frozenExit = createdAnimations.at(-1);
+    assert.equal(chip.hidden, false);
+    runTimeout(260);
+    assert.equal(frozenExit.cancelled, true, '后台冻结的退场动画必须由兜底定时器销毁');
+    assert.equal(chip.hidden, true, '后台标签页不能把芯片永久留在页面上');
+    assert.equal(chip.style.filter, 'none');
+    assert.equal(chip.getAnimations().length, 0);
+
+    let previousRapidRise = null;
+    for (let index = 0; index < 8; index++) {
+      const label = index % 2 ? '已复制负面' : '已复制正面';
+      playCopySample(null, `rapid-${index},shared`, label);
+      if (previousRapidRise) {
+        assert.equal(previousRapidRise.cancelled, true, `第 ${index + 1} 次连点必须销毁上一轮入场`);
+      }
+      assert.equal(chip.hidden, false);
+      assert.equal(chip.style.filter, 'none', `第 ${index + 1} 次连点不得继承模糊`);
+      assert.equal(chip.textContent, `✓ ${label} · 2 tags`);
+      previousRapidRise = createdAnimations.at(-1);
+    }
+    previousRapidRise.finish();
+    runTimeout(820);
+    const rapidExit = createdAnimations.at(-1);
+    runTimeout(260);
+    assert.equal(rapidExit.cancelled, true);
+    assert.equal(chip.hidden, true);
+    assert.equal(chip.style.filter, 'none');
+    assert.equal(chip.getAnimations().length, 0);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
+}
+
 // 主站与共创广场保留正向→负面接力，但复制成功后不再附加 NovelAI 外链动作。
 {
   const [copySource, lightboxSource, masonrySource, moduleMapSource, communityDetailSource] = await Promise.all([

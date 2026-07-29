@@ -641,6 +641,7 @@ body.dark .card:hover{box-shadow:0 0 0 1px rgba(139,124,248,.32),var(--shadow-ho
 .copy-seed-chip{
   position:fixed;z-index:60;pointer-events:none;white-space:nowrap;
   transform:translate(-50%,-100%);
+  opacity:1;filter:none;translate:0 -8px;
   background:var(--popover-glass);border:1px solid var(--accent);color:var(--accent);
   border-radius:999px;padding:5px 12px;
   font-family:var(--font-prompt);font-size:11px;line-height:1.4;
