@@ -423,6 +423,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     cdp.command("Log.enable")
     install_error_capture(cdp)
     entry_id = first_imaged_entry_id("suozhang")
+    no_original_entry_id = first_imaged_entry_id("composition_style")
     new_label, new_count = new_filter_config("suozhang")
     r18_new_label, r18_new_count = new_filter_config("suozhang_r18")
     pack_data = json.loads((ROOT / "site" / "data" / "community_ai_misc.json").read_text(encoding="utf-8"))
@@ -1004,6 +1005,68 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         data["closedUrl"] = cdp.eval("location.href")
         check_no_errors(cdp)
         return {**data, "screenshot": shot}
+
+    def no_original_lightbox():
+        clear_errors(cdp)
+        navigate(cdp, base + "?codex=composition_style")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "no-original codex cards", timeout=10)
+        cdp.eval("""
+(() => {
+  performance.clearResourceTimings();
+  const status = document.querySelector('#lightboxOriginalStatus');
+  window.__qaOriginalStates = [];
+  window.__qaOriginalObserver?.disconnect();
+  const record = () => {
+    const text = status?.textContent?.trim() || '';
+    if (text && window.__qaOriginalStates.at(-1) !== text) window.__qaOriginalStates.push(text);
+  };
+  window.__qaOriginalObserver = new MutationObserver(record);
+  window.__qaOriginalObserver.observe(status, {
+    attributes: true,
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+  record();
+  const zoom = [...document.querySelectorAll('.card:not(.no-img) .zoom-btn')][0];
+  if (!zoom) throw new Error('no image zoom button in no-original codex');
+  zoom.click();
+  return true;
+})()
+""")
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open')", "no-original lightbox", timeout=10)
+        settle(cdp, 700)
+        data = cdp.eval("""
+(() => {
+  const button = document.querySelector('#viewOriginal');
+  const status = document.querySelector('#lightboxOriginalStatus');
+  return {
+    states: window.__qaOriginalStates || [],
+    status: status?.textContent?.trim() || '',
+    statusState: status?.dataset.state || '',
+    button: button?.textContent?.trim() || '',
+    buttonDisabled: Boolean(button?.disabled),
+    buttonHidden: Boolean(button?.hidden),
+    tip: document.querySelector('#lightboxTip')?.textContent?.trim() || '',
+    originalRequests: performance.getEntriesByType('resource')
+      .map(item => item.name)
+      .filter(name => /(?:^|\/)originals?(?:\/|$)/i.test(new URL(name, location.href).pathname)),
+  };
+})()
+""")
+        forbidden = [state for state in data["states"] if state.startswith("原图加载中") or state == "原图 ✓"]
+        if forbidden:
+            raise CheckFailed(f"No-original codex entered original loading/ready states: {data}")
+        if data["status"] != "无原图" or data["statusState"] != "unavailable":
+            raise CheckFailed(f"No-original status is misleading: {data}")
+        if data["button"] != "无原图" or not data["buttonDisabled"] or data["buttonHidden"]:
+            raise CheckFailed(f"No-original action is not a visible disabled button: {data}")
+        if data["originalRequests"]:
+            raise CheckFailed(f"No-original codex requested original assets: {data['originalRequests']}")
+        shot = screenshot(cdp, out_dir, "no-original-lightbox")
+        cdp.eval("window.__qaOriginalObserver?.disconnect(); document.querySelector('#lightboxClose')?.click()")
+        check_no_errors(cdp)
+        return {**data, "entry": no_original_entry_id, "screenshot": shot}
 
     def random_explore():
         clear_errors(cdp)
@@ -1706,6 +1769,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("copy card shows feedback", copy_card_feedback),
         ("pack character prompts render", pack_character_prompts),
         ("entry deep-link opens lightbox", deep_link_lightbox),
+        ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),
         ("resume last browse", resume_browse),
         ("recent entry opens lightbox", recent_entry_lightbox),

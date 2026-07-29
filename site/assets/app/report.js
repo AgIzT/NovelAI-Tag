@@ -2,7 +2,8 @@ import { state } from './state.js';
 import { $, clamp, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { openMask, closeMask, trapFocus } from './modal.js';
-import { entryImages, imageItemHasOriginal, imageItemUrl, thumbUrl, hasEntryImage } from './media.js';
+import { entryImages, imageItemUrl, thumbUrl, hasEntryImage } from './media.js';
+import { entryImageCanUseOriginal } from './original-capability.js';
 import {
   feedbackProgressMeta,
   feedbackProgressFlow,
@@ -138,7 +139,7 @@ export function buildFeedbackContext({ source = 'global', entry = null, imageInd
       imageCount: images.length,
       selectedImageIndex: image ? index : -1,
       thumbnailUrl: image ? imageItemUrl('image', entry, image) : (hasEntryImage(entry) ? thumbUrl(entry) : ''),
-      originalUrl: image && imageItemHasOriginal(image, entry)
+      originalUrl: image && entryImageCanUseOriginal(entry, image)
         ? imageItemUrl('original', entry, image)
         : '',
       imageError: Boolean(imageError),

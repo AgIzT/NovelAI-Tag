@@ -1575,7 +1575,9 @@ a.lightbox-credit:hover{text-decoration:underline}
 #copyPositive{background:var(--accent);color:#fff}
 #copyNegative{background:var(--new);color:#fff}
 #favoriteLightbox,#copyAll,#copyRawTag,#viewOriginal,#shareLightbox,#reportLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
-#favoriteLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:hover,#shareLightbox:hover,#reportLightbox:hover{background:var(--tagbg-hover);filter:none}
+#favoriteLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover,#reportLightbox:hover{background:var(--tagbg-hover);filter:none}
+#viewOriginal:disabled{cursor:not-allowed;opacity:.58;color:var(--muted)}
+#viewOriginal:disabled:hover{background:var(--tagbg);filter:none;transform:none;box-shadow:none}
 #favoriteLightbox{min-width:38px;color:var(--muted);font-size:16px;line-height:1}
 #favoriteLightbox.on{color:#f5b301;border-color:color-mix(in srgb,#f5b301 50%,var(--line))}
 .lightbox-section{margin-top:12px}
@@ -1807,7 +1809,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox.folded .lightbox-next{right:10px}
   .lightbox-nav{width:40px;height:40px;font-size:26px}
   .lightbox-nav[data-nav-label]::after{display:none}
-  .lightbox-original-status{left:8px;bottom:8px}
+  .lightbox-original-status{left:58px;bottom:8px}
 }
 
 /* ---------- 页面动效：入场编排 / 悬浮层退场 / 跨页过渡 ----------

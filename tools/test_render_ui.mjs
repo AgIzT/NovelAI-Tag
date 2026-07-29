@@ -41,6 +41,7 @@ function fakeStyle(onSet = () => {}) {
 
 const dom = new Map();
 const windowListeners = new Map();
+const documentListeners = new Map();
 globalThis.HTMLElement = FakeHTMLElement;
 globalThis.window = {
   addEventListener(type, listener) { windowListeners.set(type, listener); },
@@ -55,6 +56,17 @@ globalThis.document = {
   activeElement: null,
   documentElement: { clientHeight: 800, scrollHeight: 2000, classList: fakeClassList() },
   body: { classList: fakeClassList() },
+  addEventListener(type, listener, options) {
+    const listeners = documentListeners.get(type) || [];
+    listeners.push({ listener, once: Boolean(options?.once) });
+    documentListeners.set(type, listeners);
+  },
+  dispatchEvent(event) {
+    const listeners = documentListeners.get(event.type) || [];
+    documentListeners.set(event.type, listeners.filter(record => !record.once));
+    listeners.forEach(record => record.listener(event));
+    return true;
+  },
   querySelector: selector => dom.get(selector) || null,
   querySelectorAll: () => [],
 };
@@ -83,12 +95,17 @@ const {
   getLightboxStepTarget,
   isLightboxKeydownBlocked,
   lightboxNavigationContext,
+  lightboxOriginalAction,
   lightboxOriginalCopy,
   preloadImage,
   preloadLightboxNeighbors,
   setLightboxScrollLocked,
 } = await import('../site/assets/app/lightbox.js');
 const { entryImages, imageItemHasOriginal } = await import('../site/assets/app/media.js');
+const {
+  entryImageCanUseOriginal,
+  entrySourceAllowsOriginal,
+} = await import('../site/assets/app/original-capability.js');
 const { normalizeImageList } = await import('../site/assets/app/data.js');
 const {
   accessHiddenCount,
@@ -282,7 +299,11 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   preloadImage('https://preload.test/lru-0.png');
   assert.equal(images.length, beforeOldestRetry + 1, '超过上限后最旧 URL 应已被淘汰');
 
-  state.codex = { id: 'book', assetPathMode: 'relative', assetBaseUrl: 'https://assets.test' };
+  state.codexes = [];
+  state.codex = {
+    id: 'book', hasOriginal: true,
+    assetPathMode: 'relative', assetBaseUrl: 'https://assets.test',
+  };
   state.list = [];
   state.lightbox = {
     entry: { id: 'entry', assetRev: 'r1' },
@@ -296,6 +317,27 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const beforeNeighbors = images.length;
   preloadLightboxNeighbors();
   assert.equal(images.length, beforeNeighbors + 4, '前后邻图应各保留缩略图+原图预热');
+
+  state.codex = {
+    id: 'thumb-book', hasOriginal: false,
+    assetPathMode: 'relative', assetBaseUrl: 'https://assets.test',
+  };
+  state.lightbox = {
+    entry: { id: 'thumb-entry', assetRev: 'r2' },
+    index: 0,
+    images: [
+      { path: 'only-thumb-0.jpg', original: 'blocked-original-0.png' },
+      { path: 'only-thumb-1.jpg', original: 'blocked-original-1.png' },
+      { path: 'only-thumb-2.jpg', original: 'blocked-original-2.png' },
+    ],
+  };
+  const beforeNoOriginalNeighbors = images.length;
+  preloadLightboxNeighbors();
+  assert.equal(
+    images.length,
+    beforeNoOriginalNeighbors + 2,
+    '无原图法典的邻图只能预热缩略图，不能后台请求 original',
+  );
 }
 
 // 灯箱把当前过滤列表展平成循环画廊：图内优先，边界跨词条，跳过无图/受限项；
@@ -377,10 +419,45 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     images: [{ path: 'second.jpg', original: 'second.jpg' }],
   };
   assert.equal(imageItemHasOriginal(entryImages(multiWithOriginalRoot)[0], multiWithOriginalRoot), true);
+  const physicalOriginal = { path: 'thumb.jpg', original: 'source.png', _hasOriginal: true };
+  state.codexes = [
+    { id: 'with-original', hasOriginal: true },
+    { id: 'without-original', hasOriginal: false },
+  ];
+  state.codex = { id: 'virtual-view', hasOriginal: true };
+  assert.equal(
+    entrySourceAllowsOriginal({ _srcCodexId: 'without-original' }),
+    false,
+    '虚拟视图必须服从词条真实来源，不能被聚合法典的 true 放行',
+  );
+  assert.equal(
+    entryImageCanUseOriginal({ _srcCodexId: 'without-original' }, physicalOriginal),
+    false,
+    '法典显式无原图时，遗留 original 字段不得越权',
+  );
+  assert.equal(
+    entryImageCanUseOriginal({ _srcCodexId: 'with-original' }, physicalOriginal),
+    true,
+    '含原图法典的显式物理原图仍可用',
+  );
+  assert.equal(
+    entryImageCanUseOriginal({ _srcCodexId: 'with-original' }, { path: 'thumb.jpg' }),
+    false,
+    '含原图法典仍需逐张确认物理 original',
+  );
   assert.equal(lightboxOriginalCopy('ready', true).tip, '可拖入 NovelAI 读取生成参数');
   assert.match(lightboxOriginalCopy('ready', false).tip, /不提供可读取的生成参数/);
   assert.match(lightboxOriginalCopy('failed', true).label, /失败/);
   assert.match(lightboxOriginalCopy('thumbnail', false).label, /仅缩略图/);
+  assert.equal(lightboxOriginalCopy('unavailable', false).label, '无原图');
+  assert.deepEqual(
+    lightboxOriginalAction(false, false),
+    { disabled: true, label: '无原图', title: '本法典不提供原图' },
+  );
+  assert.deepEqual(
+    lightboxOriginalAction(true, true),
+    { disabled: false, label: '查看原图', title: '在新标签页查看原图' },
+  );
 }
 
 // 原生分享只在触屏设备启用；桌面即使暴露 navigator.share 也维持复制路径。
@@ -448,6 +525,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   state.codex = {
     id: 'report',
     title: 'Report',
+    hasOriginal: true,
     assetPathMode: 'relative',
     assetBaseUrl: '/assets',
   };
@@ -460,6 +538,12 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(buildFeedbackContext({ entry }).entry.originalUrl, '');
   entry.images[0] = { ...entry.images[0], _hasOriginal: true };
   assert.match(buildFeedbackContext({ entry }).entry.originalUrl, /thumb\.jpg/);
+  state.codex.hasOriginal = false;
+  assert.equal(
+    buildFeedbackContext({ entry }).entry.originalUrl,
+    '',
+    '无原图法典不能在反馈上下文中泄露遗留 original 字段',
+  );
 }
 
 // 快速密度循环不改变默认值；分类 rail 只为被裁切的 active 胶囊计算横向位移。
@@ -652,7 +736,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(codexUiSource, /另有 \$\{hiddenCount\} 条受限内容/);
   assert.match(codexUiSource, /另有 \$\{lockedBooks\} 本受限法典未解锁，未纳入全站搜索/);
   assert.match(codexUiSource, /查看未解锁范围[\s\S]*access-hint/);
-  assert.match(reportSource, /image && imageItemHasOriginal\(image, entry\)/);
+  assert.match(reportSource, /image && entryImageCanUseOriginal\(entry, image\)/);
+  assert.match(lightboxSource, /return entryImageCanUseOriginal\(entry, item\);/);
+  assert.match(indexSource, /rel="modulepreload" href="assets\/app\/original-capability\.js"/);
   assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*path:构图[\s\S]*has:image[\s\S]*fav:true/);
   assert.match(stylesSource, /\.search-wrap:focus-within #search:placeholder-shown~\.search-syntax-hint/);
   assert.match(uiSource, /searchInput\.addEventListener\('compositionstart'/);

@@ -7,7 +7,12 @@ import { naiToSd } from './nai-sd.js';
 import { recordRecentEntry } from './history.js';
 import { syncUrlState } from './router.js';
 import { findCodexMeta } from './data.js';
-import { entryImages, hasEntryImage, imageItemHasOriginal, imageItemUrl } from './media.js';
+import { entryImages, hasEntryImage, imageItemUrl } from './media.js';
+import {
+  entryImageCanUseOriginal,
+  entrySourceAllowsOriginal,
+  entrySourceCodexId,
+} from './original-capability.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { openReportDialog } from './report.js';
 import { goBackFrom } from './browser-history.js';
@@ -52,7 +57,7 @@ function scheduleRecentEntry(entry) {
 }
 
 function lightboxEntrySourceId(entry) {
-  return String(entry?._srcCodexId || state.codex?.id || '');
+  return entrySourceCodexId(entry);
 }
 
 function sameLightboxEntry(a, b) {
@@ -134,13 +139,11 @@ export function canUseNativeShare(
 }
 
 function sourceSupportsReadableOriginal(entry) {
-  const sourceId = lightboxEntrySourceId(entry);
-  const source = findCodexMeta(sourceId) || (state.codex?.id === sourceId ? state.codex : null);
-  return Boolean(source?.hasOriginal);
+  return entrySourceAllowsOriginal(entry);
 }
 
 function lightboxItemHasOriginal(entry, item) {
-  return imageItemHasOriginal(item, entry);
+  return entryImageCanUseOriginal(entry, item);
 }
 
 
@@ -509,6 +512,9 @@ export function renderCharacterPrompts(entry) {
 }
 
 export function lightboxOriginalCopy(status, readable) {
+  if (status === 'unavailable') {
+    return { label: '无原图', tip: '本法典不提供原图，仅可查看缩略图' };
+  }
   if (status === 'loading') {
     return {
       label: '原图加载中…',
@@ -527,6 +533,17 @@ export function lightboxOriginalCopy(status, readable) {
     return { label: '原图加载失败', tip: '原图加载失败；当前缩略图不含生成参数' };
   }
   return { label: '仅缩略图', tip: '仅提供缩略图，无法从图片读取生成参数' };
+}
+
+export function lightboxOriginalAction(available, sourceAllowsOriginal = available) {
+  if (available) {
+    return { disabled: false, label: '查看原图', title: '在新标签页查看原图' };
+  }
+  return {
+    disabled: true,
+    label: '无原图',
+    title: sourceAllowsOriginal ? '当前图片未提供原图' : '本法典不提供原图',
+  };
 }
 
 function applyOriginalPresentation(seq, status, readable) {
@@ -566,10 +583,11 @@ export function renderLightbox() {
   stage.classList.toggle('edit-empty', emptyImage);
   img.hidden = emptyImage;
   const thumbSrc = emptyImage ? '' : imageItemUrl('image', e, item);
+  const sourceAllowsOriginal = !emptyImage && sourceSupportsReadableOriginal(e);
   const hasOriginal = !emptyImage && lightboxItemHasOriginal(e, item);
   const origSrc = hasOriginal ? imageItemUrl('original', e, item) : '';
   const origAbs = resolvedUrl(origSrc);
-  const readableOriginal = hasOriginal && sourceSupportsReadableOriginal(e);
+  const readableOriginal = hasOriginal;
   img.onload = null;
   img.onerror = emptyImage ? null : () => {
     if (seq !== lbSeq) return;
@@ -611,7 +629,10 @@ export function renderLightbox() {
     img.removeAttribute('src');
     if (statusEl) statusEl.hidden = true;
   } else {
-    applyOriginalPresentation(seq, hasOriginal ? 'loading' : 'thumbnail', readableOriginal);
+    const originalStatus = !sourceAllowsOriginal
+      ? 'unavailable'
+      : (hasOriginal ? 'loading' : 'thumbnail');
+    applyOriginalPresentation(seq, originalStatus, readableOriginal);
     showImage();
   }
 
@@ -717,10 +738,13 @@ export function renderLightbox() {
   }
   const originalBtn = $('#viewOriginal');
   if (originalBtn) {
-    originalBtn.hidden = !hasOriginal || !origSrc;
-    originalBtn.onclick = ev => {
+    const action = lightboxOriginalAction(Boolean(hasOriginal && origSrc), sourceAllowsOriginal);
+    originalBtn.hidden = emptyImage;
+    originalBtn.disabled = action.disabled;
+    originalBtn.textContent = action.label;
+    originalBtn.title = action.title;
+    originalBtn.onclick = action.disabled ? null : ev => {
       ev.stopPropagation();
-      if (!origSrc) return;
       const opened = window.open(origSrc, '_blank', 'noopener');
       if (opened) opened.opener = null;
     };
