@@ -384,7 +384,6 @@ export function makeCard(placement) {
     negBtn.onclick = ev => {
       ev.stopPropagation();
       copyText(e.negative, `已复制负面：${e.title}`, node, {
-        offerNovelAi: true,
         sampleLabel: '已复制负面',
       });
     };
@@ -394,7 +393,7 @@ export function makeCard(placement) {
     allBtn.hidden = !e.negative;
     allBtn.onclick = ev => {
       ev.stopPropagation();
-      copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, node, { offerNovelAi: true });
+      copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, node);
     };
   }
 

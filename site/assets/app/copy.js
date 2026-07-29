@@ -4,7 +4,6 @@ import { recordRecentEntry, saveBrowseStateNow } from './history.js';
 import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
-import { novelAiToastAction } from './novelai-link.js';
 import { playCopySample } from './copy-fx.js';
 
 export { fmtSdWeight, naiToSd } from './nai-sd.js';
@@ -15,7 +14,6 @@ export async function copyEntry(e, node) {
   const negative = String(e.negative || '').trim();
   const message = negative ? `已复制正向：${e.title}` : `已复制：${e.title}`;
   return copyText(e.tags, message, node, {
-    offerNovelAi: true,
     followUp: negative ? {
       label: '再复制负面',
       text: e.negative,
@@ -62,11 +60,10 @@ export async function copyText(text, message, node, options = {}) {
       label: followUp.label,
       duration: 5_000,
       onClick: () => copyText(followUp.text, followUp.message || '已复制负面', node, {
-        offerNovelAi: true,
         sampleLabel: '已复制负面',
       }),
     }
-    : (options.offerNovelAi ? novelAiToastAction() : null);
+    : null;
   toast(`${message}${formatted.converted ? '（SD 格式）' : ''}`, '✓', action);
   return { ...result, converted: formatted.converted, manualFallbackShown: false };
 }

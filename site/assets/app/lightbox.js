@@ -485,7 +485,7 @@ export function renderCharacterPrompts(entry) {
     copy.textContent = `复制 ${labelText}`;
     copy.onclick = ev => {
       ev.stopPropagation();
-      copyText(prompt, `${message}：${entry.title}`, copy, { offerNovelAi: true });
+      copyText(prompt, `${message}：${entry.title}`, copy);
     };
     head.append(label, copy);
     const content = document.createElement('pre');
@@ -681,7 +681,6 @@ export function renderLightbox() {
   $('#copyPositive').onclick = ev => {
     ev.stopPropagation();
     copyText(e.tags, `已复制正向：${e.title}`, ev.currentTarget, {
-      offerNovelAi: true,
       followUp: String(e.negative || '').trim() ? {
         label: '再复制负面',
         text: e.negative,
@@ -693,17 +692,17 @@ export function renderLightbox() {
   $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyNegative').onclick = ev => {
     ev.stopPropagation();
-    copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget, { offerNovelAi: true });
+    copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget);
   };
   $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
   $('#copyAll').onclick = ev => {
     ev.stopPropagation();
-    copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, ev.currentTarget, { offerNovelAi: true });
+    copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, ev.currentTarget);
   };
   $('#copyRawTag').hidden = !item.rawTag;
   $('#copyRawTag').onclick = ev => {
     ev.stopPropagation();
-    copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`, ev.currentTarget, { offerNovelAi: true });
+    copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`, ev.currentTarget);
   };
   const favoriteBtn = $('#favoriteLightbox');
   if (favoriteBtn) {
