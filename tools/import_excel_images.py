@@ -411,7 +411,10 @@ def main():
         excel_dir = None
     else:
         excel_dir = args.excel_dir or default_excel_dir()
-        workbooks = sorted(excel_dir.glob("*.xlsx"))
+        workbooks = sorted(
+            path for path in excel_dir.glob("*.xlsx")
+            if not path.name.startswith("~$")
+        )
     if not workbooks:
         raise SystemExit("No .xlsx files found.")
 
