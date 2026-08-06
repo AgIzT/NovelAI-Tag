@@ -4,7 +4,7 @@ import { $, clamp, prefersReducedMotion, updateScrollProgress } from './utils.js
 import { toast } from './feedback.js';
 import { currentHighlightTerms, hiddenSearchMatch, renderHighlightedText } from './search.js';
 import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } from './media.js';
-import { copyText, combinedPrompt } from './copy.js';
+import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
 import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 
@@ -219,11 +219,21 @@ export function estimateImageHeight(e, width) {
   return Math.round(width * clamp(ratio, 0.55, 1.9));
 }
 
+/* 卡片标签预览的文本源。所长两本有一批词条整条都是角色词、正面段是空的
+   （见 tools/migrate_suozhang_char_prompts.py）；那种卡片退回展示带标签的角色词，
+   免得标签区一片空白。高度预估与真正渲染必须用同一个源，否则布局对不上。 */
+export function cardTagsText(e) {
+  if (String(e?.tags || '').trim()) return e.tags;
+  const prompts = Array.isArray(e?.characterPrompts) ? e.characterPrompts : [];
+  if (!prompts.length) return e?.tags || '';
+  return prompts.map(item => `${item.label}：${item.prompt}`).join('\n');
+}
+
 export function estimateBodyMetrics(e, width) {
   const cfg = densityConfig();
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
-  const tagLines = estimateTagLines(e.tags, contentWidth, cfg);
+  const tagLines = estimateTagLines(cardTagsText(e), contentWidth, cfg);
   const titleHeight = titleLines * cfg.titleLineHeight;
   const tagsHeight = clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
@@ -353,7 +363,7 @@ export function makeCard(placement) {
 
   const highlightTerms = currentHighlightTerms();
   renderHighlightedText(node.querySelector('.card-title'), e.title, highlightTerms);
-  renderHighlightedText(node.querySelector('.card-tags'), e.tags, highlightTerms);
+  renderHighlightedText(node.querySelector('.card-tags'), cardTagsText(e), highlightTerms);
   node.querySelector('.card-path').textContent = e.path.join(' › ');
   const hiddenMatch = hiddenSearchMatch(e, highlightTerms);
   const hiddenMatchChip = node.querySelector('.search-match-chip');
@@ -366,9 +376,23 @@ export function makeCard(placement) {
 
   const hasImage = hasEntryImage(e);
   const hasNegative = !!(e.negative && String(e.negative).trim());
+  const charPrompts = Array.isArray(e.characterPrompts) ? e.characterPrompts : [];
   const imageCount = entryImages(e).length;
   const negBadge = node.querySelector('.badge-neg');
   if (negBadge) negBadge.hidden = !(hasImage && hasNegative);
+  const charTitle = charPrompts.length
+    ? `含 ${charPrompts.length} 组角色词：${charPrompts.map(item => item.label).join(' / ')}`
+    : '';
+  const charBadge = node.querySelector('.badge-char');
+  if (charBadge) {
+    charBadge.hidden = !(hasImage && charPrompts.length);
+    charBadge.title = charTitle;
+  }
+  const charChip = node.querySelector('.badge-char-chip');
+  if (charChip) {
+    charChip.hidden = hasImage || !charPrompts.length;
+    charChip.title = charTitle;
+  }
   const countBadge = node.querySelector('.badge-count');
   if (countBadge) {
     countBadge.hidden = imageCount <= 1;
@@ -390,10 +414,10 @@ export function makeCard(placement) {
   }
   const allBtn = node.querySelector('.copy-all');
   if (allBtn) {
-    allBtn.hidden = !e.negative;
+    allBtn.hidden = !e.negative && !charPrompts.length;
     allBtn.onclick = ev => {
       ev.stopPropagation();
-      copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, node);
+      copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, node);
     };
   }
 

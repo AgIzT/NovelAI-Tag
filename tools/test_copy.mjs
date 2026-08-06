@@ -433,4 +433,22 @@ function execDocument(result) {
   );
 }
 
+// 角色词拆分之后：点卡默认只给正面串；「全部」在只有角色词、没有负面时也要出现。
+// （entryCopyText / combinedPromptLabel 的行为断言在 test_render_ui.mjs，那边有 DOM 桩）
+{
+  const [copySource, masonrySource, lightboxSource] = await Promise.all([
+    readFile(new URL('../site/assets/app/copy.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/masonry.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(copySource, /return copyText\(entryCopyText\(e\), message, node/);
+  // 卡片和灯箱的「全部」都要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」
+  assert.match(masonrySource, /allBtn\.hidden = !e\.negative && !charPrompts\.length/);
+  assert.match(lightboxSource, /\$\('#copyAll'\)\.hidden = !e\.negative && !\(e\.characterPrompts \|\| \[\]\)\.length/);
+  for (const source of [masonrySource, lightboxSource]) {
+    assert.match(source, /已复制\$\{combinedPromptLabel\(e\)\}/);
+    assert.doesNotMatch(source, /已复制正向\+负面/);
+  }
+}
+
 console.log('copy: all tests passed');

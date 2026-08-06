@@ -33,6 +33,7 @@
 | `build_local_edition.py` | `单项工具/打包本地版.bat` / 总控台菜单 7 的内核：按白名单生成独立本地发行包 + zip（见 docs/decisions/独立本地发行版.md） | 不改仓库数据；默认写 `output/local-edition/` |
 | `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 仓库内不单独运行 |
 | `backfill_pack_character_prompts.py` | 从原图幂等回填两本图包的 NAI V4 角色提示词 | 默认预演；`--apply` 才写 |
+| `migrate_suozhang_char_prompts.py` | 把所长两本 `tags` 里内联的 `char1：xxx` 拆进 `characterPrompts`。**幂等，是所长法典更新链路的固定收尾**——每次 `convert.py` / `suozhang_r18_merge_match.py --apply` 之后都要再跑一次，否则角色词回到正面串（详见 `docs/经验/Word法典增量更新.md`） | 默认预演；`--apply` 才写（先自动备份） |
 
 ## 现役 · NAI API 批量例图补全套件
 
@@ -68,7 +69,7 @@
 
 ## 🧪 测试
 
-`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py` · `test_python_tool_safety.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_backend_low_risk.mjs` · `test_community_frontend.mjs` · `test_community_frontend_low_risk.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_history_storage.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_r2_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_search_data.mjs` · `test_render_ui.mjs` · `test_copy.mjs` · `test_favorites_backup.mjs` · `test_favorites_runtime.mjs` · `test_favorites_origin_migration.mjs`（Node）。
+`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_suozhang_char_prompts.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py` · `test_python_tool_safety.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_backend_low_risk.mjs` · `test_community_frontend.mjs` · `test_community_frontend_low_risk.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_history_storage.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_r2_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_search_data.mjs` · `test_render_ui.mjs` · `test_copy.mjs` · `test_favorites_backup.mjs` · `test_favorites_runtime.mjs` · `test_favorites_origin_migration.mjs`（Node）。
 
 `__pycache__/` 是 Python 缓存，忽略。
 
@@ -93,6 +94,8 @@ python tools\test_codex_update_match.py
 python tools\suozhang_r18_merge_match.py "D:\path\新版上册.docx" "D:\path\新版下册.docx" --baseline-upper "D:\path\旧版上册.docx" --baseline-lower "D:\path\旧版下册.docx" --out-dir "output\所长色色-匹配测试"
 python tools\test_suozhang_r18_merge_match.py
 ```
+
+⚠ 两条链（常规版 `codex_update_match.py` / 合并版 `suozhang_r18_merge_match.py`）**跑完 `--apply` 都要再跑一次 `migrate_suozhang_char_prompts.py --apply`**：Word 会把角色词内联回正面 tag，不拆的话 SD 用户复制出来带 `char1：`。
 
 历史合并规则固定为：完整保留上册；仅移除下册与上册重复的「编纂者常用画师组」；保留下册「编纂者oc二则」。工具会先验证下册画师组确实是上册画师组的精确子集，并把两种 OC 标题下没有独立中文标题的本体/服装块拆成独立卡片。最终门禁以合并后的全局报告为准；分册报告只作诊断。默认命令不会改写正式数据；确认报告后给同一命令追加 `--apply`，才会写入 `site/data/suozhang_r18.json` 并只刷新 `codexes.json` 中该书的版本和计数。
 

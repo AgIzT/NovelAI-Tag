@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
-import { copyText, combinedPrompt } from './copy.js';
+import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
 import { naiToSd } from './nai-sd.js';
 import { recordRecentEntry } from './history.js';
 import { syncUrlState } from './router.js';
@@ -720,7 +720,7 @@ export function renderLightbox() {
   $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
   $('#copyAll').onclick = ev => {
     ev.stopPropagation();
-    copyText(combinedPrompt(e), `已复制正向+负面：${e.title}`, ev.currentTarget);
+    copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, ev.currentTarget);
   };
   $('#copyRawTag').hidden = !item.rawTag;
   $('#copyRawTag').onclick = ev => {

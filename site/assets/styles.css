@@ -704,9 +704,20 @@ body.dark .card:hover{box-shadow:0 0 0 1px rgba(139,124,248,.32),var(--shadow-ho
   padding:2px 9px;border-radius:999px;box-shadow:0 1px 4px rgba(0,0,0,.14);
   backdrop-filter:blur(8px);
 }
-.badge-neg[hidden],.badge-count[hidden],.badge-neg-chip[hidden]{display:none!important}
+.badge-char{
+  display:inline-flex;align-items:center;line-height:1.35;
+  font-size:11px;font-weight:800;color:#3f6f86;
+  background:rgba(236,246,250,.94);border:1px solid rgba(63,111,134,.18);
+  padding:2px 9px;border-radius:999px;box-shadow:0 1px 4px rgba(0,0,0,.14);
+  backdrop-filter:blur(8px);
+}
+.badge-neg[hidden],.badge-count[hidden],.badge-neg-chip[hidden],
+.badge-char[hidden],.badge-char-chip[hidden]{display:none!important}
 body.dark .badge-neg{
   color:#d7c3e2;background:rgba(124,93,140,.28);border-color:rgba(215,195,226,.18);
+}
+body.dark .badge-char{
+  color:#bcdcea;background:rgba(63,111,134,.30);border-color:rgba(188,220,234,.18);
 }
 .badge-count{
   display:inline-flex;align-items:center;gap:3px;line-height:1.35;
@@ -731,6 +742,13 @@ body.dark .badge-neg{
 }
 body.dark .badge-neg-chip{
   color:#d7c3e2;background:rgba(124,93,140,.24);border-color:rgba(215,195,226,.16);
+}
+.badge-char-chip{
+  flex:none;font-size:10px;font-weight:800;color:#3f6f86;background:rgba(236,246,250,.94);
+  border:1px solid rgba(63,111,134,.16);padding:1px 6px;border-radius:6px;
+}
+body.dark .badge-char-chip{
+  color:#bcdcea;background:rgba(63,111,134,.26);border-color:rgba(188,220,234,.16);
 }
 .fav-btn{
   margin-left:auto;flex:none;border:none;background:transparent;cursor:pointer;

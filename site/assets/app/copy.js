@@ -26,12 +26,30 @@ function replayCopiedClass(node) {
   copiedClassTimers.set(node, timer);
 }
 
+/* 点卡复制默认只给正面串（角色词单独走「全部」/灯箱，SD 用户拿到的是干净的）。
+   但所长两本有一批词条整条都是角色词、正面段为空——那种不能复制出空串，退回完整段落。 */
+export function entryCopyText(e) {
+  if (String(e?.tags || '').trim()) return e.tags;
+  return (e?.characterPrompts || []).length ? combinedPrompt(e) : (e?.tags || '');
+}
+
+export function combinedPromptLabel(e) {
+  const prompts = e?.characterPrompts || [];
+  const parts = ['正向'];
+  if (prompts.length) parts.push('角色词');
+  // 角色级负面（所长两本里 character N uc 拆出来的那批）也要在文案里认账
+  if (String(e?.negative || '').trim() || prompts.some(item => String(item?.negative || '').trim())) {
+    parts.push('负面');
+  }
+  return parts.join('+');
+}
+
 export async function copyEntry(e, node) {
   recordRecentEntry(e);
   saveBrowseStateNow();
   const negative = String(e.negative || '').trim();
   const message = negative ? `已复制正向：${e.title}` : `已复制：${e.title}`;
-  return copyText(e.tags, message, node, {
+  return copyText(entryCopyText(e), message, node, {
     followUp: negative ? {
       label: '再复制负面',
       text: e.negative,
