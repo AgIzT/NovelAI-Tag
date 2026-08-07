@@ -417,7 +417,7 @@ function execDocument(result) {
     readFile(new URL('../site/assets/community/detail.js', import.meta.url), 'utf8'),
   ]);
   assert.match(copySource, /label: '再复制负面'/);
-  assert.match(copySource, /const message = negative \? `已复制正向：\$\{e\.title\}` : `已复制：\$\{e\.title\}`/);
+  assert.match(copySource, /const message = `\$\{negative \? '已复制正向' : '已复制'\}\$\{charNote\}：\$\{e\.title\}`/);
   assert.match(copySource, /playCopySample\(node, formatted\.text, options\.sampleLabel\)/);
   assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false \}\)/);
   assert.match(lightboxSource, /copyText\(e\.negative[\s\S]*sampleLabel: '已复制负面'/);
@@ -433,15 +433,18 @@ function execDocument(result) {
   );
 }
 
-// 角色词拆分之后：点卡默认只给正面串；「全部」在只有角色词、没有负面时也要出现。
-// （entryCopyText / combinedPromptLabel 的行为断言在 test_render_ui.mjs，那边有 DOM 桩）
+// 一键复制 = 正面 + 角色词内容（去标记）；「全部」在只有角色词、没有负面时也要出现。
+// （entryPromptText / combinedPromptLabel 的行为断言在 test_render_ui.mjs，那边有 DOM 桩）
 {
   const [copySource, masonrySource, lightboxSource] = await Promise.all([
     readFile(new URL('../site/assets/app/copy.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/masonry.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(copySource, /return copyText\(entryCopyText\(e\), message, node/);
+  assert.match(copySource, /return copyText\(entryPromptText\(e\), message, node/);
+  // 灯箱的「复制正向」保持只给正面段（那里角色词是分块展示的，语义不含糊）
+  assert.match(lightboxSource, /copyText\(e\.tags, `已复制正向：\$\{e\.title\}`/);
+  assert.match(copySource, /（含 \$\{charCount\} 组角色词）/);
   // 卡片和灯箱的「全部」都要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」
   assert.match(masonrySource, /allBtn\.hidden = !e\.negative && !charPrompts\.length/);
   assert.match(lightboxSource, /\$\('#copyAll'\)\.hidden = !e\.negative && !\(e\.characterPrompts \|\| \[\]\)\.length/);

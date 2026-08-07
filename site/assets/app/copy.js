@@ -26,11 +26,23 @@ function replayCopiedClass(node) {
   copiedClassTimers.set(node, timer);
 }
 
-/* 点卡复制默认只给正面串（角色词单独走「全部」/灯箱，SD 用户拿到的是干净的）。
-   但所长两本有一批词条整条都是角色词、正面段为空——那种不能复制出空串，退回完整段落。 */
-export function entryCopyText(e) {
-  if (String(e?.tags || '').trim()) return e.tags;
-  return (e?.characterPrompts || []).length ? combinedPrompt(e) : (e?.tags || '');
+/* 一键复制（点卡）与卡片标签预览共用的文本：正面串 + 各角色词内容，
+   但**去掉 `char1：` 这个标记本身**。输出等于角色词拆分前的原文减去标记。
+
+   为什么不是只给正面：所长两本里角色词才是 tag 大头（正面 tag 中位 8 个、角色词 26 个，
+   89% 的词条角色词比正面多，623 条正面 ≤3 个 tag）。只给正面 = 点一下拿到半句话，
+   复刻不出图——2026-08-07 连收两条用户反馈。
+   为什么也不是连标记一起给：最初那条 SD 反馈要去掉的正是 `char1：` 这个垃圾 token，
+   而不是 girl/blush 这些角色描述词（它们在 SD 里完全合法，且是画面主体）。
+   ⚠ 只拼角色词的**正面**。`characterPrompts[].negative`（character N uc 那批）
+   绝不能进正面串——那是"不要什么"，混进去等于反向作画。
+   要按角色分槽精确填的用户走灯箱分块或卡片「全部」（那两处保留 char1/char2 标签）。 */
+export function entryPromptText(e) {
+  const parts = [String(e?.tags || '').trim()];
+  for (const item of e?.characterPrompts || []) {
+    parts.push(String(item?.prompt || '').trim());
+  }
+  return parts.filter(Boolean).join('\n');
 }
 
 export function combinedPromptLabel(e) {
@@ -48,8 +60,11 @@ export async function copyEntry(e, node) {
   recordRecentEntry(e);
   saveBrowseStateNow();
   const negative = String(e.negative || '').trim();
-  const message = negative ? `已复制正向：${e.title}` : `已复制：${e.title}`;
-  return copyText(entryCopyText(e), message, node, {
+  const charCount = (e.characterPrompts || []).length;
+  // 提示这条含角色词：既解释「为什么比卡片上看到的多」，也引导想精确填槽的人去开灯箱
+  const charNote = charCount ? `（含 ${charCount} 组角色词）` : '';
+  const message = `${negative ? '已复制正向' : '已复制'}${charNote}：${e.title}`;
+  return copyText(entryPromptText(e), message, node, {
     followUp: negative ? {
       label: '再复制负面',
       text: e.negative,

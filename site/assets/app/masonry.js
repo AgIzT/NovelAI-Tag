@@ -4,7 +4,7 @@ import { $, clamp, prefersReducedMotion, updateScrollProgress } from './utils.js
 import { toast } from './feedback.js';
 import { currentHighlightTerms, hiddenSearchMatch, renderHighlightedText } from './search.js';
 import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } from './media.js';
-import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
+import { copyText, combinedPrompt, combinedPromptLabel, entryPromptText } from './copy.js';
 import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 
@@ -219,21 +219,11 @@ export function estimateImageHeight(e, width) {
   return Math.round(width * clamp(ratio, 0.55, 1.9));
 }
 
-/* 卡片标签预览的文本源。所长两本有一批词条整条都是角色词、正面段是空的
-   （见 tools/migrate_suozhang_char_prompts.py）；那种卡片退回展示带标签的角色词，
-   免得标签区一片空白。高度预估与真正渲染必须用同一个源，否则布局对不上。 */
-export function cardTagsText(e) {
-  if (String(e?.tags || '').trim()) return e.tags;
-  const prompts = Array.isArray(e?.characterPrompts) ? e.characterPrompts : [];
-  if (!prompts.length) return e?.tags || '';
-  return prompts.map(item => `${item.label}：${item.prompt}`).join('\n');
-}
-
 export function estimateBodyMetrics(e, width) {
   const cfg = densityConfig();
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
-  const tagLines = estimateTagLines(cardTagsText(e), contentWidth, cfg);
+  const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
   const titleHeight = titleLines * cfg.titleLineHeight;
   const tagsHeight = clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
@@ -363,7 +353,7 @@ export function makeCard(placement) {
 
   const highlightTerms = currentHighlightTerms();
   renderHighlightedText(node.querySelector('.card-title'), e.title, highlightTerms);
-  renderHighlightedText(node.querySelector('.card-tags'), cardTagsText(e), highlightTerms);
+  renderHighlightedText(node.querySelector('.card-tags'), entryPromptText(e), highlightTerms);
   node.querySelector('.card-path').textContent = e.path.join(' › ');
   const hiddenMatch = hiddenSearchMatch(e, highlightTerms);
   const hiddenMatchChip = node.querySelector('.search-match-chip');

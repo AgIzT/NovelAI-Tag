@@ -772,44 +772,45 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.ok(toastZ > editMenuZ, `toast 层级必须高于编辑菜单（${toastZ} <= ${editMenuZ}）`);
 }
 
-// 角色词从 tags 拆进 characterPrompts 之后的三个契约：卡片标签预览的回退源、
-// 点卡复制的回退源、「全部」按钮文案。见 tools/migrate_suozhang_char_prompts.py。
+// 角色词拆进 characterPrompts 之后的复制契约：一键复制 = 正面 + 角色词内容、去掉 char1： 标记，
+// 等于拆分前的原文减去标记（只给正面会让 623 条词条只剩两三个 tag，复刻不出图）。
+// 卡片预览与一键复制共用同一个文本源。见 tools/migrate_suozhang_char_prompts.py。
 {
-  const { cardTagsText } = await import('../site/assets/app/masonry.js');
-  const { combinedPrompt, combinedPromptLabel, entryCopyText } = await import('../site/assets/app/copy.js');
+  const { combinedPrompt, combinedPromptLabel, entryPromptText } = await import('../site/assets/app/copy.js');
   const normal = {
     title: 'a',
     tags: '1girl,indoor,',
     characterPrompts: [{ label: 'char1', prompt: 'girl,blush,' }, { label: 'char2', prompt: 'boy,' }],
   };
-  assert.equal(cardTagsText(normal), '1girl,indoor,');
-  assert.equal(entryCopyText(normal), '1girl,indoor,');
+  assert.equal(entryPromptText(normal), '1girl,indoor,\ngirl,blush,\nboy,');
   assert.equal(combinedPromptLabel(normal), '正向+角色词');
   assert.equal(combinedPrompt(normal), '1girl,indoor,\n\nchar1:\ngirl,blush,\n\nchar2:\nboy,');
 
-  // 整条都是角色词的词条（所长两本共 372 条）：标签区不能空白，点卡不能复制出空串。
-  const charOnly = { title: 'b', tags: '', characterPrompts: [{ label: 'char1', prompt: 'school uniform,' }] };
-  assert.equal(cardTagsText(charOnly), 'char1：school uniform,');
-  assert.equal(entryCopyText(charOnly), 'char1:\nschool uniform,');
-
-  const plain = { title: 'c', tags: '1girl,' };
-  assert.equal(cardTagsText(plain), '1girl,');
-  assert.equal(entryCopyText(plain), '1girl,');
-  assert.equal(combinedPromptLabel(plain), '正向');
-  assert.equal(combinedPromptLabel({ ...normal, negative: 'bad anatomy' }), '正向+角色词+负面');
-  // character N uc 拆出来的角色级负面（所长色色 6 条）也要算进文案
-  assert.equal(combinedPromptLabel({
+  // ⚠ 角色级负面（character N uc 拆出来的 11 个框）绝不能混进正面串
+  const withCharNegative = {
     title: 'e',
     tags: 'scene,',
-    characterPrompts: [{ label: 'char1', prompt: 'girl,', negative: 'calm face,' }],
-  }), '正向+角色词+负面');
-  assert.equal(cardTagsText({ title: 'd', tags: '' }), '');
-  assert.equal(entryCopyText({ title: 'd', tags: '' }), '');
+    characterPrompts: [{ label: 'char1', prompt: 'girl,', negative: 'calm face,ugly,deformed,' }],
+  };
+  assert.equal(entryPromptText(withCharNegative), 'scene,\ngirl,');
+  assert.doesNotMatch(entryPromptText(withCharNegative), /ugly|deformed/);
+  assert.equal(combinedPromptLabel(withCharNegative), '正向+角色词+负面');
 
-  // 高度预估与真正渲染必须共用同一个文本源，否则纯角色词卡片会算矮。
+  // 整条都是角色词的词条（所长两本共 372 条）：不能复制出空串，也不带标签
+  const charOnly = { title: 'b', tags: '', characterPrompts: [{ label: 'char1', prompt: 'school uniform,' }] };
+  assert.equal(entryPromptText(charOnly), 'school uniform,');
+
+  const plain = { title: 'c', tags: '1girl,' };
+  assert.equal(entryPromptText(plain), '1girl,');
+  assert.equal(combinedPromptLabel(plain), '正向');
+  assert.equal(combinedPromptLabel({ ...normal, negative: 'bad anatomy' }), '正向+角色词+负面');
+  assert.equal(entryPromptText({ title: 'd', tags: '' }), '');
+  assert.equal(entryPromptText({ title: 'd', tags: '', characterPrompts: [{ label: 'char1', prompt: '' }] }), '');
+
+  // 高度预估、卡片渲染、一键复制必须共用同一个文本源，否则预览和剪贴板对不上、布局也会算错。
   const masonrySource = await readFile(new URL('../site/assets/app/masonry.js', import.meta.url), 'utf8');
-  assert.match(masonrySource, /estimateTagLines\(cardTagsText\(e\), contentWidth, cfg\)/);
-  assert.match(masonrySource, /renderHighlightedText\(node\.querySelector\('\.card-tags'\), cardTagsText\(e\), highlightTerms\)/);
+  assert.match(masonrySource, /estimateTagLines\(entryPromptText\(e\), contentWidth, cfg\)/);
+  assert.match(masonrySource, /renderHighlightedText\(node\.querySelector\('\.card-tags'\), entryPromptText\(e\), highlightTerms\)/);
   const indexSource = await readFile(new URL('../site/index.html', import.meta.url), 'utf8');
   assert.match(indexSource, /<span class="badge-char" hidden>角色词<\/span>/);
   assert.match(indexSource, /<span class="badge-char-chip" hidden title="含角色词">角色词<\/span>/);
