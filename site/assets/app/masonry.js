@@ -442,7 +442,10 @@ export function makeCard(placement) {
 
   const packMode = state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
   const copyHint = node.querySelector('.copy-hint');
-  if (copyHint && packMode) copyHint.textContent = hasImage ? '🔍 点击查看' : '暂无图片';
+  if (copyHint && packMode) {
+    copyHint.textContent = hasImage ? '点击查看' : '暂无图片';
+    copyHint.classList.toggle('is-view', hasImage);
+  }
   node.onclick = () => {
     if (packMode && hasImage) {
       const img = node.querySelector('.card-img');
