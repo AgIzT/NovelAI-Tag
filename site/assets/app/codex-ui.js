@@ -43,14 +43,15 @@ const codexPickerTitle = c => c?.selectorTitle || c?.title || '';
 const realCodexesOfType = typeId => state.codexes.filter(c => codexType(c) === typeId);
 const typeIconOf = c => (CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_TYPES[0]).icon;
 const codexImagedPct = c => (c?.entryCount ? Math.round(Number(c.imagedCount || 0) / Number(c.entryCount) * 100) : 0);
-/* 外部数据源（书与图都托管在别人站上）——图片前缀不归本站管，封面默认不取 */
+/* 外部数据源：书与图都托管在别人站上（只用来打「外部源」小标） */
 const isExternalCodex = c => /^https?:/i.test(String(c?.dataUrl || ''));
 
-/* 选择器封面：codexes.json 的 `cover` 字段（书内某张缩略图的文件名，可选配 `coverRev` 缓存戳）。
+/* 选择器封面：codexes.json 的 `cover` 字段（本站书＝该书图片目录下的缩略图文件名，
+   外部源书＝对方站上的相对路径，两者都由 thumbUrl 按该书的 assetPathMode 解析）。
    没写就退化成占位块（渐变 + 类型图标），不会显示成坏图；换封面＝改这一行数据，不用动代码。 */
 function codexCoverUrl(c) {
-  if (!c?.cover || isExternalCodex(c)) return '';
-  // coverCodexId：封面借用别本的图片前缀时才需要写（如画风串复用图包的资源目录）
+  if (!c?.cover) return '';
+  // coverCodexId：封面借用别本的图片前缀时才需要写（如合并册沿用的历史资源目录）
   return thumbUrl({ image: c.cover, assetRev: c.coverRev || '', assetCodexId: c.coverCodexId || '' }, c);
 }
 const pickerActiveCodex = () => (state.favoritesView || state.siteSearchView) ? state.browseCodex : state.codex;
@@ -201,7 +202,7 @@ export function setupCodexPicker() {
       (active ? '<span class="ci-now">当前</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
       `<span class="ci-foot"><span class="ci-tags">${codexChips(c)}</span>` +
-      `<span class="ci-n">${count.toLocaleString()} 条</span>` +
+      `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>` +
       `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>` +
       `</span></span>`;
     bindCoverReveal(item);

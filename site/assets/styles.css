@@ -141,8 +141,12 @@ body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
 /* 小标区可压缩且裁切，条数与圆环永远不会被挤出卡片 */
 .ci-foot{display:flex;align-items:center;gap:6px;min-width:0}
 .ci-tags{flex:1;min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden}
-.ci-n{flex:none;font-size:12.5px;font-weight:800;color:var(--muted);font-variant-numeric:tabular-nums}
-.codex-item.active .ci-n{color:var(--accent)}
+/* 条数=规模，是选书第一判据：大字压在右侧，「条」缩成下面一行小字 */
+.ci-n{flex:none;text-align:right;line-height:1.1}
+.ci-n b{font-size:16px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--text)}
+.ci-n i{display:block;font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.1em;color:var(--muted);margin-top:2px}
+.codex-item.active .ci-n b{color:var(--accent)}
+.codex-item.locked .ci-n b{color:var(--muted)}
 .ci-ring{position:relative;flex:none;width:20px;height:20px;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p) * 1%),var(--line) 0)}
 .ci-ring i{position:absolute;inset:3.5px;border-radius:50%;background:var(--card)}
 .codex-item.active .ci-ring i{background:var(--accent-soft)}
