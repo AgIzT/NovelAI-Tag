@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#15a06a">
+<meta name="theme-color" content="#6f5cf2">
 <script>/* 跨页 View Transition 抵达打标：vt-arrived 永久关掉入场编排避免叠影；
    vt-live 只活到过渡结束，专供跨页专属的上滑动画选择器（站内同文档过渡不带它） */
 addEventListener('pagereveal',e=>{if(e.viewTransition){const h=document.documentElement;h.classList.add('vt-arrived','vt-live');e.viewTransition.finished.finally(()=>h.classList.remove('vt-live'))}},{once:true});
@@ -661,8 +661,12 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <button id="lightboxClose" class="lb-circle lightbox-close" type="button" aria-label="关闭">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
   </button>
-  <button id="lightboxPrev" class="lb-circle lightbox-nav lightbox-prev" type="button" aria-label="上一张">‹</button>
-  <button id="lightboxNext" class="lb-circle lightbox-nav lightbox-next" type="button" aria-label="下一张">›</button>
+  <button id="lightboxPrev" class="lb-circle lightbox-nav lightbox-prev" type="button" aria-label="上一张">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+  </button>
+  <button id="lightboxNext" class="lb-circle lightbox-nav lightbox-next" type="button" aria-label="下一张">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+  </button>
   <div class="lightbox-stage" id="lightboxStage">
     <img id="lightboxImg" alt="例图">
     <div id="lightboxOriginalStatus" class="lightbox-original-status" role="status" aria-live="polite" hidden></div>
@@ -722,7 +726,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="badge-char" hidden>角色词</span>
         <span class="badge-count" hidden><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 4.25A2.25 2.25 0 014.25 2h6.5A2.25 2.25 0 0113 4.25V5.5H9.25A3.75 3.75 0 005.5 9.25V13H4.25A2.25 2.25 0 012 10.75z"/><path d="M9.25 7A2.25 2.25 0 007 9.25v6.5A2.25 2.25 0 009.25 18h6.5A2.25 2.25 0 0018 15.75v-6.5A2.25 2.25 0 0015.75 7z"/></svg><span class="badge-count-n">1</span></span>
       </div>
-      <button class="zoom-btn" type="button" title="放大查看" aria-label="放大查看">🔍</button>
+      <button class="zoom-btn" type="button" title="放大查看" aria-label="放大查看">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+      </button>
       <button class="img-retry" type="button" hidden>重试</button>
     </div>
     <div class="card-body">
@@ -741,7 +747,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <button class="mini-copy copy-negative" type="button" hidden>负面</button>
           <button class="mini-copy copy-all" type="button" hidden>全部</button>
           <button class="mini-copy report-card-btn" type="button" title="反馈此卡片" aria-label="反馈此卡片">!</button>
-          <span class="copy-hint">📋 点击复制</span>
+          <span class="copy-hint">点击复制</span>
         </span>
       </div>
     </div>

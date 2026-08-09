@@ -7,6 +7,27 @@
 .theme-option i{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 .theme-option:hover{border-color:var(--accent)}
 .theme-option[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+/* ---------- 矢量图标掩码 ----------
+   原 emoji/字形图标（🔍☆💡📋）统一为 Lucide 风格 SVG，几何与顶栏内联 SVG 同规格（stroke 2/2.2、圆角线帽）。
+   ⚠ 只换视觉、不动契约：JS 仍向这些节点写 ★/☆/「点击复制」等文本（verify_ui 断言 textContent），
+   样式侧用 font-size:0 + ::before mask 把字形替换成矢量图标，JS 与回归用例零改动。 */
+:root{
+  --ico-star-o:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 3.8 2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6L7.1 19l.9-5.5-4-3.9 5.5-.8L12 3.8Z'/%3E%3C/svg%3E");
+  --ico-star-f:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 3.8 2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6L7.1 19l.9-5.5-4-3.9 5.5-.8L12 3.8Z'/%3E%3C/svg%3E");
+  --ico-magnify:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.8-3.8'/%3E%3C/svg%3E");
+  --ico-bulb:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 14c.2-1 .7-1.7 1.5-2.5A5.9 5.9 0 0 0 18 8a6 6 0 0 0-12 0c0 1 .2 2.2 1.5 3.5.8.8 1.3 1.5 1.5 2.5'/%3E%3Cpath d='M9 18h6'/%3E%3Cpath d='M10 22h4'/%3E%3C/svg%3E");
+  --ico-clipboard:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='8' height='4' x='8' y='2' rx='1' ry='1'/%3E%3Cpath d='M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2'/%3E%3C/svg%3E");
+}
+/* 选中色：最便宜的全站品牌细节 */
+::selection{background:var(--accent);color:#fff}
+/* 键盘焦点统一可见环；自带焦点处理（outline:none 或同款环）的组件规则特异度更高、不受影响。
+   文本输入类走各自 :focus 的边框+光晕（鼠标点入也会匹配 :focus-visible），不叠第二道环；
+   checkbox/radio 不在豁免内——开关、单选这类隐形 input 正好借全局环显形（收藏备份的
+   文件输入则另有 :has() 转发环，见 favorites-backup.css） */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input:is([type="search"],[type="text"],[type="email"],[type="url"],[type="password"],[type="number"],[type="tel"]):focus-visible,
+input:not([type]):focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
+:focus:not(:focus-visible){outline:none}
 *{box-sizing:border-box}
 html,body{margin:0}
 html{scrollbar-gutter:stable}
@@ -205,7 +226,7 @@ body.dark .ci-soon-chip{color:#e3b463;border-color:rgba(227,180,99,.3)}
 .codex-door-wrap{grid-column:1/-1;margin-top:4px;padding-top:9px;border-top:1px solid var(--line)}
 body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .codex-door{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px dashed var(--accent);border-radius:12px;background:var(--accent-soft);text-decoration:none;transition:transform .16s,box-shadow .16s}
-.codex-door:hover,.codex-door:focus-visible{transform:translateY(-1px);box-shadow:0 6px 18px rgba(111,92,242,.2);outline:none}
+.codex-door:hover,.codex-door:focus-visible{transform:translateY(-1px);box-shadow:0 6px 18px var(--accent-glow);outline:none}
 .codex-door .cd-ico{flex:none;width:30px;height:30px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center}
 .codex-door .cd-ico svg{width:18px;height:18px}
 .codex-door .cd-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
@@ -335,7 +356,11 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   transition:background .12s;
 }
 .sb-tip:hover{background:var(--tagbg-hover)}
-.sb-tip-ico{flex:none;font-size:13px;line-height:1.4}
+.sb-tip-ico{flex:none;font-size:0;width:15px;height:15px;margin-top:1px}
+.sb-tip-ico::before{
+  content:"";display:block;width:100%;height:100%;background:currentColor;
+  -webkit-mask:var(--ico-bulb) center/contain no-repeat;mask:var(--ico-bulb) center/contain no-repeat;
+}
 .sb-tip-text{flex:1;transition:opacity .28s}
 .sb-tip-text.fade{opacity:0}
 .sb-head{padding:6px 10px 12px}
@@ -489,8 +514,10 @@ body.dark .banner-pop{border-color:rgba(255,255,255,.12)}
 .banner-cover{width:84px;height:62px;border-radius:10px;overflow:hidden;background:var(--tagbg);flex:none}
 .banner-cover img{width:100%;height:100%;object-fit:cover;display:block}
 .banner-info{flex:1;min-width:0}
-.banner-title{font-size:17px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.banner-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:1px}
+/* 法典名 = 每本法典唯一的"页面标题"：展示宋体放到 20px 才真正出声（17px 时与正文黑体无别）。
+   只加字号不改几何——外盒 min-height:100px 是骨架屏/换法典 VT 共用的抗 CLS 地板，别碰。 */
+.banner-title{font-size:20px;font-weight:800;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:2px}
 .data-pill{
   display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);
   background:var(--tagbg);color:var(--muted);border-radius:999px;padding:2px 8px;
@@ -506,7 +533,7 @@ body.dark .data-pill.warn{color:#f0c46f;background:rgba(222,156,45,.18)}
 .data-pill.no-orig{color:var(--muted);background:var(--tagbg);border-color:var(--line)}
 body.dark .data-pill.has-orig{color:#8fd3a6;background:rgba(74,156,103,.18)}
 .banner-progress{display:flex;align-items:center;gap:10px;margin-top:8px}
-.bp-track{flex:1;height:8px;border-radius:999px;background:var(--tagbg);overflow:hidden;max-width:420px}
+.bp-track{flex:1;height:6px;border-radius:999px;background:var(--tagbg);overflow:hidden;max-width:420px}
 .bp-fill{height:100%;border-radius:999px;background:var(--accent)}
 .bp-text{font-size:12px;color:var(--muted);white-space:nowrap}
 .chip-rail{
@@ -633,8 +660,8 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 .masonry.is-relayouting .card-tags{
   transition:height .32s cubic-bezier(.22,1,.36,1),background .12s;
 }
-.card:hover{box-shadow:0 0 0 1px rgba(111,92,242,.22),var(--shadow-hover);border-color:transparent}
-body.dark .card:hover{box-shadow:0 0 0 1px rgba(139,124,248,.32),var(--shadow-hover)}
+.card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent),var(--shadow-hover);border-color:transparent}
+body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,transparent),var(--shadow-hover)}
 /* 复制签名 =「采样」：一圈采样环从卡片边缘扩出去（原方案 0→3px α.8→6px α0 / 340ms）。
    环必须画在卡片外侧，只能用 box-shadow——.card 有 overflow:hidden，伪元素撑不出去。
    配套的图面噪声与种子芯片在 app/copy-fx.js。 */
@@ -702,8 +729,12 @@ body.dark .card:hover{box-shadow:0 0 0 1px rgba(139,124,248,.32),var(--shadow-ho
 .zoom-btn{
   position:absolute;z-index:7;top:8px;right:8px;display:grid;place-items:center;
   border:none;border-radius:8px;width:30px;height:30px;padding:0;
-  background:rgba(0,0,0,.45);color:#fff;font-size:13px;cursor:zoom-in;
+  background:rgba(0,0,0,.45);color:#fff;cursor:zoom-in;
   opacity:0;pointer-events:none;transition:opacity .12s;
+}
+.zoom-btn svg{
+  width:15px;height:15px;display:block;stroke:currentColor;stroke-width:2.2;
+  stroke-linecap:round;stroke-linejoin:round;fill:none;
 }
 .card-img-wrap:hover .zoom-btn,.zoom-btn:focus-visible{opacity:1;pointer-events:auto}
 .zoom-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -714,6 +745,7 @@ body.dark .card:hover{box-shadow:0 0 0 1px rgba(139,124,248,.32),var(--shadow-ho
     background:linear-gradient(rgba(0,0,0,.48),rgba(0,0,0,.48)) center/30px 30px no-repeat;
     opacity:1;pointer-events:auto;
   }
+  .zoom-btn svg{width:17px;height:17px}
 }
 .card-badges{
   position:absolute;top:8px;left:8px;z-index:6;display:flex;flex-direction:column;
@@ -774,9 +806,15 @@ body.dark .badge-char-chip{
 }
 .fav-btn{
   margin-left:auto;flex:none;border:none;background:transparent;cursor:pointer;
-  font-size:16px;line-height:1;color:var(--muted);padding:2px 5px;border-radius:7px;
+  font-size:0;line-height:1;color:var(--muted);padding:2px 5px;border-radius:7px;
   transition:background .12s,color .12s;
 }
+/* JS 仍写 ★/☆ 文本（verify_ui 断言），这里把字形换成与顶栏同几何的矢量星 */
+.fav-btn::before{
+  content:"";display:block;width:16px;height:16px;background:currentColor;
+  -webkit-mask:var(--ico-star-o) center/contain no-repeat;mask:var(--ico-star-o) center/contain no-repeat;
+}
+.fav-btn.on::before{-webkit-mask-image:var(--ico-star-f);mask-image:var(--ico-star-f)}
 .fav-btn:hover{background:var(--tagbg);color:#f5b301}
 .fav-btn.on{color:#f5b301}
 .card.no-img .card-title{font-size:13.8px}
@@ -811,7 +849,12 @@ body.dark .card-title mark,body.dark .card-tags mark,body.dark .lightbox-section
 .card:hover .report-card-btn,.card:focus-within .report-card-btn{
   opacity:1;pointer-events:auto;
 }
-.copy-hint{color:var(--accent);font-size:11px;font-weight:600;opacity:0;transition:opacity .12s;white-space:nowrap}
+.copy-hint{color:var(--accent);font-size:11px;font-weight:600;opacity:0;transition:opacity .12s;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.copy-hint::before{
+  content:"";width:12px;height:12px;background:currentColor;
+  -webkit-mask:var(--ico-clipboard) center/contain no-repeat;mask:var(--ico-clipboard) center/contain no-repeat;
+}
+.copy-hint.is-view::before{-webkit-mask-image:var(--ico-magnify);mask-image:var(--ico-magnify)}
 .card:hover .copy-hint{opacity:1}
 @media (hover:none){
   .report-card-btn{opacity:.7;pointer-events:auto}
@@ -843,7 +886,8 @@ body.density-compact .card-body{padding:7px}
 body.density-compact .card-title-row{gap:5px;margin-bottom:5px}
 body.density-compact .card-title{font-size:12.8px;line-height:1.28}
 body.density-compact .card.no-img .card-title{font-size:12.6px}
-body.density-compact .fav-btn{font-size:14px;padding:1px 3px;border-radius:6px}
+body.density-compact .fav-btn{font-size:0;padding:1px 3px;border-radius:6px}
+body.density-compact .fav-btn::before{width:14px;height:14px}
 body.density-compact .card-tags{
   font-size:10.8px;line-height:1.32;padding:5px 6px;border-radius:7px;
 }
@@ -962,8 +1006,8 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
 }
 .density-option:hover{color:var(--text);background:var(--card)}
 .density-option.active{
-  color:#fff;background:linear-gradient(135deg,var(--accent),#8d7cf5);
-  box-shadow:0 4px 12px rgba(111,92,242,.22);
+  color:#fff;background:var(--accent);
+  box-shadow:0 4px 12px var(--accent-glow);
 }
 .density-option:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .switch{position:relative;flex:none;width:40px;height:22px;opacity:.55;cursor:not-allowed}
@@ -976,6 +1020,9 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
   content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;
   background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s;
 }
+/* 开关的 input 透明覆盖在整个滑块上：全局矩形环换成贴在药丸滑块上的圆环 */
+.switch input:focus-visible{outline:none}
+.switch input:focus-visible + i{outline:2px solid var(--accent);outline-offset:2px}
 .switch input:checked + i{background:var(--accent);border-color:var(--accent)}
 .switch input:checked + i::after{transform:translateX(18px)}
 /* 已可用的开关：覆盖占位项的灰禁用样式 */
@@ -1013,7 +1060,7 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
 .nsfw-secondary:hover{background:var(--tagbg);color:var(--text)}
 .nsfw-primary{
   color:#fff;border-color:transparent!important;
-  background:linear-gradient(135deg,#ef4444,#b42318);
+  background:#dc2626;
   box-shadow:0 8px 22px rgba(217,45,32,.24);
 }
 .nsfw-primary:hover{transform:translateY(-1px);box-shadow:0 10px 26px rgba(217,45,32,.32)}
@@ -1025,7 +1072,7 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
   width:38px;height:38px;border-radius:13px;display:grid;place-items:center;
   color:#fff;font-size:18px;font-weight:900;
   background:linear-gradient(135deg,var(--accent),#4f46e5);
-  box-shadow:0 8px 22px rgba(111,92,242,.24);
+  box-shadow:0 8px 22px var(--accent-glow);
 }
 .panel-icon svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .announcements-panel{max-width:660px;padding-bottom:20px}
@@ -1089,7 +1136,7 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
   font-size:13px;font-weight:850;transition:background .15s,color .15s,box-shadow .15s;
 }
 .feedback-tab:hover{color:var(--text);background:var(--card)}
-.feedback-tab[aria-selected="true"]{color:#fff;background:linear-gradient(135deg,var(--accent),#8d7cf5);box-shadow:0 5px 14px rgba(111,92,242,.22)}
+.feedback-tab[aria-selected="true"]{color:#fff;background:var(--accent);box-shadow:0 5px 14px var(--accent-glow)}
 .feedback-tab span{
   display:inline-grid;min-width:19px;height:19px;margin-left:5px;padding:0 5px;place-items:center;
   border-radius:999px;background:rgba(255,255,255,.2);font-size:10px;vertical-align:1px;
@@ -1306,7 +1353,7 @@ body.dark .onboarding-scene{background:linear-gradient(135deg,var(--accent-soft)
 .obs-2 .ob-nai{position:absolute;right:7px;top:24px;width:34px;height:48px;border-radius:8px;background:#fff;border:1.5px solid #d9d5f4;box-shadow:0 8px 18px rgba(20,20,50,.2);z-index:5;overflow:hidden;animation:ob2nai 4.8s ease-in-out infinite}
 .obs-2 .ob-nai i{position:absolute;left:0;right:0;top:0;height:14px;display:grid;place-items:center;font-size:8px;font-weight:800;font-style:normal;color:#fff;background:linear-gradient(135deg,var(--accent),#8b78f0)}
 .obs-2 .ob-nai s{position:absolute;left:4px;right:4px;top:18px;bottom:4px;border-radius:5px;border:1.4px dashed #c7c1ee;text-decoration:none;display:block;animation:ob2drop 4.8s ease-in-out infinite}
-@keyframes ob2nai{0%,56%{opacity:0;transform:translateX(12px)}64%,82%{opacity:1;transform:translateX(0);box-shadow:0 8px 18px rgba(20,20,50,.2)}86%,92%{opacity:1;transform:translateX(0);box-shadow:0 0 0 2px var(--accent),0 8px 18px rgba(111,92,242,.3)}97%,100%{opacity:0;transform:translateX(12px)}}
+@keyframes ob2nai{0%,56%{opacity:0;transform:translateX(12px)}64%,82%{opacity:1;transform:translateX(0);box-shadow:0 8px 18px rgba(20,20,50,.2)}86%,92%{opacity:1;transform:translateX(0);box-shadow:0 0 0 2px var(--accent),0 8px 18px color-mix(in srgb,var(--accent) 30%,transparent)}97%,100%{opacity:0;transform:translateX(12px)}}
 @keyframes ob2drop{0%,82%{background:transparent;border-color:#c7c1ee}86%,92%{background:var(--accent-soft);border-color:var(--accent)}97%,100%{background:transparent;border-color:#c7c1ee}}
 .obs-2 .ob-big{position:absolute;left:9px;top:30px;width:40px;height:36px;border-radius:9px;background:linear-gradient(135deg,#bcaaff,#6f5cf2);box-shadow:0 0 0 2px #fff,0 12px 24px rgba(15,15,45,.45);z-index:6;animation:ob2big 4.8s ease-in-out infinite}
 @keyframes ob2big{0%,26%{opacity:0;transform:translate(6px,2px) scale(.5)}32%,42%{opacity:1;transform:translate(0,0) scale(1)}56%{opacity:1;transform:translate(0,0) scale(1)}84%{opacity:1;transform:translate(45px,0) scale(.42)}89%{opacity:0;transform:translate(46px,1px) scale(.34)}100%{opacity:0;transform:translate(6px,2px) scale(.5)}}
@@ -1346,8 +1393,8 @@ body.dark .onboarding-scene{background:linear-gradient(135deg,var(--accent-soft)
 .onboarding-dots{display:flex;gap:6px;margin-top:16px}
 .onboarding-dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .onboarding-dot.active{background:var(--accent)}
-.onboarding-next{background:linear-gradient(135deg,var(--accent),#4f46e5);box-shadow:0 8px 22px rgba(111,92,242,.24)}
-.onboarding-next:hover{box-shadow:0 10px 26px rgba(111,92,242,.32)}
+.onboarding-next{background:var(--accent);box-shadow:0 8px 22px var(--accent-glow)}
+.onboarding-next:hover{box-shadow:0 10px 26px color-mix(in srgb,var(--accent) 32%,transparent)}
 
 /* ---------- R18G / 重口分级 ---------- */
 .set-live.danger{background:linear-gradient(135deg,#dc2626,#7f1d1d)}
@@ -1361,7 +1408,7 @@ body.dark .onboarding-scene{background:linear-gradient(135deg,var(--accent-soft)
 }
 .r18g-note{color:#b42318;background:rgba(217,45,32,.12);line-height:1.85}
 body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
-.nsfw-primary.danger{background:linear-gradient(135deg,#dc2626,#7f1d1d)}
+.nsfw-primary.danger{background:#b91c1c}
 
 .shortcut-panel{max-width:460px}
 .shortcut-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
@@ -1431,7 +1478,7 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
 /* SD 模式顶栏常驻角标 */
 .sd-badge{
   flex:none;font-size:11px;font-weight:800;letter-spacing:.5px;color:#fff;cursor:pointer;
-  background:linear-gradient(135deg,var(--accent),#7c5cff);border:none;border-radius:8px;
+  background:var(--accent);border:none;border-radius:8px;
   padding:6px 10px;white-space:nowrap;box-shadow:0 2px 8px var(--accent-soft);
   display:inline-flex;align-items:center;gap:4px;
   opacity:0;transform:translateY(-4px) scale(.92);pointer-events:none;
@@ -1618,7 +1665,12 @@ a.lightbox-credit:hover{text-decoration:underline}
 #favoriteLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover,#reportLightbox:hover{background:var(--tagbg-hover);filter:none}
 #viewOriginal:disabled{cursor:not-allowed;opacity:.58;color:var(--muted)}
 #viewOriginal:disabled:hover{background:var(--tagbg);filter:none;transform:none;box-shadow:none}
-#favoriteLightbox{min-width:38px;color:var(--muted);font-size:16px;line-height:1}
+#favoriteLightbox{min-width:38px;color:var(--muted);font-size:0;line-height:1}
+#favoriteLightbox::before{
+  content:"";display:block;width:16px;height:16px;margin:0 auto;background:currentColor;
+  -webkit-mask:var(--ico-star-o) center/contain no-repeat;mask:var(--ico-star-o) center/contain no-repeat;
+}
+#favoriteLightbox.on::before{-webkit-mask-image:var(--ico-star-f);mask-image:var(--ico-star-f)}
 #favoriteLightbox.on{color:#f5b301;border-color:color-mix(in srgb,#f5b301 50%,var(--line))}
 .lightbox-section{margin-top:12px}
 .section-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
@@ -1675,7 +1727,13 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   width:18px;height:18px;display:block;
   stroke:currentColor;stroke-width:2.3;stroke-linecap:round;fill:none;
 }
-.lightbox-nav{top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;font-size:30px;line-height:1}
+/* 字形 ‹/› 的左右留白不对称，虽经 grid 居中仍会肉眼偏位；用与关闭/折叠一致的 SVG chevron，
+   让 viewBox 的几何中心与 46px 圆心重合。 */
+.lightbox-nav{top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;padding:0}
+.lightbox-nav svg{
+  width:20px;height:20px;display:block;stroke:currentColor;stroke-width:2.8;
+  stroke-linecap:round;stroke-linejoin:round;fill:none;
+}
 .lightbox-nav[data-nav-label]::after{
   content:attr(data-nav-label);position:absolute;top:50%;width:max-content;max-width:220px;
   border:1px solid var(--line);border-radius:999px;padding:6px 10px;
@@ -1715,10 +1773,10 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   }
   body.search-mode .topbar> :not(.search-wrap){opacity:0;pointer-events:none}
   .topbar-actions{gap:2px;margin-left:0}
-  .icon-btn,.filter-btn{width:32px;height:32px;border-radius:9px}
+  .icon-btn,.filter-btn{width:34px;height:34px;border-radius:9px}
   .more-menu{right:0;width:224px}
   .sd-badge{
-    width:32px;height:32px;padding:0;justify-content:center;border-radius:9px;
+    width:34px;height:34px;padding:0;justify-content:center;border-radius:9px;
     font-size:0;box-shadow:none;
   }
   .sd-badge::before{content:"SD";font-size:11px;letter-spacing:0}
@@ -1784,7 +1842,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
       linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 36px/58% 6px no-repeat;
   }
   .banner-cover{width:52px;height:42px;border-radius:9px}
-  .banner-title{font-size:15px}
+  .banner-title{font-size:16.5px}
   .banner-meta{gap:5px;font-size:11px}
   .banner-progress{gap:7px;margin-top:5px}
   .bp-track{height:6px}
@@ -1852,7 +1910,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-prev{left:10px}
   .lightbox-next{right:10px}
   .lightbox.folded .lightbox-next{right:10px}
-  .lightbox-nav{width:40px;height:40px;font-size:26px}
+  .lightbox-nav{width:40px;height:40px}
   .lightbox-nav[data-nav-label]::after{display:none}
   .lightbox-original-status{left:58px;bottom:8px}
 }
