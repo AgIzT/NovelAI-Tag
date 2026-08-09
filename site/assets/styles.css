@@ -101,79 +101,95 @@ body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
   border:1px solid var(--popover-line);border-radius:14px;box-shadow:var(--popover-shadow);
   padding:9px;animation:settingsIn .16s ease;
 }
-.codex-menu.cascade{display:grid;grid-template-columns:184px 1fr;gap:8px}
-.codex-menu.grouped{display:flex;flex-direction:column;gap:2px;max-height:min(72vh,460px);overflow:auto}
+/* minmax(0,1fr)：书卡里有不可压缩的条数/圆环，纯 1fr 轨道会被撑出面板 */
+.codex-menu.cascade{display:grid;grid-template-columns:172px minmax(0,1fr);gap:9px}
+.codex-menu.grouped{display:flex;flex-direction:column;gap:6px;max-height:min(72vh,460px);overflow:auto}
 body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
+/* ── 书卡：一行一本平放的书。封面给画风、右下角给规模，配图率降级成小圆环 ── */
 .codex-item{
-  position:relative;display:flex;align-items:center;gap:10px;width:100%;text-align:left;
-  border:none;background:transparent;color:var(--text);
-  border-radius:12px;padding:10px;font-size:13px;cursor:pointer;
-  transition:background .12s,color .12s;
+  position:relative;display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  border:1px solid var(--line);background:var(--card);color:var(--text);
+  border-radius:13px;padding:8px;font-size:13px;cursor:pointer;box-shadow:var(--shadow);
+  transition:transform .16s,box-shadow .16s,border-color .16s,background .16s;
 }
-.codex-item:hover,.codex-item:focus-visible{background:var(--tagbg);outline:none}
-.codex-item.active{background:var(--accent-soft);color:var(--accent);font-weight:700}
-.codex-item.locked{
-  color:var(--muted);cursor:not-allowed;
-  background:rgba(124,132,154,.07);
+.codex-item:hover,.codex-item:focus-visible{transform:translateY(-1px);box-shadow:var(--shadow-hover);border-color:var(--accent);outline:none}
+.codex-item.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-glow)}
+.codex-item.locked,.codex-item.soon{background:var(--tagbg);box-shadow:none;cursor:not-allowed}
+.codex-item.locked:hover,.codex-item.locked:focus-visible,
+.codex-item.soon:hover,.codex-item.soon:focus-visible{transform:none;box-shadow:none;border-color:var(--line)}
+.ci-cover{position:relative;flex:none;width:116px;aspect-ratio:3/2;border-radius:9px;overflow:hidden;background:var(--tagbg)}
+.ci-ph{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent-soft),var(--tagbg));color:var(--accent)}
+.ci-ph svg{width:26px;height:26px;opacity:.45}
+.ci-cover img{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 20%;
+  opacity:0;transition:opacity .28s,transform .4s cubic-bezier(.2,.7,.3,1);
 }
-.codex-item.locked:hover,.codex-item.locked:focus-visible{
-  background:rgba(124,132,154,.11);
-}
-.codex-item.locked .ci-mark{
-  background:linear-gradient(135deg,#aeb4c3,#7f8798);
-  color:rgba(255,255,255,.82);box-shadow:none;
-}
-.codex-item.locked .ci-bar i{background:#aeb4c3}
-.codex-item.locked .ci-name,.codex-item.locked .ci-meta{opacity:.72}
-.ci-mark{
-  flex:none;width:36px;height:48px;border-radius:8px;display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent),#a48cff);color:#fff;font-size:12px;font-weight:900;
-  box-shadow:0 6px 16px rgba(111,92,242,.20);
-}
-.ci-main{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
-.ci-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ci-meta{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ci-bar{height:4px;border-radius:999px;background:rgba(111,92,242,.13);overflow:hidden}
-.ci-bar i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
-.ci-lock{
-  display:inline-flex;align-items:center;align-self:flex-start;
-  font-size:10px;font-weight:900;color:var(--muted);
-  background:var(--tagbg);border:1px solid var(--line);border-radius:999px;
-  padding:1px 6px;margin-top:1px;
-}
-.codex-item .ck{
-  margin-left:auto;flex:none;width:14px;height:14px;opacity:0;
-  stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round;
-}
-.codex-item.active .ck{opacity:1}
+.ci-cover img.is-loaded{opacity:1}
+.codex-item:hover .ci-cover img{transform:scale(1.05)}
+/* 未解锁：封面糊掉 + 压一层锁，比灰条更明确 */
+.ci-veil{position:absolute;inset:0;display:none;place-items:center;background:rgba(18,20,32,.34);color:#fff}
+.ci-veil svg{width:19px;height:19px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5))}
+.codex-item.locked .ci-veil{display:grid}
+.codex-item.locked .ci-cover img{filter:blur(11px) saturate(.4) brightness(.78);transform:scale(1.2)}
+.ci-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.ci-head{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%}
+.ci-name{font-size:14px;font-weight:800;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.codex-item.active .ci-name{color:var(--accent)}
+.codex-item.locked .ci-name,.codex-item.soon .ci-name{color:var(--muted)}
+.ci-now{flex:none;font-size:10px;font-weight:900;color:#fff;background:var(--accent);border-radius:999px;padding:1.5px 7px}
+.ci-sub{font-size:11px;color:var(--muted);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 小标区可压缩且裁切，条数与圆环永远不会被挤出卡片 */
+.ci-foot{display:flex;align-items:center;gap:6px;min-width:0}
+.ci-tags{flex:1;min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden}
+/* 条数=规模，是选书第一判据：大字压在右侧，「条」缩成下面一行小字 */
+.ci-n{flex:none;text-align:right;line-height:1.1}
+.ci-n b{font-size:16px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--text)}
+.ci-n i{display:block;font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.1em;color:var(--muted);margin-top:2px}
+.codex-item.active .ci-n b{color:var(--accent)}
+.codex-item.locked .ci-n b{color:var(--muted)}
+.ci-ring{position:relative;flex:none;width:20px;height:20px;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p) * 1%),var(--line) 0)}
+.ci-ring i{position:absolute;inset:3.5px;border-radius:50%;background:var(--card)}
+.codex-item.active .ci-ring i{background:var(--accent-soft)}
+.codex-item.locked .ci-ring{background:conic-gradient(var(--muted) calc(var(--p) * 1%),var(--line) 0);opacity:.55}
+.codex-item.locked .ci-ring i{background:var(--tagbg)}
+.ci-chip{display:inline-flex;align-items:center;gap:3px;flex:none;font-size:10px;font-weight:900;line-height:1.5;border-radius:999px;padding:1.5px 7px;white-space:nowrap}
+.ci-chip svg{width:10px;height:10px}
+.ci-chip.new{color:#fff;background:var(--new)}
+.ci-chip.r18{color:#fff;background:#d3455f}
+.ci-chip.ext{color:#b0823a;background:rgba(202,154,62,.16)}
+body.dark .ci-chip.ext{color:#e3b463}
+.ci-chip.orig{color:var(--muted);background:var(--tagbg);border:1px solid var(--line)}
+.ci-chip.lock{color:var(--muted);background:var(--card);border:1px solid var(--line)}
+/* R18 小标解锁/未解锁二选一：updateCodexPickerState 只改 .locked 类，显隐交给 CSS */
+.codex-item .ci-chip.lock{display:none}
+.codex-item.locked .ci-chip.r18{display:none}
+.codex-item.locked .ci-chip.lock{display:inline-flex}
+.codex-item.locked .ci-chip.orig{opacity:.6}
 /* ── 类型级联（PC）左类型轨 ── */
-.codex-rail{display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line);padding-right:8px}
+.codex-rail{display:flex;flex-direction:column;gap:3px;border-right:1px solid var(--line);padding-right:8px}
 body.dark .codex-rail{border-color:rgba(255,255,255,.08)}
 .codex-type{
   display:flex;align-items:center;gap:9px;border:none;background:transparent;color:var(--text);
-  border-radius:11px;padding:9px;font-size:13px;cursor:pointer;text-align:left;
+  border-radius:10px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;
   transition:background .12s,color .12s;
 }
 .codex-type:hover{background:var(--tagbg)}
 .codex-type.active{background:var(--accent-soft);color:var(--accent)}
-.codex-type .ct-ico{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--tagbg);color:var(--muted)}
-.codex-type.active .ct-ico{background:var(--accent-soft);color:var(--accent)}
+.codex-type .ct-ico{flex:none;width:17px;height:17px;display:flex;color:var(--muted)}
+.codex-type.active .ct-ico{color:var(--accent)}
 .codex-type .ct-ico svg{width:17px;height:17px}
-.codex-type .ct-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.codex-type .ct-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
-.codex-type .ct-sub{font-size:10px;color:var(--muted);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.codex-type.active .ct-sub{color:var(--accent)}
-.codex-type .ct-n{flex:none;font-size:11px;font-weight:800;color:var(--muted);background:var(--tagbg);border-radius:999px;padding:1px 8px}
-.codex-type.active .ct-n{background:var(--accent-soft);color:var(--accent)}
-.codex-list{min-height:236px;max-height:min(70vh,438px);overflow:auto;display:flex;flex-direction:column;gap:3px;padding-right:2px}
+.codex-type .ct-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.codex-type .ct-n{flex:none;font-size:11px;font-weight:800;color:var(--muted)}
+.codex-type.active .ct-n{color:var(--accent)}
+.codex-rail-foot{margin-top:auto;padding:12px 6px 2px;font-size:10.5px;line-height:1.65;color:var(--muted)}
+.codex-rail-foot b{color:var(--text);font-weight:800}
+/* padding 给 hover 抬升与描边留出余量，否则会被滚动容器切边 */
+.codex-list{min-height:236px;max-height:min(70vh,438px);overflow:auto;display:flex;flex-direction:column;gap:7px;padding:3px 4px}
 /* ── 占位类型（画风串 / 精选图包）── */
 .codex-soon-tag{flex:none;font-size:9px;font-weight:900;letter-spacing:.04em;color:#b0823a;background:rgba(202,154,62,.16);border-radius:999px;padding:1px 6px}
 body.dark .codex-soon-tag{color:#e3b463}
-.codex-item.soon{cursor:not-allowed}
-.codex-item.soon .ci-name,.codex-item.soon .ci-meta{opacity:.72}
-.codex-item .ci-mark.ico{background:linear-gradient(135deg,#aeb4c3,#7f8798);box-shadow:none}
-.codex-item .ci-mark.ico svg{width:18px;height:18px}
-.ci-soon-chip{display:inline-flex;align-self:flex-start;font-size:10px;font-weight:900;color:#b0823a;background:rgba(202,154,62,.16);border:1px solid rgba(202,154,62,.3);border-radius:999px;padding:1px 7px;margin-top:1px}
+.codex-item.soon .ci-sub{opacity:.72}
+.ci-soon-chip{display:inline-flex;font-size:10px;font-weight:900;color:#b0823a;background:rgba(202,154,62,.16);border:1px solid rgba(202,154,62,.3);border-radius:999px;padding:1px 7px}
 body.dark .ci-soon-chip{color:#e3b463;border-color:rgba(227,180,99,.3)}
 .codex-soon-banner{display:flex;gap:7px;align-items:flex-start;font-size:11px;color:var(--muted);background:var(--tagbg);border-radius:10px;padding:8px 11px;margin-bottom:4px;line-height:1.5}
 .codex-soon-banner b{color:var(--text)}
@@ -197,7 +213,13 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .codex-door .cd-sub{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .codex-door .cd-out{flex:none;color:var(--accent);display:flex}
 .codex-door .cd-out svg{width:18px;height:18px}
-@media (prefers-reduced-motion:reduce){.codex-door{transition:none}.codex-door:hover,.codex-door:focus-visible{transform:none}}
+@media (prefers-reduced-motion:reduce){
+  .codex-door,.codex-item,.ci-cover img{transition:none}
+  .codex-door:hover,.codex-door:focus-visible,
+  .codex-item:hover,.codex-item:focus-visible,
+  .codex-item:hover .ci-cover img{transform:none}
+  .ci-cover img{opacity:1}
+}
 .search-wrap{flex:1;max-width:520px;position:relative;display:flex;align-items:center}
 #search{
   width:100%;border:1px solid var(--line);background:var(--card);color:var(--text);
@@ -1735,7 +1757,12 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     position:fixed;left:12px;right:12px;top:calc(var(--topbar-h) + 6px);width:auto;max-width:none;
     grid-template-columns:1fr;max-height:calc(100vh - var(--topbar-h) - 20px);overflow:auto;
   }
-  .ci-mark{width:34px;height:44px}
+  /* 手机端天然单列，书卡照用；封面略收窄给书名让位 */
+  .ci-cover{width:96px}
+  .ci-name{font-size:13.5px}
+  .codex-item{gap:10px}
+  /* 窄屏一行放不下三枚小标：先舍信息量最低的「含原图」，保住更新/R18 */
+  .ci-chip.orig{display:none}
   .main{padding:8px 0 80px}
   .skeleton-grid{grid-template-columns:1fr;gap:10px;margin-bottom:12px}
   .skeleton-card{border-radius:12px;padding:10px 11px 11px}
