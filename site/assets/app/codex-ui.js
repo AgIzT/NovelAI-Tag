@@ -20,6 +20,9 @@ const TYPE_ICONS = {
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>',
 };
 
+/* 锁图标：封面蒙版与 R18 小标共用 */
+const LOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
+
 /* 投稿门图标：加号（贡献语义）+ 外链箭头（离站前往社区） */
 const DOOR_PLUS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 const DOOR_OUT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4.5"/></svg>';
@@ -38,6 +41,18 @@ const CODEX_TYPES = [
 const codexType = c => (c && c.type) || 'codex';
 const codexPickerTitle = c => c?.selectorTitle || c?.title || '';
 const realCodexesOfType = typeId => state.codexes.filter(c => codexType(c) === typeId);
+const typeIconOf = c => (CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_TYPES[0]).icon;
+const codexImagedPct = c => (c?.entryCount ? Math.round(Number(c.imagedCount || 0) / Number(c.entryCount) * 100) : 0);
+/* 外部数据源（书与图都托管在别人站上）——图片前缀不归本站管，封面默认不取 */
+const isExternalCodex = c => /^https?:/i.test(String(c?.dataUrl || ''));
+
+/* 选择器封面：codexes.json 的 `cover` 字段（书内某张缩略图的文件名，可选配 `coverRev` 缓存戳）。
+   没写就退化成占位块（渐变 + 类型图标），不会显示成坏图；换封面＝改这一行数据，不用动代码。 */
+function codexCoverUrl(c) {
+  if (!c?.cover || isExternalCodex(c)) return '';
+  // coverCodexId：封面借用别本的图片前缀时才需要写（如画风串复用图包的资源目录）
+  return thumbUrl({ image: c.cover, assetRev: c.coverRev || '', assetCodexId: c.coverCodexId || '' }, c);
+}
 const pickerActiveCodex = () => (state.favoritesView || state.siteSearchView) ? state.browseCodex : state.codex;
 const pickerActiveCodexId = () => pickerActiveCodex()?.id || '';
 const EMPTY_ACCESS_ENTRIES = Object.freeze([]);
@@ -135,26 +150,61 @@ export function setupCodexPicker() {
     return { ...t, real, soon: real.length === 0 };
   }).filter(t => !document.body.classList.contains('local-edition') || t.real.length > 0);
 
-  const makeRealItem = (c, n) => {
+  /* 封面槽：占位块永远在底下垫着，图加载成功才淡入盖上去；图挂了/没配封面都自然露出占位，不会有破图 */
+  const coverSlot = (iconKey, url = '') =>
+    `<span class="ci-cover">` +
+    `<span class="ci-ph">${TYPE_ICONS[iconKey]}</span>` +
+    (url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : '') +
+    `<span class="ci-veil">${LOCK_ICON}</span>` +
+    `</span>`;
+
+  const bindCoverReveal = item => {
+    const img = item.querySelector('.ci-cover img');
+    if (!img) return;
+    const reveal = () => img.classList.add('is-loaded');
+    if (img.complete && img.naturalWidth) reveal();
+    else img.onload = reveal;   // 失败时保持透明，露出下面的占位块
+  };
+
+  /* 书上的小标：本次更新 / R18（解锁与未解锁两枚，靠 .locked 类切换显示）/ 外部源 / 含原图 */
+  const codexChips = c => {
+    let html = '';
+    if (c.newFilterLabel) html += `<span class="ci-chip new">${esc(String(c.newFilterLabel).replace(/^本次/, ''))}</span>`;
+    if (c.nsfw) html += `<span class="ci-chip r18">R18</span><span class="ci-chip lock">${LOCK_ICON}R18</span>`;
+    if (isExternalCodex(c)) html += '<span class="ci-chip ext">外部源</span>';
+    if (c.hasOriginal) html += '<span class="ci-chip orig">含原图</span>';
+    return html;
+  };
+
+  const makeRealItem = c => {
     const locked = isCodexLocked(c);
     const active = pickerActiveCodexId() === c.id;
-    const pct = c.entryCount ? Math.round((Number(c.imagedCount || 0) / Number(c.entryCount || 1)) * 100) : 0;
+    const pct = codexImagedPct(c);
+    const count = Number(c.entryCount || 0);
+    const cover = codexCoverUrl(c);
+    /* 版本恰好是「外部源」时不和外部源小标重复说一遍 */
+    const version = c.version === '外部源' ? '' : c.version;
     const item = document.createElement('button');
     item.type = 'button';
     item.className = `codex-item${locked ? ' locked' : ''}${active ? ' active' : ''}`;
     item.dataset.id = c.id;
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
+    /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
+    item.setAttribute('aria-label',
+      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
     item.innerHTML =
-      `<span class="ci-mark">${String(n).padStart(2, '0')}</span>` +
+      coverSlot(typeIconOf(c), cover) +
       `<span class="ci-main">` +
-      `<span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
-      `<span class="ci-meta">${esc(c.author || '未知作者')} · ${Number(c.entryCount || 0)} 条 · ${pct}% 配图</span>` +
-      `<span class="ci-bar"><i style="width:${pct}%"></i></span>` +
-      `<span class="ci-lock"${locked ? '' : ' hidden'}>开启设置解锁</span>` +
-      `</span>` +
-      '<svg class="ck" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 13 4 4L19 7"/></svg>';
+      `<span class="ci-head"><span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
+      (active ? '<span class="ci-now">当前</span>' : '') + `</span>` +
+      `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
+      `<span class="ci-foot"><span class="ci-tags">${codexChips(c)}</span>` +
+      `<span class="ci-n">${count.toLocaleString()} 条</span>` +
+      `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>` +
+      `</span></span>`;
+    bindCoverReveal(item);
     item.onclick = () => chooseCodex(c);
     return item;
   };
@@ -165,11 +215,11 @@ export function setupCodexPicker() {
     item.className = 'codex-item soon';
     item.dataset.soon = t.id;
     item.innerHTML =
-      `<span class="ci-mark ico">${TYPE_ICONS[t.icon]}</span>` +
+      coverSlot(t.icon) +
       `<span class="ci-main">` +
-      `<span class="ci-name">${esc(ph.title)}</span>` +
-      `<span class="ci-meta">${esc(ph.meta || '')}</span>` +
-      `<span class="ci-soon-chip">占位册</span>` +
+      `<span class="ci-head"><span class="ci-name">${esc(ph.title)}</span></span>` +
+      `<span class="ci-sub">${esc(ph.meta || '')}</span>` +
+      `<span class="ci-foot"><span class="ci-tags"><span class="ci-soon-chip">占位册</span></span></span>` +
       `</span>`;
     item.onclick = () => toast(`「${t.name}」即将上线`, '');
     return item;
@@ -207,8 +257,18 @@ export function setupCodexPicker() {
     if (t.soon) {
       (t.placeholders || []).forEach(ph => container.appendChild(makeSoonItem(t, ph)));
     } else {
-      t.real.forEach((c, i) => container.appendChild(makeRealItem(c, i + 1)));
+      t.real.forEach(c => container.appendChild(makeRealItem(c)));
     }
+  };
+
+  /* 类型轨底部的合计：把左栏那块空白用成有用的信息，顺带说明圆环是什么 */
+  const makeRailFoot = () => {
+    const books = state.codexes.length;
+    const entries = state.codexes.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+    const foot = document.createElement('div');
+    foot.className = 'codex-rail-foot';
+    foot.innerHTML = `共 <b>${books}</b> 本 · <b>${entries.toLocaleString()}</b> 条词条<br>右侧圆环＝配图率`;
+    return foot;
   };
 
   /* PC：级联双栏 */
@@ -245,14 +305,15 @@ export function setupCodexPicker() {
       el.dataset.type = t.id;
       el.setAttribute('aria-pressed', 'false');
       const count = t.soon ? (t.placeholders || []).length : t.real.length;
+      el.title = t.sub;
       el.innerHTML =
         `<span class="ct-ico">${TYPE_ICONS[t.icon]}</span>` +
-        `<span class="ct-main"><span class="ct-name">${esc(t.name)}${t.soon ? '<span class="codex-soon-tag">占位</span>' : ''}</span>` +
-        `<span class="ct-sub">${esc(t.sub)}</span></span>` +
+        `<span class="ct-name">${esc(t.name)}${t.soon ? '<span class="codex-soon-tag">占位</span>' : ''}</span>` +
         `<span class="ct-n">${count}</span>`;
       el.onclick = () => setActive(t.id);
       rail.appendChild(el);
     });
+    rail.appendChild(makeRailFoot());
     menu.appendChild(rail);
     menu.appendChild(listWrap);
     setActive(activeType);
@@ -339,6 +400,8 @@ export function setupCodexPicker() {
   });
 }
 
+/* 解锁状态变了就地更新，不重建菜单（重建会让封面图重新淡入、也会丢掉滚动位置）。
+   R18 小标的解锁/未解锁两态、封面模糊与锁蒙版全部挂在 .locked 类上，由 CSS 切换。 */
 export function updateCodexPickerState() {
   document.querySelectorAll('#codexMenu .codex-item').forEach(it => {
     if (!it.dataset.id) return;  // 跳过占位条目
@@ -352,8 +415,6 @@ export function updateCodexPickerState() {
     else it.removeAttribute('aria-current');
     if (locked) it.title = NSFW_LOCKED_MESSAGE;
     else it.removeAttribute('title');
-    const lock = it.querySelector('.ci-lock');
-    if (lock) lock.hidden = !locked;
   });
 }
 
