@@ -947,6 +947,177 @@ body.density-compact .copy-hint{display:none}
 }
 .back-top.show{opacity:1;visibility:visible;pointer-events:auto;transform:none}
 
+/* ---------- Tag 中转站 ---------- */
+/* 三层：卡片上的入站键 → 吸底浮条（有料才出现）→ 拼装台面板。
+   浮条会盖住瀑布流最后一行、挤掉右下浮动按钮、顶掉 toast，
+   所以尺寸集中在 --tray-bar-space，改高度只需要动这一个值。 */
+.tray-btn{
+  flex:none;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;
+  width:22px;height:22px;padding:0;border-radius:50%;font-size:13px;line-height:1;
+  display:grid;place-items:center;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.tray-btn:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.tray-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+body{--tray-bar-space:0px}
+body.has-tray-bar{--tray-bar-space:86px}
+body.has-tray-bar .main{padding-bottom:calc(80px + var(--tray-bar-space))}
+body.has-tray-bar .float-actions{bottom:calc(30px + var(--tray-bar-space))}
+body.has-tray-bar .toast{bottom:calc(40px + var(--tray-bar-space))}
+
+.tray-bar{
+  position:fixed;left:50%;bottom:22px;z-index:42;
+  display:flex;align-items:center;gap:10px;max-width:calc(100vw - 28px);
+  padding:9px 10px 9px 16px;border:1px solid var(--line);border-radius:17px;
+  background:var(--popover-glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:var(--popover-shadow);
+  opacity:0;translate:-50% 26px;
+  transition:opacity .2s,translate .28s cubic-bezier(.22,1,.36,1),border-color .12s,background .12s;
+}
+.tray-bar[hidden]{display:none}
+.tray-bar.show{opacity:1;translate:-50% 0}
+.tray-bar.is-dragover{border-color:var(--accent);background:var(--accent-soft)}
+.tray-bar-icon{display:grid;place-items:center;color:var(--accent);flex:none}
+.tray-bar-icon svg{width:19px;height:19px}
+.tray-bar-label{font-size:13.5px;font-weight:800;white-space:nowrap}
+.tray-bar-count{
+  flex:none;background:var(--accent);color:#fff;border-radius:999px;
+  padding:2px 9px;font-size:12px;font-weight:800;white-space:nowrap;
+}
+.tray-bar-btn{
+  border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;
+  border-radius:11px;padding:7px 13px;font-size:13px;font-weight:700;white-space:nowrap;
+  transition:border-color .12s,color .12s,background .12s,opacity .12s;
+}
+.tray-bar-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tray-bar-btn:disabled{opacity:.45;cursor:not-allowed}
+.tray-bar-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.tray-bar-btn.primary:hover:not(:disabled){background:var(--accent);color:#fff;filter:brightness(1.06)}
+
+/* 拖拽落点：只有正在拖卡片上的 ＋ 时才出现（body.tray-dragging 由 tray.js 打标） */
+.tray-drop{
+  position:fixed;left:50%;bottom:22px;z-index:68;
+  padding:18px 44px;border:2px dashed var(--accent);border-radius:16px;
+  background:var(--popover-glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  color:var(--accent);font-size:14px;font-weight:800;box-shadow:var(--popover-shadow);
+  opacity:0;translate:-50% 22px;pointer-events:none;
+  transition:opacity .16s,translate .16s,background .12s;
+}
+body.tray-dragging .tray-drop{opacity:1;translate:-50% 0;pointer-events:auto}
+.tray-drop.is-dragover{background:var(--accent-soft)}
+
+.tray-mask{
+  position:fixed;inset:0;z-index:72;display:flex;align-items:flex-end;justify-content:center;
+  background:rgba(15,18,30,.45);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  opacity:0;transition:opacity .2s ease;pointer-events:none;
+}
+.tray-mask.show{opacity:1;pointer-events:auto}
+.tray-sheet{
+  width:min(1040px,100%);height:min(74vh,700px);
+  display:flex;flex-direction:column;overflow:hidden;
+  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--line);border-bottom:0;border-radius:22px 22px 0 0;
+  box-shadow:var(--shadow-hover);
+  transform:translateY(100%);transition:transform .28s cubic-bezier(.22,1,.36,1);
+}
+.tray-mask.show .tray-sheet{transform:none}
+body.dark .tray-sheet{border-color:rgba(255,255,255,.12)}
+.tray-sheet-head{
+  display:flex;align-items:center;gap:10px;flex:none;
+  padding:14px 18px;border-bottom:1px solid var(--line);
+}
+.tray-sheet-head h2{margin:0;font-size:17px;font-weight:800;letter-spacing:.5px}
+.tray-sheet-sub{font-size:12px;color:var(--muted);flex:1;min-width:0}
+.tray-sheet-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr)}
+.tray-col{display:flex;flex-direction:column;min-height:0;min-width:0}
+.tray-col-warehouse{border-right:1px solid var(--line)}
+.tray-col-head{padding:11px 16px 7px;font-size:12px;color:var(--muted);flex:none}
+.tray-col-list{
+  flex:1;min-height:0;overflow-y:auto;padding:0 12px 14px;
+  display:flex;flex-direction:column;gap:7px;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.tray-empty{margin:22px 10px;color:var(--muted);font-size:12.5px;line-height:1.9;text-align:center}
+
+.tray-block{
+  display:flex;align-items:center;gap:8px;flex:none;
+  border:1px solid var(--line);background:var(--card);border-radius:12px;
+  padding:8px 10px;font-size:13px;transition:border-color .12s,opacity .12s;
+}
+.tray-block.used{opacity:.5}
+.tray-thumb{width:32px;height:32px;border-radius:8px;object-fit:cover;flex:none;background:var(--tagbg)}
+.tray-thumb.is-blank{display:block}
+.tray-block-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.tray-block-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tray-block-sub{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tray-mark{
+  display:inline-block;margin-left:5px;padding:1px 6px;border-radius:999px;
+  background:var(--tagbg);color:var(--muted);font-size:10px;font-weight:800;
+}
+.tray-mark.neg{background:rgba(239,77,126,.14);color:var(--new)}
+.tray-mark.warn{background:rgba(245,179,1,.16);color:#a5760a}
+body.dark .tray-mark.warn{color:#f3c261}
+.tray-act{
+  flex:none;width:26px;height:26px;padding:0;border:none;border-radius:8px;cursor:pointer;
+  background:transparent;color:var(--muted);font-size:14px;line-height:1;display:grid;place-items:center;
+  transition:background .12s,color .12s;
+}
+.tray-act:hover{background:var(--tagbg);color:var(--accent)}
+
+.tray-slot{cursor:grab}
+.tray-slot.off{opacity:.45}
+.tray-slot.off .tray-block-title{text-decoration:line-through}
+.tray-slot.is-dragging{opacity:.35}
+.tray-slot.is-dragover{border-color:var(--accent);border-style:dashed}
+.tray-grip{flex:none;color:var(--muted);font-size:13px;line-height:1;cursor:grab}
+.tray-move{display:none;flex:none;flex-direction:column}
+.tray-move .tray-act{height:20px;font-size:12px}
+/* 触屏没有 HTML5 拖放，把把手换成上下移动按钮 */
+@media (pointer:coarse){
+  .tray-grip{display:none}
+  .tray-move{display:flex}
+  .tray-slot{cursor:default}
+}
+
+.tray-boards{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:none;padding:11px 16px 7px}
+.tray-tab{
+  border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;
+  border-radius:999px;padding:4px 12px;font-size:12.5px;font-weight:700;
+  display:inline-flex;align-items:center;gap:6px;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.tray-tab:hover{border-color:var(--accent);color:var(--accent)}
+.tray-tab.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.tray-tab-n{font-size:11px;opacity:.75;font-weight:800}
+.tray-tab.del{margin-left:auto;border-color:transparent;color:var(--muted);font-weight:600}
+.tray-tab.del:hover{color:var(--new);border-color:var(--new)}
+
+.tray-result{flex:none;border-top:1px solid var(--line);padding:11px 16px 14px;background:var(--bg)}
+.tray-result-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:8px}
+.tray-result-meta{flex:1;min-width:120px;font-size:12px;color:var(--muted)}
+.tray-preview{
+  margin:0;max-height:110px;overflow:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 12px;
+  font-family:var(--font-prompt);font-size:11.5px;line-height:1.7;color:var(--muted);
+  white-space:pre-wrap;word-break:break-word;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+
+@media (max-width:760px){
+  body.has-tray-bar{--tray-bar-space:74px}
+  .tray-bar{left:12px;right:12px;bottom:12px;translate:0 26px;max-width:none;padding:8px 9px 8px 13px}
+  .tray-bar.show{translate:0 0}
+  .tray-bar-label{display:none}
+  .tray-bar-btn{flex:1;padding:8px 10px;text-align:center}
+  .tray-sheet{height:92vh;height:92dvh;border-radius:20px 20px 0 0}
+  .tray-sheet-head{padding:12px 14px}
+  .tray-sheet-sub{display:none}   /* 窄屏放不下，条数在方案标签上已经有了 */
+  .tray-sheet-body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1.25fr)}
+  .tray-col-warehouse{border-right:0;border-bottom:1px solid var(--line)}
+  .tray-preview{max-height:84px}
+}
+
 /* ---------- 设置悬浮框 ---------- */
 .settings-mask{
   position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:20px;
@@ -1661,8 +1832,9 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.18)}
 #copyPositive{background:var(--accent);color:#fff}
 #copyNegative{background:var(--new);color:#fff}
-#favoriteLightbox,#copyAll,#copyRawTag,#viewOriginal,#shareLightbox,#reportLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
-#favoriteLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover,#reportLightbox:hover{background:var(--tagbg-hover);filter:none}
+#favoriteLightbox,#trayLightbox,#copyAll,#copyRawTag,#viewOriginal,#shareLightbox,#reportLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
+#favoriteLightbox:hover,#trayLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover,#reportLightbox:hover{background:var(--tagbg-hover);filter:none}
+#trayLightbox.on{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
 #viewOriginal:disabled{cursor:not-allowed;opacity:.58;color:var(--muted)}
 #viewOriginal:disabled:hover{background:var(--tagbg);filter:none;transform:none;box-shadow:none}
 #favoriteLightbox{min-width:38px;color:var(--muted);font-size:0;line-height:1}

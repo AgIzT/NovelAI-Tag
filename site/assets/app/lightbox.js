@@ -22,6 +22,7 @@ import {
   setFavoriteButtonState,
   toggleFav,
 } from './favorites.js';
+import { isInTray, toggleTray } from './tray.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -736,6 +737,23 @@ export function renderLightbox() {
       toggleFav(e, favoriteBtn, { deferViewRefresh: true });
     };
   }
+  const trayBtn = $('#trayLightbox');
+  if (trayBtn) {
+    const syncTrayBtn = () => {
+      const on = isInTray(e);
+      trayBtn.textContent = on ? '已在中转站' : '加入中转站';
+      trayBtn.classList.toggle('on', on);
+      trayBtn.setAttribute('aria-pressed', String(on));
+      trayBtn.title = on ? '再点一下移出中转站' : '收进中转站，稍后在拼装台里排列组合';
+    };
+    trayBtn.hidden = emptyImage;
+    syncTrayBtn();
+    trayBtn.onclick = ev => {
+      ev.stopPropagation();
+      toggleTray(e, null);
+      syncTrayBtn();
+    };
+  }
   const originalBtn = $('#viewOriginal');
   if (originalBtn) {
     const action = lightboxOriginalAction(Boolean(hasOriginal && origSrc), sourceAllowsOriginal);
@@ -783,7 +801,7 @@ export function renderLightbox() {
   }
   const actions = document.querySelector('.lightbox-actions');
   if (actions) {
-    actions.hidden = [favoriteBtn, $('#copyAll'), $('#copyRawTag'), originalBtn, shareBtn, reportBtn]
+    actions.hidden = [favoriteBtn, trayBtn, $('#copyAll'), $('#copyRawTag'), originalBtn, shareBtn, reportBtn]
       .filter(Boolean)
       .every(button => button.hidden);
   }

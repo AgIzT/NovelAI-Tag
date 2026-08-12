@@ -6,12 +6,14 @@ import { currentHighlightTerms, hiddenSearchMatch, renderHighlightedText } from 
 import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } from './media.js';
 import { copyText, combinedPrompt, combinedPromptLabel, entryPromptText } from './copy.js';
 import { isFav } from './favorites.js';
+import { beginTrayDrag, isInTray, setTrayButtonState } from './tray.js';
 import { updateReadingSpy } from './codex-ui.js';
 
 const masonryActions = {
   openLightbox: () => {},
   copyEntry: () => {},
   toggleFav: () => {},
+  toggleTray: () => {},
   reportEntry: () => {},
 };
 
@@ -418,6 +420,15 @@ export function makeCard(placement) {
   fav.title = faved ? '取消收藏' : '收藏';
   fav.setAttribute('aria-label', faved ? '取消收藏' : '收藏');
   fav.onclick = ev => { ev.stopPropagation(); masonryActions.toggleFav(e, fav); };
+
+  /* 中转站入站键：卡片本身仍然是「点一下复制」，所以这颗必须自己吞掉冒泡。
+     按钮态每次建卡都按当前中转站重算——瀑布流会回收卡片，只在点击时改 DOM 会丢状态。 */
+  const trayBtn = node.querySelector('.tray-btn');
+  if (trayBtn) {
+    setTrayButtonState(trayBtn, isInTray(e));
+    trayBtn.onclick = ev => { ev.stopPropagation(); masonryActions.toggleTray(e, trayBtn); };
+    trayBtn.ondragstart = ev => { ev.stopPropagation(); beginTrayDrag(e, ev); };
+  }
 
   const reportBtn = node.querySelector('.report-card-btn');
   if (reportBtn) {

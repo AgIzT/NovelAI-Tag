@@ -655,6 +655,47 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   </div>
 </div>
 
+<div id="trayDrop" class="tray-drop" aria-hidden="true">拖到这里入站</div>
+
+<div id="trayBar" class="tray-bar" role="region" aria-label="Tag 中转站" hidden>
+  <span class="tray-bar-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 11a2 2 0 0 1-2 1.7H8.5a2 2 0 0 1-2-1.7z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+  </span>
+  <span class="tray-bar-label">中转站</span>
+  <span class="tray-bar-count" id="trayBarCount">0 条</span>
+  <button id="trayQuickCopy" class="tray-bar-btn" type="button">复制正面</button>
+  <button id="trayOpen" class="tray-bar-btn primary" type="button" aria-haspopup="dialog" aria-controls="trayPanel">展开拼装台</button>
+</div>
+
+<div id="trayPanel" class="tray-mask" role="dialog" aria-modal="true" aria-labelledby="trayPanelTitle" hidden>
+  <section class="tray-sheet">
+    <header class="tray-sheet-head">
+      <h2 id="trayPanelTitle">拼装台</h2>
+      <span class="tray-sheet-sub" id="trayPanelSub"></span>
+      <button id="trayClear" class="tray-bar-btn" type="button">清空</button>
+      <button id="trayClose" class="tray-bar-btn" type="button">收起</button>
+    </header>
+    <div class="tray-sheet-body">
+      <div class="tray-col tray-col-warehouse">
+        <div class="tray-col-head">仓库 · 已入站的料</div>
+        <div class="tray-col-list" id="trayWarehouse"></div>
+      </div>
+      <div class="tray-col">
+        <div class="tray-boards" id="trayBoards"></div>
+        <div class="tray-col-list" id="trayCanvas"></div>
+      </div>
+    </div>
+    <footer class="tray-result">
+      <div class="tray-result-head">
+        <span class="tray-result-meta" id="trayMeta">画布是空的</span>
+        <button id="trayCopyPos" class="tray-bar-btn primary" type="button">复制正面</button>
+        <button id="trayCopyNeg" class="tray-bar-btn" type="button">复制负面</button>
+      </div>
+      <pre id="trayPreview" class="tray-preview"></pre>
+    </footer>
+  </section>
+</div>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="图片灯箱" hidden>
@@ -684,6 +725,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
       <div class="lightbox-actions">
         <button id="favoriteLightbox" type="button" aria-label="收藏" aria-pressed="false">☆</button>
+        <button id="trayLightbox" type="button" aria-pressed="false">加入中转站</button>
         <button id="copyAll" type="button">复制全部</button>
         <button id="copyRawTag" type="button">复制当前图 Raw</button>
         <button id="viewOriginal" type="button">查看原图</button>
@@ -738,6 +780,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="badge-neg-chip" hidden title="含负面提示词">负面</span>
         <span class="badge-char-chip" hidden title="含角色词">角色词</span>
         <button class="fav-btn" type="button" title="收藏" aria-label="收藏">☆</button>
+        <button class="tray-btn" type="button" draggable="true" title="加入中转站" aria-label="加入中转站" aria-pressed="false">＋</button>
       </div>
       <div class="card-tags"></div>
       <div class="card-foot">

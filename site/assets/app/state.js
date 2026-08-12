@@ -14,6 +14,7 @@ export const THEMES = [
   { id: 'sakura', name: '樱粉' },
   { id: 'amber', name: '暖金' },
 ];
+export const TRAY_STORAGE_KEY = 'fadian-tray';
 export const RECENT_STORAGE_KEY = 'fadian-recent';
 export const LAST_BROWSE_STORAGE_KEY = 'fadian-last-browse';
 export const RECENT_ENTRY_LIMIT = 18;

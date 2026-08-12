@@ -12,6 +12,8 @@ import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
 import { openLightbox, closeLightbox } from './app/lightbox.js';
+import { loadTray, toggleTray } from './app/tray.js';
+import { setupTray } from './app/tray-panel.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
@@ -138,6 +140,7 @@ export async function init() {
     setLoading('');
     const savedFavs = safeJsonParse(localStorage.getItem(ATLAS_FAVORITES_STORAGE_KEY), []);
     state.favs = new Set(Array.isArray(savedFavs) ? savedFavs : []);
+    loadTray();   // 必须赶在首次建卡之前，否则卡片上的入站键会全部画成未入站
     state.recentEntries = normalizeRecentEntries(safeJsonParse(localStorage.getItem(RECENT_STORAGE_KEY), []));
     state.lastBrowse = normalizeLastBrowse(safeJsonParse(localStorage.getItem(LAST_BROWSE_STORAGE_KEY), null));
     state.allowNsfw = localStorage.getItem(NSFW_STORAGE_KEY) === '1';
@@ -161,6 +164,7 @@ export async function init() {
     setupAbout();
     setupTreeSpy();
     bindUI();
+    setupTray();
     bindFavoritesBackup();
     state.pendingUrlState = readUrlState();
     const wantsFavorites = state.pendingUrlState.favorites || state.pendingUrlState.codex === FAVORITES_CODEX_ID;
@@ -679,6 +683,7 @@ setMasonryActions({
   openLightbox,
   copyEntry,
   toggleFav,
+  toggleTray,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 

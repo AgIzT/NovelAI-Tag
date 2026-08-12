@@ -12,6 +12,7 @@ import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js'
 import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
+import { closeTrayPanel, isTrayPanelOpen } from './tray-panel.js';
 import { setupHomeShortcutGuide } from './home-shortcut.js';
 import {
   closeHistoryLayer,
@@ -683,6 +684,7 @@ export function bindUI() {
       return;
     }
     if (!moreMenu.hidden) { closeMore({ focusButton: true }); return; }
+    if (isTrayPanelOpen()) { closeTrayPanel(); return; }
     if (!settingsMask.hidden) { closeMask(settingsMask); return; }
     if (!shortcutMask.hidden) { closeMask(shortcutMask); return; }
     if (!historyMask.hidden) { closeMask(historyMask); return; }
