@@ -25,6 +25,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/tokens.css">
 <link rel="stylesheet" href="assets/styles.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
+<link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/app/state.js">
 <link rel="modulepreload" href="assets/app/utils.js">
@@ -53,6 +54,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/resume-prompt.js">
 <link rel="modulepreload" href="assets/app/favorites-transfer.js">
 <link rel="modulepreload" href="assets/app/ui.js">
+<link rel="modulepreload" href="assets/app/tag-relay-core.js">
+<link rel="modulepreload" href="assets/app/tag-relay.js">
 </head>
 <body>
 <script>/* 主题早应用：正式主题在 bindUI（等完网络请求后）才挂，这里先按本地偏好上类，消除深色/换肤用户的首帧闪色 */
@@ -161,6 +164,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
           <span><b>浏览共创广场</b><small>查看图片与提示词作品</small></span>
         </a>
+        <a id="tagRelayMenuLink" class="more-item" href="tag-relay.html" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
+          <span><b>Tag 中转站</b><small>暂存词条 · 排列组合 · 一键复制</small></span>
+        </a>
         <a class="more-item" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
           <span><b>GitHub 仓库</b><small>查看项目源码</small></span>
@@ -257,6 +264,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </div>
 
 <div class="float-actions" aria-label="快捷操作">
+  <button id="tagRelayBtn" class="float-btn tag-relay-float-btn" type="button" title="打开 Tag 中转站暂存区" aria-label="打开 Tag 中转站暂存区" aria-haspopup="dialog" aria-controls="tagRelayQuick">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
+    <span id="tagRelayCount" class="tag-relay-count" hidden>0</span>
+  </button>
   <button id="randomBtn" class="float-btn random-btn" type="button" title="随机探索当前结果" aria-label="随机探索当前结果">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <rect x="4" y="4" width="16" height="16" rx="4"/>
@@ -271,6 +282,29 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <button id="backTop" class="float-btn back-top" type="button" title="回到顶部" aria-label="回到顶部">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 14 7-7 7 7"/></svg>
   </button>
+</div>
+
+<div id="tagRelayQuick" class="settings-mask tag-relay-mask" hidden>
+  <section class="tag-relay-quick" role="dialog" aria-modal="true" aria-labelledby="tagRelayQuickTitle" aria-describedby="tagRelayQuickNote">
+    <header class="tag-relay-quick-head">
+      <div>
+        <span class="tag-relay-eyebrow">随手收集，不打断浏览</span>
+        <h2 id="tagRelayQuickTitle">Tag 中转站</h2>
+      </div>
+      <button id="tagRelayQuickClose" class="settings-close" type="button" aria-label="关闭中转站暂存区">×</button>
+    </header>
+    <p id="tagRelayQuickNote" class="tag-relay-quick-note">先把候选词条放在这里；需要组合时再进入工作台，不再依赖系统剪切板辨认版本。</p>
+    <div id="tagRelayQuickList" class="tag-relay-quick-list" aria-live="polite"></div>
+    <div id="tagRelayQuickEmpty" class="tag-relay-quick-empty">
+      <span aria-hidden="true">＋</span>
+      <b>暂存区还是空的</b>
+      <small>点词条标题旁的中转按钮，就能边逛边收集。</small>
+    </div>
+    <footer class="tag-relay-quick-foot">
+      <button id="tagRelayClear" class="tag-relay-secondary" type="button">清空暂存</button>
+      <a id="tagRelayWorkbenchLink" class="tag-relay-primary" href="tag-relay.html">进入组合工作台 <span aria-hidden="true">→</span></a>
+    </footer>
+  </section>
 </div>
 
 <div id="settings" class="settings-mask" hidden>
@@ -684,6 +718,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
       <div class="lightbox-actions">
         <button id="favoriteLightbox" type="button" aria-label="收藏" aria-pressed="false">☆</button>
+        <button id="stageLightbox" class="stage-lightbox" type="button" aria-pressed="false">加入中转站</button>
         <button id="copyAll" type="button">复制全部</button>
         <button id="copyRawTag" type="button">复制当前图 Raw</button>
         <button id="viewOriginal" type="button">查看原图</button>
@@ -738,6 +773,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="badge-neg-chip" hidden title="含负面提示词">负面</span>
         <span class="badge-char-chip" hidden title="含角色词">角色词</span>
         <button class="fav-btn" type="button" title="收藏" aria-label="收藏">☆</button>
+        <button class="stage-btn" type="button" title="加入 Tag 中转站" aria-label="加入 Tag 中转站" aria-pressed="false">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12v11H4z"/><path d="M7 8h6M10 6v4"/></svg>
+        </button>
       </div>
       <div class="card-tags"></div>
       <div class="card-foot">

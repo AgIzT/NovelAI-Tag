@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tag 中转站 · 法典图鉴</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<meta name="theme-color" content="#6f5cf2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap"></noscript>
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="assets/favorites-backup.css">
+<link rel="stylesheet" href="assets/tag-relay.css">
+<link rel="modulepreload" href="assets/data-source.js">
+<link rel="modulepreload" href="assets/app/state.js">
+<link rel="modulepreload" href="assets/app/data.js">
+<link rel="modulepreload" href="assets/app/fav-codex.js">
+<link rel="modulepreload" href="assets/app/tag-relay-core.js">
+<link rel="modulepreload" href="assets/tag-relay-workbench.js">
+</head>
+<body class="tag-relay-page density-standard">
+<script>(()=>{try{
+  const c=document.body.classList;
+  if(localStorage.getItem('fadian-dark')==='1'){c.add('dark');document.documentElement.style.colorScheme='dark';}
+  const t=localStorage.getItem('fadian-theme');
+  if(t==='teal'||t==='sakura'||t==='amber')c.add('theme-'+t);
+}catch(e){}})();</script>
+
+<header class="topbar tag-relay-topbar">
+  <a class="icon-btn tag-relay-back" href="index.html" aria-label="返回法典图鉴" title="返回法典图鉴">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+  </a>
+  <div class="brand">法典<span>图鉴</span></div>
+  <div class="tag-relay-top-title">
+    <b>Tag 中转站</b>
+    <small>把剪切板堆叠，变成可辨认的组合</small>
+  </div>
+  <div class="topbar-actions">
+    <button id="relayThemeBtn" class="icon-btn theme-btn" type="button" title="深色 / 浅色" aria-label="切换深色模式"></button>
+    <a class="tag-relay-browse-link" href="index.html">继续浏览</a>
+  </div>
+</header>
+
+<main class="tag-relay-shell">
+  <h1 class="sr-only">Tag 中转站组合工作台</h1>
+  <section class="tag-relay-planbar" aria-label="方案管理">
+    <div class="tag-relay-plan-title">
+      <span class="tag-relay-eyebrow">当前组合方案</span>
+      <label class="sr-only" for="relayPlanSelect">选择方案</label>
+      <select id="relayPlanSelect" aria-label="选择方案"></select>
+    </div>
+    <div id="relayPlanStats" class="tag-relay-plan-stats" aria-live="polite">0 个块 · 0 个字符</div>
+    <div class="tag-relay-plan-actions">
+      <button id="relayNewPlan" type="button">新建</button>
+      <button id="relayDuplicatePlan" type="button">副本</button>
+      <button id="relayRenamePlan" type="button">改名</button>
+      <button id="relayDeletePlan" class="is-danger" type="button">删除</button>
+    </div>
+  </section>
+
+  <div class="tag-relay-workbench">
+    <section class="tag-relay-pane tag-relay-source is-mobile-active" data-relay-pane="source" aria-labelledby="relaySourceTitle">
+      <header class="tag-relay-pane-head">
+        <div>
+          <span class="tag-relay-eyebrow">01 · 素材架</span>
+          <h2 id="relaySourceTitle">候选词条</h2>
+        </div>
+        <span id="relaySourceCount" class="tag-relay-pane-count">0</span>
+      </header>
+      <div class="tag-relay-source-tabs" role="tablist" aria-label="素材来源">
+        <button type="button" role="tab" aria-selected="true" data-relay-source="inbox">待整理</button>
+        <button type="button" role="tab" aria-selected="false" data-relay-source="favorites">收藏</button>
+        <button type="button" role="tab" aria-selected="false" data-relay-source="history">复制记录</button>
+      </div>
+      <p id="relaySourceStatus" class="tag-relay-source-status" role="status" aria-live="polite">浏览时加入的词条会出现在这里。</p>
+      <div id="relaySourceList" class="tag-relay-source-list"></div>
+    </section>
+
+    <section class="tag-relay-pane tag-relay-arrange" data-relay-pane="arrange" aria-labelledby="relayArrangeTitle">
+      <header class="tag-relay-pane-head">
+        <div>
+          <span class="tag-relay-eyebrow">02 · 编排台</span>
+          <h2 id="relayArrangeTitle">排列组合</h2>
+        </div>
+        <button id="relayManualToggle" class="tag-relay-quiet" type="button" aria-expanded="false" aria-controls="relayManualForm">＋ 自定义块</button>
+      </header>
+      <p class="tag-relay-pane-note">从左侧加入或直接拖入；拖动块可改顺序，点选后可编辑标题、正向与负向内容。</p>
+
+      <form id="relayManualForm" class="tag-relay-manual" hidden>
+        <label>块标题<input id="relayManualTitle" type="text" maxlength="60" placeholder="例如：镜头语言"></label>
+        <label>放入<select id="relayManualChannel"><option value="positive">正向</option><option value="negative">负向</option></select></label>
+        <label class="is-wide">Prompt<textarea id="relayManualText" rows="3" placeholder="cinematic lighting, close-up"></textarea></label>
+        <div class="tag-relay-manual-actions">
+          <button id="relayManualCancel" type="button">取消</button>
+          <button class="tag-relay-primary" type="submit">加入方案</button>
+        </div>
+      </form>
+
+      <div id="relayPlanLane" class="tag-relay-plan-lane" aria-live="polite"></div>
+      <div id="relayPlanEmpty" class="tag-relay-plan-empty">
+        <span aria-hidden="true">↘</span>
+        <b>把第一块放到这里</b>
+        <small>它会保留标题和来源，不会再变成剪切板里认不出的长字符串。</small>
+      </div>
+
+      <aside id="relayInspector" class="tag-relay-inspector" hidden aria-labelledby="relayInspectorTitle">
+        <div class="tag-relay-inspector-head">
+          <b id="relayInspectorTitle">编辑块</b>
+          <button id="relayInspectorClose" type="button" aria-label="关闭编辑">×</button>
+        </div>
+        <div class="tag-relay-inspector-grid">
+          <label>标题<input id="relayBlockTitle" type="text" maxlength="60"></label>
+          <label>块权重<select id="relayBlockWeight"><option value="0.8">0.8</option><option value="1" selected>1.0</option><option value="1.1">1.1</option><option value="1.2">1.2</option></select></label>
+          <label class="is-wide">正向 Prompt<textarea id="relayBlockText" rows="4"></textarea></label>
+          <label class="is-wide">负向 Prompt<textarea id="relayBlockNegative" rows="3"></textarea></label>
+        </div>
+        <div class="tag-relay-inspector-actions">
+          <button id="relayBlockRemove" class="is-danger" type="button">从方案移除</button>
+          <button id="relayBlockSave" class="tag-relay-primary" type="button">保存修改</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="tag-relay-pane tag-relay-output" data-relay-pane="output" aria-labelledby="relayOutputTitle">
+      <header class="tag-relay-pane-head">
+        <div>
+          <span class="tag-relay-eyebrow">03 · 输出台</span>
+          <h2 id="relayOutputTitle">编译与复制</h2>
+        </div>
+        <span id="relayOutputVersion" class="tag-relay-version">实时预览</span>
+      </header>
+
+      <div class="tag-relay-output-option">
+        <span>格式</span>
+        <div id="relayFormatControl" class="tag-relay-segment" role="group" aria-label="输出格式">
+          <button type="button" data-format="nai" aria-pressed="true">NAI</button>
+          <button type="button" data-format="sd" aria-pressed="false">SD</button>
+          <button type="button" data-format="plain" aria-pressed="false">纯文本</button>
+        </div>
+      </div>
+      <div class="tag-relay-output-option">
+        <span>连接</span>
+        <div id="relayJoinControl" class="tag-relay-segment" role="group" aria-label="块连接方式">
+          <button type="button" data-join="comma" aria-pressed="true">逗号</button>
+          <button type="button" data-join="newline" aria-pressed="false">换行</button>
+        </div>
+      </div>
+
+      <label class="tag-relay-output-box">
+        <span><b>Positive</b><small id="relayPositiveMeta">0 块</small></span>
+        <textarea id="relayPositiveOutput" rows="8" readonly placeholder="正向输出会显示在这里"></textarea>
+      </label>
+      <button id="relayCopyPositive" class="tag-relay-copy-secondary" type="button">复制正向</button>
+
+      <label class="tag-relay-output-box">
+        <span><b>Negative</b><small id="relayNegativeMeta">0 块</small></span>
+        <textarea id="relayNegativeOutput" rows="6" readonly placeholder="负向输出会显示在这里"></textarea>
+      </label>
+      <button id="relayCopyNegative" class="tag-relay-copy-secondary" type="button">复制负向</button>
+
+      <button id="relayCopyAll" class="tag-relay-copy-primary" type="button">
+        <span>一键复制完整方案</span>
+        <small>同时存一份可恢复的复制记录</small>
+      </button>
+      <p class="tag-relay-copy-note">复制记录保留标题、顺序和格式；之后可以恢复成新方案继续改。</p>
+    </section>
+  </div>
+</main>
+
+<nav class="tag-relay-mobile-tabs" aria-label="工作台区域">
+  <button type="button" data-relay-mobile="source" aria-pressed="true"><span>素材</span><small id="relayMobileSourceCount">0</small></button>
+  <button type="button" data-relay-mobile="arrange" aria-pressed="false"><span>编排</span><small id="relayMobileBlockCount">0</small></button>
+  <button type="button" data-relay-mobile="output" aria-pressed="false"><span>输出</span><small>复制</small></button>
+</nav>
+
+<div id="relayToast" class="tag-relay-toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="assets/tag-relay-workbench.js"></script>
+</body>
+</html>

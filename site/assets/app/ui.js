@@ -471,6 +471,7 @@ export function bindUI() {
   const announcementsMask = $('#announcementsPanel');
   const feedbackMask = $('#feedbackPanel');
   const onboardingMask = $('#onboarding');
+  const tagRelayMask = $('#tagRelayQuick');
   const nsfwToggle = $('#nsfwToggle');
   const setNsfwAccess = (on, { announce = false } = {}) => {
     state.allowNsfw = Boolean(on);
@@ -691,6 +692,7 @@ export function bindUI() {
     if (announcementsMask && !announcementsMask.hidden) { closeMask(announcementsMask); return; }
     if (feedbackMask && !feedbackMask.hidden) { closeMask(feedbackMask); return; }
     if (onboardingMask && !onboardingMask.hidden) { closeMask(onboardingMask); return; }
+    if (tagRelayMask && !tagRelayMask.hidden) { closeMask(tagRelayMask); return; }
     closeBannerAbout({ historyMode: 'back' });
   });
   bindLightboxControls({ mobileQuery });
@@ -748,7 +750,8 @@ export function bindUI() {
     !archiveMask.hidden ||
     (announcementsMask && !announcementsMask.hidden) ||
     (feedbackMask && !feedbackMask.hidden) ||
-    (onboardingMask && !onboardingMask.hidden);
+    (onboardingMask && !onboardingMask.hidden) ||
+    (tagRelayMask && !tagRelayMask.hidden);
   window.addEventListener('keydown', ev => {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || typingTarget()) return;
     if (ev.key === '?' && !overlayOpen()) {

@@ -12,6 +12,8 @@ const masonryActions = {
   openLightbox: () => {},
   copyEntry: () => {},
   toggleFav: () => {},
+  isStaged: () => false,
+  toggleStage: () => {},
   reportEntry: () => {},
 };
 
@@ -418,6 +420,19 @@ export function makeCard(placement) {
   fav.title = faved ? '取消收藏' : '收藏';
   fav.setAttribute('aria-label', faved ? '取消收藏' : '收藏');
   fav.onclick = ev => { ev.stopPropagation(); masonryActions.toggleFav(e, fav); };
+
+  const stageBtn = node.querySelector('.stage-btn');
+  if (stageBtn) {
+    const staged = masonryActions.isStaged(e);
+    stageBtn.classList.toggle('on', staged);
+    stageBtn.setAttribute('aria-pressed', String(staged));
+    stageBtn.title = staged ? '已在 Tag 中转站，点击移除' : '加入 Tag 中转站';
+    stageBtn.setAttribute('aria-label', stageBtn.title);
+    stageBtn.onclick = ev => {
+      ev.stopPropagation();
+      masonryActions.toggleStage(e, stageBtn);
+    };
+  }
 
   const reportBtn = node.querySelector('.report-card-btn');
   if (reportBtn) {

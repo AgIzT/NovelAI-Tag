@@ -22,6 +22,7 @@ import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
+import { setupTagRelay } from './app/tag-relay.js';
 
 let codexLoadSeq = 0;
 let favoritesBackupBound = false;
@@ -675,10 +676,14 @@ setHistoryActions({
 
 setFavoritesActions({ applyFilter, refreshFavoritesView });
 
+const tagRelayActions = setupTagRelay();
+
 setMasonryActions({
   openLightbox,
   copyEntry,
   toggleFav,
+  isStaged: tagRelayActions.isStaged,
+  toggleStage: tagRelayActions.toggleStage,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 
