@@ -6,11 +6,16 @@ import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource }
 
 const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
 
+/* 这三个 JSON 走的是 release 锁定地址（data-source.js 把 baseUrl 拼成 .../releases/<release>/，
+   服务端对 release 路径发 immutable），内容不可能就地变——发布新数据 = 指针换 release = 换 URL。
+   所以这里**不能再压 no-store**：那等于每次进站都重下一遍恒定不变的内容，纯浪费首屏时间。
+   新鲜度由 current.json 指针保证（initializeDataSource 对它固定 no-store），
+   且 fetchSourceResult 在回退/降级链路上仍会强制 no-store，安全网没动。 */
 export async function loadBootstrapData() {
   const [indexResult, mediaResult, aboutResult] = await fetchDataJsonBatch([
-    { path: 'codexes.json', cache: 'no-store' },
-    { path: 'media.json', cache: 'no-store', fallbackValue: {} },
-    { path: 'about.json', cache: 'no-store', fallbackValue: EMPTY_ABOUT },
+    { path: 'codexes.json' },
+    { path: 'media.json', fallbackValue: {} },
+    { path: 'about.json', fallbackValue: EMPTY_ABOUT },
   ]);
   return {
     codexes: Array.isArray(indexResult.data) ? indexResult.data : [],

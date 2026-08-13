@@ -1,40 +1,44 @@
-# JS/CSS freshness is controlled only by no-store below.
-# Versioned JS/CSS query strings were intentionally removed; do not add them back.
+# JS/CSS 保鲜 = no-cache：允许存，但每次必须回源校验，内容变了立刻拿到新字节。
+# 与 no-store 的新鲜度保证等价（都不可能吃到旧代码），区别只是命中时回 304 而不是重传全量——
+# 全站 JS/CSS 已涨到 42 个文件 / gzip 195KB，重下一遍是 LCP 长尾的主因。见 docs/decisions/前端性能优化-20260813.md
+# ⚠ 到 no-cache 为止：别改成 immutable 长缓存（那需要整套版本号体系兜底），
+#   也别加回 ?v= 缓存号（已于 2026-07-08 全站移除，tools/check_cache_buster.py 会报）。
+# data-source.json / review.html / 收藏迁移页保持 no-store：前者属于 R2 数据层的指针语义，后两者是私密页面。
 /data-source.json
   Cache-Control: no-store
 
 /assets/app.js
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/app/*.js
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/styles.css
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/tokens.css
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/community.css
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/favorites-backup.css
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/community.js
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/community/*.js
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/admin.css
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/admin.js
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /assets/admin/*.js
-  Cache-Control: no-store
+  Cache-Control: no-cache
 
 /review.html
   Cache-Control: no-store

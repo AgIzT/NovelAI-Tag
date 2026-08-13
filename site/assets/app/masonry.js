@@ -219,7 +219,20 @@ export function estimateImageHeight(e, width) {
   return Math.round(width * clamp(ratio, 0.55, 1.9));
 }
 
+/* 估高是 computeLayout 的热点：每次搜索/筛选都要对**全部命中条目**跑一遍，而 textUnits 是逐字符正则。
+   实测（桌面 Node）5546 条约 17ms、11084 条约 37ms、全站搜索合并 29078 条约 94ms，中端手机再乘 4~6 倍——
+   正好对上 RUM 里 #search 键盘输入 INP P75 528ms。而虚拟滚动只渲染约 20 张卡，算出来的绝大多数当场丢弃。
+   同一条目在宽度/密度不变时结果恒定，按 entry 缓存即可（沿用 search.js searchableTextCache 的套路）。
+   ⚠ 返回的是共享对象，调用方只读不改；本地编辑改词条后要调 invalidateBodyMetrics。 */
+const bodyMetricsCache = new WeakMap();
+
+export function invalidateBodyMetrics(e) {
+  return e && typeof e === 'object' ? bodyMetricsCache.delete(e) : false;
+}
+
 export function estimateBodyMetrics(e, width) {
+  const cached = bodyMetricsCache.get(e);
+  if (cached && cached.width === width && cached.density === state.density) return cached.value;
   const cfg = densityConfig();
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
@@ -227,10 +240,12 @@ export function estimateBodyMetrics(e, width) {
   const titleHeight = titleLines * cfg.titleLineHeight;
   const tagsHeight = clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
-  return {
+  const value = {
     height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
+  bodyMetricsCache.set(e, { width, density: state.density, value });
+  return value;
 }
 
 export function estimateTagLines(text, width, cfg = densityConfig()) {
@@ -248,6 +263,9 @@ export function textUnits(text) {
 }
 
 let virtualRaf = 0;
+/* 由 updateVirtualCards 每轮写入的真实可视带（masonry 内部坐标，不含虚拟缓冲）。 */
+const visibleBand = { top: 0, bottom: 0 };
+
 let relayoutTimer = 0;
 let relayoutAnimTimer = 0;
 let relayoutQueuedAnimate = false;
@@ -288,6 +306,10 @@ export function updateVirtualCards(force = false) {
   const viewportHeight = view.viewportHeight;
   const rangeTop = Math.max(0, viewportTop - viewportHeight * VIRTUAL_BUFFER_UP);
   const rangeBottom = viewportTop + viewportHeight * (1 + VIRTUAL_BUFFER_DOWN);
+  /* 真实可视带（不含虚拟缓冲）在这里存一份，给 setupImage 判首屏用：
+     它本身就是这一轮唯一一次布局读取，卡片各自去量等于每张卡一次强制回流。 */
+  visibleBand.top = viewportTop;
+  visibleBand.bottom = viewportTop + viewportHeight;
   /* 虚拟缓冲区负责预建 DOM / 预载图，不等于用户已经看见。进场只在接近真实视口时触发，
      否则动画会在下方 1.4 屏白播，真正滚到时只剩终态。 */
   const entryMargin = Math.min(120, viewportHeight * 0.15);
@@ -788,8 +810,24 @@ export function setupImage(node, placement) {
     markError();
   };
 
+  /* 首屏图就是 LCP 元素：模板默认的 loading="lazy" 会降优先级并要等布局定完，
+     后面的 90ms 错峰定时器又把 src 再推一拍——RUM 实测 #masonry 卡片图 P75 7108ms，
+     而 FCP 才 1108ms，中间这 4.6 秒大半是这两道闸。
+     可视带内的卡改成即时加载、第一行再抢 fetchpriority=high；带外维持 lazy + 错峰，
+     否则近万卡的图会一次性铺满带宽，反而拖慢首屏那几张。 */
+  const aboveFold = placement.top < visibleBand.bottom && placement.top + placement.height > visibleBand.top;
+  if (aboveFold) {
+    img.loading = 'eager';
+    // computeLayout 按最短列排布，前 colN 个 placement 恰好是第一行
+    if (placement.index < Math.max(1, state.colN)) img.setAttribute('fetchpriority', 'high');
+  } else {
+    // setupImage 会在同一节点上重跑（换法典/重排），这里必须能退回去，否则 eager 会粘住
+    img.loading = 'lazy';
+    img.removeAttribute('fetchpriority');
+  }
+
   markLoading();
-  if (state.loadedImages.has(key)) load();
+  if (state.loadedImages.has(key) || aboveFold) load();
   else node._imageTimer = window.setTimeout(load, IMAGE_LOAD_DELAY);
 
   if (retryBtn) {
