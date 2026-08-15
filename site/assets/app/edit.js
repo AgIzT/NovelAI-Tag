@@ -9,6 +9,7 @@ import { setCodexUiActions, closeCodexPicker, invalidateAccessViewMemo, syncCode
 import { openMask, closeMask, trapFocus } from './modal.js';
 import { fetchDataJson } from '../data-source.js';
 import { invalidateSearchableText } from './search.js';
+import { invalidateBodyMetrics } from './masonry.js';
 import { invalidateSiteSearchCodex } from './site-search.js';
 import {
   buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath, splitTreePath,
@@ -373,6 +374,7 @@ async function saveEntry(entry) {
     mergeEntryInPlace(entry, res.entry);
     invalidateAccessViewMemo();
     invalidateSearchableText(entry);
+    invalidateBodyMetrics(entry);   // 标题/tag 改了，卡片估高缓存必须跟着失效，否则新文案还按旧高度排
     invalidateSiteSearchCodex();
     applyServerCounts(res);
     renderLightbox();

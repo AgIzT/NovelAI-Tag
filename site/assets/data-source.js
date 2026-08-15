@@ -81,8 +81,20 @@ function validateConfig(config) {
   return { baseUrl, pointer };
 }
 
-async function selectReleaseSource(mode, baseUrl, pointer, { degraded = false, error = null } = {}) {
-  const current = await fetchJsonUrl(joinBase(baseUrl, pointer), 'no-store');
+/* 认领 index.html 里那段内联脚本提前发出的启动请求：取一次就作废，避免失败后被反复复用。
+   它只是"早发的同一个请求"，校验与降级判断仍在本模块，认领不到就照常自己发。 */
+function claimBoot(key) {
+  const boot = globalThis.__atlasBoot;
+  const promise = boot?.[key];
+  if (!promise) return null;
+  boot[key] = null;
+  return promise;
+}
+
+async function selectReleaseSource(mode, baseUrl, pointer, { degraded = false, error = null, prefetched = null } = {}) {
+  const fetchPointer = () => fetchJsonUrl(joinBase(baseUrl, pointer), 'no-store');
+  // 提前发的那份失败了就当没有过，退回正常请求；release 格式校验照跑，不因来源不同放松
+  const current = await (prefetched ? prefetched.catch(fetchPointer) : fetchPointer());
   const release = String(current?.release || '');
   if (!RELEASE_RE.test(release)) throw new Error('Invalid R2 data release pointer');
   activeSource = {
@@ -127,11 +139,15 @@ export async function initializeDataSource() {
 
       let config;
       try {
-        config = await fetchJsonUrl(absoluteSiteUrl(CONFIG_URL), 'no-store');
+        const fetchConfig = () => fetchJsonUrl(absoluteSiteUrl(CONFIG_URL), 'no-store');
+        const bootConfig = claimBoot('config');
+        config = await (bootConfig ? bootConfig.catch(fetchConfig) : fetchConfig());
         if (remoteHostAllowed(config)) {
           const { baseUrl, pointer } = validateConfig(config);
           try {
-            return await selectReleaseSource('r2', baseUrl, pointer);
+            /* 指针也可能已经在飞：只在主路径认领，代理/本地回退各自照常发请求。
+               此时 config 已过 remoteHostAllowed + validateConfig，认领是安全的。 */
+            return await selectReleaseSource('r2', baseUrl, pointer, { prefetched: claimBoot('pointer') });
           } catch (error) {
             console.warn('Public R2 data source unavailable; using the Pages data proxy.', error);
             try {

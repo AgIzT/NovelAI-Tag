@@ -13,6 +13,7 @@ export function setLoading(text) {
 let skeletonToken = null;
 let skeletonDelayTimer = 0;
 let skeletonHideTimer = 0;
+let skeletonHideWait = null;
 let skeletonShownAt = 0;
 let skeletonMinVisible = 300;
 
@@ -31,6 +32,65 @@ function setSkeletonVisible(visible) {
   main?.classList.toggle('skeleton-visible', visible);
 }
 
+function cancelSkeletonHide() {
+  clearTimeout(skeletonHideTimer);
+  skeletonHideTimer = 0;
+  if (!skeletonHideWait) return;
+  const { resolve } = skeletonHideWait;
+  skeletonHideWait = null;
+  resolve(false);
+}
+
+function finishSkeleton(token, update, { respectMinVisible = true } = {}) {
+  if (skeletonToken !== token) return Promise.resolve(false);
+  const grid = $('#skeletonGrid');
+  clearTimeout(skeletonDelayTimer);
+  skeletonDelayTimer = 0;
+  cancelSkeletonHide();
+
+  const commit = () => {
+    if (skeletonToken !== token) return false;
+    skeletonToken = null;
+    setSkeletonPending(false);
+    setSkeletonVisible(false);
+    update?.();
+    return true;
+  };
+
+  if (!grid || grid.hidden) {
+    try {
+      return Promise.resolve(commit());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  const wait = respectMinVisible
+    ? Math.max(0, skeletonMinVisible - (timeNow() - skeletonShownAt))
+    : 0;
+  if (wait <= 0) {
+    try {
+      return Promise.resolve(commit());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    skeletonHideWait = { resolve };
+    skeletonHideTimer = window.setTimeout(() => {
+      if (skeletonHideWait?.resolve !== resolve) return;
+      skeletonHideWait = null;
+      skeletonHideTimer = 0;
+      try {
+        resolve(commit());
+      } catch (error) {
+        reject(error);
+      }
+    }, wait);
+  });
+}
+
 export function showSkeleton(token, { delay = 200, minVisible = 300 } = {}) {
   const grid = $('#skeletonGrid');
   if (!grid) return;
@@ -38,8 +98,7 @@ export function showSkeleton(token, { delay = 200, minVisible = 300 } = {}) {
   skeletonMinVisible = minVisible;
   setSkeletonPending(true);
   clearTimeout(skeletonDelayTimer);
-  clearTimeout(skeletonHideTimer);
-  skeletonHideTimer = 0;
+  cancelSkeletonHide();
 
   if (!grid.hidden) {
     skeletonShownAt = timeNow();
@@ -62,27 +121,13 @@ export function showSkeleton(token, { delay = 200, minVisible = 300 } = {}) {
 }
 
 export function hideSkeleton(token) {
-  if (skeletonToken !== token) return;
-  const grid = $('#skeletonGrid');
-  clearTimeout(skeletonDelayTimer);
-  skeletonDelayTimer = 0;
+  return finishSkeleton(token);
+}
 
-  if (!grid || grid.hidden) {
-    skeletonToken = null;
-    setSkeletonPending(false);
-    setSkeletonVisible(false);
-    return;
-  }
-
-  const wait = Math.max(0, skeletonMinVisible - (timeNow() - skeletonShownAt));
-  clearTimeout(skeletonHideTimer);
-  skeletonHideTimer = window.setTimeout(() => {
-    if (skeletonToken !== token) return;
-    skeletonHideTimer = 0;
-    skeletonToken = null;
-    setSkeletonPending(false);
-    setSkeletonVisible(false);
-  }, wait);
+/* 成功态不为凑最短展示时间阻塞真实内容；防闪由 show 的 delay 负责。
+   flow skeleton 与真实内容仍须在同一次 DOM 提交，否则异步 hide 会把 masonry 整片上拉。 */
+export function replaceSkeleton(token, render) {
+  return finishSkeleton(token, render, { respectMinVisible: false });
 }
 
 let toastTimer;

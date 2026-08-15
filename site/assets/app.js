@@ -1,6 +1,6 @@
 import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
-import { setLoading, showSkeleton, hideSkeleton } from './app/feedback.js';
+import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
 import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
 import { parseSearchQuery, matchSearchPlan } from './app/search.js';
@@ -140,7 +140,7 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
     vt.finished.catch(() => {}).finally(() => h.classList.remove('vt-codex'));
     await vt.updateCallbackDone;
   } else {
-    render();
+    await render();
   }
 }
 
@@ -319,7 +319,7 @@ export async function loadCodex(id, options = {}) {
       },
       resolveQuery: urlState => urlState?.q || '',
     });
-    await runCodexViewTransition(seq, render, { wasSwitching, transition: options.transition });
+    await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
@@ -372,7 +372,7 @@ export async function openFavoritesView(options = {}) {
       applyViewUrlState: urlState => applyUrlSearchScope(urlState),
       resolveQuery: urlState => urlState?.q || '',
     });
-    await runCodexViewTransition(seq, render, { wasSwitching, transition: options.transition });
+    await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
@@ -430,7 +430,7 @@ export async function openSiteSearchView(options = {}) {
       },
       resolveQuery: urlState => urlState?.q ?? state.query,
     });
-    await runCodexViewTransition(seq, render, { wasSwitching, transition: options.transition });
+    await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);

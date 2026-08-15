@@ -18,10 +18,30 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <!-- Static cold-start hints; keep this origin in sync with data/media.json baseUrl. -->
 <link rel="preconnect" href="https://assets.quicktagcloud.com">
 <link rel="dns-prefetch" href="https://assets.quicktagcloud.com">
+<script>/* 数据链提前起跑：init() 要等整张模块图下完才开始拉数据，而法典 JSON 线上传输约 659KB，
+   这会把首图发现推迟到模块、数据和布局之后；RUM 的 FCP/LCP 来自不同分位数，不能相减归因。
+   这里在解析到 <head> 时就把
+   前两跳（data-source.json → current.json）发出去，与模块下载重叠；data-source.js 认领这两个 Promise。
+   ⚠ 内联只复制 remoteHosts 主机门控，防止 Pages Preview 白发公网 R2 指针；配置/release 格式校验、
+     代理与本地降级仍由 data-source.js 决定。认领失败或请求失败时，模块会自己重走完整流程。 */
+(()=>{try{
+  const loc=location;
+  /* 本地版/localhost 读本机 site/data，提前发跨域请求纯属浪费 */
+  if(['localhost','127.0.0.1','::1'].includes(loc.hostname)||loc.protocol==='file:')return;
+  const j=u=>fetch(u,{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
+  const config=j('data-source.json');
+  const pointer=config.then(c=>{
+    const hosts=Array.isArray(c&&c.remoteHosts)?c.remoteHosts.map(String):[];
+    if(!hosts.includes('*')&&!hosts.includes(loc.hostname))return null;
+    return j(String(c.baseUrl).replace(/\/+$/,'')+'/'+String(c.pointer||'current.json'));
+  });
+  config.catch(()=>{});pointer.catch(()=>{});   // 没人认领时别冒 unhandled rejection
+  window.__atlasBoot={config,pointer};
+}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap"></noscript>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap"></noscript>
 <link rel="stylesheet" href="assets/tokens.css">
 <link rel="stylesheet" href="assets/styles.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
