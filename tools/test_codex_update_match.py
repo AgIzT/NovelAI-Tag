@@ -2,11 +2,27 @@
 
 import json
 import os
+from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from codex_update_match import match_entries, norm_tags_value
+from codex_update_match import (
+    apply_current_update_batch,
+    apply_audited_source_new_overrides,
+    build_application_gate,
+    build_applied_codex,
+    build_updated_codex_index,
+    load_baseline_json,
+    match_entries,
+    norm_tags_value,
+    normalize_suozhang_entries,
+    normalize_update_batches,
+    short_update_filter_label,
+    update_filter_history,
+    validate_codex_identity,
+    write_json_pair_with_rollback,
+)
 from convert import (
     assign_stable_ids,
     codex_summary_from_file,
@@ -26,6 +42,7 @@ def entry(
     *,
     is_new=False,
     image=None,
+    character_prompts=None,
 ):
     result = {
         "id": entry_id,
@@ -36,10 +53,82 @@ def entry(
     }
     if image is not None:
         result["image"] = image
+    if character_prompts is not None:
+        result["characterPrompts"] = character_prompts
     return result
 
 
 class CodexUpdateMatchTests(unittest.TestCase):
+    def test_codex_identity_rejects_explicitly_mismatched_data_file(self):
+        validate_codex_identity({"id": "suozhang"}, "suozhang")
+        with self.assertRaisesRegex(ValueError, "codex ID mismatch"):
+            validate_codex_identity({"id": "suozhang_r18"}, "suozhang")
+
+    def test_json_pair_rolls_back_when_index_replace_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_path = root / "data.json"
+            index_path = root / "index.json"
+            data_path.write_bytes(b"old-data")
+            index_path.write_bytes(b"old-index")
+            real_replace = Path.replace
+            failing_tmp = index_path.with_suffix(index_path.suffix + ".tmp")
+
+            def replace_with_second_failure(path, target):
+                if path == failing_tmp and Path(target) == index_path:
+                    raise OSError("simulated locked index")
+                return real_replace(path, target)
+
+            with patch.object(Path, "replace", new=replace_with_second_failure):
+                with self.assertRaisesRegex(OSError, "simulated locked index"):
+                    write_json_pair_with_rollback(
+                        data_path,
+                        {"value": "new-data"},
+                        index_path,
+                        {"value": "new-index"},
+                    )
+
+            self.assertEqual(data_path.read_bytes(), b"old-data")
+            self.assertEqual(index_path.read_bytes(), b"old-index")
+            self.assertFalse(data_path.with_suffix(".json.tmp").exists())
+            self.assertFalse(index_path.with_suffix(".json.tmp").exists())
+            self.assertFalse(data_path.with_suffix(".json.rollback").exists())
+            self.assertFalse(index_path.with_suffix(".json.rollback").exists())
+
+    def test_json_pair_keeps_recovery_copy_when_rollback_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_path = root / "data.json"
+            index_path = root / "index.json"
+            data_path.write_bytes(b"old-data")
+            index_path.write_bytes(b"old-index")
+            real_replace = Path.replace
+            index_tmp = index_path.with_suffix(index_path.suffix + ".tmp")
+            data_restore = data_path.with_suffix(data_path.suffix + ".rollback")
+
+            def replace_with_double_failure(path, target):
+                if path == index_tmp and Path(target) == index_path:
+                    raise OSError("simulated locked index")
+                if path == data_restore and Path(target) == data_path:
+                    raise OSError("simulated rollback failure")
+                return real_replace(path, target)
+
+            with patch.object(Path, "replace", new=replace_with_double_failure):
+                with self.assertRaisesRegex(
+                    RuntimeError, "rollback was incomplete"
+                ) as caught:
+                    write_json_pair_with_rollback(
+                        data_path,
+                        {"value": "new-data"},
+                        index_path,
+                        {"value": "new-index"},
+                    )
+
+            self.assertIn(str(data_restore), str(caught.exception))
+            self.assertEqual(data_restore.read_bytes(), b"old-data")
+            self.assertEqual(index_path.read_bytes(), b"old-index")
+            self.assertFalse(index_tmp.exists())
+
     def test_strict_replay_matches_everything_unchanged(self):
         old = [
             entry("book-0001", "甲", ["分类一"], "alpha,beta,"),
@@ -73,6 +162,38 @@ class CodexUpdateMatchTests(unittest.TestCase):
         changed = [item for item in result["matches"] if item["changes"]]
         self.assertEqual(changed[0]["old"]["id"], "book-0002")
         self.assertEqual(changed[0]["changes"], ["tags"])
+
+    def test_forced_pair_runs_before_automatic_matching(self):
+        old = [
+            entry("book-0001", "旧主卡", ["分类"], "old,main,", image="book-0001.jpg"),
+            entry("book-0002", "旧变体", ["分类"], "old,variant,"),
+        ]
+        new = [entry(None, "重写主卡", ["分类"], "fully,rewritten,")]
+
+        without_override = match_entries(old, new)
+        result = match_entries(old, new, forced_pairs={0: 0})
+
+        self.assertEqual(without_override["summary"]["matched"], 0)
+        self.assertEqual(result["summary"]["matched"], 1)
+        self.assertEqual(result["summary"]["clearAdditions"], 0)
+        self.assertEqual(result["summary"]["clearRemovals"], 1)
+        self.assertEqual(result["matches"][0]["method"], "manual_override")
+        self.assertEqual(result["matches"][0]["old"]["id"], "book-0001")
+        self.assertEqual(result["matches"][0]["old"]["image"], "book-0001.jpg")
+
+    def test_forced_pairs_reject_invalid_or_reused_indices(self):
+        old = [
+            entry("book-0001", "甲", ["分类"], "alpha,"),
+            entry("book-0002", "乙", ["分类"], "beta,"),
+        ]
+        new = [entry(None, "新", ["分类"], "new,")]
+
+        with self.assertRaisesRegex(ValueError, "forced old index out of range"):
+            match_entries(old, new, forced_pairs={2: 0})
+        with self.assertRaisesRegex(ValueError, "forced new index out of range"):
+            match_entries(old, new, forced_pairs={0: 1})
+        with self.assertRaisesRegex(ValueError, "forced new index is duplicated"):
+            match_entries(old, new, forced_pairs={0: 0, 1: 0})
 
     def test_exact_tags_preserve_id_across_rename_and_move(self):
         old = [entry("book-0042", "旧标题", ["旧目录"], "unique,prompt,tags,")]
@@ -285,6 +406,595 @@ class CodexUpdateMatchTests(unittest.TestCase):
         self.assertEqual(changed[0]["old"]["id"], "book-0002")
         self.assertEqual(changed[0]["changes"], ["tags"])
         self.assertFalse(result["review"])
+
+    def test_structured_character_prompts_are_part_of_identity_and_allow_empty_tags(self):
+        prompts = [{"label": "char1", "prompt": "girl,blue eyes,"}]
+        old = [
+            entry(
+                "book-0001", "纯角色词", ["分类"], "",
+                character_prompts=prompts,
+            )
+        ]
+        same = [
+            entry(None, "纯角色词", ["分类"], "", character_prompts=prompts)
+        ]
+
+        replay = match_entries(old, same)
+
+        self.assertTrue(replay["summary"]["strictReplayPass"])
+        self.assertFalse(replay["validationIssues"])
+        self.assertEqual(replay["matches"][0]["new"]["characterPrompts"], prompts)
+
+        changed = [
+            entry(
+                None,
+                "纯角色词",
+                ["分类"],
+                "",
+                character_prompts=[{"label": "char1", "prompt": "boy,blue eyes,"}],
+            )
+        ]
+        result = match_entries(old, changed)
+        self.assertEqual(result["matches"][0]["changes"], ["characterPrompts"])
+        self.assertEqual(result["summary"]["contentChanged"], 1)
+
+    def test_suozhang_source_normalization_reuses_standard_splitter(self):
+        prompts = [
+            {"label": "char1", "prompt": "girl,blue eyes,"},
+            {"label": "char2", "prompt": "boy,black hair,"},
+        ]
+        old = [
+            entry(
+                "suozhang-0001",
+                "角色场景",
+                ["分类"],
+                "scene,",
+                character_prompts=prompts,
+            )
+        ]
+        raw = [
+            entry(
+                None,
+                "角色场景",
+                ["分类"],
+                "scene,\nchar1：girl,blue eyes,\nchar2:boy,black hair,",
+            )
+        ]
+
+        normalized, audit = normalize_suozhang_entries(raw, old)
+        result = match_entries(old, normalized)
+
+        self.assertEqual(normalized[0]["tags"], "scene,")
+        self.assertEqual(normalized[0]["characterPrompts"], prompts)
+        self.assertEqual(audit["changedEntries"], 1)
+        self.assertEqual(audit["standardChangedEntries"], 1)
+        self.assertFalse(audit["blockers"])
+        self.assertTrue(result["summary"]["strictReplayPass"])
+
+    def test_suozhang_source_normalization_reports_invalid_standard_split(self):
+        raw = [entry(None, "坏角色词", ["分类"], "scene,\nchar1：")]
+
+        normalized, audit = normalize_suozhang_entries(raw, [])
+
+        self.assertEqual(normalized[0]["tags"], raw[0]["tags"])
+        self.assertEqual(len(audit["blockers"]), 1)
+        self.assertEqual(
+            audit["blockers"][0]["reason"], "invalid_standard_character_prompts"
+        )
+
+    def test_suozhang_source_normalization_applies_audited_variant_by_old_id(self):
+        old = [
+            entry(
+                "codex_6e699406-0879",
+                "三人颜射",
+                ["分类"],
+                "scene,",
+                character_prompts=[
+                    {"label": "char1", "prompt": "girl,"},
+                    {"label": "char2-4", "prompt": "group,"},
+                ],
+            )
+        ]
+        raw = [
+            entry(
+                None,
+                "三人颜射",
+                ["分类"],
+                "scene,\nchar1：girl,\nchar2-4：group,",
+            )
+        ]
+
+        normalized, audit = normalize_suozhang_entries(raw, old)
+
+        self.assertEqual(normalized[0]["tags"], "scene,")
+        self.assertEqual(
+            [item["label"] for item in normalized[0]["characterPrompts"]],
+            ["char1", "char2-4"],
+        )
+        self.assertEqual(audit["variantChangedEntries"], 1)
+        self.assertFalse(audit["blockers"])
+
+    def test_variant_structure_ambiguity_is_informational_when_rules_resolve_bodies(self):
+        old = [
+            entry(
+                "codex_6e699406-0879",
+                "其他版本1",
+                ["分类"],
+                "scene one,",
+                character_prompts=[
+                    {"label": "char1", "prompt": "girl,"},
+                    {"label": "char2-4", "prompt": "group,"},
+                ],
+            ),
+            entry(
+                "codex_6e699406-0901",
+                "其他版本1",
+                ["分类"],
+                "scene two,",
+                character_prompts=[
+                    {"label": "char1", "prompt": "girl,"},
+                    {"label": "char2", "prompt": "boy,"},
+                ],
+            ),
+        ]
+        raw = [
+            entry(
+                None,
+                "其他版本1",
+                ["分类"],
+                "scene one,\nchar1：girl,\nchar2-4：group,",
+            ),
+            entry(
+                None,
+                "其他版本1",
+                ["分类"],
+                "scene two,\nchar1：girl,\ncher2：boy,",
+            ),
+        ]
+
+        normalized, audit = normalize_suozhang_entries(raw, old)
+
+        self.assertEqual(audit["variantChangedEntries"], 2)
+        self.assertEqual(len(audit["variantAmbiguities"]), 1)
+        self.assertFalse(audit["blockers"])
+        self.assertEqual(normalized[0]["tags"], "scene one,")
+        self.assertEqual(normalized[1]["tags"], "scene two,")
+
+    def test_baseline_json_supports_entries_and_match_report_reconstruction(self):
+        direct_handle, direct_path = tempfile.mkstemp(suffix=".json")
+        report_handle, report_path = tempfile.mkstemp(suffix=".json")
+        os.close(direct_handle)
+        os.close(report_handle)
+        try:
+            with open(direct_path, "w", encoding="utf-8") as stream:
+                json.dump({
+                    "version": "1.0",
+                    "entries": [entry(None, "甲", ["分类"], "alpha,")],
+                }, stream, ensure_ascii=False)
+            entries, metadata = load_baseline_json(Path(direct_path))
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(metadata["version"], "1.0")
+
+            with open(report_path, "w", encoding="utf-8") as stream:
+                json.dump({
+                    "newVersion": "2.0",
+                    "matches": [{
+                        "new": {**entry(None, "甲", ["分类"], "alpha,"), "index": 0}
+                    }],
+                    "unmatchedNew": [
+                        {**entry(None, "乙", ["分类"], "beta,"), "index": 1}
+                    ],
+                    "docxStructure": {"tables": 0},
+                }, stream, ensure_ascii=False)
+            entries, metadata = load_baseline_json(Path(report_path))
+            self.assertEqual([item["title"] for item in entries], ["甲", "乙"])
+            self.assertEqual(metadata["version"], "2.0")
+            self.assertEqual(metadata["structure"], {"tables": 0})
+        finally:
+            os.unlink(direct_path)
+            os.unlink(report_path)
+
+    def test_gated_apply_preserves_non_source_metadata_and_skips_reserved_ids(self):
+        old = [
+            {
+                **entry(
+                    "book-0002",
+                    "保留",
+                    ["旧目录"],
+                    "old,tags,",
+                    image="book-0002.jpg",
+                    character_prompts=[{"label": "char1", "prompt": "old girl,"}],
+                ),
+                "original": "book-0002.png",
+                "assetRev": "stable-rev",
+                "imageWidth": 800,
+                "imageHeight": 1100,
+                "curatedNote": "keep me",
+                "updateBatches": ["2026.7.15"],
+            }
+        ]
+        new = [
+            entry(
+                None,
+                "保留",
+                ["旧目录"],
+                "new,tags,",
+                is_new=True,
+                character_prompts=[{"label": "char1", "prompt": "new girl,"}],
+            ),
+            entry(None, "新增", ["分类"], "brand,new,", is_new=True),
+        ]
+        result = match_entries(old, new)
+        codex = {
+            "id": "book",
+            "title": "测试",
+            "version": "old",
+            "author": "作者",
+            "entryCount": 1,
+            "imagedCount": 1,
+            "tree": [],
+            "entries": old,
+        }
+
+        applied, stats = build_applied_codex(
+            codex, new, result, "new", reserved_ids={"book-0099"}
+        )
+
+        self.assertEqual(applied["entries"][0]["id"], "book-0002")
+        self.assertEqual(applied["entries"][0]["image"], "book-0002.jpg")
+        self.assertEqual(applied["entries"][0]["assetRev"], "stable-rev")
+        self.assertEqual(applied["entries"][0]["curatedNote"], "keep me")
+        self.assertEqual(applied["entries"][0]["path"], ["旧目录"])
+        self.assertEqual(
+            applied["entries"][0]["characterPrompts"][0]["prompt"], "new girl,"
+        )
+        self.assertEqual(applied["entries"][1]["id"], "book-0100")
+        self.assertIsNone(applied["entries"][1]["image"])
+        self.assertEqual(
+            applied["entries"][0]["updateBatches"], ["2026.7.15", "new"]
+        )
+        self.assertEqual(applied["entries"][1]["updateBatches"], ["new"])
+        self.assertEqual(stats["newIds"], ["book-0100"])
+        self.assertEqual(stats["latestUpdateBatchCount"], 2)
+
+    def test_gated_index_refresh_preserves_extended_metadata(self):
+        index = [
+            {"id": "other", "entryCount": 1},
+            {
+                "id": "book",
+                "version": "old",
+                "entryCount": 1,
+                "imagedCount": 1,
+                "author": "curated",
+                "newFilterLabel": "本次7.15更新",
+                "updateFilters": [
+                    {"id": "2026.7.15", "label": "7.15更新", "latest": True}
+                ],
+            },
+        ]
+        applied = {
+            "version": "2026.8.14",
+            "entryCount": 2,
+            "imagedCount": 1,
+            "entries": [
+                {
+                    "id": "book-0001",
+                    "isNew": False,
+                    "updateBatches": ["2026.7.15"],
+                },
+                {
+                    "id": "book-0002",
+                    "isNew": True,
+                    "updateBatches": ["2026.8.14"],
+                },
+            ],
+        }
+
+        updated = build_updated_codex_index(index, applied, "book")
+
+        self.assertEqual(updated[1]["version"], "2026.8.14")
+        self.assertEqual(updated[1]["author"], "curated")
+        self.assertEqual(updated[1]["newFilterLabel"], "本次8.14更新")
+        self.assertEqual(
+            updated[1]["updateFilters"],
+            [
+                {"id": "2026.7.15", "label": "7.15更新"},
+                {"id": "2026.8.14", "label": "8.14更新", "latest": True},
+            ],
+        )
+
+    def test_update_batch_helpers_keep_is_new_as_latest_compatibility_flag(self):
+        value = {
+            "isNew": False,
+            "updateBatches": ["2026.7.15", "2026.7.15"],
+        }
+        apply_current_update_batch(value, "2026.8.14")
+        self.assertFalse(value["isNew"])
+        self.assertEqual(normalize_update_batches(value), ["2026.7.15"])
+
+        value["isNew"] = True
+        apply_current_update_batch(value, "2026.8.14")
+        self.assertEqual(
+            value["updateBatches"], ["2026.7.15", "2026.8.14"]
+        )
+        self.assertEqual(short_update_filter_label("2026.8.14"), "8.14更新")
+
+        filters = update_filter_history(
+            [{"id": "2026.7.15", "label": "旧标签", "latest": True}],
+            "2026.8.14",
+        )
+        self.assertEqual(filters[0], {"id": "2026.7.15", "label": "旧标签"})
+        self.assertTrue(filters[1]["latest"])
+
+        value = {
+            "isNew": False,
+            "updateBatches": ["2026.7.15", "2026.8.14"],
+        }
+        apply_current_update_batch(value, "2026.8.14")
+        self.assertEqual(value["updateBatches"], ["2026.7.15"])
+
+    def test_legacy_is_new_seeds_history_before_source_overwrite(self):
+        old = [entry("book-0001", "旧批次", ["分类"], "stable,tags,", is_new=True)]
+        new = [entry(None, "旧批次", ["分类"], "stable,tags,", is_new=False)]
+        result = match_entries(old, new)
+        codex = {
+            "id": "book",
+            "title": "测试",
+            "version": "2026.7.15",
+            "entryCount": 1,
+            "imagedCount": 0,
+            "tree": [],
+            "entries": old,
+        }
+
+        applied, _stats = build_applied_codex(
+            codex,
+            new,
+            result,
+            "2026.8.14",
+        )
+        self.assertFalse(applied["entries"][0]["isNew"])
+        self.assertEqual(
+            applied["entries"][0]["updateBatches"], ["2026.7.15"]
+        )
+
+        index = [{
+            "id": "book",
+            "version": "2026.7.15",
+            "newFilterLabel": "本次7.15更新",
+            "entryCount": 1,
+            "imagedCount": 0,
+        }]
+        updated = build_updated_codex_index(index, applied, "book")
+        self.assertEqual(
+            updated[0]["updateFilters"],
+            [
+                {"id": "2026.7.15", "label": "7.15更新"},
+                {"id": "2026.8.14", "label": "8.14更新", "latest": True},
+            ],
+        )
+
+    def test_same_version_reapply_rebuilds_latest_batch_from_is_new(self):
+        old_entry = entry(
+            "book-0001", "纠正标记", ["分类"], "stable,tags,", is_new=True
+        )
+        old_entry["updateBatches"] = ["2026.7.15", "2026.8.14"]
+        new = [
+            entry(None, "纠正标记", ["分类"], "stable,tags,", is_new=False)
+        ]
+        result = match_entries([old_entry], new)
+        codex = {
+            "id": "book",
+            "title": "测试",
+            "version": "2026.8.14",
+            "entryCount": 1,
+            "imagedCount": 0,
+            "tree": [],
+            "entries": [old_entry],
+        }
+
+        applied, _stats = build_applied_codex(
+            codex,
+            new,
+            result,
+            "2026.8.14",
+            previous_update_filters=[
+                {"id": "2026.7.15", "label": "7.15更新"},
+                {"id": "2026.8.14", "label": "8.14更新", "latest": True},
+            ],
+        )
+        self.assertFalse(applied["entries"][0]["isNew"])
+        self.assertEqual(
+            applied["entries"][0]["updateBatches"], ["2026.7.15"]
+        )
+
+    def test_audited_unhighlighted_new_override_applies_on_first_update(self):
+        old = [entry("suozhang-5703", "旧词条", ["各种风格"], "old,")]
+        new = [
+            entry(None, "旧词条", ["各种风格"], "old,"),
+            entry(
+                None,
+                "动画画风",
+                ["各种风格"],
+                "7::anime,anime screencap,anime coloring,official style,dense linework::,",
+                is_new=False,
+            ),
+        ]
+        codex = {
+            "id": "suozhang",
+            "title": "测试",
+            "version": "2026.7.15",
+            "entryCount": 1,
+            "imagedCount": 0,
+            "tree": [],
+            "entries": old,
+        }
+
+        applied, stats = build_applied_codex(
+            codex, new, match_entries(old, new), "2026.8.14"
+        )
+
+        override = applied["entries"][1]
+        self.assertEqual(override["id"], "suozhang-5704")
+        self.assertTrue(override["isNew"])
+        self.assertEqual(override["updateBatches"], ["2026.8.14"])
+        self.assertEqual(stats["auditedNewOverrideIds"], ["suozhang-5704"])
+
+    def test_audited_source_new_override_repairs_replay_input(self):
+        source_entry = entry(
+            None,
+            "动画画风",
+            ["各种风格"],
+            "7::anime,anime screencap,anime coloring,official style,dense linework::,",
+            is_new=False,
+        )
+
+        applied = apply_audited_source_new_overrides(
+            [source_entry], "suozhang", "2026.8.14"
+        )
+
+        self.assertTrue(source_entry["isNew"])
+        self.assertEqual(applied, ["suozhang-5704"])
+
+    def test_audited_unhighlighted_new_override_survives_same_version_reapply(self):
+        old_entry = entry(
+            "suozhang-5704",
+            "动画画风",
+            ["各种风格"],
+            "7::anime,anime screencap,anime coloring,official style,dense linework::,",
+            is_new=True,
+        )
+        old_entry["updateBatches"] = ["2026.8.14"]
+        source_entry = entry(
+            None,
+            "动画画风",
+            ["各种风格"],
+            old_entry["tags"],
+            is_new=False,
+        )
+        codex = {
+            "id": "suozhang",
+            "title": "测试",
+            "version": "2026.8.14",
+            "entryCount": 1,
+            "imagedCount": 0,
+            "tree": [],
+            "entries": [old_entry],
+        }
+
+        applied, stats = build_applied_codex(
+            codex,
+            [source_entry],
+            match_entries([old_entry], [source_entry]),
+            "2026.8.14",
+            previous_update_filters=[
+                {"id": "2026.8.14", "label": "8.14更新", "latest": True}
+            ],
+        )
+
+        self.assertTrue(applied["entries"][0]["isNew"])
+        self.assertEqual(applied["entries"][0]["updateBatches"], ["2026.8.14"])
+        self.assertEqual(stats["auditedNewOverrideIds"], ["suozhang-5704"])
+
+    def test_audited_new_override_is_version_scoped(self):
+        old_entry = entry(
+            "suozhang-5704",
+            "动画画风",
+            ["各种风格"],
+            "7::anime,anime screencap,anime coloring,official style,dense linework::,",
+            is_new=True,
+        )
+        old_entry["updateBatches"] = ["2026.8.14"]
+        source_entry = {**old_entry, "id": None, "isNew": False}
+        codex = {
+            "id": "suozhang",
+            "title": "测试",
+            "version": "2026.8.14",
+            "entryCount": 1,
+            "imagedCount": 0,
+            "tree": [],
+            "entries": [old_entry],
+        }
+
+        applied, stats = build_applied_codex(
+            codex,
+            [source_entry],
+            match_entries([old_entry], [source_entry]),
+            "2026.8.15",
+        )
+
+        self.assertFalse(applied["entries"][0]["isNew"])
+        self.assertEqual(applied["entries"][0]["updateBatches"], ["2026.8.14"])
+        self.assertEqual(stats["auditedNewOverrideIds"], [])
+
+    def test_audited_new_override_blocks_signature_drift(self):
+        old_entry = entry(
+            "suozhang-5704",
+            "动画画风",
+            ["各种风格"],
+            "7::anime,anime screencap,anime coloring,official style,dense linework::,",
+            is_new=True,
+        )
+        source_entry = entry(
+            None,
+            "动画画风",
+            ["各种风格"],
+            "changed tags,",
+            is_new=False,
+        )
+        codex = {
+            "id": "suozhang",
+            "title": "测试",
+            "version": "2026.7.15",
+            "entryCount": 1,
+            "imagedCount": 0,
+            "tree": [],
+            "entries": [old_entry],
+        }
+
+        with self.assertRaisesRegex(ValueError, "audited NEW override target drifted"):
+            build_applied_codex(
+                codex,
+                [source_entry],
+                match_entries([old_entry], [source_entry]),
+                "2026.8.14",
+            )
+
+    def test_application_gate_requires_safe_word_and_strict_baseline(self):
+        old = [entry("book-0001", "甲", ["分类"], "alpha,")]
+        new_result = match_entries(old, [entry(None, "甲", ["分类"], "alpha,")])
+        baseline_result = match_entries(
+            old, [entry(None, "甲", ["分类"], "alpha,")]
+        )
+        normalization = {"blockers": []}
+        structure = {
+            "tables": 0,
+            "drawings": 7,
+            "textBoxes": 0,
+            "trackedInsertions": 0,
+            "trackedDeletions": 0,
+            "commentsPart": False,
+            "trackRevisionsEnabled": False,
+        }
+
+        gate = build_application_gate(
+            new_result,
+            normalization,
+            structure,
+            baseline_result=baseline_result,
+            baseline_normalization=normalization,
+        )
+        self.assertTrue(gate["pass"])
+
+        unsafe = dict(structure, tables=1)
+        gate = build_application_gate(
+            new_result,
+            normalization,
+            unsafe,
+            baseline_result=baseline_result,
+            baseline_normalization=normalization,
+        )
+        self.assertFalse(gate["pass"])
 
 
 if __name__ == "__main__":

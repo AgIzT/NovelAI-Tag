@@ -20,6 +20,7 @@ export function isDefaultResumeRoute(route = {}) {
     || route.scope
     || route.q
     || route.entry
+    || route.updateFilter
     || route.onlyNew
     || (Array.isArray(route.path) && route.path.length)
   );

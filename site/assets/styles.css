@@ -566,33 +566,27 @@ body.dark .data-pill.has-orig{color:#8fd3a6;background:rgba(74,156,103,.18)}
 .access-hidden-hint:hover,.access-hidden-hint:focus-visible{
   border-color:var(--accent);color:var(--accent);background:var(--accent-soft);outline:none;
 }
-.result-filter-btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:28px;
-  border:1px solid var(--line);border-radius:999px;padding:3px 10px;
-  background:var(--card);color:var(--muted);font-size:11px;font-weight:750;
-  transition:border-color .12s,background .12s,color .12s;
-}
-.result-filter-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.result-filter-btn:hover{border-color:var(--accent);color:var(--accent)}
-.result-filter-btn[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
-.result-filter-btn:disabled{cursor:default;opacity:.72}
-.result-filter-btn.is-query-controlled{border-style:dashed;background:var(--tagbg);color:var(--muted)}
-.new-update-filter-btn{
+.update-filter-controls{display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
+.update-filter-btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  min-height:30px;border:1px solid color-mix(in srgb,var(--new) 34%,var(--line));border-radius:999px;
-  padding:4px 12px;background:color-mix(in srgb,var(--new) 8%,var(--card));color:var(--text);
-  font-size:12px;font-weight:700;box-shadow:0 5px 14px color-mix(in srgb,var(--new) 9%,transparent);
+  min-height:30px;border:1px solid var(--line);border-radius:999px;
+  padding:4px 12px;background:var(--card);color:var(--text);font-size:12px;font-weight:700;
   transition:border-color .15s,background .15s,color .15s,box-shadow .15s;
 }
-.new-update-filter-btn:hover{border-color:var(--new);background:color-mix(in srgb,var(--new) 13%,var(--card));box-shadow:0 7px 18px color-mix(in srgb,var(--new) 15%,transparent)}
-.new-update-filter-mark{
+.update-filter-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.update-filter-btn strong{color:var(--accent);font-weight:900}
+.update-filter-btn[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:#fff;box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 18%,transparent)}
+.update-filter-btn[aria-pressed="true"] strong{color:#fff}
+.update-filter-btn.is-latest{border-color:color-mix(in srgb,var(--new) 34%,var(--line));background:color-mix(in srgb,var(--new) 8%,var(--card));box-shadow:0 5px 14px color-mix(in srgb,var(--new) 9%,transparent)}
+.update-filter-btn.is-latest:hover{border-color:var(--new);background:color-mix(in srgb,var(--new) 13%,var(--card));color:var(--text);box-shadow:0 7px 18px color-mix(in srgb,var(--new) 15%,transparent)}
+.update-filter-mark{
   border-radius:6px;padding:2px 6px;background:var(--new);color:#fff;
   font-size:10px;font-weight:900;letter-spacing:.5px;line-height:1.2;
 }
-.new-update-filter-btn strong{color:var(--new);font-weight:900}
-.new-update-filter-btn[aria-pressed="true"]{border-color:var(--new);background:var(--new);color:#fff;box-shadow:0 8px 20px color-mix(in srgb,var(--new) 24%,transparent)}
-.new-update-filter-btn[aria-pressed="true"] .new-update-filter-mark{background:#fff;color:var(--new)}
-.new-update-filter-btn[aria-pressed="true"] strong{color:#fff}
+.update-filter-btn.is-latest strong{color:var(--new)}
+.update-filter-btn.is-latest[aria-pressed="true"]{border-color:var(--new);background:var(--new);color:#fff;box-shadow:0 8px 20px color-mix(in srgb,var(--new) 24%,transparent)}
+.update-filter-btn.is-latest[aria-pressed="true"] .update-filter-mark{background:#fff;color:var(--new)}
+.update-filter-btn.is-latest[aria-pressed="true"] strong{color:#fff}
 .crumbs{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px}
 .crumb{
   border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:999px;
@@ -602,10 +596,6 @@ body.dark .data-pill.has-orig{color:#8fd3a6;background:rgba(74,156,103,.18)}
 button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 .crumb.current{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);font-weight:600}
 .crumb-sep{color:var(--muted);opacity:.6;font-size:11px}
-
-@media(max-width:520px){
-  .new-update-filter-btn{width:100%;margin-left:0}
-}
 
 /* ---------- 瀑布流 ---------- */
 .masonry{position:relative;min-height:1px;contain:layout paint}

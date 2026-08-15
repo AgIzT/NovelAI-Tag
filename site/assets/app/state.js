@@ -106,8 +106,7 @@ export const state = {
   query: '',
   searchPlan: null,
   searchScope: DEFAULT_SEARCH_SCOPE,
-  onlyImaged: false,
-  onlyNew: false,
+  updateFilter: '',
   onlyFav: false,
   allowNsfw: false,
   allowR18g: false,  // R18G/重口内容默认完全隐藏，需多重确认开启

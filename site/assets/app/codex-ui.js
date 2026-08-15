@@ -1,7 +1,7 @@
 import { state, RANDOM_RECENT_LIMIT, NSFW_LOCKED_MESSAGE } from './state.js';
 import { $, esc, samePath, pathStartsWith, updateSearchClear, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { isCodexLocked, showNsfwLockedHint, showR18gLockedHint, isEntryAccessBlocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, isR18gName } from './access.js';
-import { codexStatusLabel, codexStatusClass, codexStatusTitle } from './data.js';
+import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilters, updateFilterDefinitions } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
 import {
@@ -65,7 +65,6 @@ const codexUiActions = {
   applyFilter: () => {},
   applySearch: async () => {},
   syncUrlState: () => {},
-  setOnlyImaged: () => {},
   openLightbox: () => {},
   updateVirtualCards: () => {},
 };
@@ -170,7 +169,8 @@ export function setupCodexPicker() {
   /* 书上的小标：本次更新 / R18（解锁与未解锁两枚，靠 .locked 类切换显示）/ 外部源 / 含原图 */
   const codexChips = c => {
     let html = '';
-    if (c.newFilterLabel) html += `<span class="ci-chip new">${esc(String(c.newFilterLabel).replace(/^本次/, ''))}</span>`;
+    const updateLabel = updateFilterDefinitions(c).find(filter => filter.latest)?.label || '';
+    if (updateLabel) html += `<span class="ci-chip new">${esc(updateLabel)}</span>`;
     if (c.nsfw) html += `<span class="ci-chip r18">R18</span><span class="ci-chip lock">${LOCK_ICON}R18</span>`;
     if (isExternalCodex(c)) html += '<span class="ci-chip ext">外部源</span>';
     if (c.hasOriginal) html += '<span class="ci-chip orig">含原图</span>';
@@ -744,58 +744,48 @@ export function selectPathByPath(path) {
 }
 
 
-function updateNewFilterControl() {
-  const btn = $('#newUpdateFilterBtn');
-  if (!btn) return;
-  const meta = (!state.favoritesView && !state.siteSearchView && state.codex)
-    ? state.codexes.find(item => item.id === state.codex.id || (item.aliases || []).includes(state.codex.id))
-    : null;
-  const label = String(meta?.newFilterLabel || '').trim();
-  const count = label ? state.codex.entries.filter(entry => entry.isNew === true).length : 0;
-  const enabled = Boolean(label && count);
-  btn.hidden = !enabled;
-  btn.setAttribute('aria-pressed', enabled && state.onlyNew ? 'true' : 'false');
-  if (!enabled) return;
-  $('#newUpdateFilterLabel').textContent = label;
-  $('#newUpdateFilterCount').textContent = String(count);
-  btn.title = state.onlyNew
-    ? '退出本次更新筛选，恢复之前的“只看有图”状态'
-    : '只看本次更新标记的词条（包含未配图）';
-  btn.setAttribute('aria-label', `NEW ${label} · ${count}${state.onlyNew ? '，当前已开启' : '，点击筛选'}`);
+function activeUpdateFilter() {
+  return codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter) || null;
 }
 
-export function imageSyntaxFilterValue(plan) {
-  return plan?.isSyntax && typeof plan.hasImage === 'boolean' ? plan.hasImage : null;
-}
-
-function updateOnlyImagedResultControl() {
-  const btn = $('#onlyImagedResultBtn');
-  const label = $('#onlyImagedResultLabel');
-  if (!btn || !label) return;
-  const syntaxValue = imageSyntaxFilterValue(state.searchPlan);
-  const queryControlled = syntaxValue !== null;
-  btn.hidden = Boolean(state.onlyNew);
-  btn.disabled = Boolean(state.onlyNew || queryControlled);
-  btn.dataset.queryControlled = queryControlled ? '1' : '';
-  btn.classList.toggle('is-query-controlled', queryControlled);
-  if (syntaxValue === true) {
-    label.textContent = '搜索已限定有图';
-    btn.setAttribute('aria-pressed', 'true');
-    btn.title = '当前 has:image 搜索语法已限定为有图结果';
-    btn.setAttribute('aria-label', btn.title);
-    return;
+function updateFilterControls() {
+  const root = $('#updateFilterControls');
+  if (!root) return;
+  const focusedFilterId = root.contains(document.activeElement)
+    ? String(document.activeElement?.dataset?.updateFilter || '')
+    : '';
+  const filters = (!state.favoritesView && !state.siteSearchView) ? codexUpdateFilters(state.codex) : [];
+  root.hidden = filters.length === 0;
+  root.replaceChildren();
+  for (const filter of filters) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `update-filter-btn${filter.latest ? ' is-latest' : ''}`;
+    btn.dataset.updateFilter = filter.id;
+    btn.setAttribute('aria-pressed', state.updateFilter === filter.id ? 'true' : 'false');
+    if (filter.latest) {
+      const mark = document.createElement('span');
+      mark.className = 'update-filter-mark';
+      mark.textContent = 'NEW';
+      btn.appendChild(mark);
+    }
+    const label = document.createElement('span');
+    label.textContent = filter.label;
+    btn.append(label, Object.assign(document.createElement('span'), { textContent: '·' }));
+    const count = document.createElement('strong');
+    count.textContent = String(filter.count);
+    btn.appendChild(count);
+    const prefix = filter.latest ? 'NEW ' : '';
+    const active = state.updateFilter === filter.id;
+    btn.title = active ? `退出${filter.label}筛选` : `只看${filter.label}标记的词条`;
+    btn.setAttribute('aria-label', `${prefix}${filter.label} · ${filter.count}${active ? '，当前已开启' : '，点击筛选'}`);
+    root.appendChild(btn);
   }
-  if (syntaxValue === false) {
-    label.textContent = '搜索已限定无图';
-    btn.setAttribute('aria-pressed', 'false');
-    btn.title = '当前 has:noimage 搜索语法已限定为无图结果';
-    btn.setAttribute('aria-label', btn.title);
-    return;
+  if (focusedFilterId) {
+    const replacement = [...root.querySelectorAll('[data-update-filter]')]
+      .find(button => button.dataset.updateFilter === focusedFilterId);
+    replacement?.focus({ preventScroll: true });
   }
-  label.textContent = '只看有图';
-  btn.setAttribute('aria-pressed', state.onlyImaged ? 'true' : 'false');
-  btn.title = state.onlyImaged ? '当前只看有图；点击显示全部词条' : '只看有图词条';
-  btn.setAttribute('aria-label', btn.title);
 }
 
 export function updateResultBar() {
@@ -803,8 +793,7 @@ export function updateResultBar() {
   const box = $('#resultInfo');
   const favoritesBackupButton = $('#favoritesViewBackupBtn');
   if (favoritesBackupButton) favoritesBackupButton.hidden = !state.favoritesView;
-  updateNewFilterControl();
-  updateOnlyImagedResultControl();
+  updateFilterControls();
   box.innerHTML = '';
   const q = state.query.trim();
 
@@ -844,7 +833,7 @@ export function updateResultBar() {
     t = `${scope}${state.searchPlan?.isSyntax ? '筛选' : '搜索'} “${esc(q)}”：<b>${n}</b> 条结果`;
   }
   else if (state.favoritesView) t = `收藏：<b>${n}</b> 条`;
-  else if (state.onlyNew) t = `本次更新：<b>${n}</b> 条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
+  else if (activeUpdateFilter()) t = `${esc(activeUpdateFilter().label)}：<b>${n}</b> 条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
   else if (state.activePath.length) t = `<b>${n}</b> 条`;
   else t = `共 <b>${n}</b> 条词条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
   count.innerHTML = t;
@@ -882,7 +871,8 @@ export function updateEmptyState(n) {
   if (n > 0) return;
 
   const q = state.query.trim();
-  const hasFilter = state.onlyImaged || state.onlyNew || state.onlyFav || state.activePath.length || q;
+  const updateFilter = activeUpdateFilter();
+  const hasFilter = Boolean(updateFilter || state.onlyFav || state.activePath.length || q);
   let title = '这里还没有词条';
   let desc = '换个分类或稍后再来看看。';
   const actions = [];
@@ -899,25 +889,21 @@ export function updateEmptyState(n) {
       desc += ' 部分受限法典尚未解锁，因此没有纳入本次搜索。';
       actions.push({ label: '查看未解锁范围', action: 'access-hint' });
     }
-  } else if (state.favoritesView && !state.onlyImaged && !state.activePath.length) {
+  } else if (state.favoritesView && !state.activePath.length) {
     title = '收藏夹还是空的';
     desc = '逛任意法典时点卡片右上角的星标，收藏就会集中到这里。';
-  } else if (state.onlyNew) {
-    title = state.activePath.length ? '这个分类没有本次更新' : '本次更新暂无可显示词条';
+  } else if (updateFilter) {
+    title = state.activePath.length ? `这个分类没有${updateFilter.label}` : `${updateFilter.label}暂无可显示词条`;
     desc = state.activePath.length
-      ? '可以查看全书的本次更新，或从上方分类继续筛选。'
-      : '退出本次更新筛选后，可以继续浏览全部词条。';
+      ? `可以查看全书的${updateFilter.label}，或从上方分类继续筛选。`
+      : `退出${updateFilter.label}筛选后，可以继续浏览全部词条。`;
     actions.push(state.activePath.length
       ? { label: '查看全书更新', action: 'show-all-updates' }
-      : { label: '退出本次更新', action: 'exit-update-filter' });
+      : { label: '退出更新筛选', action: 'exit-update-filter' });
   } else if (state.onlyFav) {
     title = '收藏夹还是空的';
     desc = '先在卡片右上角点星标收藏。';
     actions.push({ label: '查看全部词条', action: 'show-all' });
-  } else if (state.onlyImaged) {
-    title = '这个范围里暂时没有配图';
-    desc = '关闭“只看有图”后，可以查看待配图词条。';
-    actions.push({ label: '关闭只看有图', action: 'show-unimaged' });
   } else if (state.activePath.length) {
     title = '这个分类还没有词条';
     desc = '可以返回全部，或从上方横向分类继续逛。';
@@ -948,18 +934,15 @@ export function handleEmptyAction(action) {
     if (search) search.value = '';
     updateSearchClear();
     renderTree();
-  } else if (action === 'show-unimaged') {
-    codexUiActions.setOnlyImaged(false, { apply: false, syncHistory: false });
   } else if (action === 'show-all-updates') {
     state.activePath = [];
     renderTree();
   } else if (action === 'exit-update-filter') {
-    state.onlyNew = false;
+    state.updateFilter = '';
   } else if (action === 'show-all') {
     state.query = '';
     state.activePath = [];
     state.onlyFav = false;
-    codexUiActions.setOnlyImaged(false, { apply: false, syncHistory: false });
     const search = $('#search');
     if (search) search.value = '';
     const onlyFav = $('#onlyFav');

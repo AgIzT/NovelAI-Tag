@@ -103,6 +103,52 @@ export function findCodexMeta(id) {
   return state.codexes.find(c => codexMatches(c, id));
 }
 
+const cleanUpdateLabel = value => String(value || '').trim().replace(/^本次/, '');
+
+export function updateFilterDefinitions(meta = {}, codex = null) {
+  const definitions = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(meta?.updateFilters) ? meta.updateFilters : []) {
+    const id = String(raw?.id || '').trim();
+    const label = cleanUpdateLabel(raw?.label);
+    if (!id || !label || seen.has(id)) continue;
+    seen.add(id);
+    definitions.push({ id, label, latest: raw?.latest === true });
+  }
+  if (!definitions.some(item => item.latest) && cleanUpdateLabel(meta?.newFilterLabel)) {
+    const id = String(meta?.version || codex?.version || 'latest').trim() || 'latest';
+    if (!seen.has(id)) {
+      definitions.push({ id, label: cleanUpdateLabel(meta.newFilterLabel), latest: true });
+    }
+  }
+  return definitions;
+}
+
+export function entryMatchesUpdateFilter(entry, filter) {
+  if (!entry || !filter) return false;
+  const batches = Array.isArray(entry.updateBatches) ? entry.updateBatches : [];
+  return batches.some(value => String(value) === filter.id) || (filter.latest && entry.isNew === true);
+}
+
+export function codexUpdateFilters(codex) {
+  if (!codex) return [];
+  const meta = findCodexMeta(codex.id) || codex;
+  return updateFilterDefinitions(meta, codex)
+    .map(filter => ({
+      ...filter,
+      count: (codex.entries || []).filter(entry => entryMatchesUpdateFilter(entry, filter)).length,
+    }))
+    .filter(filter => filter.count > 0);
+}
+
+export function resolveUpdateFilter(codex, requested) {
+  const value = String(requested || '').trim();
+  if (!value || !codex) return '';
+  const filters = codexUpdateFilters(codex);
+  if (value === 'latest') return filters.find(filter => filter.latest)?.id || '';
+  return filters.some(filter => filter.id === value) ? value : '';
+}
+
 export function normalizeCodex(data, meta = {}) {
   const codex = {
     ...data,
@@ -144,6 +190,9 @@ export function normalizeEntry(entry, codex, index) {
     path: Array.isArray(entry.path) ? entry.path : [],
     tags: String(entry.tags || entry.rawTags || ''),
     negative: String(entry.negative || ''),
+    updateBatches: Array.isArray(entry.updateBatches)
+      ? [...new Set(entry.updateBatches.map(String).filter(Boolean))]
+      : [],
     characterPrompts: normalizeCharacterPrompts(entry.characterPrompts),
     note: String(entry.note || ''),
     image: entry.image || primary?.path || '',

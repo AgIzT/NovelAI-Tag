@@ -93,28 +93,6 @@ export function applyDensity(value, { render = true, announce = false } = {}) {
   if (announce) toast(`卡片密度：${densityConfig().label}`);
 }
 
-export function setOnlyImaged(value, {
-  apply = true,
-  syncHistory = true,
-  resetScroll = true,
-  transition = 'filter',
-  historyMode = 'replace',
-} = {}) {
-  const next = Boolean(value);
-  const changed = state.onlyImaged !== next;
-  state.onlyImaged = next;
-  const checkbox = $('#onlyImaged');
-  if (checkbox) checkbox.checked = next;
-  const resultButton = $('#onlyImagedResultBtn');
-  if (resultButton && resultButton.dataset.queryControlled !== '1') {
-    resultButton.setAttribute('aria-pressed', next ? 'true' : 'false');
-  }
-  if (!changed || !apply) return changed;
-  uiActions.applyFilter({ resetScroll, transition });
-  if (syncHistory) syncUrlState({ historyMode });
-  return changed;
-}
-
 export function bindUI() {
   document.querySelectorAll('.settings-mask[id], .favorites-backup-mask[id]')
     .forEach(registerMaskHistory);
@@ -245,20 +223,13 @@ export function bindUI() {
     };
   }
 
-  const onlyImaged = $('#onlyImaged');
-  if (onlyImaged) onlyImaged.onchange = e => setOnlyImaged(e.target.checked);
-  const onlyImagedResultBtn = $('#onlyImagedResultBtn');
-  if (onlyImagedResultBtn) {
-    onlyImagedResultBtn.onclick = () => {
-      if (onlyImagedResultBtn.disabled) return;
-      setOnlyImaged(!state.onlyImaged);
-    };
-  }
-  const newUpdateFilterBtn = $('#newUpdateFilterBtn');
-  if (newUpdateFilterBtn) {
-    newUpdateFilterBtn.onclick = () => {
-      if (newUpdateFilterBtn.hidden) return;
-      state.onlyNew = !state.onlyNew;
+  const updateFilterControls = $('#updateFilterControls');
+  if (updateFilterControls) {
+    updateFilterControls.onclick = event => {
+      const btn = event.target.closest?.('[data-update-filter]');
+      if (!btn || !updateFilterControls.contains(btn)) return;
+      const id = String(btn.dataset.updateFilter || '');
+      state.updateFilter = state.updateFilter === id ? '' : id;
       uiActions.applyFilter({ resetScroll: true, transition: 'filter' });
       syncUrlState({ historyMode: 'replace' });
     };

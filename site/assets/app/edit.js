@@ -414,7 +414,7 @@ async function structuralRefresh({
     path: [...(state.activePath || [])],
     q: state.query || '',
     scope: state.searchScope || '',
-    onlyNew: Boolean(state.onlyNew),
+    updateFilter: String(state.updateFilter || ''),
   };
   const scrollY = Math.max(0, window.scrollY || 0);
   invalidateSiteSearchCodex();

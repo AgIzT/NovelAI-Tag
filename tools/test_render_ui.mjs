@@ -106,10 +106,15 @@ const {
   entryImageCanUseOriginal,
   entrySourceAllowsOriginal,
 } = await import('../site/assets/app/original-capability.js');
-const { normalizeImageList } = await import('../site/assets/app/data.js');
+const {
+  codexUpdateFilters,
+  entryMatchesUpdateFilter,
+  normalizeImageList,
+  resolveUpdateFilter,
+  updateFilterDefinitions,
+} = await import('../site/assets/app/data.js');
 const {
   accessHiddenCount,
-  imageSyntaxFilterValue,
   invalidateAccessViewMemo,
   lockedCodexCount,
   railRevealDelta,
@@ -554,9 +559,36 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: 12, right: 88 }), 0);
   assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: -14, right: 42 }), -14);
   assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: 72, right: 118 }), 18);
-  assert.equal(imageSyntaxFilterValue({ isSyntax: true, hasImage: true }), true);
-  assert.equal(imageSyntaxFilterValue({ isSyntax: true, hasImage: false }), false);
-  assert.equal(imageSyntaxFilterValue({ isSyntax: false, hasImage: false }), null);
+}
+
+// 更新批次由索引声明、词条登记；latest 兼容旧 isNew，多个按钮共享一个互斥状态。
+{
+  const meta = {
+    id: 'updates', version: '2026.8.14', newFilterLabel: '本次8.14更新',
+    updateFilters: [
+      { id: '2026.7.15', label: '7.15更新' },
+      { id: '2026.8.14', label: '8.14更新', latest: true },
+    ],
+  };
+  const codex = {
+    id: 'updates',
+    entries: [
+      { id: 'old', updateBatches: ['2026.7.15'] },
+      { id: 'new', updateBatches: ['2026.8.14'], isNew: true },
+    ],
+  };
+  state.codexes = [meta];
+  const filters = codexUpdateFilters(codex);
+  assert.deepEqual(filters.map(({ id, label, latest, count }) => ({ id, label, latest, count })), [
+    { id: '2026.7.15', label: '7.15更新', latest: false, count: 1 },
+    { id: '2026.8.14', label: '8.14更新', latest: true, count: 1 },
+  ]);
+  assert.equal(resolveUpdateFilter(codex, 'latest'), '2026.8.14');
+  assert.equal(resolveUpdateFilter(codex, 'missing'), '');
+  assert.equal(entryMatchesUpdateFilter(codex.entries[0], filters[0]), true);
+  assert.deepEqual(updateFilterDefinitions({ version: '2026.8.14', newFilterLabel: '本次8.14更新' }), [
+    { id: '2026.8.14', label: '8.14更新', latest: true },
+  ]);
 }
 
 // 编辑器把当前书计数同步回选择器索引；零值也不能被旧计数吞掉。
@@ -578,6 +610,11 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 
   const searchUrl = atlasUrlForRoute({ codex: 'book', siteSearch: true, q: 'x', path: ['一级/分类'] });
   assert.deepEqual(new URL(searchUrl, location.href).searchParams.getAll('path'), ['一级/分类', '']);
+
+  const updateUrl = atlasUrlForRoute({ codex: 'book', updateFilter: '2026.7.15' });
+  assert.equal(new URL(updateUrl, location.href).searchParams.get('update'), '2026.7.15');
+  location.search = '?new=1';
+  assert.equal(readUrlState().updateFilter, 'latest');
 
   location.search = '?path=parent%2Fchild';
   assert.deepEqual(readUrlState().path, ['parent', 'child']);
@@ -753,13 +790,13 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const railActiveSource = codexUiSource.match(/export function updateRailActive\(\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(railActiveSource, /rail\.scrollTo\(\{[\s\S]*left,[\s\S]*top: rail\.scrollTop/);
   assert.doesNotMatch(railActiveSource, /window\.scroll|scrollIntoView/);
-  assert.match(indexSource, /id="onlyImagedResultBtn"[^>]*aria-pressed="false"/);
-  assert.match(codexUiSource, /btn\.hidden = Boolean\(state\.onlyNew\)/);
-  assert.match(codexUiSource, /搜索已限定有图/);
-  assert.match(codexUiSource, /搜索已限定无图/);
-  assert.match(appSource, /state\.onlyImaged && !state\.onlyNew && imageSyntaxFilterValue\(plan\) === null/);
-  assert.equal((`${appSource}\n${codexUiSource}\n${historySource}\n${uiSource}`.match(/state\.onlyImaged\s*=/g) || []).length, 1);
-  assert.match(historySource, /historyActions\.setOnlyImaged\(snapshot\.onlyImaged, \{ apply: false, syncHistory: false \}\)/);
+  assert.match(indexSource, /id="updateFilterControls"[^>]*hidden/);
+  assert.doesNotMatch(indexSource, /onlyImaged|只看有图/);
+  assert.match(codexUiSource, /className = `update-filter-btn\$\{filter\.latest \? ' is-latest' : ''\}`/);
+  assert.match(codexUiSource, /if \(filter\.latest\) \{[\s\S]*mark\.textContent = 'NEW'/);
+  assert.match(uiSource, /closest\?\.\('\[data-update-filter\]'\)/);
+  assert.match(appSource, /entryMatchesUpdateFilter\(entry, updateFilter\)/);
+  assert.doesNotMatch(`${appSource}\n${codexUiSource}\n${historySource}\n${uiSource}`, /state\.onlyImaged|setOnlyImaged/);
   assert.match(announcementsSource, /function markVisibleAnnouncementsRead\(\) \{[\s\S]*try \{\s*localStorage\.setItem/);
   assert.equal((announcementsSource.match(/loaded = true/g) || []).length, 1);
   assert.equal((reportSource.match(/signal: feedbackTimeoutSignal\(\)/g) || []).length, 2);

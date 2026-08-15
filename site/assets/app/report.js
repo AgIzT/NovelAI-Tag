@@ -114,7 +114,7 @@ export function buildFeedbackContext({ source = 'global', entry = null, imageInd
       path: params.getAll('path'),
       q: params.get('q') || state.query || '',
       entry: params.get('entry') || hash.get('entry') || state.lightbox?.entry?.id || '',
-      onlyImaged: Boolean(state.onlyImaged),
+      updateFilter: String(state.updateFilter || ''),
       onlyFav: Boolean(state.onlyFav),
       favoritesView: Boolean(state.favoritesView),
       siteSearchView: Boolean(state.siteSearchView),

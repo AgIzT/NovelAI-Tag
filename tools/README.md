@@ -10,7 +10,7 @@
 | 文件 | 用途 | 默认是否改数据 |
 | --- | --- | --- |
 | `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 会改 JSON |
-| `codex_update_match.py` | 新旧法典增量匹配预演（详见下文） | 只读；报告写 `output/` |
+| `codex_update_match.py` | 新旧法典增量匹配、基线回放与门禁应用（详见下文） | 默认只读；`--apply` 才写 |
 | `suozhang_r18_merge_match.py` | 所长色色上下册合并+全局匹配专用流程（详见下文） | 默认只读；`--apply` 才写 |
 | `import_docx_codex.py` | 导入结构特殊、带内嵌图片的 Word 法典（解构原典用） | 默认只出报告；`--apply` 才写 |
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
@@ -77,14 +77,15 @@
 
 ## 法典增量匹配预演
 
-更新已有 Word 法典前，先用旧版 Word 做回放基线，再审计新版：
+更新已有 Word 法典前，先用旧版 Word 做回放基线，再审计新版。旧 Word 已归档或遗失时，可用上轮完整源快照，或可按 `matches[].new + unmatchedNew` 重建的旧匹配报告作为基线：
 
 ```bat
 python tools\codex_update_match.py "D:\path\新版本.docx" --codex-id suozhang --baseline-docx "D:\path\旧版本.docx" --out-dir "output\所长常规-匹配测试"
+python tools\codex_update_match.py "D:\path\新版本.docx" --codex-id suozhang --baseline-json "output\上轮匹配测试\new-version-match.json" --out-dir "output\所长常规-匹配测试"
 python tools\test_codex_update_match.py
 ```
 
-报告会把完全一致、tag 修改、标题/目录变动、明确新增、明确减少和待人工复核分开。只有基线完整回放、歧义为 0，才应继续正式转换。新增 ID 永远从历史最大值之后分配，不复用已减少条目的 ID。
+报告会把完全一致、tag / 角色词修改、标题/目录变动、明确新增、明确减少和待人工复核分开。只有基线完整回放、歧义为 0，才应给同一命令追加 `--apply`。应用会保留匹配项的稳定 ID、全部图片元数据与既有 `updateBatches`，新增 ID 从历史最大值及本地孤儿资源号之后分配，不复用已减少条目的 ID；当次源书里 `isNew:true` 的条目会追加当前版本到 `updateBatches`，索引同步保留旧 `updateFilters` 并把当前版本标成唯一 `latest`。`isNew` / `newFilterLabel` 继续作为“最新一次更新”兼容字段，不承担历史批次存储。
 
 ### 所长色色合并版
 
@@ -92,12 +93,13 @@ python tools\test_codex_update_match.py
 
 ```bat
 python tools\suozhang_r18_merge_match.py "D:\path\新版上册.docx" "D:\path\新版下册.docx" --baseline-upper "D:\path\旧版上册.docx" --baseline-lower "D:\path\旧版下册.docx" --out-dir "output\所长色色-匹配测试"
+python tools\suozhang_r18_merge_match.py "D:\path\新版上册.docx" "D:\path\新版下册.docx" --baseline-merged-json "output\上轮匹配测试\merged-source.json" --out-dir "output\所长色色-匹配测试"
 python tools\test_suozhang_r18_merge_match.py
 ```
 
-⚠ 两条链（常规版 `codex_update_match.py` / 合并版 `suozhang_r18_merge_match.py`）**跑完 `--apply` 都要再跑一次 `migrate_suozhang_char_prompts.py --apply`**：Word 会把角色词内联回正面 tag，不拆的话 SD 用户复制出来带 `char1：`。
+⚠ 两条链（常规版 `codex_update_match.py` / 合并版 `suozhang_r18_merge_match.py`）都会在匹配前按现行角色词规则规范化候选，避免把结构化 `characterPrompts` 误报成 tag 漂移；**跑完 `--apply` 仍要再跑一次 `migrate_suozhang_char_prompts.py --apply`**，把它当作幂等收尾门禁。
 
-历史合并规则固定为：完整保留上册；仅移除下册与上册重复的「编纂者常用画师组」；保留下册「编纂者oc二则」。工具会先验证下册画师组确实是上册画师组的精确子集，并把两种 OC 标题下没有独立中文标题的本体/服装块拆成独立卡片。最终门禁以合并后的全局报告为准；分册报告只作诊断。默认命令不会改写正式数据；确认报告后给同一命令追加 `--apply`，才会写入 `site/data/suozhang_r18.json` 并只刷新 `codexes.json` 中该书的版本和计数。
+历史合并规则固定为：完整保留上册；仅移除下册与上册重复的「编纂者常用画师组」；保留下册「编纂者oc二则」。工具会先验证下册画师组确实是上册画师组的精确子集，并把两种 OC 标题下没有独立中文标题的本体/服装块拆成独立卡片。最终门禁以合并后的全局报告为准；分册报告只作诊断。默认命令不会改写正式数据；确认报告后给同一命令追加 `--apply`，才会写入 `site/data/suozhang_r18.json`，同时保留词条历史 `updateBatches`，并刷新 `codexes.json` 中该书的版本、计数和 `updateFilters` 最新批次。
 
 ## sd_metadata_inspector.py
 
