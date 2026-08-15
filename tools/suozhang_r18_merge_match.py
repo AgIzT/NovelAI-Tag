@@ -23,13 +23,24 @@ import re
 from typing import Any
 
 from codex_update_match import (
+    apply_current_update_batch,
+    entry_update_batch_ids,
     inspect_docx_package,
     load_codex,
     match_entries,
+    normalize_update_batches,
+    normalize_suozhang_entries,
     norm_path,
     norm_tags,
     norm_title,
     parse_docx_items,
+    previous_latest_update_batch_id,
+    seed_previous_update_batch,
+    update_filter_label,
+    update_filter_history,
+    validate_update_batch_contract,
+    validate_codex_identity,
+    write_json_pair_with_rollback,
     write_report,
 )
 import convert
@@ -46,8 +57,21 @@ RISKY_STRUCTURE_KEYS = (
     "trackedInsertions",
     "trackedDeletions",
 )
-CONTENT_KEYS = ("title", "path", "tags", "isNew")
+CONTENT_KEYS = ("title", "path", "tags", "characterPrompts", "isNew")
 ASSET_KEYS = ("image", "original", "assetRev", "imageWidth", "imageHeight")
+MANUAL_MATCH_RULES = (
+    {
+        "key": "upper_desk_humping_three_to_one",
+        "oldId": "codex_6e699406-2544",
+        "newHalf": "upper",
+        "newPath": ["各种涩涩", "1girl系列", "自慰"],
+        "newTitle": "桌角自慰",
+        "decision": (
+            "2026.7.15 的主卡及两个“其他版本”在相同前后锚点间合并为一张重写主卡；"
+            "保留旧主卡 ID 与图片，两个旧变体仍删除。"
+        ),
+    },
+)
 
 
 def fingerprint(entry: dict[str, Any]) -> tuple[tuple[str, ...], str, str]:
@@ -207,6 +231,89 @@ def partition_formal_entries(entries: list[dict[str, Any]]) -> dict[str, list[di
     return result
 
 
+def resolve_manual_match_overrides(
+    old_entries: list[dict[str, Any]],
+    new_entries: list[dict[str, Any]],
+    *,
+    context: str,
+) -> tuple[dict[int, int], list[dict[str, Any]]]:
+    """Resolve audited stable-ID rules against exact, unique source content.
+
+    ``context`` is either ``upper``, ``lower``, or ``global``.  The global
+    merged candidates must carry ``sourceHalf`` so a same-title card in the
+    other source book can never activate an upper-book rule.
+    """
+    if context not in {"upper", "lower", "global"}:
+        raise ValueError(f"invalid manual override context: {context}")
+
+    forced_pairs: dict[int, int] = {}
+    audit: list[dict[str, Any]] = []
+    for rule in MANUAL_MATCH_RULES:
+        record = {
+            "key": rule["key"],
+            "context": context,
+            "oldId": rule["oldId"],
+            "newHalf": rule["newHalf"],
+            "newPath": list(rule["newPath"]),
+            "newTitle": rule["newTitle"],
+            "decision": rule["decision"],
+            "applied": False,
+        }
+        if context != "global" and context != rule["newHalf"]:
+            record["status"] = "not_applicable_to_half"
+            audit.append(record)
+            continue
+
+        old_hits = [
+            index
+            for index, entry in enumerate(old_entries)
+            if entry.get("id") == rule["oldId"]
+        ]
+        new_hits = [
+            index
+            for index, entry in enumerate(new_entries)
+            if list(entry.get("path", [])) == rule["newPath"]
+            and str(entry.get("title", "")) == rule["newTitle"]
+            and (
+                context != "global"
+                or entry.get("sourceHalf") == rule["newHalf"]
+            )
+        ]
+        if len(old_hits) > 1:
+            raise ValueError(
+                f"manual override {rule['key']} old ID is not unique: {old_hits}"
+            )
+        if len(new_hits) > 1:
+            raise ValueError(
+                f"manual override {rule['key']} new locator is not unique: {new_hits}"
+            )
+        if not old_hits or not new_hits:
+            missing = []
+            if not old_hits:
+                missing.append("old")
+            if not new_hits:
+                missing.append("new")
+            record["status"] = "not_applied_missing_" + "_and_".join(missing)
+            audit.append(record)
+            continue
+
+        old_index = old_hits[0]
+        new_index = new_hits[0]
+        forced_pairs[old_index] = new_index
+        record.update({
+            "applied": True,
+            "status": "applied",
+            "oldIndex": old_index,
+            "newIndex": new_index,
+            "oldTitle": old_entries[old_index].get("title", ""),
+            "oldPath": list(old_entries[old_index].get("path", [])),
+            "newTags": new_entries[new_index].get("tags", ""),
+        })
+        audit.append(record)
+
+    return forced_pairs, audit
+
+
 def collect_reserved_asset_ids() -> set[str]:
     """Reserve IDs already present in local merged-book asset directories."""
     reserved: set[str] = set()
@@ -229,6 +336,7 @@ def build_applied_codex(
     new_version: str,
     *,
     reserved_ids: set[str] | None = None,
+    previous_update_filters: Any = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build the exact formal JSON without writing it.
 
@@ -282,23 +390,39 @@ def build_applied_codex(
 
     final_entries: list[dict[str, Any]] = []
     metadata_mismatches: list[dict[str, Any]] = []
+    previous_batch_id = previous_latest_update_batch_id(
+        codex.get("version"), previous_update_filters
+    )
     for new_index, candidate in enumerate(merged_entries):
-        entry = {
+        source_entry = {
             "title": candidate.get("title", ""),
             "path": list(candidate.get("path", [])),
             "tags": candidate.get("tags", ""),
             "isNew": bool(candidate.get("isNew")),
         }
+        if candidate.get("characterPrompts"):
+            source_entry["characterPrompts"] = [
+                dict(item) for item in candidate["characterPrompts"]
+            ]
         old_index = old_by_new.get(new_index)
         if old_index is None:
+            entry = source_entry
             entry["id"] = fresh_id(str(candidate.get("sourceHalf", "")))
             entry["image"] = None
         else:
             old = old_entries[old_index]
+            entry = {
+                key: value
+                for key, value in old.items()
+                if key not in {"assetCodexId", "sourceHalf", "sourceIndex"}
+            }
+            seed_previous_update_batch(entry, previous_batch_id)
+            for key in CONTENT_KEYS:
+                if key in source_entry:
+                    entry[key] = source_entry[key]
+                elif key == "characterPrompts":
+                    entry.pop(key, None)
             entry["id"] = old["id"]
-            for key in ASSET_KEYS:
-                if key in old:
-                    entry[key] = old[key]
             if "image" not in entry:
                 entry["image"] = None
             old_meta = {"image": old.get("image")}
@@ -315,11 +439,24 @@ def build_applied_codex(
                     "new": new_meta,
                 })
 
+        apply_current_update_batch(entry, new_version)
+
         entry_id = str(entry["id"])
         if entry_id in used_ids:
             raise ValueError(f"duplicate final ID: {entry_id}")
         used_ids.add(entry_id)
         final_entries.append(entry)
+
+    is_new_ids = {
+        str(entry.get("id")) for entry in final_entries if entry.get("isNew") is True
+    }
+    latest_batch_ids = {
+        str(entry.get("id"))
+        for entry in final_entries
+        if new_version in normalize_update_batches(entry)
+    }
+    if is_new_ids != latest_batch_ids:
+        raise ValueError("isNew entries must exactly match the latest update batch")
 
     if metadata_mismatches:
         raise ValueError(f"asset metadata inheritance drift: {metadata_mismatches[:10]}")
@@ -363,6 +500,10 @@ def build_applied_codex(
         "removedIds": [entry.get("id") for entry in removed],
         "reservedAssetIdCount": len(set(reserved_ids or ())),
         "metadataMismatches": 0,
+        "latestUpdateBatchCount": sum(
+            new_version in normalize_update_batches(entry)
+            for entry in final_entries
+        ),
     }
     return applied, stats
 
@@ -379,10 +520,19 @@ def build_updated_codex_index(
             continue
         found += 1
         value = dict(item)
+        batch_ids = entry_update_batch_ids(applied_codex.get("entries", []))
+        filters = update_filter_history(
+            value.get("updateFilters"),
+            applied_codex["version"],
+            required_batch_ids=batch_ids,
+        )
+        validate_update_batch_contract(applied_codex, filters)
         value.update({
             "version": applied_codex["version"],
             "entryCount": applied_codex["entryCount"],
             "imagedCount": applied_codex["imagedCount"],
+            "newFilterLabel": update_filter_label(applied_codex["version"]),
+            "updateFilters": filters,
         })
         updated.append(value)
     if found != 1:
@@ -491,6 +641,7 @@ def build_summary_payload(
     *,
     codex: dict[str, Any],
     old_version: str,
+    baseline_version: str,
     new_version: str,
     old_merge: dict[str, Any],
     new_merge: dict[str, Any],
@@ -503,6 +654,8 @@ def build_summary_payload(
     classifications: dict[str, dict[str, Any]],
     global_normalizations: list[dict[str, Any]],
     normalizations: dict[str, list[dict[str, Any]]],
+    character_normalization: dict[str, dict[str, dict[str, Any]]],
+    manual_match_overrides: dict[str, Any],
     sources: dict[str, str],
     report_paths: dict[str, str],
 ) -> dict[str, Any]:
@@ -512,18 +665,28 @@ def build_summary_payload(
     )
     baseline_reviews = baseline_global["review"]
     baseline_content_drift = baseline_global["summary"]["contentChanged"]
+    baseline_strict_replay = bool(
+        baseline_global["summary"].get("strictReplayPass")
+    )
     reviews = classification_global["review"]
     change_counts = Counter(
         change
         for match in classification_global["contentChanges"]
         for change in match["changes"]
     )
+    character_normalization_blockers = sum(
+        len(audit.get("blockers", []))
+        for stage in character_normalization.values()
+        for audit in stage.values()
+    )
     special = new_merge["special"]
     gate_pass = (
         validation_issues == 0
+        and baseline_strict_replay
         and not baseline_reviews
         and baseline_content_drift == 0
         and not reviews
+        and character_normalization_blockers == 0
         and all(_structure_safe(structure) for structure in structures.values())
         and special["upperArtistCards"] > 0
         and special["lowerArtistCardsRemoved"] > 0
@@ -536,6 +699,7 @@ def build_summary_payload(
         "schema": 1,
         "codexId": "suozhang_r18",
         "oldVersion": old_version,
+        "baselineVersion": baseline_version,
         "newVersion": new_version,
         "formalDataUnchanged": True,
         "matchingGatePass": gate_pass,
@@ -583,11 +747,17 @@ def build_summary_payload(
             "global": global_normalizations,
             "perHalf": normalizations,
         },
+        "characterPromptNormalization": character_normalization,
+        "manualMatchOverrides": manual_match_overrides,
         "summary": {
             "oldFormalCount": int(codex.get("entryCount", len(codex["entries"]))),
             "newMergedCount": new_merge["stats"]["mergedCount"],
             "netChangeRaw": new_merge["stats"]["mergedCount"] - len(codex["entries"]),
             "matched": new_global["summary"]["matched"],
+            "manualOverridesApplied": sum(
+                bool(record.get("applied"))
+                for record in manual_match_overrides["global"]
+            ),
             "structuralOcSplits": len(classification_global["structuralOcSplits"]),
             "preexistingSourceOnlyAdditions": len(classification_global["preexistingSourceOnlyAdditions"]),
             "genuineAdditions": len(classification_global["genuineAdditions"]),
@@ -597,12 +767,15 @@ def build_summary_payload(
             "pathChanges": change_counts["path"],
             "titleChanges": change_counts["title"],
             "tagChanges": change_counts["tags"],
+            "characterPromptChanges": change_counts["characterPrompts"],
             "flagOnlyChanges": len(classification_global["flagOnlyChanges"]),
             "baselineContentDrift": baseline_content_drift,
+            "baselineStrictReplayPass": baseline_strict_replay,
             "baselineReview": len(baseline_reviews),
             "review": len(reviews),
             "matchedImaged": new_global["summary"]["matchedImaged"],
             "validationIssues": validation_issues,
+            "characterNormalizationBlockers": character_normalization_blockers,
         },
     }
     return payload
@@ -612,8 +785,10 @@ def render_summary(payload: dict[str, Any]) -> str:
     summary = payload["summary"]
     merge = payload["merge"]
     special = merge["newSpecialHandling"]
+    new_version = payload["newVersion"]
+    baseline_version = payload["baselineVersion"]
     lines = [
-        "# 所长色色 7.15 上下册合并、增量匹配与应用",
+        f"# 所长色色 {new_version} 上下册合并、增量匹配与应用",
         "",
         f"- 现有正式版本：`{payload['oldVersion']}`",
         f"- 输入版本：`{payload['newVersion']}`",
@@ -651,28 +826,32 @@ def render_summary(payload: dict[str, Any]) -> str:
         "| 项目 | 数量 |",
         "|---|---:|",
         f"| 当前正式条目 | {summary['oldFormalCount']} |",
-        f"| 7.15 合并候选 | {summary['newMergedCount']} |",
+        f"| {new_version} 合并候选 | {summary['newMergedCount']} |",
         f"| 原始净变化 | {summary['netChangeRaw']:+d} |",
-        f"| 自动匹配旧 ID | {summary['matched']} |",
+        f"| 匹配并继承旧 ID | {summary['matched']} |",
+        f"| 其中人工稳定 ID 覆盖 | {summary['manualOverridesApplied']} |",
         f"| OC 历史大卡结构拆分 | {summary['structuralOcSplits']} |",
         f"| 旧源已有、正式 JSON 曾漏入 | {summary['preexistingSourceOnlyAdditions']} |",
-        f"| 7.15 明确新增 | {summary['genuineAdditions']} |",
+        f"| {new_version} 明确新增 | {summary['genuineAdditions']} |",
         f"| 正式 JSON 历史遗留、旧源已无 | {summary['preexistingFormalOnlyRemovals']} |",
-        f"| 7.15 明确删除 | {summary['genuineRemovals']} |",
+        f"| {new_version} 明确删除 | {summary['genuineRemovals']} |",
         f"| 内容修改 | {summary['contentChanges']} |",
         f"| 其中目录移动 | {summary['pathChanges']} |",
         f"| 其中 tag 修改 | {summary['tagChanges']} |",
+        f"| 其中角色词修改 | {summary['characterPromptChanges']} |",
         f"| 其中标题修改 | {summary['titleChanges']} |",
         f"| 仅 isNew 变化 | {summary['flagOnlyChanges']} |",
-        f"| 6.19 回放内容漂移 | {summary['baselineContentDrift']} |",
-        f"| 6.19 回放待人工复核 | {summary['baselineReview']} |",
+        f"| {baseline_version} 回放内容漂移 | {summary['baselineContentDrift']} |",
+        f"| {baseline_version} 严格回放 | {'通过' if summary['baselineStrictReplayPass'] else '未通过'} |",
+        f"| {baseline_version} 回放待人工复核 | {summary['baselineReview']} |",
+        f"| 角色词规范化 blocker | {summary['characterNormalizationBlockers']} |",
         f"| 待人工复核 | {summary['review']} |",
         f"| 已匹配带图旧条目 | {summary['matchedImaged']} |",
         "",
-        "## 6.19 回放说明",
+        f"## {baseline_version} 回放说明",
         "",
         f"旧上下册按同一规则合并后为 {merge['old']['mergedCount']} 条；当前正式 JSON 为 {summary['oldFormalCount']} 条。",
-        "差额会在下方区分为“旧源已有但正式漏入”和“正式历史遗留但旧源已无”，不会伪装成 7.15 的新增/删除。",
+        f"差额会在下方区分为“旧源已有但正式漏入”和“正式历史遗留但旧源已无”，不会伪装成 {new_version} 的新增/删除。",
         "",
         "## Word 结构",
         "",
@@ -681,12 +860,31 @@ def render_summary(payload: dict[str, Any]) -> str:
         lines.append(f"- `{half}`：`{json.dumps(payload['wordStructures'][half], ensure_ascii=False)}`")
     lines.append("")
 
+    lines.extend(["## 人工稳定 ID 覆盖", ""])
+    lines.append("这些规则只作用于本次新版本的分册与合并后匹配；旧版本 baseline 回放不使用人工覆盖。")
+    lines.append("")
+    applied_overrides = [
+        record
+        for record in payload["manualMatchOverrides"]["global"]
+        if record.get("applied")
+    ]
+    if not applied_overrides:
+        lines.extend(["无规则启用。", ""])
+    else:
+        for record in applied_overrides:
+            lines.append(
+                f"- `{record['oldId']}` → `{record['newHalf']}` "
+                f"{' > '.join(record['newPath'])} › {record['newTitle']}："
+                f"{record['decision']}"
+            )
+        lines.append("")
+
     combined = lambda key: payload["newMatch"]["global"][key]
-    _append_entries(lines, "OC 结构拆分（非 7.15 新内容）", combined("structuralOcSplits"))
+    _append_entries(lines, f"OC 结构拆分（非 {new_version} 新内容）", combined("structuralOcSplits"))
     _append_entries(lines, "旧源已有、正式 JSON 曾漏入", combined("preexistingSourceOnlyAdditions"))
-    _append_entries(lines, "7.15 明确新增", combined("genuineAdditions"))
+    _append_entries(lines, f"{new_version} 明确新增", combined("genuineAdditions"))
     _append_entries(lines, "正式 JSON 历史遗留、旧源已无", combined("preexistingFormalOnlyRemovals"))
-    _append_entries(lines, "7.15 明确删除", combined("genuineRemovals"))
+    _append_entries(lines, f"{new_version} 明确删除", combined("genuineRemovals"))
 
     lines.extend(["## 内容修改", ""])
     changes = combined("contentChanges")
@@ -750,14 +948,82 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def load_merged_source_snapshot(path: Path) -> tuple[dict[str, Any], str]:
+    """Load a previously gated merged-source snapshot as the replay baseline."""
+    with path.open(encoding="utf-8") as stream:
+        payload = json.load(stream)
+    if payload.get("codexId") != "suozhang_r18":
+        raise ValueError(f"baseline snapshot has wrong codexId: {payload.get('codexId')!r}")
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("baseline snapshot has no entries list")
+    declared = payload.get("entryCount")
+    if declared is not None and int(declared) != len(entries):
+        raise ValueError(
+            f"baseline snapshot entryCount mismatch: {declared} vs {len(entries)}"
+        )
+
+    halves: dict[str, list[dict[str, Any]]] = {"upper": [], "lower": []}
+    for index, raw in enumerate(entries):
+        if not isinstance(raw, dict):
+            raise ValueError(f"baseline snapshot entry {index} is not an object")
+        half = raw.get("sourceHalf")
+        if half not in halves:
+            raise ValueError(
+                f"baseline snapshot entry {index} has invalid sourceHalf: {half!r}"
+            )
+        halves[str(half)].append(dict(raw))
+
+    special = dict(payload.get("specialHandling") or {})
+    removed_artist = int(special.get("lowerArtistCardsRemoved") or 0)
+    stats = dict(payload.get("stats") or {})
+    stats.update({
+        "upperParsed": len(halves["upper"]),
+        "lowerParsed": len(halves["lower"]) + removed_artist,
+        "lowerArtistCardsRemoved": removed_artist,
+        "lowerKept": len(halves["lower"]),
+        "mergedCount": len(entries),
+        "artistSubsetVerified": bool(stats.get("artistSubsetVerified", True)),
+    })
+    version = str(payload.get("version") or "").strip()
+    if not version:
+        raise ValueError("baseline snapshot has no version")
+    return {
+        "upper": halves["upper"],
+        "lower": halves["lower"],
+        "merged": [dict(entry) for entry in entries],
+        "stats": stats,
+        "special": special,
+    }, version
+
+
+def snapshot_structure(path: Path) -> dict[str, Any]:
+    return {
+        "snapshot": True,
+        "source": str(path),
+        "tables": 0,
+        "drawings": 0,
+        "textBoxes": 0,
+        "trackedInsertions": 0,
+        "trackedDeletions": 0,
+        "commentsPart": False,
+        "trackRevisionsEnabled": False,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Merge 所长色色 upper/lower DOCX sources, audit stable IDs, and optionally apply."
     )
     parser.add_argument("upper", type=Path)
     parser.add_argument("lower", type=Path)
-    parser.add_argument("--baseline-upper", type=Path, required=True)
-    parser.add_argument("--baseline-lower", type=Path, required=True)
+    parser.add_argument("--baseline-upper", type=Path)
+    parser.add_argument("--baseline-lower", type=Path)
+    parser.add_argument(
+        "--baseline-merged-json",
+        type=Path,
+        help="Previously gated merged-source.json used when the old DOCX pair is unavailable.",
+    )
     parser.add_argument(
         "--data", type=Path, default=ROOT / "site" / "data" / "suozhang_r18.json"
     )
@@ -765,7 +1031,7 @@ def main() -> int:
         "--index", type=Path, default=ROOT / "site" / "data" / "codexes.json"
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=ROOT / "output" / "所长色色-7.15-合并匹配测试"
+        "--out-dir", type=Path, default=ROOT / "output" / "所长色色-合并匹配测试"
     )
     parser.add_argument(
         "--apply",
@@ -774,14 +1040,27 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    has_baseline_docs = bool(args.baseline_upper and args.baseline_lower)
+    has_partial_baseline_docs = bool(args.baseline_upper) != bool(args.baseline_lower)
+    if has_partial_baseline_docs:
+        parser.error("--baseline-upper and --baseline-lower must be provided together")
+    if bool(args.baseline_merged_json) == has_baseline_docs:
+        parser.error(
+            "provide exactly one replay baseline: the old upper/lower DOCX pair "
+            "or --baseline-merged-json"
+        )
+
     paths = {
         "upper": args.upper.resolve(),
         "lower": args.lower.resolve(),
-        "baselineUpper": args.baseline_upper.resolve(),
-        "baselineLower": args.baseline_lower.resolve(),
         "data": args.data.resolve(),
         "index": args.index.resolve(),
     }
+    if has_baseline_docs:
+        paths["baselineUpper"] = args.baseline_upper.resolve()
+        paths["baselineLower"] = args.baseline_lower.resolve()
+    else:
+        paths["baselineMergedJson"] = args.baseline_merged_json.resolve()
     for label, path in paths.items():
         if not path.is_file():
             parser.error(f"{label} not found: {path}")
@@ -789,6 +1068,7 @@ def main() -> int:
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     codex = load_codex(paths["data"])
+    validate_codex_identity(codex, "suozhang_r18")
     formal_halves = partition_formal_entries(codex["entries"])
     normalized_formal_all, global_normalizations = normalize_legacy_oc_entries(
         codex["entries"]
@@ -800,85 +1080,150 @@ def main() -> int:
             formal_halves[half]
         )
 
-    new_raw = {
+    _, new_upper_version, _ = convert.parse_meta(paths["upper"].stem)
+    _, new_lower_version, _ = convert.parse_meta(paths["lower"].stem)
+    if new_upper_version != new_lower_version:
+        raise ValueError(
+            f"Upper/lower version mismatch: {new_upper_version} vs {new_lower_version}"
+        )
+
+    parsed_new = {
         "upper": parse_docx_items(paths["upper"]),
         "lower": parse_docx_items(paths["lower"]),
     }
-    baseline_raw = {
-        "upper": parse_docx_items(paths["baselineUpper"]),
-        "lower": parse_docx_items(paths["baselineLower"]),
+    new_raw: dict[str, list[dict[str, Any]]] = {}
+    character_normalization: dict[str, dict[str, dict[str, Any]]] = {
+        "new": {},
+        "baseline": {},
     }
+    for half in ("upper", "lower"):
+        new_raw[half], character_normalization["new"][half] = (
+            normalize_suozhang_entries(parsed_new[half], normalized_formal[half])
+        )
     new_merge = merge_source_halves(new_raw["upper"], new_raw["lower"])
-    old_merge = merge_source_halves(baseline_raw["upper"], baseline_raw["lower"])
+
+    if has_baseline_docs:
+        parsed_baseline = {
+            "upper": parse_docx_items(paths["baselineUpper"]),
+            "lower": parse_docx_items(paths["baselineLower"]),
+        }
+        _, old_upper_version, _ = convert.parse_meta(paths["baselineUpper"].stem)
+        _, old_lower_version, _ = convert.parse_meta(paths["baselineLower"].stem)
+        if old_upper_version != old_lower_version:
+            raise ValueError(
+                f"Baseline version mismatch: {old_upper_version} vs {old_lower_version}"
+            )
+        baseline_version = old_upper_version
+        baseline_raw: dict[str, list[dict[str, Any]]] = {}
+        for half in ("upper", "lower"):
+            baseline_raw[half], character_normalization["baseline"][half] = (
+                normalize_suozhang_entries(
+                    parsed_baseline[half], normalized_formal[half]
+                )
+            )
+        old_merge = merge_source_halves(
+            baseline_raw["upper"], baseline_raw["lower"]
+        )
+        baseline_structures = {
+            "upper": inspect_docx_package(paths["baselineUpper"]),
+            "lower": inspect_docx_package(paths["baselineLower"]),
+        }
+        baseline_sources = {
+            "upper": paths["baselineUpper"],
+            "lower": paths["baselineLower"],
+        }
+    else:
+        snapshot_path = paths["baselineMergedJson"]
+        snapshot_merge, baseline_version = load_merged_source_snapshot(snapshot_path)
+        normalized_snapshot_halves: dict[str, list[dict[str, Any]]] = {}
+        for half in ("upper", "lower"):
+            normalized_snapshot_halves[half], character_normalization["baseline"][half] = (
+                normalize_suozhang_entries(
+                    snapshot_merge[half], normalized_formal[half]
+                )
+            )
+        old_merge = {
+            **snapshot_merge,
+            "upper": normalized_snapshot_halves["upper"],
+            "lower": normalized_snapshot_halves["lower"],
+            "merged": (
+                normalized_snapshot_halves["upper"]
+                + normalized_snapshot_halves["lower"]
+            ),
+        }
+        baseline_structures = {
+            "upper": snapshot_structure(snapshot_path),
+            "lower": snapshot_structure(snapshot_path),
+        }
+        baseline_sources = {"upper": snapshot_path, "lower": snapshot_path}
 
     merged_source_path = out_dir / "merged-source.json"
     baseline_merged_source_path = out_dir / "baseline-merged-source.json"
     _write_json(merged_source_path, {
         "schema": 1,
         "codexId": "suozhang_r18",
-        "version": "2026.7.15",
+        "version": new_upper_version,
         "sources": {"upper": str(paths["upper"]), "lower": str(paths["lower"])},
         "mergeRule": "upper all + lower without duplicated 编纂者常用画师组; keep lower OC",
         "entryCount": new_merge["stats"]["mergedCount"],
         "stats": new_merge["stats"],
         "specialHandling": new_merge["special"],
+        "characterPromptNormalization": character_normalization["new"],
         "entries": new_merge["merged"],
     })
     _write_json(baseline_merged_source_path, {
         "schema": 1,
         "codexId": "suozhang_r18",
-        "version": "2026.6.19",
-        "sources": {
-            "upper": str(paths["baselineUpper"]),
-            "lower": str(paths["baselineLower"]),
-        },
+        "version": baseline_version,
+        "sources": {key: str(value) for key, value in baseline_sources.items()},
         "mergeRule": "upper all + lower without duplicated 编纂者常用画师组; keep lower OC",
         "entryCount": old_merge["stats"]["mergedCount"],
         "stats": old_merge["stats"],
         "specialHandling": old_merge["special"],
+        "characterPromptNormalization": character_normalization["baseline"],
         "entries": old_merge["merged"],
     })
-
-    _, new_upper_version, _ = convert.parse_meta(paths["upper"].stem)
-    _, new_lower_version, _ = convert.parse_meta(paths["lower"].stem)
-    _, old_upper_version, _ = convert.parse_meta(paths["baselineUpper"].stem)
-    _, old_lower_version, _ = convert.parse_meta(paths["baselineLower"].stem)
-    if new_upper_version != new_lower_version:
-        raise ValueError(f"Upper/lower version mismatch: {new_upper_version} vs {new_lower_version}")
-    if old_upper_version != old_lower_version:
-        raise ValueError(f"Baseline version mismatch: {old_upper_version} vs {old_lower_version}")
 
     structures = {
         "upper": inspect_docx_package(paths["upper"]),
         "lower": inspect_docx_package(paths["lower"]),
     }
-    baseline_structures = {
-        "upper": inspect_docx_package(paths["baselineUpper"]),
-        "lower": inspect_docx_package(paths["baselineLower"]),
-    }
     baseline_results: dict[str, dict[str, Any]] = {}
     new_results: dict[str, dict[str, Any]] = {}
+    manual_override_audits: dict[str, Any] = {
+        "baselineApplied": False,
+        "perHalf": {},
+        "global": [],
+    }
     report_paths: dict[str, str] = {}
     for half in ("upper", "lower"):
         baseline_results[half] = match_entries(
             normalized_formal[half], old_merge[half]
         )
-        new_results[half] = match_entries(normalized_formal[half], new_merge[half])
+        forced_pairs, override_audit = resolve_manual_match_overrides(
+            normalized_formal[half], new_merge[half], context=half
+        )
+        manual_override_audits["perHalf"][half] = override_audit
+        new_results[half] = match_entries(
+            normalized_formal[half],
+            new_merge[half],
+            forced_pairs=forced_pairs,
+        )
         baseline_json, baseline_md = write_report(
             out_dir,
             f"baseline-{half}-replay",
             baseline_results[half],
-            label=f"suozhang_r18 6.19 {half} 回放",
-            source=paths["baselineUpper" if half == "upper" else "baselineLower"],
+            label=f"suozhang_r18 {baseline_version} {half} 回放",
+            source=baseline_sources[half],
             structure=baseline_structures[half],
             old_version=str(codex.get("version", "")),
-            new_version=old_upper_version,
+            new_version=baseline_version,
         )
         new_json, new_md = write_report(
             out_dir,
             f"new-{half}-match",
             new_results[half],
-            label=f"suozhang_r18 7.15 {half} 增量匹配",
+            label=f"suozhang_r18 {new_upper_version} {half} 增量匹配",
             source=paths[half],
             structure=structures[half],
             old_version=str(codex.get("version", "")),
@@ -894,7 +1239,15 @@ def main() -> int:
         for half in ("upper", "lower")
     }
     baseline_global = match_entries(normalized_formal_all, old_merge["merged"])
-    new_global = match_entries(normalized_formal_all, new_merge["merged"])
+    global_forced_pairs, global_override_audit = resolve_manual_match_overrides(
+        normalized_formal_all, new_merge["merged"], context="global"
+    )
+    manual_override_audits["global"] = global_override_audit
+    new_global = match_entries(
+        normalized_formal_all,
+        new_merge["merged"],
+        forced_pairs=global_forced_pairs,
+    )
     classification_global = classify_half(
         baseline_global, new_global, global_normalizations
     )
@@ -902,17 +1255,17 @@ def main() -> int:
         out_dir,
         "baseline-merged-replay",
         baseline_global,
-        label="suozhang_r18 6.19 合并后全局回放",
+        label=f"suozhang_r18 {baseline_version} 合并后全局回放",
         source=baseline_merged_source_path,
         structure={"upper": baseline_structures["upper"], "lower": baseline_structures["lower"]},
         old_version=str(codex.get("version", "")),
-        new_version=old_upper_version,
+        new_version=baseline_version,
     )
     new_global_json, new_global_md = write_report(
         out_dir,
         "new-merged-match",
         new_global,
-        label="suozhang_r18 7.15 合并后全局增量匹配",
+        label=f"suozhang_r18 {new_upper_version} 合并后全局增量匹配",
         source=merged_source_path,
         structure={"upper": structures["upper"], "lower": structures["lower"]},
         old_version=str(codex.get("version", "")),
@@ -928,6 +1281,7 @@ def main() -> int:
     payload = build_summary_payload(
         codex=codex,
         old_version=str(codex.get("version", "")),
+        baseline_version=baseline_version,
         new_version=new_upper_version,
         old_merge=old_merge,
         new_merge=new_merge,
@@ -940,6 +1294,8 @@ def main() -> int:
         classifications=classifications,
         global_normalizations=global_normalizations,
         normalizations=normalizations,
+        character_normalization=character_normalization,
+        manual_match_overrides=manual_override_audits,
         sources={key: str(value) for key, value in paths.items()},
         report_paths=report_paths,
     )
@@ -949,6 +1305,18 @@ def main() -> int:
 
     application = None
     if payload["matchingGatePass"]:
+        with paths["index"].open(encoding="utf-8") as stream:
+            current_index = json.load(stream)
+        if not isinstance(current_index, list):
+            raise ValueError(f"Codex index must be a list: {paths['index']}")
+        current_meta = [
+            item for item in current_index if item.get("id") == "suozhang_r18"
+        ]
+        if len(current_meta) != 1:
+            raise ValueError(
+                "expected one suozhang_r18 index item, "
+                f"found {len(current_meta)}"
+            )
         reserved_asset_ids = collect_reserved_asset_ids()
         applied_codex, application_stats = build_applied_codex(
             codex,
@@ -956,9 +1324,8 @@ def main() -> int:
             new_global,
             new_upper_version,
             reserved_ids=reserved_asset_ids,
+            previous_update_filters=current_meta[0].get("updateFilters"),
         )
-        with paths["index"].open(encoding="utf-8") as stream:
-            current_index = json.load(stream)
         updated_index = build_updated_codex_index(current_index, applied_codex)
         preview_data = out_dir / "formal-apply-preview.json"
         preview_index = out_dir / "codexes-apply-preview.json"
@@ -975,17 +1342,9 @@ def main() -> int:
             "stats": application_stats,
         }
         if args.apply:
-            data_tmp = paths["data"].with_suffix(paths["data"].suffix + ".tmp")
-            index_tmp = paths["index"].with_suffix(paths["index"].suffix + ".tmp")
-            data_tmp.write_text(
-                json.dumps(applied_codex, ensure_ascii=False), encoding="utf-8"
+            write_json_pair_with_rollback(
+                paths["data"], applied_codex, paths["index"], updated_index
             )
-            index_tmp.write_text(
-                json.dumps(updated_index, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            data_tmp.replace(paths["data"])
-            index_tmp.replace(paths["index"])
 
     payload["formalDataUnchanged"] = not args.apply
     payload["application"] = application

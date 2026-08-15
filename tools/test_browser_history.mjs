@@ -174,7 +174,7 @@ assert.equal(replaced.parentId, entry.parentId);
   const initial = initializeBrowserHistory();
   settingsOpen = true;
   openHistoryLayer('settings-filter');
-  env.route = { view: 'all', q: '', onlyImaged: true };
+  env.route = { view: 'all', q: '', updateFilter: '2026.8.14' };
   env.window.scrollY = 180;
   commitHistoryRoute({ mode: 'replace' });
 
@@ -182,7 +182,7 @@ assert.equal(replaced.parentId, entry.parentId);
   await tick();
   assert.equal(settingsOpen, false);
   assert.equal(getManagedHistoryEntry().id, initial.id);
-  assert.equal(getManagedHistoryEntry().route.onlyImaged, true);
+  assert.equal(getManagedHistoryEntry().route.updateFilter, '2026.8.14');
   assert.equal(getManagedHistoryEntry().scrollY, 180);
 }
 
@@ -287,7 +287,7 @@ assert.equal(replaced.parentId, entry.parentId);
     { state: null, url: '/page.html' },
   ];
   win.history.index = 1;
-  let route = { view: 'all', q: '', onlyImaged: false };
+  let route = { view: 'all', q: '', updateFilter: '' };
   const calls = { applyRoute: 0, restoreScroll: 0 };
   const options = {
     window: win,
@@ -314,7 +314,7 @@ assert.equal(replaced.parentId, entry.parentId);
   openHistoryLayer('reload-settings');
   confirmOpen = true;
   openHistoryLayer('reload-confirm');
-  route = { view: 'all', q: '', onlyImaged: true };
+  route = { view: 'all', q: '', updateFilter: '2026.8.14' };
   win.scrollY = 320;
   commitHistoryRoute({ mode: 'replace' });
   checkpointHistoryScroll();
@@ -329,7 +329,7 @@ assert.equal(replaced.parentId, entry.parentId);
   assert.equal(win.history.index, 1);
   assert.equal(getManagedHistoryEntry().id, initial.id);
   assert.deepEqual(getManagedHistoryEntry().layers, []);
-  assert.equal(getManagedHistoryEntry().route.onlyImaged, true);
+  assert.equal(getManagedHistoryEntry().route.updateFilter, '2026.8.14');
   assert.equal(getManagedHistoryEntry().scrollY, 320);
   assert.equal(calls.applyRoute, 0);
   assert.equal(calls.restoreScroll, 1);

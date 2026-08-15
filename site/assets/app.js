@@ -2,7 +2,7 @@ import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
-import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries } from './app/data.js';
+import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
 import { parseSearchQuery, matchSearchPlan } from './app/search.js';
 import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
 import { isFav, setFavoritesActions, toggleFav } from './app/favorites.js';
@@ -15,9 +15,9 @@ import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
-import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, imageSyntaxFilterValue } from './app/codex-ui.js';
+import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
-import { bindUI, applyDensity, setOnlyImaged, setUiActions, updateSearchScopeControl } from './app/ui.js';
+import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
@@ -32,10 +32,26 @@ const setOnlyFavControl = checked => {
   if (onlyFav) onlyFav.checked = state.onlyFav;
 };
 const virtualView = () => state.favoritesView || state.siteSearchView;
-const codexSupportsNewFilter = codex => {
-  const meta = findCodexMeta(codex?.id);
-  return Boolean(meta?.newFilterLabel && codex?.entries?.some(entry => entry.isNew === true));
+const requestedUpdateFilter = route => String(route?.updateFilter || (route?.onlyNew ? 'latest' : ''));
+const hasOwnRouteField = (route, key) => Object.prototype.hasOwnProperty.call(route || {}, key);
+const canonicalListContext = route => {
+  const value = {
+    ...(route || {}),
+    entry: '',
+    imageIndex: 0,
+    updateFilter: resolveUpdateFilter(state.codex, requestedUpdateFilter(route)),
+  };
+  delete value.onlyImaged;
+  delete value.onlyNew;
+  return JSON.stringify(Object.fromEntries(
+    Object.entries(value).sort(([left], [right]) => left.localeCompare(right)),
+  ));
 };
+const historyRouteNeedsCanonicalization = (route, normalizedRoute) => Boolean(
+  hasOwnRouteField(route, 'onlyImaged')
+  || hasOwnRouteField(route, 'onlyNew')
+  || requestedUpdateFilter(route) !== String(normalizedRoute?.updateFilter || '')
+);
 const announceCodexLoaded = codex => {
   document.dispatchEvent(new CustomEvent('codex:loaded', { detail: { codex } }));
 };
@@ -298,7 +314,7 @@ export async function loadCodex(id, options = {}) {
         ? options.urlState
         : null,
       applyViewUrlState: (urlState, c) => {
-        state.onlyNew = Boolean(urlState?.onlyNew && codexSupportsNewFilter(c));
+        state.updateFilter = resolveUpdateFilter(c, requestedUpdateFilter(urlState));
         applyUrlSearchScope(urlState);
       },
       resolveQuery: urlState => urlState?.q || '',
@@ -341,7 +357,7 @@ export async function openFavoritesView(options = {}) {
       enterView: () => {
         state.favoritesView = true;
         state.siteSearchView = false;
-        state.onlyNew = false;
+        state.updateFilter = '';
         state.searchReturnPath = [];
         setOnlyFavControl(true);
       },
@@ -398,7 +414,7 @@ export async function openSiteSearchView(options = {}) {
       enterView: () => {
         state.favoritesView = false;
         state.siteSearchView = true;
-        state.onlyNew = false;
+        state.updateFilter = '';
         setOnlyFavControl(false);
       },
       selectedCodexId: () => state.browseCodex?.id || '',
@@ -435,7 +451,7 @@ export function exitSiteSearchView(options = {}) {
   if (!codex) return;
   state.siteSearchView = false;
   state.favoritesView = false;
-  state.onlyNew = false;
+  state.updateFilter = '';
   state.codex = codex;
   const c = state.codex;
   const codexSelect = $('#codexSelect');
@@ -498,8 +514,8 @@ export function applyFilter(options = {}) {
   } else if (state.activePath.length) {
     list = byActivePath(list);
   }
-  if (state.onlyNew) list = list.filter(e => e.isNew === true);
-  if (state.onlyImaged && !state.onlyNew && imageSyntaxFilterValue(plan) === null) list = list.filter(hasEntryImage);
+  const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
+  if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
   if (state.favoritesView) list = list.filter(isFav);   // 收藏视图里取消收藏即时消卡
   list = list.filter(e => !isEntryAccessBlocked(e));  // NSFW/R18G 条目级访问控制
   state.list = list;
@@ -557,18 +573,20 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
   /* 快速路径仅限“详情覆盖在同一列表之上”的返回：最近浏览/恢复上次浏览推的
      detail 记录可能同时切换法典、目录或清空搜索，列表上下文不一致时必须走
      下面的完整恢复，否则底层列表会停留在错误状态。 */
-  const listContextOf = value => JSON.stringify({ ...(value || {}), entry: '', imageIndex: 0 });
   const closingOwnDetail = Boolean(
     !targetEntry &&
     state.lightbox.entry &&
     context.departing?.transition === 'detail' &&
     context.departing?.parentId === context.target?.id &&
-    listContextOf(context.departing?.route) === listContextOf(route),
+    canonicalListContext(context.departing?.route) === canonicalListContext(route),
   );
   if (closingOwnDetail) {
     state.searchHistorySessionId = String(context.target?.sessionId || '');
     closeLightbox({ historyMode: 'none' });
-    return;
+    const normalizedRoute = captureAtlasRoute('');
+    return historyRouteNeedsCanonicalization(route, normalizedRoute)
+      ? normalizedRoute
+      : undefined;
   }
   const urlState = {
     codex: targetId,
@@ -577,13 +595,12 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
     path: Array.isArray(route.path) ? route.path : [],
     q: String(route.q || ''),
     entry: '',
-    onlyNew: Boolean(route.onlyNew),
+    updateFilter: requestedUpdateFilter(route),
   };
   state.suppressUrlSync = true;
   state.searchHistorySessionId = String(context.target?.sessionId || '');
   suppressBrowseStateSave(2000);
   try {
-    setOnlyImaged(route.onlyImaged, { apply: false, syncHistory: false });
     state.searchReturnPath = Array.isArray(route.searchReturnPath) ? [...route.searchReturnPath] : [];
 
     if (route.favorites) {
@@ -604,7 +621,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
       await loadCodex(targetId, { urlState, historyMode: 'none', saveBrowse: false });
       if (!currentRestore()) return;
     } else {
-      state.onlyNew = Boolean(route.onlyNew && codexSupportsNewFilter(state.codex));
+      state.updateFilter = resolveUpdateFilter(state.codex, requestedUpdateFilter(route));
       state.searchScope = route.scope === 'site' ? 'site' : 'codex';
       updateSearchScopeControl();
       const nextPath = normalizeRoutePath(state.codex.tree, urlState.path);
@@ -634,7 +651,13 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
     const normalizedRoute = captureAtlasRoute(targetEntry);
     const canonicalRequested = requestedMeta?.id || requestedId;
     const pathChanged = !targetEntry && JSON.stringify(normalizedRoute.path) !== JSON.stringify(urlState.path);
-    if (targetLocked || targetUnknown || pathChanged || (canonicalRequested && normalizedRoute.codex !== canonicalRequested)) {
+    if (
+      targetLocked
+      || targetUnknown
+      || pathChanged
+      || historyRouteNeedsCanonicalization(route, normalizedRoute)
+      || (canonicalRequested && normalizedRoute.codex !== canonicalRequested)
+    ) {
       return normalizedRoute;
     }
   } finally {
@@ -657,7 +680,6 @@ setCodexUiActions({
   applyFilter,
   applySearch,
   syncUrlState,
-  setOnlyImaged,
   openLightbox,
   updateVirtualCards,
 });
@@ -669,7 +691,6 @@ setHistoryActions({
   openEntryDeepLink,
   renderTree,
   applyFilter,
-  setOnlyImaged,
   updateVirtualCards,
 });
 

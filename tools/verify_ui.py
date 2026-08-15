@@ -128,18 +128,39 @@ def first_imaged_entry_id(codex_id: str) -> str:
     raise RuntimeError(f"No imaged entry was found in {data_path}")
 
 
-def new_filter_config(codex_id: str) -> tuple[str, int]:
+def update_filter_config(codex_id: str) -> list[dict]:
     index_path = ROOT / "site" / "data" / "codexes.json"
     index = json.loads(index_path.read_text(encoding="utf-8"))
     meta = next((item for item in index if item.get("id") == codex_id), None)
-    if not meta or not str(meta.get("newFilterLabel") or "").strip():
-        raise RuntimeError(f"No newFilterLabel is configured for {codex_id}")
+    if not meta:
+        raise RuntimeError(f"No codex metadata is configured for {codex_id}")
     data_path = ROOT / "site" / "data" / f"{codex_id}.json"
     data = json.loads(data_path.read_text(encoding="utf-8"))
-    count = sum(1 for entry in data.get("entries", []) if entry.get("isNew") is True)
-    if count <= 0:
-        raise RuntimeError(f"No isNew entries were found in {data_path}")
-    return str(meta["newFilterLabel"]).strip(), count
+    filters = meta.get("updateFilters") if isinstance(meta.get("updateFilters"), list) else []
+    if not filters and str(meta.get("newFilterLabel") or "").strip():
+        filters = [{
+            "id": str(meta.get("version") or "latest"),
+            "label": str(meta["newFilterLabel"]).strip().removeprefix("本次"),
+            "latest": True,
+        }]
+    result = []
+    for item in filters:
+        filter_id = str(item.get("id") or "").strip() if isinstance(item, dict) else ""
+        label = str(item.get("label") or "").strip().removeprefix("本次") if isinstance(item, dict) else ""
+        latest = item.get("latest") is True if isinstance(item, dict) else False
+        if not filter_id or not label:
+            continue
+        count = sum(
+            filter_id in [str(value) for value in (entry.get("updateBatches") or [])]
+            or (latest and entry.get("isNew") is True)
+            for entry in data.get("entries", [])
+        )
+        if count <= 0:
+            raise RuntimeError(f"Update filter {filter_id!r} has no entries in {data_path}")
+        result.append({"id": filter_id, "label": label, "latest": latest, "count": count})
+    if not result:
+        raise RuntimeError(f"No usable update filters are configured for {codex_id}")
+    return result
 
 
 class WebSocket:
@@ -424,8 +445,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     install_error_capture(cdp)
     entry_id = first_imaged_entry_id("suozhang")
     no_original_entry_id = first_imaged_entry_id("composition_style")
-    new_label, new_count = new_filter_config("suozhang")
-    r18_new_label, r18_new_count = new_filter_config("suozhang_r18")
+    update_filters = update_filter_config("suozhang")
+    old_update = next((item for item in update_filters if not item["latest"]), None)
+    latest_update = next((item for item in update_filters if item["latest"]), None)
+    r18_update_filters = update_filter_config("suozhang_r18")
+    r18_latest_update = next((item for item in r18_update_filters if item["latest"]), None)
+    if not old_update or not latest_update or not r18_latest_update:
+        raise RuntimeError("Expected one historical and one latest update filter for the Suozhang regression")
     pack_data = json.loads((ROOT / "site" / "data" / "community_ai_misc.json").read_text(encoding="utf-8"))
     pack_entries = pack_data.get("entries") or []
     multi_character_entry = next(
@@ -799,69 +825,80 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
         navigate(cdp, base + "?codex=suozhang")
-        wait_for(cdp, "!document.querySelector('#newUpdateFilterBtn')?.hidden", "regular NEW update button")
-        expected = f"NEW {new_label} · {new_count}"
-        initial = cdp.eval("({text:document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g,' ').trim()||'',pressed:document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed')})")
-        if initial["text"] != expected or initial["pressed"] != "false":
-            raise CheckFailed(f"Regular NEW update button mismatch: expected={expected!r}, actual={initial}")
+        wait_for(cdp, f"document.querySelectorAll('#updateFilterControls [data-update-filter]').length === {len(update_filters)}", "regular update buttons")
+        expected = [
+            f"{old_update['label']} · {old_update['count']}",
+            f"NEW {latest_update['label']} · {latest_update['count']}",
+        ]
+        initial = cdp.eval("[...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn=>({id:btn.dataset.updateFilter,text:btn.innerText.replace(/\\s+/g,' ').trim(),pressed:btn.getAttribute('aria-pressed'),latest:btn.classList.contains('is-latest')}))")
+        if [item["text"] for item in initial] != expected or any(item["pressed"] != "false" for item in initial):
+            raise CheckFailed(f"Regular update buttons mismatch: expected={expected!r}, actual={initial}")
+        if initial[0]["latest"] or not initial[1]["latest"]:
+            raise CheckFailed(f"Only the latest update button may carry NEW styling: {initial}")
 
-        # The dedicated update view includes unpictured NEW entries without
-        # destroying the user's existing only-imaged preference.
-        cdp.eval("document.querySelector('#onlyImaged').click()")
-        wait_for(cdp, "document.querySelector('#onlyImaged')?.checked", "only-imaged before NEW filter")
-        cdp.eval("document.querySelector('#newUpdateFilterBtn').click()")
-        wait_for(cdp, "document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'true' && new URL(location.href).searchParams.get('new') === '1'", "NEW update filter active")
+        old_id = json.dumps(old_update["id"], ensure_ascii=False)
+        latest_id = json.dumps(latest_update["id"], ensure_ascii=False)
+        cdp.eval(f"(() => {{ const btn = [...document.querySelectorAll('[data-update-filter]')].find(item=>item.dataset.updateFilter==={old_id}); btn.focus(); btn.click(); }})()")
+        wait_for(cdp, f"document.querySelector('[data-update-filter=\"{old_update['id']}\"]')?.getAttribute('aria-pressed') === 'true' && new URL(location.href).searchParams.get('update') === {old_id}", "historical update filter active")
         settle(cdp, 420)
         active = cdp.eval("""
 (() => {
   const cards = [...document.querySelectorAll('.card')];
   return {
-    text: document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g, ' ').trim() || '',
+    buttons: [...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn => ({id:btn.dataset.updateFilter, pressed:btn.getAttribute('aria-pressed')})),
     result: document.querySelector('#resultInfo')?.textContent || '',
-    onlyImaged: Boolean(document.querySelector('#onlyImaged')?.checked),
     cards: cards.length,
     newCards: cards.filter(card => card.querySelector('.badge-new')?.hidden === false).length,
     url: location.href,
   };
 })()
 """)
-        if active["text"] != expected or str(new_count) not in active["result"]:
-            raise CheckFailed(f"Regular NEW update result mismatch: expected={expected!r}, actual={active}")
-        if not active["onlyImaged"] or active["cards"] <= 0 or active["newCards"] != active["cards"]:
-            raise CheckFailed(f"NEW update filter did not override only-imaged cleanly: {active}")
+        if old_update["label"] not in active["result"] or str(old_update["count"]) not in active["result"]:
+            raise CheckFailed(f"Historical update result mismatch: expected={old_update!r}, actual={active}")
+        if active["cards"] <= 0 or active["newCards"] != 0:
+            raise CheckFailed(f"Historical update entries unexpectedly carry the latest NEW badge: {active}")
+        if cdp.eval("document.activeElement?.dataset?.updateFilter || ''") != old_update["id"]:
+            raise CheckFailed("Historical update filter lost keyboard focus after rerender")
         shot = screenshot(cdp, out_dir, "new-update-filter")
 
-        cdp.eval("document.querySelector('#newUpdateFilterBtn').click()")
-        wait_for(cdp, "document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'false' && !new URL(location.href).searchParams.has('new') && document.querySelector('#onlyImaged')?.checked", "NEW update filter exit")
-        if "本次更新" in (cdp.eval("document.querySelector('#resultInfo')?.textContent || ''") or ""):
-            raise CheckFailed("Exiting the NEW update filter did not restore the previous only-imaged view")
+        cdp.eval(f"(() => {{ const btn = [...document.querySelectorAll('[data-update-filter]')].find(item=>item.dataset.updateFilter==={latest_id}); btn.focus(); btn.click(); }})()")
+        wait_for(cdp, f"document.querySelector('[data-update-filter=\"{latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('[data-update-filter][aria-pressed=\"true\"]').length === 1 && new URL(location.href).searchParams.get('update') === {latest_id}", "latest update filter active")
+        settle(cdp, 320)
+        latest_cards = cdp.eval("({cards:document.querySelectorAll('.card').length,newCards:[...document.querySelectorAll('.card')].filter(card=>card.querySelector('.badge-new')?.hidden===false).length,result:document.querySelector('#resultInfo')?.textContent||''})")
+        if latest_cards["cards"] <= 0 or latest_cards["newCards"] != latest_cards["cards"] or latest_update["label"] not in latest_cards["result"]:
+            raise CheckFailed(f"Latest update filter did not select only NEW entries: {latest_cards}")
+        if cdp.eval("document.activeElement?.dataset?.updateFilter || ''") != latest_update["id"]:
+            raise CheckFailed("Latest update filter lost keyboard focus after rerender")
 
-        # Direct URLs survive reload and make the update view linkable.
-        cdp.eval("document.querySelector('#newUpdateFilterBtn').click()")
-        wait_for(cdp, "new URL(location.href).searchParams.get('new') === '1'", "NEW update URL")
+        cdp.eval(f"[...document.querySelectorAll('[data-update-filter]')].find(btn=>btn.dataset.updateFilter==={latest_id}).click()")
+        wait_for(cdp, "document.querySelectorAll('[data-update-filter][aria-pressed=\"true\"]').length === 0 && !new URL(location.href).searchParams.has('update')", "update filter exit")
+
+        # Legacy ?new=1 links still resolve to the latest batch after deploy.
+        navigate(cdp, base + "?codex=suozhang&new=1")
+        wait_for(cdp, f"document.querySelector('[data-update-filter=\"{latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true'", "legacy NEW update URL", timeout=12)
         cdp.command("Page.reload", {"ignoreCache": True})
-        wait_for(cdp, "document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'true' && document.querySelector('#resultInfo')?.textContent.includes('本次更新')", "NEW update reload", timeout=12)
+        wait_for(cdp, f"document.querySelector('[data-update-filter=\"{latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true' && document.querySelector('#resultInfo')?.textContent.includes({json.dumps(latest_update['label'], ensure_ascii=False)})", "NEW update reload", timeout=12)
 
         # The same data switch is enabled independently for the R18 codex.
         cdp.eval("localStorage.setItem('fadian-nsfw-ok','1'); localStorage.removeItem('fadian-r18g-ok')")
         navigate(cdp, base + "?codex=suozhang_r18&new=1")
-        wait_for(cdp, "document.body.classList.contains('nsfw-unlocked') && document.querySelector('#newUpdateFilterBtn')?.getAttribute('aria-pressed') === 'true'", "R18 NEW update filter", timeout=12)
-        r18_expected = f"NEW {r18_new_label} · {r18_new_count}"
-        r18_text = cdp.eval("document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g,' ').trim() || ''")
+        wait_for(cdp, f"document.body.classList.contains('nsfw-unlocked') && document.querySelector('[data-update-filter=\"{r18_latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true'", "R18 NEW update filter", timeout=12)
+        r18_expected = f"NEW {r18_latest_update['label']} · {r18_latest_update['count']}"
+        r18_text = cdp.eval("document.querySelector('#updateFilterControls .is-latest')?.innerText.replace(/\\s+/g,' ').trim() || ''")
         if r18_text != r18_expected:
             raise CheckFailed(f"R18 NEW update button mismatch: expected={r18_expected!r}, actual={r18_text!r}")
 
         # Removing the index field is sufficient to withdraw the entry; an
         # unsupported codex never exposes the generic control.
         cdp.eval("localStorage.removeItem('fadian-nsfw-ok'); localStorage.removeItem('fadian-r18g-ok')")
-        navigate(cdp, base + "?codex=composition_style&new=1")
+        navigate(cdp, base + "?codex=composition_style&update=2026.8.14")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "codex without NEW update entry")
-        if not cdp.eval("document.querySelector('#newUpdateFilterBtn')?.hidden === true"):
-            raise CheckFailed("A codex without newFilterLabel exposed the NEW update button")
+        if not cdp.eval("document.querySelector('#updateFilterControls')?.hidden === true"):
+            raise CheckFailed("A codex without update filters exposed the update controls")
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "regular codex after NEW checks")
         check_no_errors(cdp)
-        return {**active, "r18Text": r18_text, "unsupportedHidden": True, "screenshot": shot}
+        return {**active, "latest": latest_cards, "r18Text": r18_text, "unsupportedHidden": True, "screenshot": shot}
 
     def search_highlight():
         clear_errors(cdp)
@@ -1050,7 +1087,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     tip: document.querySelector('#lightboxTip')?.textContent?.trim() || '',
     originalRequests: performance.getEntriesByType('resource')
       .map(item => item.name)
-      .filter(name => /(?:^|\/)originals?(?:\/|$)/i.test(new URL(name, location.href).pathname)),
+      .filter(name => /(?:^|[/])originals?(?:[/]|$)/i.test(new URL(name, location.href).pathname)),
   };
 })()
 """)
@@ -1092,7 +1129,6 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     codexTitle:'所长常规NovelAI个人法典',
     path:['各式服装'],
     q:'',
-    onlyImaged:false,
     onlyFav:false,
     entryId:'',
     scrollY:420,
@@ -1256,11 +1292,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "mobile cards")
         settle(cdp, 500)
-        data = cdp.eval("({cards: document.querySelectorAll('.card').length, mobileSearch: !!document.querySelector('#mobileSearchBtn'), result: document.querySelector('#resultInfo')?.textContent || '', update: document.querySelector('#newUpdateFilterBtn')?.innerText.replace(/\\s+/g,' ').trim() || '', overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth})")
+        data = cdp.eval("({cards: document.querySelectorAll('.card').length, mobileSearch: !!document.querySelector('#mobileSearchBtn'), result: document.querySelector('#resultInfo')?.textContent || '', updates: [...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn=>btn.innerText.replace(/\\s+/g,' ').trim()), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth})")
         if not data["mobileSearch"]:
             raise CheckFailed("Mobile search button missing")
-        if data["update"] != f"NEW {new_label} · {new_count}" or data["overflow"] > 1:
-            raise CheckFailed(f"Mobile NEW update control is missing or overflowed: {data}")
+        expected_updates = [f"{old_update['label']} · {old_update['count']}", f"NEW {latest_update['label']} · {latest_update['count']}"]
+        if data["updates"] != expected_updates or data["overflow"] > 1:
+            raise CheckFailed(f"Mobile update controls are missing or overflowed: {data}")
         check_no_errors(cdp)
         shot = screenshot(cdp, out_dir, "mobile-home")
         return {**data, "screenshot": shot}
@@ -1360,18 +1397,91 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "atlas detail closes again")
         wait_for(cdp, "document.querySelector('#lightbox')?.hidden", "atlas detail close animation finishes", timeout=2)
 
-        # Filter changes made inside settings belong to the underlying route
-        # and must survive when the settings history layer closes.
-        cdp.eval("document.querySelector('#settingsBtn')?.click()")
-        wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show')", "settings filter layer")
-        cdp.eval("document.querySelector('#onlyImaged')?.click()")
-        wait_for(cdp, "document.querySelector('#onlyImaged')?.checked && history.state?.route?.onlyImaged === true", "settings filter route update")
-        cdp.eval("history.back()")
-        wait_for(cdp, "!document.querySelector('#settings')?.classList.contains('show') && document.querySelector('#onlyImaged')?.checked && history.state?.route?.onlyImaged === true", "settings filter survives close")
-        cdp.eval("document.querySelector('#settingsBtn')?.click(); document.querySelector('#onlyImaged')?.click()")
-        wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show') && !document.querySelector('#onlyImaged')?.checked && history.state?.route?.onlyImaged === false", "settings filter reset")
-        cdp.eval("history.back()")
-        wait_for(cdp, "!document.querySelector('#settings')?.classList.contains('show') && history.state?.route?.onlyImaged === false", "reset filter survives close")
+        # Managed history entries written by older deployments still contain
+        # onlyImaged/onlyNew. Adopt one through a real popstate, then prove a
+        # detail Back takes the fast close path without flashing to the top.
+        legacy_parent = cdp.eval("""
+(() => {
+  const target = structuredClone(history.state);
+  delete target.route.updateFilter;
+  target.route.onlyImaged = false;
+  target.route.onlyNew = false;
+  history.replaceState(target, '', location.href);
+  const dummy = structuredClone(target);
+  dummy.id = `${target.id}-legacy-adopt-${Date.now()}`;
+  dummy.parentId = target.id;
+  dummy.transition = 'route';
+  history.pushState(dummy, '', location.href);
+  history.back();
+  return {id: target.id};
+})()
+""")
+        wait_for(
+            cdp,
+            "history.state?.id === " + js_string(legacy_parent["id"])
+            + " && !Object.hasOwn(history.state.route,'onlyImaged')"
+            + " && !Object.hasOwn(history.state.route,'onlyNew')"
+            + " && history.state.route.updateFilter === ''",
+            "legacy atlas route canonicalized",
+        )
+        legacy_scroll_target = cdp.eval("Math.min(700, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
+        cdp.eval(f"scrollTo(0,{int(legacy_scroll_target)})")
+        settle(cdp, 360)
+        cdp.eval(f"scrollTo(0,{int(legacy_scroll_target)})")
+        settle(cdp, 220)
+        legacy_scroll_base = cdp.eval("Math.round(scrollY)") or 0
+        if legacy_scroll_base > 120:
+            cdp.eval("document.querySelector('.zoom-btn')?.click()")
+            wait_for(cdp, "history.state?.transition === 'detail' && document.querySelector('#lightbox')?.classList.contains('is-open')", "legacy route detail history")
+            cdp.eval("window.__legacyRouteScroll = []; window.__legacyRouteScrollOn = true; addEventListener('scroll', () => { if (window.__legacyRouteScrollOn) window.__legacyRouteScroll.push(Math.round(scrollY)); })")
+            cdp.eval("history.back()")
+            wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.id === " + js_string(legacy_parent["id"]), "legacy route detail back")
+            settle(cdp, 450)
+            cdp.eval("window.__legacyRouteScrollOn = false")
+            legacy_scroll_log = cdp.eval("window.__legacyRouteScroll || []") or []
+            legacy_scroll_now = cdp.eval("Math.round(scrollY)") or 0
+            if any(value < legacy_scroll_base - 90 for value in legacy_scroll_log):
+                raise CheckFailed(
+                    "Legacy detail Back flashed the list toward the top: "
+                    f"base={legacy_scroll_base}, log={legacy_scroll_log}"
+                )
+            if abs(legacy_scroll_now - legacy_scroll_base) > 5:
+                raise CheckFailed(
+                    "Legacy detail Back drifted the list scroll: "
+                    f"base={legacy_scroll_base}, now={legacy_scroll_now}, log={legacy_scroll_log}"
+                )
+
+        # The retired onlyNew flag maps to the selected codex's latest durable
+        # update batch and is removed from the adopted history record.
+        legacy_latest = cdp.eval("""
+(() => {
+  const target = structuredClone(history.state);
+  delete target.route.updateFilter;
+  target.route.onlyImaged = false;
+  target.route.onlyNew = true;
+  history.replaceState(target, '', location.href);
+  const dummy = structuredClone(target);
+  dummy.id = `${target.id}-legacy-latest-${Date.now()}`;
+  dummy.parentId = target.id;
+  dummy.transition = 'route';
+  history.pushState(dummy, '', location.href);
+  history.back();
+  return {id: target.id};
+})()
+""")
+        latest_id = js_string(latest_update["id"])
+        wait_for(
+            cdp,
+            "history.state?.id === " + js_string(legacy_latest["id"])
+            + " && history.state.route.updateFilter === " + latest_id
+            + " && !Object.hasOwn(history.state.route,'onlyImaged')"
+            + " && !Object.hasOwn(history.state.route,'onlyNew')"
+            + " && document.querySelector('[data-update-filter=\"" + latest_update["id"] + "\"]')?.getAttribute('aria-pressed') === 'true'",
+            "legacy NEW history route canonicalized",
+            timeout=12,
+        )
+        cdp.eval("document.querySelector('[data-update-filter=\"" + latest_update["id"] + "\"]')?.click()")
+        wait_for(cdp, "history.state?.route?.updateFilter === ''", "legacy NEW filter reset")
 
         # Closing an overlay must not move the list at all (no flash to top):
         # record every scroll change while the settings layer closes via back.
@@ -1432,12 +1542,18 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 })()
 """)
         wait_for(cdp, "history.state?.route?.q === 'hair long'", "continuous mobile search")
-        cdp.eval("document.querySelector('#onlyImaged')?.click()")
-        settle(cdp, 180)
+        cdp.eval("""
+(() => {
+  const input = document.querySelector('#search');
+  input.value = 'has:image hair long';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:'has:image '}));
+})()
+""")
+        wait_for(cdp, "history.state?.route?.q === 'has:image hair long'", "continuous mobile image syntax filter")
         if cdp.eval("history.length") != search_length:
             raise CheckFailed("Continuous search/filtering increased atlas history depth")
         cdp.eval("history.back()")
-        wait_for(cdp, "!document.body.classList.contains('search-mode') && history.state?.route?.q === 'hair long'", "first search back")
+        wait_for(cdp, "!document.body.classList.contains('search-mode') && history.state?.route?.q === 'has:image hair long'", "first search back")
         cdp.eval("history.back()")
         wait_for(cdp, "history.state?.route?.q === ''", "second search back")
 
