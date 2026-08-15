@@ -26,8 +26,12 @@ function config(remoteHosts = ['novelai.quicktagcloud.com']) {
   });
 }
 
-async function loadCase({ hostname, protocol = 'https:', responses, localEdition = false, basePath = '/' }) {
+async function loadCase({ hostname, protocol = 'https:', responses, localEdition = false, basePath = '/', boot = null }) {
   caseNumber += 1;
+  /* index.html 的内联脚本会把 data-source.json / current.json 提前发出去挂在这里；
+     这里模拟"已经在飞的请求"，验证模块认领它、且认领失败能退回自己发。 */
+  if (boot) globalThis.__atlasBoot = boot;
+  else delete globalThis.__atlasBoot;
   const href = `${protocol}//${hostname}${basePath}`;
   globalThis.location = { href, hostname, protocol };
   globalThis.document = {
@@ -105,6 +109,55 @@ try {
     assert.equal(result.source, 'proxy-fallback');
     assert.equal(result.data.id, 'proxy-fallback');
     assert.equal(result.release, release);
+  }
+
+  /* 提前起跑：认领内联脚本发出的两跳，不应再重复请求 data-source.json 与 current.json */
+  {
+    const boot = {
+      config: Promise.resolve({
+        schemaVersion: 1,
+        baseUrl: 'https://assets.quicktagcloud.com/data',
+        pointer: 'current.json',
+        remoteHosts: ['novelai.quicktagcloud.com'],
+      }),
+      pointer: Promise.resolve({ release }),
+    };
+    const responses = {
+      [`https://assets.quicktagcloud.com/data/releases/${release}/codexes.json`]: jsonResponse([{ id: 'booted' }]),
+    };
+    const { mod, calls } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses, boot });
+    const result = await mod.fetchDataJsonResult('codexes.json');
+    assert.equal(result.source, 'r2');
+    assert.equal(result.data[0].id, 'booted');
+    assert.equal(result.release, release);
+    // 只剩取数据那一发；两跳都被认领掉了
+    assert.equal(calls.length, 1);
+    assert.equal(calls.some(call => call.url.endsWith('/data-source.json')), false);
+    assert.equal(calls.some(call => call.url.endsWith('/current.json')), false);
+    // 认领是一次性的，用过即作废，避免失败后被反复复用
+    assert.equal(globalThis.__atlasBoot.config, null);
+    assert.equal(globalThis.__atlasBoot.pointer, null);
+  }
+
+  /* 提前起跑失败（离线/超时/被拦）时必须退回正常流程，不能把整站带崩 */
+  {
+    const boot = {
+      config: Promise.reject(new Error('boot config failed')),
+      pointer: Promise.reject(new Error('boot pointer failed')),
+    };
+    boot.config.catch(() => {});
+    boot.pointer.catch(() => {});
+    const responses = {
+      'https://novelai.quicktagcloud.com/data-source.json': config(),
+      'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release }),
+      [`https://assets.quicktagcloud.com/data/releases/${release}/codexes.json`]: jsonResponse([{ id: 'boot-recovered' }]),
+    };
+    const { mod, calls } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses, boot });
+    const result = await mod.fetchDataJsonResult('codexes.json');
+    assert.equal(result.source, 'r2');
+    assert.equal(result.data[0].id, 'boot-recovered');
+    assert.equal(calls.some(call => call.url.endsWith('/data-source.json')), true);
+    assert.equal(calls.some(call => call.url.endsWith('/current.json')), true);
   }
 
   {
@@ -199,5 +252,6 @@ try {
   globalThis.fetch = original.fetch;
   globalThis.location = original.location;
   globalThis.document = original.document;
+  delete globalThis.__atlasBoot;
   console.warn = original.warn;
 }

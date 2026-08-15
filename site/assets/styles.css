@@ -420,7 +420,9 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
     linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 42px/58% 8px no-repeat;
 }
 .main.skeleton-visible .chip-rail:empty{
-  display:flex;min-height:37px;overflow:hidden;
+  /* 46px = 实测成品高度（375px 46 / 1280px 44）。原来占 37 会在胶囊渲染出来时长高 7~9px，
+     把下面的 #masonry 整体推一下——RUM 里 #masonry 是最大 CLS 来源，它本身不动，是被上面顶的。 */
+  display:flex;min-height:46px;overflow:hidden;
 }
 .main.skeleton-visible .chip-rail:empty::before{
   flex:none;width:78px;height:31px;border-radius:999px;
@@ -556,7 +558,11 @@ body.dark .data-pill.has-orig{color:#8fd3a6;background:rgba(74,156,103,.18)}
 .rail-chip.active .rc-n{background:transparent;color:inherit}
 
 /* ---------- 结果栏 / 面包屑 ---------- */
-.result-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--muted);font-size:13px;margin-bottom:12px;min-height:26px}
+/* min-height 取 30px = 宽屏实测成品高度（原 26 会在文案填进来时长高 4px 顶动下方）。
+   ⚠ 窄屏另有一档：375px 下本栏会折到 3 行、实测 66px，仍会顶动 #masonry。
+   那档没在这里占死——不同法典的「NEW」按钮有无会让成品高度在 44~66px 之间浮动，
+   占 66 会给没有 NEW 的法典留一条常驻空白。要根治得先定窄屏版式（是否允许折行），属视觉决策。 */
+.result-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--muted);font-size:13px;margin-bottom:12px;min-height:30px}
 .result-bar b{color:var(--accent)}
 #resultInfo{display:contents}
 .access-hidden-hint{
