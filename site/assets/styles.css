@@ -1861,7 +1861,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border-bottom:1px solid var(--line);
   }
-  .main.skeleton-visible .chip-rail:empty{min-height:42px}
+  .main.skeleton-visible .chip-rail:empty{min-height:46px}
   .main.skeleton-visible .chip-rail:empty::before{
     width:70px;height:29px;
     box-shadow:82px 0 0 var(--tagbg-hover),164px 0 0 var(--tagbg),246px 0 0 var(--tagbg-hover);
