@@ -18,6 +18,9 @@
 /assets/community.css
   Cache-Control: no-store
 
+/assets/tag-relay.css
+  Cache-Control: no-store
+
 /assets/favorites-backup.css
   Cache-Control: no-store
 
