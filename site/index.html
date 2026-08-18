@@ -166,7 +166,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </a>
         <a id="tagRelayMenuLink" class="more-item" href="tag-relay.html" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
-          <span><b>Tag 中转站</b><small>暂存词条 · 排列组合 · 一键复制</small></span>
+          <span><b>Tag 中转站</b><small>打开组合工作台</small></span>
         </a>
         <a class="more-item" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
@@ -285,15 +285,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </div>
 
 <div id="tagRelayQuick" class="settings-mask tag-relay-mask" hidden>
-  <section class="tag-relay-quick" role="dialog" aria-modal="true" aria-labelledby="tagRelayQuickTitle" aria-describedby="tagRelayQuickNote">
+  <section class="tag-relay-quick" role="dialog" aria-modal="true" aria-labelledby="tagRelayQuickTitle">
     <header class="tag-relay-quick-head">
       <div>
-        <span class="tag-relay-eyebrow">随手收集，不打断浏览</span>
         <h2 id="tagRelayQuickTitle">Tag 中转站</h2>
       </div>
       <button id="tagRelayQuickClose" class="settings-close" type="button" aria-label="关闭中转站暂存区">×</button>
     </header>
-    <p id="tagRelayQuickNote" class="tag-relay-quick-note">先把候选词条放在这里；需要组合时再进入工作台，不再依赖系统剪切板辨认版本。</p>
     <div id="tagRelayQuickList" class="tag-relay-quick-list" aria-live="polite"></div>
     <div id="tagRelayQuickEmpty" class="tag-relay-quick-empty">
       <span aria-hidden="true">＋</span>

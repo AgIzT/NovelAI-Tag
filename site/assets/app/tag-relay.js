@@ -164,7 +164,7 @@ function quickItem(entry) {
   const prompt = document.createElement('small');
   prompt.textContent = locked
     ? '重新开启对应内容权限后可继续使用'
-    : (entry.prompt || entry.negative || entry.path?.join?.(' › ') || entry.book || '待整理词条');
+    : (entry.prompt || entry.negative || entry.path?.join?.(' › ') || entry.book || '暂存词条');
   copy.append(title, prompt);
 
   const remove = document.createElement('button');
@@ -202,11 +202,11 @@ function renderRelayChrome() {
   }
   const button = document.querySelector('#tagRelayBtn');
   if (button) {
-    button.title = count ? `Tag 中转站 · ${count} 条待整理` : '打开 Tag 中转站暂存区';
+    button.title = count ? `Tag 中转站 · ${count} 条` : '打开 Tag 中转站暂存区';
     button.setAttribute('aria-label', button.title);
   }
   const menuHint = document.querySelector('#tagRelayMenuLink small');
-  if (menuHint) menuHint.textContent = count ? `${count} 条待整理 · 进入排列组合` : '暂存词条 · 排列组合 · 一键复制';
+  if (menuHint) menuHint.textContent = count ? `${count} 条暂存中` : '打开组合工作台';
   const clear = document.querySelector('#tagRelayClear');
   if (clear) clear.disabled = count === 0;
   renderQuickList();

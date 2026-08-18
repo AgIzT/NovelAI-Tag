@@ -159,7 +159,7 @@ function addSourceToPlan(entry, { negativeOnly = false, atIndex = null } = {}) {
 
 function removeSource(entry) {
   const action = commit(next => removeInboxEntry(next, entry.key));
-  if (action.ok) showToast(`已移出待整理：${entry.title}`);
+  if (action.ok) showToast(`已移出暂存：${entry.title}`);
 }
 
 function sourceCard(entry, { removable = false } = {}) {
@@ -203,8 +203,8 @@ function sourceCard(entry, { removable = false } = {}) {
     remove.type = 'button';
     remove.className = 'source-remove';
     remove.textContent = '×';
-    remove.title = '从待整理移除';
-    remove.setAttribute('aria-label', `从待整理移除${entry.title}`);
+    remove.title = '从暂存移除';
+    remove.setAttribute('aria-label', `从暂存移除${entry.title}`);
     remove.onclick = () => removeSource(entry);
     actions.append(remove);
   }

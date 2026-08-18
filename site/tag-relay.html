@@ -36,7 +36,6 @@
   <div class="brand">法典<span>图鉴</span></div>
   <div class="tag-relay-top-title">
     <b>Tag 中转站</b>
-    <small>把剪切板堆叠，变成可辨认的组合</small>
   </div>
   <div class="topbar-actions">
     <button id="relayThemeBtn" class="icon-btn theme-btn" type="button" title="深色 / 浅色" aria-label="切换深色模式"></button>
@@ -45,7 +44,7 @@
 </header>
 
 <main class="tag-relay-shell">
-  <h1 class="sr-only">Tag 中转站组合工作台</h1>
+  <h1 class="sr-only">Tag 中转站</h1>
   <section class="tag-relay-planbar" aria-label="方案管理">
     <div class="tag-relay-plan-title">
       <span class="tag-relay-eyebrow">当前组合方案</span>
@@ -71,7 +70,7 @@
         <span id="relaySourceCount" class="tag-relay-pane-count">0</span>
       </header>
       <div class="tag-relay-source-tabs" role="tablist" aria-label="素材来源">
-        <button type="button" role="tab" aria-selected="true" data-relay-source="inbox">待整理</button>
+        <button type="button" role="tab" aria-selected="true" data-relay-source="inbox">暂存</button>
         <button type="button" role="tab" aria-selected="false" data-relay-source="favorites">收藏</button>
         <button type="button" role="tab" aria-selected="false" data-relay-source="history">复制记录</button>
       </div>
@@ -103,7 +102,6 @@
       <div id="relayPlanEmpty" class="tag-relay-plan-empty">
         <span aria-hidden="true">↘</span>
         <b>把第一块放到这里</b>
-        <small>它会保留标题和来源，不会再变成剪切板里认不出的长字符串。</small>
       </div>
 
       <aside id="relayInspector" class="tag-relay-inspector" hidden aria-labelledby="relayInspectorTitle">
@@ -128,7 +126,7 @@
       <header class="tag-relay-pane-head">
         <div>
           <span class="tag-relay-eyebrow">03 · 输出台</span>
-          <h2 id="relayOutputTitle">编译与复制</h2>
+          <h2 id="relayOutputTitle">输出与复制</h2>
         </div>
         <span id="relayOutputVersion" class="tag-relay-version">实时预览</span>
       </header>
@@ -162,8 +160,7 @@
       <button id="relayCopyNegative" class="tag-relay-copy-secondary" type="button">复制负向</button>
 
       <button id="relayCopyAll" class="tag-relay-copy-primary" type="button">
-        <span>一键复制完整方案</span>
-        <small>同时存一份可恢复的复制记录</small>
+        <span>复制完整方案</span>
       </button>
       <p class="tag-relay-copy-note">复制记录保留标题、顺序和格式；之后可以恢复成新方案继续改。</p>
     </section>
