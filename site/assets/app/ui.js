@@ -12,6 +12,7 @@ import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js'
 import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
+import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
 import { setupHomeShortcutGuide } from './home-shortcut.js';
 import {
   closeHistoryLayer,
@@ -471,7 +472,6 @@ export function bindUI() {
   const announcementsMask = $('#announcementsPanel');
   const feedbackMask = $('#feedbackPanel');
   const onboardingMask = $('#onboarding');
-  const tagRelayMask = $('#tagRelayQuick');
   const nsfwToggle = $('#nsfwToggle');
   const setNsfwAccess = (on, { announce = false } = {}) => {
     state.allowNsfw = Boolean(on);
@@ -692,7 +692,8 @@ export function bindUI() {
     if (announcementsMask && !announcementsMask.hidden) { closeMask(announcementsMask); return; }
     if (feedbackMask && !feedbackMask.hidden) { closeMask(feedbackMask); return; }
     if (onboardingMask && !onboardingMask.hidden) { closeMask(onboardingMask); return; }
-    if (tagRelayMask && !tagRelayMask.hidden) { closeMask(tagRelayMask); return; }
+    /* 只有浮层形态的中转站栏才吃 Esc；停靠态是页面家具（同左侧目录栏），不该抢 */
+    if (isRelayRailModal()) { closeRelayRail(); return; }
     closeBannerAbout({ historyMode: 'back' });
   });
   bindLightboxControls({ mobileQuery });
@@ -751,7 +752,7 @@ export function bindUI() {
     (announcementsMask && !announcementsMask.hidden) ||
     (feedbackMask && !feedbackMask.hidden) ||
     (onboardingMask && !onboardingMask.hidden) ||
-    (tagRelayMask && !tagRelayMask.hidden);
+    isRelayRailModal();
   window.addEventListener('keydown', ev => {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || typingTarget()) return;
     if (ev.key === '?' && !overlayOpen()) {

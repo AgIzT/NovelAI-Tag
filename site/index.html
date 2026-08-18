@@ -57,6 +57,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/tag-relay-core.js">
 <link rel="modulepreload" href="assets/app/tag-relay-snapshot.js">
 <link rel="modulepreload" href="assets/app/tag-relay-store.js">
+<link rel="modulepreload" href="assets/app/tag-relay-rail.js">
 <link rel="modulepreload" href="assets/app/tag-relay.js">
 <!-- 内测预览横幅：合并回 main 前连同 assets/beta-banner.js 一起删 -->
 <script defer src="assets/beta-banner.js"></script>
@@ -168,10 +169,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
           <span><b>浏览共创广场</b><small>查看图片与提示词作品</small></span>
         </a>
-        <a id="tagRelayMenuLink" class="more-item" href="tag-relay.html" role="menuitem">
+        <button id="tagRelayMenuLink" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
           <span><b>Tag 中转站</b><small>打开组合工作台</small></span>
-        </a>
+        </button>
         <a class="more-item" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
           <span><b>GitHub 仓库</b><small>查看项目源码</small></span>
@@ -265,10 +266,40 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div id="sentinel" class="sentinel"></div>
     <div id="empty" class="empty" hidden></div>
   </main>
+  <aside id="tagRelayRail" class="tag-relay-rail closed" aria-label="Tag 中转站">
+    <header class="tag-relay-rail-head">
+      <h2 id="tagRelayRailTitle">Tag 中转站</h2>
+      <span id="tagRelayRailCount" class="tag-relay-rail-count"></span>
+      <button id="tagRelayRailClose" class="tag-relay-rail-close" type="button" aria-label="收起中转站">×</button>
+    </header>
+    <nav class="tag-relay-rail-tabs" role="tablist" aria-label="中转站分区">
+      <button class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="warehouse" aria-selected="true" aria-controls="tagRelayPaneWarehouse">素材</button>
+      <button class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="compose" aria-selected="false" aria-controls="tagRelayPaneCompose">编排</button>
+    </nav>
+
+    <section id="tagRelayPaneWarehouse" class="tag-relay-rail-pane is-active" data-rail-pane="warehouse" role="tabpanel">
+      <div class="tag-relay-source-tabs" role="tablist" aria-label="素材来源">
+        <button type="button" role="tab" data-relay-source="inbox" aria-selected="true">最近复制</button>
+        <button type="button" role="tab" data-relay-source="favorites" aria-selected="false">收藏</button>
+      </div>
+      <p id="relaySourceStatus" class="tag-relay-source-status" role="status" aria-live="polite"></p>
+      <div id="relaySourceList" class="tag-relay-source-list"></div>
+      <div id="relaySourceEmpty" class="tag-relay-source-empty">
+        <b>还没有复制过词条</b>
+        <small>点卡片复制，词条会自动收到这里。</small>
+      </div>
+      <footer class="tag-relay-rail-foot">
+        <button id="tagRelayClear" class="tag-relay-secondary" type="button">清空最近复制</button>
+      </footer>
+    </section>
+
+    <section id="tagRelayPaneCompose" class="tag-relay-rail-pane" data-rail-pane="compose" role="tabpanel" hidden></section>
+  </aside>
+  <button id="tagRelayRailBackdrop" class="tag-relay-rail-backdrop" type="button" tabindex="-1" aria-label="收起中转站"></button>
 </div>
 
 <div class="float-actions" aria-label="快捷操作">
-  <button id="tagRelayBtn" class="float-btn tag-relay-float-btn" type="button" title="打开 Tag 中转站暂存区" aria-label="打开 Tag 中转站暂存区" aria-haspopup="dialog" aria-controls="tagRelayQuick">
+  <button id="tagRelayBtn" class="float-btn tag-relay-float-btn" type="button" title="打开 Tag 中转站" aria-label="打开 Tag 中转站" aria-expanded="false" aria-controls="tagRelayRail">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
     <span id="tagRelayCount" class="tag-relay-count" hidden>0</span>
   </button>
@@ -288,26 +319,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   </button>
 </div>
 
-<div id="tagRelayQuick" class="settings-mask tag-relay-mask" hidden>
-  <section class="tag-relay-quick" role="dialog" aria-modal="true" aria-labelledby="tagRelayQuickTitle">
-    <header class="tag-relay-quick-head">
-      <div>
-        <h2 id="tagRelayQuickTitle">Tag 中转站</h2>
-      </div>
-      <button id="tagRelayQuickClose" class="settings-close" type="button" aria-label="关闭中转站暂存区">×</button>
-    </header>
-    <div id="tagRelayQuickList" class="tag-relay-quick-list" aria-live="polite"></div>
-    <div id="tagRelayQuickEmpty" class="tag-relay-quick-empty">
-      <span aria-hidden="true">＋</span>
-      <b>暂存区还是空的</b>
-      <small>点词条标题旁的中转按钮，就能边逛边收集。</small>
-    </div>
-    <footer class="tag-relay-quick-foot">
-      <button id="tagRelayClear" class="tag-relay-secondary" type="button">清空暂存</button>
-      <a id="tagRelayWorkbenchLink" class="tag-relay-primary" href="tag-relay.html">进入组合工作台 <span aria-hidden="true">→</span></a>
-    </footer>
-  </section>
-</div>
 
 <div id="settings" class="settings-mask" hidden>
   <div class="settings-panel" role="dialog" aria-modal="true" aria-label="设置">

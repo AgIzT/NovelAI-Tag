@@ -18,21 +18,8 @@
 .float-actions.has-backtop .random-btn{transform:translateY(-104px)}
 .float-actions .back-top.show{transform:translateY(-52px)}
 
-/* ---------- 浏览页：快速暂存抽屉 ---------- */
-.tag-relay-mask{place-items:stretch end;padding:0;z-index:82}
-.tag-relay-quick{
-  position:relative;display:flex;flex-direction:column;width:min(440px,100vw);height:100%;min-height:0;
-  padding:24px 22px 18px;background:var(--popover-glass);border-left:1px solid var(--popover-line);
-  box-shadow:-18px 0 54px rgba(28,32,58,.18);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
-  opacity:0;transform:translateX(28px);transition:opacity .18s ease,transform .26s cubic-bezier(.22,1,.36,1);
-}
-.tag-relay-mask.show .tag-relay-quick{opacity:1;transform:none}
-body.dark .tag-relay-quick{border-color:rgba(255,255,255,.12);box-shadow:-22px 0 62px rgba(0,0,0,.48)}
-.tag-relay-quick-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-right:34px}
-.tag-relay-quick-head h2{margin:2px 0 0;font:800 23px/1.25 var(--font-display);letter-spacing:.5px}
-.tag-relay-quick-head .settings-close{right:16px;top:16px}
+/* ---------- 浏览页：中转站条目卡（侧栏列表复用） ---------- */
 .tag-relay-eyebrow{display:block;color:var(--accent);font-size:10px;font-weight:900;letter-spacing:1.35px;text-transform:uppercase}
-.tag-relay-quick-list{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:1px 2px 8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .tag-relay-quick-item{
   display:grid;grid-template-columns:42px minmax(0,1fr) 30px;align-items:center;gap:10px;
   border:1px solid var(--line);border-radius:13px;background:var(--card);padding:8px;box-shadow:var(--shadow);
@@ -44,11 +31,6 @@ body.dark .tag-relay-quick{border-color:rgba(255,255,255,.12);box-shadow:-22px 0
 .tag-relay-quick-copy small{display:block;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font:500 10.5px/1.4 var(--font-prompt)}
 .tag-relay-quick-remove{width:30px;height:30px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:18px;line-height:1}
 .tag-relay-quick-remove:hover{color:var(--new);background:color-mix(in srgb,var(--new) 10%,transparent)}
-.tag-relay-quick-empty{flex:1;min-height:210px;display:grid;place-content:center;justify-items:center;text-align:center;color:var(--muted)}
-.tag-relay-quick-empty>span{width:54px;height:54px;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:16px;background:var(--accent-soft);color:var(--accent);font-size:27px}
-.tag-relay-quick-empty b{margin-top:14px;color:var(--text);font-size:14px}
-.tag-relay-quick-empty small{max-width:240px;margin-top:4px;font-size:12px;line-height:1.6}
-.tag-relay-quick-foot{display:flex;align-items:center;gap:8px;padding-top:14px;border-top:1px solid var(--line)}
 .tag-relay-primary,.tag-relay-secondary{
   min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;
   padding:8px 15px;font-size:12.5px;font-weight:800;text-decoration:none;transition:transform .12s,box-shadow .12s,border-color .12s,background .12s;
@@ -58,7 +40,84 @@ body.dark .tag-relay-quick{border-color:rgba(255,255,255,.12);box-shadow:-22px 0
 .tag-relay-secondary{border:1px solid var(--line);background:var(--card);color:var(--muted)}
 .tag-relay-secondary:hover{border-color:var(--accent);color:var(--accent)}
 .tag-relay-secondary:disabled{opacity:.42;cursor:not-allowed}
-.tag-relay-quick-foot .tag-relay-primary{flex:1}
+
+/* ---------- 浏览页：中转站侧栏 ---------- */
+/* 形态与左侧目录栏 .sidebar 镜像对称：宽屏贴边常驻并把瀑布流挤窄（走 .layout 的 flex，
+   重排由 ui.js 那个观察 #main 的 ResizeObserver 自动接管），窄屏转浮层抽屉 + 遮罩，
+   手机再转底部 sheet。这样它不像外挂上去的东西——站里本来就有一个长得一样的。 */
+.tag-relay-rail{
+  position:sticky;top:var(--topbar-h);align-self:flex-start;flex:0 0 440px;width:440px;
+  height:calc(100vh - var(--topbar-h) - 12px);overflow:hidden;min-height:0;
+  display:flex;flex-direction:column;
+  background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);
+  transition:flex-basis .26s cubic-bezier(.22,1,.36,1),width .26s cubic-bezier(.22,1,.36,1);
+}
+.tag-relay-rail.closed{flex-basis:0;width:0;padding:0;border-color:transparent;box-shadow:none}
+.tag-relay-rail-backdrop{display:none}
+
+.tag-relay-rail-head{
+  flex:none;display:flex;align-items:center;gap:9px;padding:14px 16px 10px;
+}
+.tag-relay-rail-head h2{margin:0;font:800 17px/1.25 var(--font-display);letter-spacing:.5px;white-space:nowrap}
+.tag-relay-rail-count{flex:1;min-width:0;color:var(--muted);font-size:11.5px}
+.tag-relay-rail-close{
+  flex:none;width:30px;height:30px;border:0;border-radius:9px;background:transparent;
+  color:var(--muted);font-size:19px;line-height:1;
+}
+.tag-relay-rail-close:hover{background:var(--tagbg);color:var(--text)}
+
+.tag-relay-rail-tabs{flex:none;display:flex;gap:6px;padding:0 16px 10px}
+.tag-relay-rail-tab{
+  flex:1;min-height:32px;border:1px solid var(--line);border-radius:999px;background:var(--card);
+  color:var(--muted);font-size:12.5px;font-weight:800;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.tag-relay-rail-tab:hover{border-color:var(--accent);color:var(--accent)}
+.tag-relay-rail-tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+
+.tag-relay-rail-pane{flex:1;min-height:0;display:none;flex-direction:column;overflow:hidden}
+.tag-relay-rail-pane.is-active{display:flex}
+.tag-relay-rail-foot{flex:none;display:flex;align-items:center;gap:8px;margin:0 16px;padding:12px 0 14px;border-top:1px solid var(--line)}
+.tag-relay-rail-foot .tag-relay-secondary{flex:1}
+
+/* 侧栏常驻时右下浮动按钮会压在栏上，整组左移让位 */
+body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
+
+@media (max-width:1100px){
+  /* 挤不动了就改成盖：再挤下去瀑布流只剩一列，浏览就废了 */
+  .tag-relay-rail{
+    position:fixed;z-index:83;top:var(--topbar-h);right:8px;left:auto;
+    width:min(440px,calc(100vw - 16px));flex-basis:auto;
+    height:calc(100vh - var(--topbar-h) - 8px);box-shadow:var(--shadow-hover);
+    transition:transform .26s cubic-bezier(.22,1,.36,1);
+  }
+  .tag-relay-rail.closed{
+    transform:translateX(calc(100% + 16px));width:min(440px,calc(100vw - 16px));
+    flex-basis:auto;border-color:var(--line);box-shadow:none;
+  }
+  .tag-relay-rail:not(.closed)+.tag-relay-rail-backdrop{
+    display:block;position:fixed;inset:0;z-index:82;border:0;padding:0;
+    background:rgba(15,18,30,.3);touch-action:none;overscroll-behavior:contain;
+  }
+  body.rail-docked .float-actions{right:26px}
+}
+
+@media (max-width:600px){
+  /* 手机转底部 sheet */
+  .tag-relay-rail{
+    top:auto;bottom:0;right:0;left:0;width:100%;height:min(82dvh,720px);
+    border-radius:22px 22px 0 0;border-bottom:0;
+  }
+  .tag-relay-rail.closed{transform:translateY(calc(100% + 16px));width:100%}
+  .tag-relay-rail-head{padding:12px 14px 8px}
+  .tag-relay-rail-tabs{padding:0 14px 8px}
+  .tag-relay-rail-foot{margin:0 14px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .tag-relay-rail{transition:none}
+}
 
 /* ---------- 独立工作台：框架 ---------- */
 .tag-relay-page{min-height:100vh;overflow-x:hidden;background:var(--bg)}
@@ -282,12 +341,8 @@ body.dark .tag-relay-pane,body.dark .tag-relay-planbar{border-color:rgba(255,255
   .float-actions.has-backtop .random-btn{transform:translateY(-138px)}
   .float-actions.has-backtop .density-quick-btn{transform:translateY(-46px)}
 
-  .tag-relay-quick{width:100%;height:min(82dvh,720px);margin-top:auto;border:1px solid var(--popover-line);border-width:1px 0 0;border-radius:22px 22px 0 0;padding:20px 14px 14px;transform:translateY(28px)}
-  .tag-relay-mask{place-items:end stretch}
-  .tag-relay-quick-head .settings-close{right:10px;top:10px}
-  .tag-relay-quick-foot .tag-relay-primary,.tag-relay-quick-foot .tag-relay-secondary{min-height:44px}
 }
 
 @media (prefers-reduced-motion:reduce){
-  .tag-relay-quick,.tag-relay-source-card,.tag-relay-block,.tag-relay-primary,.tag-relay-copy-primary,.tag-relay-toast{transition:none!important}
+  .tag-relay-rail,.tag-relay-source-card,.tag-relay-block,.tag-relay-primary,.tag-relay-copy-primary,.tag-relay-toast{transition:none!important}
 }
