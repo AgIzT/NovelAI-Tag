@@ -96,6 +96,14 @@ export function showRailTab(name) {
   flush();
 }
 
+/* 抛入动效的落点：栏关着就飞浮钮，开着就飞栏头那个计数——两者都是「条数」的所在，
+   用户的视线本来就会追过去。 */
+export function relayTossTarget() {
+  const button = document.querySelector('#tagRelayBtn');
+  if (!rail || isClosed()) return button;
+  return rail.querySelector('#tagRelayRailCount') || button;
+}
+
 export function railPaneRoot(name) {
   return rail?.querySelector(`[data-rail-pane="${name}"]`) || null;
 }

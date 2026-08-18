@@ -105,8 +105,11 @@ function anchorFor(node) {
  * @param {HTMLElement|null} node  触发复制的节点（卡片或卡片内的按钮）
  * @param {string} text            实际写进剪贴板的文本，用来数 tag 数
  * @param {string} label           芯片主文案，区分正面 / 负面
+ * @param {object} [options]
+ * @param {Element|null} [options.flyTo] 给了就把芯片抛向它（复制即入库时指向中转站），
+ *                                       芯片不再原地悬停淡出——「这条被收走了」比「复制成功了」信息量大
  */
-export function playCopySample(node, text, label = '已复制正面') {
+export function playCopySample(node, text, label = '已复制正面', options = {}) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const now = performance.now();
   const combo = lastAt > 0 && now - lastAt < COMBO_MS; // 首次点击不能因页面刚加载而误判成连点
@@ -172,6 +175,43 @@ export function playCopySample(node, text, label = '已复制正面') {
     },
     () => { if (riseAnimation === rise) riseAnimation = null; },
   );
+
+  /* 抛入中转站：起点是芯片当下的位置，终点是中转站的落点。
+     弧线中点抬高一截（照 docs/动效方案演示.html 检字台那版），末端缩小并淡出，
+     落点自己弹一下表示收到。只在真入库时走这条，分享链接之类不会飞。 */
+  const flyTo = options.flyTo;
+  if (flyTo?.getBoundingClientRect) {
+    const box = flyTo.getBoundingClientRect();
+    if (box.width || box.height) {
+      const dx = Math.round(box.left + box.width / 2 - x);
+      const dy = Math.round(box.top + box.height / 2 - (y - 14));
+      chipTimers.push(window.setTimeout(() => {
+        if (gen !== chipGen) return;
+        cancelAnimation(riseAnimation);
+        riseAnimation = null;
+        setChipClearState(chip, false);
+        const toss = chip.animate([
+          { translate: '0 -8px', scale: '1', opacity: 1, offset: 0 },
+          { translate: `${Math.round(dx * 0.5)}px ${Math.round(dy * 0.5 - 42)}px`, scale: '.82', opacity: 1, offset: 0.55 },
+          { translate: `${dx}px ${dy}px`, scale: '.36', opacity: 0, offset: 1 },
+        ], { duration: 340, easing: 'cubic-bezier(0.3,0,0.2,1)' });
+        exitAnimation = toss;
+        const done = () => {
+          if (gen !== chipGen || exitAnimation !== toss) return;
+          chip.hidden = true;
+          exitAnimation = null;
+          cancelAnimation(toss);
+          setChipClearState(chip, true);
+          flyTo.animate?.(
+            [{ scale: '1' }, { scale: '1.28', offset: 0.4 }, { scale: '1' }],
+            { duration: 140, easing: 'ease-out' },
+          );
+        };
+        toss.finished.then(done, done);
+      }, combo ? 90 : riseMs));
+      return;
+    }
+  }
 
   const holdMs = combo ? 700 : 1000;
   chipTimers.push(window.setTimeout(() => {
