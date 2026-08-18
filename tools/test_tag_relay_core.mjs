@@ -8,6 +8,7 @@ import {
   clearCopyHistory,
   clearInbox,
   compilePlan,
+  mergedTotal,
   createPlan,
   createRelayState,
   deletePlan,
@@ -128,6 +129,45 @@ function entry(overrides = {}) {
   assert.equal(state.activePlanId, 'plan-default');
   assert.equal(deletePlan(state, 'plan-default', { replacementId: 'replacement', now: NOW })?.id, 'plan-default');
   assert.equal(state.activePlanId, 'replacement');
+}
+
+// 去重必须把合掉了什么报出来：只算数量不够，界面要能列出是哪几条。
+{
+  const plan = {
+    items: [
+      { enabled: true, weight: 1, prompt: 'a, masterpiece, b, masterpiece, no text', negative: 'lowres, lowres', characterPrompts: [] },
+      { enabled: true, weight: 1, prompt: 'c, NO TEXT, 0.6::x,y::', negative: '', characterPrompts: [] },
+    ],
+  };
+  const compiled = compilePlan(plan, { target: 'nai' });
+  // 权重组跨逗号，不能被拆开当成两个 tag
+  assert.deepEqual(compiled.positiveTokens, ['a', 'masterpiece', 'b', 'no text', 'c', '0.6::x,y::']);
+  assert.equal(compiled.positiveMergedCount, 2);
+  assert.deepEqual(compiled.positiveMerged, [
+    { token: 'masterpiece', dropped: 1 },
+    { token: 'no text', dropped: 1 },
+  ]);
+  // 大小写不同视为同一个 tag，保留第一次出现的写法
+  assert.equal(compiled.positive.includes('NO TEXT'), false);
+  assert.equal(compiled.negativeMergedCount, 1);
+  assert.deepEqual(compiled.negativeMerged, [{ token: 'lowres', dropped: 1 }]);
+
+  // 同一个 tag 出现三次要报 dropped: 2，不是两条记录
+  const thrice = compilePlan({ items: [{ enabled: true, weight: 1, prompt: 'q, q, q', negative: '', characterPrompts: [] }] });
+  assert.deepEqual(thrice.positiveMerged, [{ token: 'q', dropped: 2 }]);
+  assert.equal(mergedTotal(thrice.positiveMerged), 2);
+
+  // 关掉去重就不该报合并，也不该少 token
+  const off = compilePlan(plan, { target: 'nai', dedupe: false });
+  assert.equal(off.positiveTokens.length, 8);
+  assert.deepEqual(off.positiveMerged, []);
+  assert.equal(off.positiveMergedCount, 0);
+
+  // 没有重复时不能报出空记录，界面靠这个决定显不显示
+  const clean = compilePlan({ items: [{ enabled: true, weight: 1, prompt: 'm, n', negative: '', characterPrompts: [] }] });
+  assert.deepEqual(clean.positiveMerged, []);
+  assert.equal(mergedTotal(clean.positiveMerged), 0);
+  assert.equal(mergedTotal(undefined), 0);
 }
 
 // Positive and negative channels compile independently, preserve order, and dedupe top-level tokens.

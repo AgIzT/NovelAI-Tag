@@ -579,8 +579,11 @@ function itemPrompt(item, channel) {
   return parts.map(cleanPrompt).filter(Boolean).join(',\n');
 }
 
+/* 去重默认开着：源串里同一个 tag 出现两次多半是整理时的手滑，帮用户合掉是服务。
+   但合掉了必须说出来——`merged` 把合并了哪几条、各丢了几次一并带出去，界面显示成「已合并 N 条重复」。
+   透明比给一个开关便宜：用户不用做选择，也不会某天疑惑「我明明加了两条怎么少了」。 */
 export function compilePlanChannel(plan, channel, options = {}) {
-  if (!plan || !['positive', 'negative'].includes(channel)) return { text: '', tokens: [] };
+  if (!plan || !['positive', 'negative'].includes(channel)) return { text: '', tokens: [], merged: [] };
   let tokens = [];
   for (const item of plan.items || []) {
     if (item.enabled === false) continue;
@@ -590,16 +593,30 @@ export function compilePlanChannel(plan, channel, options = {}) {
     });
     if (compiled) tokens.push(...splitTopLevel(compiled));
   }
+  const merged = [];
   if (options.dedupe !== false) {
-    const seen = new Set();
-    tokens = tokens.filter(token => {
+    const seen = new Map();
+    const kept = [];
+    for (const token of tokens) {
       const key = token.trim().toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+      const hit = seen.get(key);
+      if (hit) {
+        hit.dropped += 1;
+        continue;
+      }
+      seen.set(key, { token, dropped: 0 });
+      kept.push(token);
+    }
+    for (const record of seen.values()) {
+      if (record.dropped) merged.push({ token: record.token, dropped: record.dropped });
+    }
+    tokens = kept;
   }
-  return { text: tokens.join(',\n'), tokens };
+  return { text: tokens.join(',\n'), tokens, merged };
+}
+
+export function mergedTotal(merged) {
+  return (merged || []).reduce((sum, record) => sum + (Number(record?.dropped) || 0), 0);
 }
 
 export function compilePlan(stateOrPlan, options = {}) {
@@ -617,6 +634,10 @@ export function compilePlan(stateOrPlan, options = {}) {
     negativeTokens: negative.tokens,
     positiveCount: positive.tokens.length,
     negativeCount: negative.tokens.length,
+    positiveMerged: positive.merged,
+    negativeMerged: negative.merged,
+    positiveMergedCount: mergedTotal(positive.merged),
+    negativeMergedCount: mergedTotal(negative.merged),
   };
 }
 

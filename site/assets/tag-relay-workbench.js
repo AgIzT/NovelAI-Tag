@@ -14,6 +14,7 @@ import {
   createPlan,
   deletePlan,
   getActivePlan,
+  mergedTotal,
   loadRelayState,
   movePlanItem,
   normalizeRelayEntry,
@@ -503,6 +504,28 @@ function joined(tokens) {
   return tokens.join(joinMode === 'newline' ? ',\n' : ', ');
 }
 
+/* 去重默认开着（源串里重复的 tag 多半是整理时的手滑），但合掉了什么必须让用户看得见：
+   可见计数 + 点开列出合并了哪几条。做成按钮而不是 title，是因为触屏没有 hover。 */
+function applyMergedNote(meta, base, merged) {
+  if (!meta) return;
+  meta.textContent = base;
+  const total = mergedTotal(merged);
+  if (!total) return;
+  const names = merged.map(record => (record.dropped > 1 ? `${record.token} ×${record.dropped + 1}` : record.token));
+  const detail = names.slice(0, 6).join('、') + (names.length > 6 ? ` 等 ${names.length} 条` : '');
+  const note = document.createElement('button');
+  note.type = 'button';
+  note.className = 'tag-relay-merged';
+  note.textContent = ` · 已合并 ${total} 条重复`;
+  note.title = `重复的 tag 只保留第一次：${detail}`;
+  note.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    showToast(`已合并重复：${detail}`);
+  });
+  meta.appendChild(note);
+}
+
 function renderOutput() {
   const plan = activePlan();
   const compiled = compilePlan(safePlan(plan), { target: outputFormat });
@@ -513,8 +536,8 @@ function renderOutput() {
   };
   $('#relayPositiveOutput').value = latestCompiled.positive;
   $('#relayNegativeOutput').value = latestCompiled.negative;
-  $('#relayPositiveMeta').textContent = `${compiled.positiveCount} 段 · ${latestCompiled.positive.length} 字符`;
-  $('#relayNegativeMeta').textContent = `${compiled.negativeCount} 段 · ${latestCompiled.negative.length} 字符`;
+  applyMergedNote($('#relayPositiveMeta'), `${compiled.positiveCount} 段 · ${latestCompiled.positive.length} 字符`, compiled.positiveMerged);
+  applyMergedNote($('#relayNegativeMeta'), `${compiled.negativeCount} 段 · ${latestCompiled.negative.length} 字符`, compiled.negativeMerged);
   $('#relayCopyPositive').disabled = !latestCompiled.positive;
   $('#relayCopyNegative').disabled = !latestCompiled.negative;
   $('#relayCopyAll').disabled = !latestCompiled.positive && !latestCompiled.negative;

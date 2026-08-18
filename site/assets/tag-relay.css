@@ -217,6 +217,9 @@ body.dark .tag-relay-pane,body.dark .tag-relay-planbar{border-color:rgba(255,255
 .tag-relay-output-box>span{display:flex;align-items:center;justify-content:space-between}
 .tag-relay-output-box b{font-size:11px;letter-spacing:.5px}
 .tag-relay-output-box small{color:var(--muted);font-size:9.5px}
+/* 视觉只是一小段文字，但触屏要能点中：靠 padding 撑热区、再用负 margin 抵消掉占位 */
+.tag-relay-merged{border:0;background:none;padding:8px 4px;margin:-8px -4px;font:inherit;color:var(--accent);cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
+.tag-relay-merged:hover{text-decoration-style:solid}
 .tag-relay-output-box textarea{
   width:100%;min-height:98px;resize:vertical;border:1px solid var(--line);border-radius:12px;
   background:var(--tagbg);color:var(--text);padding:10px;font:500 10.5px/1.55 var(--font-prompt);
