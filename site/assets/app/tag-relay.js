@@ -5,8 +5,13 @@
    入库是「复制即入库」（见 copy.js 里 recordCopiedEntry 的调用点），
    卡片和灯箱上没有手动入站按钮——卡片因此保持原样，不会和收藏星混淆。 */
 
+import { isEntryNsfw, isR18gPath } from './access.js';
+import { findCodexMeta } from './data.js';
+import { buildFavoritesCodex } from './fav-codex.js';
+import { subscribeFavoritesChanges } from './favorites-backup.js';
 import { toast } from './feedback.js';
-import { clearInbox, removeInboxEntry } from './tag-relay-core.js';
+import { hasEntryImage, thumbUrl } from './media.js';
+import { clearInbox, normalizeRelayEntry, removeInboxEntry } from './tag-relay-core.js';
 import {
   markRailDirty,
   railPaneRoot,
@@ -26,6 +31,9 @@ import { commitRelay, relayInbox, relayState, setupRelayStore, subscribeRelay } 
 
 let relayBound = false;
 let warehouseRoot = null;
+let sourceMode = 'inbox';
+let favorites = null;
+let favoritesLoading = false;
 
 function placeholder(title = '') {
   const node = document.createElement('span');
@@ -34,7 +42,7 @@ function placeholder(title = '') {
   return node;
 }
 
-function sourceItem(entry) {
+function sourceItem(entry, { removable = true } = {}) {
   const locked = snapshotLocked(entry);
   const item = document.createElement('article');
   item.className = 'tag-relay-quick-item';
@@ -81,18 +89,22 @@ function sourceItem(entry) {
     }
   }
 
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'tag-relay-quick-remove';
-  remove.textContent = '×';
-  remove.title = `移除${entry.title}`;
-  remove.setAttribute('aria-label', `从中转站移除${entry.title}`);
-  remove.onclick = () => {
-    const result = commitRelay(next => removeInboxEntry(next, entry.key), { changed: 'inbox' });
-    if (!result.ok) return;
-    toast(`已移出中转站：${entry.title}`, '−');
-  };
-  item.append(copy, remove, actions);
+  let remove = null;
+  if (removable) {
+    remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'tag-relay-quick-remove';
+    remove.textContent = '×';
+    remove.title = `移除${entry.title}`;
+    remove.setAttribute('aria-label', `从最近复制移除${entry.title}`);
+    remove.onclick = () => {
+      const result = commitRelay(next => removeInboxEntry(next, entry.key), { changed: 'inbox' });
+      if (!result.ok) return;
+      toast(`已移出最近复制：${entry.title}`, '−');
+    };
+  }
+  /* 收藏来源不给「移出」：那会让人以为是在取消收藏 */
+  item.append(copy, remove || document.createElement('span'), actions);
   /* 桌面端可以直接把条目拖进编排轨道；触屏没有 HTML5 拖放，靠上面的「加入方案」按钮 */
   if (!locked) {
     item.draggable = true;
@@ -106,20 +118,85 @@ function sourceItem(entry) {
   return item;
 }
 
+/* ⚠ 独立工作台那版在这里往共享的 atlasState 里写 codexes / favs / media 来做引导——
+   那是因为独立页的 state 是空壳。并进主站后这些全是活的，照搬会在用户点一下
+   「收藏」页签的瞬间冲掉正在跑的法典索引和收藏集。所以引导那半段整段删掉，
+   只留下「收藏词条 → 中转站快照」的映射。 */
+async function loadFavorites() {
+  if (favoritesLoading || favorites !== null) return;
+  favoritesLoading = true;
+  renderWarehouse();
+  try {
+    const codex = await buildFavoritesCodex();
+    favorites = codex.entries.map(entry => {
+      const sourceId = String(entry._srcCodexId || '').trim();
+      const meta = findCodexMeta(sourceId);
+      let image = '';
+      try {
+        if (hasEntryImage(entry)) image = thumbUrl(entry, codex);
+      } catch {
+        image = '';
+      }
+      const path = Array.isArray(entry._srcPath) ? entry._srcPath : (entry.path || []);
+      return normalizeRelayEntry({
+        ...entry,
+        codexId: sourceId,
+        entryId: entry.id,
+        book: entry._srcCodexTitle || meta?.selectorTitle || meta?.title || '',
+        path,
+        image,
+        access: { nsfw: meta?.nsfw === true || isEntryNsfw(entry), r18g: isR18gPath(path) },
+      });
+    });
+  } catch (error) {
+    console.warn('[tag-relay] 收藏素材加载失败', error);
+    favorites = [];
+    toast('收藏加载失败，请稍后重试', '!');
+  } finally {
+    favoritesLoading = false;
+    renderWarehouse();
+  }
+}
+
+function setSourceMode(next) {
+  sourceMode = next;
+  for (const button of warehouseRoot?.querySelectorAll('[data-relay-source]') || []) {
+    button.setAttribute('aria-selected', String(button.dataset.relaySource === next));
+  }
+  /* 每次切过来都重建：点星标走的是 favorites.js 的 saveFavs，同页内不发任何事件，
+     缓存着就会显示上一次的收藏。buildFavoritesCodex 用的是已缓存的法典，重建很便宜。 */
+  if (next === 'favorites') favorites = null;
+  renderWarehouse();
+  if (next === 'favorites') void loadFavorites();
+}
+
 function renderWarehouse() {
   if (!warehouseRoot) return;
   const list = warehouseRoot.querySelector('#relaySourceList');
   const empty = warehouseRoot.querySelector('#relaySourceEmpty');
   const status = warehouseRoot.querySelector('#relaySourceStatus');
   if (!list || !empty) return;
-  const inbox = relayInbox();
+  const fav = sourceMode === 'favorites';
   /* inbox 的规范顺序已是新的在前（schema v2），这里不再反转 */
-  list.replaceChildren(...inbox.map(sourceItem));
-  list.hidden = inbox.length === 0;
-  empty.hidden = inbox.length !== 0;
-  if (status) status.textContent = inbox.length ? `${inbox.length} 条` : '';
+  const items = fav ? (favorites || []) : relayInbox();
+  list.replaceChildren(...items.map(entry => sourceItem(entry, { removable: !fav })));
+  list.hidden = items.length === 0;
+  empty.hidden = items.length !== 0 || (fav && favoritesLoading);
+  const emptyTitle = empty.querySelector('b');
+  const emptyHint = empty.querySelector('small');
+  if (emptyTitle && emptyHint) {
+    emptyTitle.textContent = fav ? '还没有收藏' : '还没有复制过词条';
+    emptyHint.textContent = fav ? '点卡片标题旁的星标收藏，词条会出现在这里。' : '点卡片复制，词条会自动收到这里。';
+  }
+  if (status) {
+    if (fav && favoritesLoading) status.textContent = '正在读取跨法典收藏…';
+    else status.textContent = items.length ? `${items.length} 条` : '';
+  }
   const clear = warehouseRoot.querySelector('#tagRelayClear');
-  if (clear) clear.disabled = inbox.length === 0;
+  if (clear) {
+    clear.hidden = fav;
+    clear.disabled = relayInbox().length === 0;
+  }
 }
 
 function renderRelayChrome() {
@@ -143,6 +220,15 @@ function renderRelayChrome() {
 
 function bindWarehouse() {
   if (!warehouseRoot) return;
+  for (const button of warehouseRoot.querySelectorAll('[data-relay-source]')) {
+    button.addEventListener('click', () => setSourceMode(button.dataset.relaySource));
+  }
+  /* 这个订阅只覆盖备份恢复与跨标签页（同页点星标不发事件，靠上面切页签时重建）。
+     ⚠ scope 只接受 atlas / community，传别的会静默返回空函数。 */
+  subscribeFavoritesChanges('atlas', () => {
+    favorites = null;
+    if (sourceMode === 'favorites') void loadFavorites();
+  });
   warehouseRoot.querySelector('#tagRelayClear')?.addEventListener('click', () => {
     const count = relayInbox().length;
     if (!count) return;
