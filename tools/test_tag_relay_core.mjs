@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 
 import {
   TAG_RELAY_SCHEMA_VERSION,
-  addInboxEntry,
   appendBlockToPlan,
   appendEntryToPlan,
   clearCopyHistory,
@@ -53,23 +52,25 @@ function entry(overrides = {}) {
   );
 }
 
-// Inbox keeps collection order, rejects duplicate sources, and supports removal/clear.
+// 同源词条只保留一条，移除与清空照常；顺序是新的在前。
 {
   const state = createRelayState({ now: NOW });
-  const one = addInboxEntry(state, entry(), { codexId: 'book-a', now: NOW });
-  const duplicate = addInboxEntry(
+  const one = touchInboxEntry(state, entry(), { codexId: 'book-a', now: NOW });
+  const duplicate = touchInboxEntry(
     state,
     entry({ title: '同源的新标题', tags: 'changed' }),
     { codexId: 'book-a', now: NOW },
   );
-  const two = addInboxEntry(state, entry({ id: 'look-2', title: '地雷系' }), {
+  const two = touchInboxEntry(state, entry({ id: 'look-2', title: '地雷系' }), {
     codexId: 'book-a',
     now: NOW,
   });
   assert.equal(one.added, true);
   assert.equal(duplicate.added, false);
-  assert.deepEqual(state.inbox.map(item => item.title), ['清透肖像', '地雷系']);
-  assert.equal(removeInboxEntry(state, one.entry.key)?.title, '清透肖像');
+  assert.equal(duplicate.moved, true);
+  assert.deepEqual(state.inbox.map(item => item.title), ['地雷系', '同源的新标题']);
+  /* 重复复制会用新快照覆盖旧的（复制一次就刷新一次内容），所以这里取到的是新标题 */
+  assert.equal(removeInboxEntry(state, one.entry.key)?.title, '同源的新标题');
   assert.equal(removeInboxEntry(state, 'missing'), null);
   assert.equal(clearInbox(state), 1);
   assert.equal(state.inbox.length, 0);
@@ -79,7 +80,7 @@ function entry(overrides = {}) {
 // Access flags survive inbox, plan and history snapshots so a later lock can hide sensitive text.
 {
   const state = createRelayState({ now: NOW });
-  const staged = addInboxEntry(state, entry({ access: { nsfw: true, r18g: true } }), {
+  const staged = touchInboxEntry(state, entry({ access: { nsfw: true, r18g: true } }), {
     codexId: 'adult-book',
     now: NOW,
   }).entry;
@@ -355,7 +356,7 @@ function entry(overrides = {}) {
     setItem: (key, value) => values.set(key, value),
   };
   const state = createRelayState({ now: NOW });
-  addInboxEntry(state, entry(), { codexId: 'book-a', now: NOW });
+  touchInboxEntry(state, entry(), { codexId: 'book-a', now: NOW });
   assert.equal(saveRelayState(state, storage, { now: NOW }), true);
   const loaded = loadRelayState(storage, { now: NOW });
   assert.deepEqual(loaded, JSON.parse(serializeRelayState(state, { now: NOW })));

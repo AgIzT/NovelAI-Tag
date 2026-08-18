@@ -339,15 +339,6 @@ export function saveRelayState(state, storage = globalThis.localStorage, options
   }
 }
 
-export function addInboxEntry(state, entry, options = {}) {
-  if (!Array.isArray(state.inbox)) state.inbox = [];
-  const normalized = normalizeRelayEntry(entry, options);
-  const existing = state.inbox.find(item => item.key === normalized.key);
-  if (existing) return { added: false, entry: existing };
-  state.inbox.push(normalized);
-  return { added: true, entry: normalized };
-}
-
 /* 「复制即入库」的入口：与 addInboxEntry 的三点不同——命中已有条目时**移到最前**而不是原地不动，
    新条目 unshift 而不是 push，并且有上限。因为这一列是「最近复制」的流水，不是要用户打理的仓库。 */
 export function touchInboxEntry(state, entry, options = {}) {
