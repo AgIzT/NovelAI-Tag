@@ -3,7 +3,8 @@ import { naiToSd } from './nai-sd.js';
 export { naiToSd } from './nai-sd.js';
 
 export const TAG_RELAY_STORAGE_KEY = 'fadian-tag-relay-v1';
-export const TAG_RELAY_SCHEMA_VERSION = 1;
+export const TAG_RELAY_SCHEMA_VERSION = 2;
+export const TAG_RELAY_INBOX_LIMIT = 50;
 export const TAG_RELAY_HISTORY_LIMIT = 20;
 export const TAG_RELAY_TARGETS = Object.freeze(['nai', 'sd', 'plain']);
 
@@ -262,6 +263,9 @@ export function normalizeRelayState(raw, options = {}) {
 
   const inbox = [];
   const inboxKeys = new Set();
+  /* inbox 的规范顺序是**新的在前**（schema v2）。v1 存的是旧在前，这里一次性掉头，
+     否则老数据升上来会把最旧那条钉在「最近复制」顶上，直到它被挤掉。 */
+  const legacyInboxOrder = Number(raw.version) < 2;
   const rawInbox = raw.inbox ?? raw.staged ?? raw.entries;
   for (const item of Array.isArray(rawInbox) ? rawInbox : []) {
     if (!isObject(item)) continue;
@@ -270,6 +274,9 @@ export function normalizeRelayState(raw, options = {}) {
     inboxKeys.add(entry.key);
     inbox.push(entry);
   }
+
+  if (legacyInboxOrder) inbox.reverse();
+  if (inbox.length > TAG_RELAY_INBOX_LIMIT) inbox.length = TAG_RELAY_INBOX_LIMIT;
 
   const plans = [];
   const planIds = new Set();
@@ -339,6 +346,20 @@ export function addInboxEntry(state, entry, options = {}) {
   if (existing) return { added: false, entry: existing };
   state.inbox.push(normalized);
   return { added: true, entry: normalized };
+}
+
+/* 「复制即入库」的入口：与 addInboxEntry 的三点不同——命中已有条目时**移到最前**而不是原地不动，
+   新条目 unshift 而不是 push，并且有上限。因为这一列是「最近复制」的流水，不是要用户打理的仓库。 */
+export function touchInboxEntry(state, entry, options = {}) {
+  if (!Array.isArray(state.inbox)) state.inbox = [];
+  const normalized = normalizeRelayEntry(entry, options);
+  const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : TAG_RELAY_INBOX_LIMIT;
+  const index = state.inbox.findIndex(item => item.key === normalized.key);
+  const moved = index >= 0;
+  if (moved) state.inbox.splice(index, 1);
+  state.inbox.unshift(normalized);
+  const dropped = state.inbox.length > limit ? state.inbox.splice(limit) : [];
+  return { entry: normalized, added: !moved, moved, dropped };
 }
 
 export function removeInboxEntry(state, keyOrEntry) {

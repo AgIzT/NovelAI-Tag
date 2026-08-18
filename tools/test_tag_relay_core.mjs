@@ -8,6 +8,8 @@ import {
   clearCopyHistory,
   clearInbox,
   compilePlan,
+  touchInboxEntry,
+  TAG_RELAY_INBOX_LIMIT,
   mergedTotal,
   createPlan,
   createRelayState,
@@ -129,6 +131,69 @@ function entry(overrides = {}) {
   assert.equal(state.activePlanId, 'plan-default');
   assert.equal(deletePlan(state, 'plan-default', { replacementId: 'replacement', now: NOW })?.id, 'plan-default');
   assert.equal(state.activePlanId, 'replacement');
+}
+
+// 「复制即入库」：这一列是最近复制的流水，语义和 addInboxEntry 三点都不同。
+{
+  const src = id => ({ sourceId: id, codexId: 'book', entryId: id, title: '词条' + id, prompt: 'tag-' + id });
+  const state = createRelayState({ now: NOW });
+
+  // 新的在前
+  touchInboxEntry(state, src('1'));
+  touchInboxEntry(state, src('2'));
+  touchInboxEntry(state, src('3'));
+  assert.deepEqual(state.inbox.map(item => item.title), ['词条3', '词条2', '词条1']);
+
+  // 重复复制 = 置顶，不是新增、也不是原地不动（addInboxEntry 的老行为）
+  const again = touchInboxEntry(state, src('1'));
+  assert.equal(again.moved, true);
+  assert.equal(again.added, false);
+  assert.equal(state.inbox.length, 3);
+  assert.deepEqual(state.inbox.map(item => item.title), ['词条1', '词条3', '词条2']);
+
+  // 上限：满了从尾部（最旧）挤掉，并把挤掉的报出来
+  const flood = createRelayState({ now: NOW });
+  for (let i = 0; i < TAG_RELAY_INBOX_LIMIT + 5; i += 1) touchInboxEntry(flood, src(String(i)));
+  assert.equal(flood.inbox.length, TAG_RELAY_INBOX_LIMIT);
+  assert.equal(flood.inbox[0].title, '词条54');
+  const overflow = touchInboxEntry(flood, src('新'));
+  assert.equal(flood.inbox.length, TAG_RELAY_INBOX_LIMIT);
+  assert.equal(overflow.dropped.length, 1);
+  assert.equal(flood.inbox[0].title, '词条新');
+
+  // 显式 limit 覆盖默认值
+  const tiny = createRelayState({ now: NOW });
+  for (const id of ['a', 'b', 'c']) touchInboxEntry(tiny, src(id), { limit: 2 });
+  assert.deepEqual(tiny.inbox.map(item => item.title), ['词条c', '词条b']);
+}
+
+// schema v1 的 inbox 是旧在前；升到 v2 必须掉头，否则最旧那条会钉在「最近复制」顶上。
+{
+  const legacy = {
+    version: 1,
+    inbox: [
+      { sourceId: 'old', codexId: 'b', entryId: 'old', title: '最旧', prompt: 'x' },
+      { sourceId: 'new', codexId: 'b', entryId: 'new', title: '最新', prompt: 'y' },
+    ],
+    plans: [], activePlanId: '', history: [],
+  };
+  const migrated = normalizeRelayState(legacy, { now: NOW });
+  assert.equal(migrated.version, 2);
+  assert.deepEqual(migrated.inbox.map(item => item.title), ['最新', '最旧']);
+
+  // 已经是 v2 的不能再掉头
+  const current = normalizeRelayState({ ...legacy, version: 2 }, { now: NOW });
+  assert.deepEqual(current.inbox.map(item => item.title), ['最旧', '最新']);
+
+  // 坏文件塞了超量条目也要按上限截断
+  const flood = normalizeRelayState({
+    version: 2,
+    inbox: Array.from({ length: TAG_RELAY_INBOX_LIMIT + 20 }, (_, i) => ({
+      sourceId: 's' + i, codexId: 'b', entryId: 'e' + i, title: 't' + i, prompt: 'p',
+    })),
+    plans: [], activePlanId: '', history: [],
+  }, { now: NOW });
+  assert.equal(flood.inbox.length, TAG_RELAY_INBOX_LIMIT);
 }
 
 // 去重必须把合掉了什么报出来：只算数量不够，界面要能列出是哪几条。
