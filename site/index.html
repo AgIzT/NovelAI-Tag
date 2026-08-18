@@ -58,6 +58,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/tag-relay-snapshot.js">
 <link rel="modulepreload" href="assets/app/tag-relay-store.js">
 <link rel="modulepreload" href="assets/app/tag-relay-rail.js">
+<link rel="modulepreload" href="assets/app/tag-relay-compose.js">
 <link rel="modulepreload" href="assets/app/tag-relay.js">
 <!-- 内测预览横幅：合并回 main 前连同 assets/beta-banner.js 一起删 -->
 <script defer src="assets/beta-banner.js"></script>
@@ -293,7 +294,80 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </footer>
     </section>
 
-    <section id="tagRelayPaneCompose" class="tag-relay-rail-pane" data-rail-pane="compose" role="tabpanel" hidden></section>
+    <section id="tagRelayPaneCompose" class="tag-relay-rail-pane" data-rail-pane="compose" role="tabpanel" hidden>
+      <div class="tag-relay-planbar">
+        <select id="relayPlanSelect" aria-label="选择方案"></select>
+        <div class="tag-relay-plan-menu-wrap">
+          <button id="relayPlanMenuBtn" class="tag-relay-plan-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="方案操作">⋯</button>
+          <div id="relayPlanMenu" class="tag-relay-plan-menu" role="menu" hidden>
+            <button id="relayNewPlan" type="button" role="menuitem">新建方案</button>
+            <button id="relayDuplicatePlan" type="button" role="menuitem">复制为副本</button>
+            <button id="relayRenamePlan" type="button" role="menuitem">重命名</button>
+            <button id="relayDeletePlan" type="button" role="menuitem">删除方案</button>
+          </div>
+        </div>
+      </div>
+      <p id="relayPlanStats" class="tag-relay-plan-stats" aria-live="polite"></p>
+
+      <div id="relayPlanLane" class="tag-relay-plan-lane" aria-live="polite"></div>
+      <div id="relayPlanEmpty" class="tag-relay-plan-empty">
+        <b>把第一块放到这里</b>
+        <small>去「素材」页签，点词条上的「加入方案」。</small>
+      </div>
+
+      <aside id="relayInspector" class="tag-relay-inspector" hidden aria-labelledby="relayInspectorTitle">
+        <div class="tag-relay-inspector-head">
+          <b id="relayInspectorTitle">编辑块</b>
+          <button id="relayInspectorClose" type="button" aria-label="关闭编辑">×</button>
+        </div>
+        <div class="tag-relay-inspector-grid">
+          <label>标题<input id="relayBlockTitle" type="text" maxlength="60"></label>
+          <label>权重
+            <select id="relayBlockWeight">
+              <option value="0.8">0.8</option>
+              <option value="1">1.0</option>
+              <option value="1.1">1.1</option>
+              <option value="1.2">1.2</option>
+            </select>
+          </label>
+        </div>
+        <label class="tag-relay-inspector-field">正向 Prompt<textarea id="relayBlockText" rows="3" spellcheck="false"></textarea></label>
+        <label class="tag-relay-inspector-field">负向 Prompt<textarea id="relayBlockNegative" rows="2" spellcheck="false"></textarea></label>
+        <div class="tag-relay-inspector-actions">
+          <button id="relayBlockRemove" class="tag-relay-secondary" type="button">从方案移除</button>
+          <button id="relayBlockSave" class="tag-relay-primary" type="button">保存修改</button>
+        </div>
+      </aside>
+
+      <footer class="tag-relay-output">
+        <div class="tag-relay-output-option">
+          <span>格式</span>
+          <div id="relayFormatControl" class="tag-relay-segment" role="group" aria-label="输出格式">
+            <button type="button" data-format="nai" aria-pressed="true">NAI</button>
+            <button type="button" data-format="sd" aria-pressed="false">SD</button>
+            <button type="button" data-format="plain" aria-pressed="false">纯文本</button>
+          </div>
+          <span>连接</span>
+          <div id="relayJoinControl" class="tag-relay-segment" role="group" aria-label="连接方式">
+            <button type="button" data-join="comma" aria-pressed="true">逗号</button>
+            <button type="button" data-join="newline" aria-pressed="false">换行</button>
+          </div>
+        </div>
+        <label class="tag-relay-output-box">
+          <span><b>正向</b><small id="relayPositiveMeta">0 段</small></span>
+          <textarea id="relayPositiveOutput" rows="3" readonly placeholder="正向输出会显示在这里"></textarea>
+        </label>
+        <label class="tag-relay-output-box">
+          <span><b>负向</b><small id="relayNegativeMeta">0 段</small></span>
+          <textarea id="relayNegativeOutput" rows="2" readonly placeholder="负向输出会显示在这里"></textarea>
+        </label>
+        <div class="tag-relay-output-actions">
+          <button id="relayCopyPositive" class="tag-relay-secondary" type="button">复制正向</button>
+          <button id="relayCopyNegative" class="tag-relay-secondary" type="button">复制负向</button>
+          <button id="relayCopyAll" class="tag-relay-primary" type="button">复制完整方案</button>
+        </div>
+      </footer>
+    </section>
   </aside>
   <button id="tagRelayRailBackdrop" class="tag-relay-rail-backdrop" type="button" tabindex="-1" aria-label="收起中转站"></button>
 </div>

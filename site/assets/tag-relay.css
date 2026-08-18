@@ -119,6 +119,106 @@ body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
   .tag-relay-rail{transition:none}
 }
 
+/* ---------- 侧栏内：素材条目的动作 ---------- */
+.tag-relay-quick-item{position:relative}
+.tag-relay-quick-item>.tag-relay-item-actions{grid-column:1/-1;display:flex;gap:6px;margin-top:2px}
+.tag-relay-item-add{
+  flex:1;min-height:28px;border:1px solid var(--line);border-radius:9px;background:var(--panel);
+  color:var(--muted);font-size:11.5px;font-weight:800;
+  transition:border-color .12s,color .12s,background .12s;
+}
+.tag-relay-item-add:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tag-relay-item-add.is-neg{flex:0 0 auto;padding:0 10px;color:var(--new)}
+.tag-relay-item-add.is-neg:hover{border-color:var(--new);color:var(--new);background:color-mix(in srgb,var(--new) 10%,transparent)}
+
+/* ---------- 侧栏内：编排分区 ---------- */
+/* 编排与输出合成一屏：轨道占满剩余高度，成品与复制按钮贴底常驻，
+   这样「排一版 → 复制 → 再排一版」不用来回切页签。 */
+.tag-relay-rail-pane[data-rail-pane="compose"]{position:relative;padding:0}
+.tag-relay-rail .tag-relay-planbar{
+  flex:none;display:flex;align-items:center;gap:8px;margin:0;padding:0 16px 8px;border:0;background:none;min-height:0;
+}
+.tag-relay-rail .tag-relay-planbar select{
+  flex:1;min-width:0;height:32px;border:1px solid var(--line);border-radius:10px;
+  background:var(--card);color:var(--text);font-size:12.5px;padding:0 8px;
+}
+.tag-relay-plan-menu-wrap{position:relative;flex:none}
+.tag-relay-plan-more{
+  width:32px;height:32px;border:1px solid var(--line);border-radius:10px;background:var(--card);
+  color:var(--muted);font-size:16px;line-height:1;
+}
+.tag-relay-plan-more:hover{border-color:var(--accent);color:var(--accent)}
+.tag-relay-plan-menu{
+  position:absolute;right:0;top:calc(100% + 6px);z-index:6;min-width:132px;padding:6px;
+  border:1px solid var(--popover-line);border-radius:12px;background:var(--popover-glass);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  display:flex;flex-direction:column;gap:2px;
+}
+.tag-relay-plan-menu[hidden]{display:none}
+.tag-relay-plan-menu button{
+  border:0;border-radius:8px;background:transparent;color:var(--text);
+  padding:7px 10px;text-align:left;font-size:12.5px;
+}
+.tag-relay-plan-menu button:hover:not(:disabled){background:var(--tagbg);color:var(--accent)}
+.tag-relay-plan-menu button:disabled{opacity:.4;cursor:not-allowed}
+.tag-relay-plan-stats{flex:none;margin:0;padding:0 16px 8px;color:var(--muted);font-size:11px}
+
+.tag-relay-rail .tag-relay-plan-lane{
+  flex:1;min-height:60px;overflow-y:auto;padding:0 12px 10px;margin:0;
+  display:flex;flex-direction:column;gap:7px;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.tag-relay-rail .tag-relay-plan-empty{
+  flex:1;min-height:60px;display:grid;place-content:center;justify-items:center;
+  text-align:center;color:var(--muted);padding:16px;
+}
+.tag-relay-rail .tag-relay-plan-empty b{color:var(--text);font-size:13.5px}
+.tag-relay-rail .tag-relay-plan-empty small{margin-top:5px;font-size:11.5px;line-height:1.6;max-width:230px}
+.tag-relay-rail .tag-relay-block{
+  display:grid;grid-template-columns:16px 22px minmax(0,1fr);grid-template-areas:"handle idx copy" "tools tools tools";
+  align-items:center;gap:4px 7px;padding:8px 9px;min-height:0;
+}
+.tag-relay-rail .tag-relay-block-handle{grid-area:handle}
+.tag-relay-rail .tag-relay-block-index{grid-area:idx}
+.tag-relay-rail .tag-relay-block-copy{grid-area:copy;min-width:0}
+.tag-relay-rail .tag-relay-block-tools{grid-area:tools;display:flex;gap:5px;justify-content:flex-end}
+
+.tag-relay-rail .tag-relay-inspector{
+  position:absolute;left:12px;right:12px;bottom:12px;z-index:5;
+  border:1px solid var(--popover-line);border-radius:14px;background:var(--popover-glass);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  padding:12px;display:flex;flex-direction:column;gap:8px;
+}
+.tag-relay-rail .tag-relay-inspector[hidden]{display:none}
+.tag-relay-inspector-head{display:flex;align-items:center;justify-content:space-between}
+.tag-relay-inspector-head b{font-size:13px}
+.tag-relay-inspector-head button{border:0;background:transparent;color:var(--muted);font-size:17px;line-height:1;width:26px;height:26px;border-radius:8px}
+.tag-relay-inspector-head button:hover{background:var(--tagbg);color:var(--text)}
+.tag-relay-inspector-grid{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px}
+.tag-relay-inspector-grid label,.tag-relay-inspector-field{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;font-weight:800}
+.tag-relay-inspector-grid input,.tag-relay-inspector-grid select,.tag-relay-inspector-field textarea{
+  border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--text);
+  padding:6px 8px;font-size:12px;font-weight:500;
+}
+.tag-relay-inspector-field textarea{font-family:var(--font-prompt);resize:vertical}
+.tag-relay-inspector-actions{display:flex;gap:8px}
+.tag-relay-inspector-actions>*{flex:1}
+
+.tag-relay-rail .tag-relay-output{
+  flex:none;border-top:1px solid var(--line);padding:10px 16px 14px;background:var(--bg);
+  display:flex;flex-direction:column;gap:8px;overflow:visible;
+}
+.tag-relay-rail .tag-relay-output-option{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0}
+.tag-relay-rail .tag-relay-output-box{margin:0}
+.tag-relay-rail .tag-relay-output-box textarea{min-height:0;font-size:11px}
+.tag-relay-output-actions{display:flex;gap:7px}
+.tag-relay-output-actions>*{flex:1;min-height:34px;font-size:12px;padding:6px 8px}
+
+@media (max-width:600px){
+  .tag-relay-rail .tag-relay-planbar,.tag-relay-plan-stats{padding-left:14px;padding-right:14px}
+  .tag-relay-rail .tag-relay-output{padding:10px 14px 14px}
+}
+
 /* ---------- 独立工作台：框架 ---------- */
 .tag-relay-page{min-height:100vh;overflow-x:hidden;background:var(--bg)}
 .tag-relay-page .topbar{max-width:1480px;animation:none}

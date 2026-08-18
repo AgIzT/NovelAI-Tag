@@ -12,7 +12,15 @@ import {
   railPaneRoot,
   setRailPaneRenderers,
   setupTagRelayRail,
+  showRailTab,
 } from './tag-relay-rail.js';
+import {
+  addSourceToPlan,
+  beginSourceDrag,
+  endSourceDrag,
+  renderCompose,
+  setupRelayCompose,
+} from './tag-relay-compose.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { commitRelay, relayInbox, relayState, setupRelayStore, subscribeRelay } from './tag-relay-store.js';
 
@@ -53,6 +61,26 @@ function sourceItem(entry) {
     : (entry.prompt || entry.negative || entry.path?.join?.(' › ') || entry.book || '暂存词条');
   copy.append(title, prompt);
 
+  const actions = document.createElement('div');
+  actions.className = 'tag-relay-item-actions';
+  if (!locked) {
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'tag-relay-item-add';
+    add.textContent = '加入方案';
+    add.onclick = () => { addSourceToPlan(entry); showRailTab('compose'); };
+    actions.append(add);
+    if (String(entry.negative || '').trim()) {
+      const negOnly = document.createElement('button');
+      negOnly.type = 'button';
+      negOnly.className = 'tag-relay-item-add is-neg';
+      negOnly.textContent = '只加负向';
+      negOnly.title = '只把负向内容加入方案';
+      negOnly.onclick = () => { addSourceToPlan(entry, { negativeOnly: true }); showRailTab('compose'); };
+      actions.append(negOnly);
+    }
+  }
+
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.className = 'tag-relay-quick-remove';
@@ -64,7 +92,17 @@ function sourceItem(entry) {
     if (!result.ok) return;
     toast(`已移出中转站：${entry.title}`, '−');
   };
-  item.append(copy, remove);
+  item.append(copy, remove, actions);
+  /* 桌面端可以直接把条目拖进编排轨道；触屏没有 HTML5 拖放，靠上面的「加入方案」按钮 */
+  if (!locked) {
+    item.draggable = true;
+    item.addEventListener('dragstart', event => {
+      beginSourceDrag(entry);
+      event.dataTransfer.effectAllowed = 'copy';
+      event.dataTransfer.setData('text/plain', entry.title || '');
+    });
+    item.addEventListener('dragend', endSourceDrag);
+  }
   return item;
 }
 
@@ -119,7 +157,8 @@ export function setupTagRelay() {
   setupRelayStore();
   setupTagRelayRail();
   warehouseRoot = railPaneRoot('warehouse');
-  setRailPaneRenderers({ warehouse: renderWarehouse });
+  setupRelayCompose(railPaneRoot('compose'));
+  setRailPaneRenderers({ warehouse: renderWarehouse, compose: renderCompose });
   if (!relayBound) {
     relayBound = true;
     bindWarehouse();
