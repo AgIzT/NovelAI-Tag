@@ -5,19 +5,6 @@
   overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;
 }
 
-/* ---------- 浏览页：词条入口 ---------- */
-.stage-btn{
-  flex:none;width:27px;height:27px;display:grid;place-items:center;border:0;border-radius:8px;
-  background:transparent;color:var(--muted);padding:4px;transition:color .12s,background .12s,transform .12s;
-}
-.stage-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.stage-btn:hover,.stage-btn:focus-visible{color:var(--accent);background:var(--accent-soft)}
-.stage-btn:active{transform:scale(.92)}
-.stage-btn.on{color:#fff;background:var(--accent);box-shadow:0 4px 12px var(--accent-glow)}
-.stage-btn.on svg path:last-child{d:path("M7 10h6")}
-
-.stage-lightbox[aria-pressed="true"]{color:#fff!important;background:var(--accent)!important;border-color:var(--accent)!important}
-
 /* 中转站成为浮动组的基准按钮；其它按钮在它上方排队。 */
 .tag-relay-float-btn{z-index:4;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 32%,var(--line));background:var(--panel)}
 .tag-relay-float-btn:hover{color:#fff;background:var(--accent)}

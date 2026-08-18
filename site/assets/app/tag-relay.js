@@ -1,60 +1,17 @@
-/* 中转站在主站里的接线层：浮钮计数、快捷抽屉、卡片/灯箱的入站按钮。
+/* 中转站在主站里的接线层：浮钮计数 + 快捷抽屉。
    状态与持久化在 tag-relay-store.js，词条→快照的转换在 tag-relay-snapshot.js，
-   纯计算在 tag-relay-core.js。本模块只碰 DOM。 */
+   纯计算在 tag-relay-core.js。本模块只碰 DOM。
+
+   入库已改成「复制即入库」（见 copy.js 里 recordCopiedEntry 的调用点），
+   卡片和灯箱上不再有手动入站按钮——卡片因此退回原样，也不会再和收藏星混淆。 */
 
 import { toast } from './feedback.js';
 import { closeMask, openMask, trapFocus } from './modal.js';
-import { state } from './state.js';
-import { addInboxEntry, clearInbox, removeInboxEntry } from './tag-relay-core.js';
-import { relayKeyFor, snapshotEntry, snapshotLocked, sourceContext } from './tag-relay-snapshot.js';
+import { clearInbox, removeInboxEntry } from './tag-relay-core.js';
+import { snapshotLocked } from './tag-relay-snapshot.js';
 import { commitRelay, relayInbox, relayState, setupRelayStore, subscribeRelay } from './tag-relay-store.js';
 
 let relayBound = false;
-
-function setStageButtonState(button, staged) {
-  if (!button) return;
-  const label = staged ? '已在 Tag 中转站，点击移除' : '加入 Tag 中转站';
-  button.classList.toggle('on', staged);
-  button.setAttribute('aria-pressed', String(staged));
-  button.title = label;
-  button.setAttribute('aria-label', label);
-  if (button.id === 'stageLightbox') button.textContent = staged ? '已加入中转站' : '加入中转站';
-}
-
-export function isEntryStaged(entry) {
-  const key = relayKeyFor(entry);
-  return relayInbox().some(item => item.key === key);
-}
-
-/* 瀑布流会回收卡片，同一条词条也可能同时出现在多张在场卡上（收藏墙 / 全站搜索），
-   所以状态变了要把所有在场按钮一起刷，不能只改被点的那颗。 */
-function syncRenderedStageButtons() {
-  if (state.nodes instanceof Map && Array.isArray(state.list)) {
-    for (const [index, node] of state.nodes) {
-      const entry = state.list[index];
-      if (!entry) continue;
-      setStageButtonState(node?.querySelector?.('.stage-btn'), isEntryStaged(entry));
-    }
-  }
-  const current = state.lightbox?.entry;
-  setStageButtonState(document.querySelector('#stageLightbox'), current ? isEntryStaged(current) : false);
-}
-
-export function toggleEntryStage(entry, trigger) {
-  const key = relayKeyFor(entry);
-  const staged = relayInbox().some(item => item.key === key);
-  const action = commitRelay(next => (
-    staged
-      ? removeInboxEntry(next, key)
-      : addInboxEntry(next, snapshotEntry(entry), sourceContext(entry))
-  ), { changed: 'inbox' });
-  if (!action.ok) return false;
-  const nowStaged = !staged;
-  setStageButtonState(trigger, nowStaged);
-  syncRenderedStageButtons();
-  toast(nowStaged ? `已加入中转站：${entry.title}` : `已移出中转站：${entry.title}`, nowStaged ? '+' : '−');
-  return nowStaged;
-}
 
 function placeholder(title = '') {
   const node = document.createElement('span');
@@ -99,7 +56,6 @@ function quickItem(entry) {
   remove.onclick = () => {
     const result = commitRelay(next => removeInboxEntry(next, entry.key), { changed: 'inbox' });
     if (!result.ok) return;
-    syncRenderedStageButtons();
     toast(`已移出中转站：${entry.title}`, '−');
   };
   item.append(copy, remove);
@@ -134,7 +90,6 @@ function renderRelayChrome() {
   const clear = document.querySelector('#tagRelayClear');
   if (clear) clear.disabled = count === 0;
   renderQuickList();
-  syncRenderedStageButtons();
 }
 
 function bindQuickPanel() {
@@ -167,22 +122,8 @@ function bindQuickPanel() {
     if (!window.confirm(`确认清空 ${count} 条暂存词条？方案和复制记录不会受影响。`)) return;
     const result = commitRelay(next => clearInbox(next), { changed: 'inbox' });
     if (!result.ok) return;
-    syncRenderedStageButtons();
     toast('已清空中转站暂存区', '✓');
   };
-}
-
-function bindLightboxStage() {
-  document.addEventListener('lightbox:rendered', event => {
-    const entry = event.detail?.entry;
-    const button = document.querySelector('#stageLightbox');
-    if (!entry || !button) return;
-    setStageButtonState(button, isEntryStaged(entry));
-    button.onclick = click => {
-      click.stopPropagation();
-      toggleEntryStage(entry, button);
-    };
-  });
 }
 
 export function setupTagRelay() {
@@ -190,15 +131,10 @@ export function setupTagRelay() {
   if (!relayBound) {
     relayBound = true;
     bindQuickPanel();
-    bindLightboxStage();
     /* 状态变了由 store 广播，本模块只负责把它画出来——
        跨标签页同步与 bfcache 恢复也走同一条路，不必各绑一份监听。 */
     subscribeRelay(() => renderRelayChrome());
   }
   relayState();
   renderRelayChrome();
-  return {
-    isStaged: isEntryStaged,
-    toggleStage: toggleEntryStage,
-  };
 }

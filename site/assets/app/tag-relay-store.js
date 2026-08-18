@@ -12,7 +12,9 @@ import {
   loadRelayState,
   normalizeRelayState,
   saveRelayState,
+  touchInboxEntry,
 } from './tag-relay-core.js';
+import { snapshotEntry } from './tag-relay-snapshot.js';
 
 let current = null;
 let bound = false;
@@ -64,6 +66,16 @@ export function commitRelay(mutator, { changed = 'all' } = {}) {
   current = next;
   publish({ changed, source: 'local' });
   return { ok: true, result };
+}
+
+/* 复制即入库：复制成功的那一刻把词条压成快照丢进「最近复制」。
+   调用方只管把活的词条递进来，快照转换、归属回溯、分级冻结都在这一层完成。
+   ⚠ 静默：copyText 自己已经弹了「已复制…」的 toast，入库由角标和动效表达，
+   再弹一条只会变成噪音。 */
+export function recordCopiedEntry(entry) {
+  if (!entry) return false;
+  const result = commitRelay(next => touchInboxEntry(next, snapshotEntry(entry)), { changed: 'inbox' });
+  return result.ok;
 }
 
 export function subscribeRelay(listener) {

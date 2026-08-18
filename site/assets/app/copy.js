@@ -5,6 +5,7 @@ import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
 import { playCopySample } from './copy-fx.js';
+import { recordCopiedEntry } from './tag-relay-store.js';
 
 export { fmtSdWeight, naiToSd } from './nai-sd.js';
 
@@ -65,6 +66,7 @@ export async function copyEntry(e, node) {
   const charNote = charCount ? `（含 ${charCount} 组角色词）` : '';
   const message = `${negative ? '已复制正向' : '已复制'}${charNote}：${e.title}`;
   return copyText(entryPromptText(e), message, node, {
+    entry: e,
     followUp: negative ? {
       label: '再复制负面',
       text: e.negative,
@@ -104,6 +106,14 @@ export async function copyText(text, message, node, options = {}) {
   }
   /* 「采样」反馈严格排在剪贴板写入成功之后：失败路径走的是上面的手动复制面板，不该有庆祝动作 */
   playCopySample(node, formatted.text, options.sampleLabel);
+  /* 复制即入库。三条约束都靠这个位置满足：
+     ① 排在上面的失败早退之后 —— 没真复制到就不该入库，手动兜底面板那条路也天然排除；
+     ② 排在 playCopySample 之后 —— 入库要 stringify + 写 localStorage + 重绘侧栏，
+        放到动效前面会把 chip 的第一帧压在一次同步写盘后面，而复制是全站最高频的动作；
+     ③ opt-in —— 不传 entry 就不入库，分享链接与所有非词条复制天然免疫。 */
+  if (options.entry) {
+    try { recordCopiedEntry(options.entry); } catch { /* 入库出错绝不能污染复制的成功路径 */ }
+  }
   const followUp = options.followUp;
   const action = followUp?.label && String(followUp.text || '').trim()
     ? {

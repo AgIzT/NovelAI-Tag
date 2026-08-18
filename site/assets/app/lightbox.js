@@ -488,7 +488,8 @@ export function renderCharacterPrompts(entry) {
     copy.textContent = `复制 ${labelText}`;
     copy.onclick = ev => {
       ev.stopPropagation();
-      copyText(prompt, `${message}：${entry.title}`, copy);
+      /* 分块复制的是某一个角色词，但入库存的是整条词条——库里的单位就是词条 */
+      copyText(prompt, `${message}：${entry.title}`, copy, { entry });
     };
     head.append(label, copy);
     const content = document.createElement('pre');
@@ -702,6 +703,7 @@ export function renderLightbox() {
   $('#copyPositive').onclick = ev => {
     ev.stopPropagation();
     copyText(e.tags, `已复制正向：${e.title}`, ev.currentTarget, {
+      entry: e,
       followUp: String(e.negative || '').trim() ? {
         label: '再复制负面',
         text: e.negative,
@@ -714,13 +716,14 @@ export function renderLightbox() {
   $('#copyNegative').onclick = ev => {
     ev.stopPropagation();
     copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget, {
+      entry: e,
       sampleLabel: '已复制负面',
     });
   };
   $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
   $('#copyAll').onclick = ev => {
     ev.stopPropagation();
-    copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, ev.currentTarget);
+    copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, ev.currentTarget, { entry: e });
   };
   $('#copyRawTag').hidden = !item.rawTag;
   $('#copyRawTag').onclick = ev => {

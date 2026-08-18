@@ -676,14 +676,12 @@ setHistoryActions({
 
 setFavoritesActions({ applyFilter, refreshFavoritesView });
 
-const tagRelayActions = setupTagRelay();
+setupTagRelay();
 
 setMasonryActions({
   openLightbox,
   copyEntry,
   toggleFav,
-  isStaged: tagRelayActions.isStaged,
-  toggleStage: tagRelayActions.toggleStage,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 
