@@ -275,7 +275,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </header>
     <nav class="tag-relay-rail-tabs" role="tablist" aria-label="中转站分区">
       <button class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="warehouse" aria-selected="true" aria-controls="tagRelayPaneWarehouse">素材</button>
-      <button class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="compose" aria-selected="false" aria-controls="tagRelayPaneCompose">编排</button>
+      <button class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="compose" aria-selected="false" aria-controls="tagRelayPaneCompose">编排<span id="tagRelayComposeCount" class="tag-relay-tab-count"></span></button>
     </nav>
 
     <section id="tagRelayPaneWarehouse" class="tag-relay-rail-pane is-active" data-rail-pane="warehouse" role="tabpanel">
@@ -297,6 +297,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <section id="tagRelayPaneCompose" class="tag-relay-rail-pane" data-rail-pane="compose" role="tabpanel" hidden>
       <div class="tag-relay-planbar">
         <select id="relayPlanSelect" aria-label="选择方案"></select>
+        <button id="relayAddBlock" class="tag-relay-add-block" type="button" title="加一个手写的小方块">＋ 自定义块</button>
         <div class="tag-relay-plan-menu-wrap">
           <button id="relayPlanMenuBtn" class="tag-relay-plan-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="方案操作">⋯</button>
           <div id="relayPlanMenu" class="tag-relay-plan-menu" role="menu" hidden>
@@ -331,6 +332,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             </select>
           </label>
         </div>
+        <p id="relayBlockChars" class="tag-relay-inspector-note" hidden></p>
         <label class="tag-relay-inspector-field">正向 Prompt<textarea id="relayBlockText" rows="3" spellcheck="false"></textarea></label>
         <label class="tag-relay-inspector-field">负向 Prompt<textarea id="relayBlockNegative" rows="2" spellcheck="false"></textarea></label>
         <div class="tag-relay-inspector-actions">

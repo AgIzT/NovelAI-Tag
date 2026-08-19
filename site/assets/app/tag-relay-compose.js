@@ -8,11 +8,13 @@
 import { toast } from './feedback.js';
 import { copyText } from './copy.js';
 import {
+  appendBlockToPlan,
   appendEntryToPlan,
   compilePlan,
   createPlan,
   deletePlan,
   getActivePlan,
+  itemHasCharacterNegative,
   mergedTotal,
   movePlanItem,
   removePlanItem,
@@ -35,11 +37,14 @@ let pendingSource = null;
 const plan = () => getActivePlan(relayState());
 const itemLocked = item => snapshotLocked(item);
 
+/* 与 core 的 itemPrompt 同一套规则：负向只取词条级，角色级负面不并入 */
 function promptParts(item, channel) {
-  const parts = [channel === 'negative' ? item?.negative : item?.prompt];
-  for (const character of item?.characterPrompts || []) {
-    parts.push(channel === 'negative' ? character.negative : character.prompt);
+  if (channel === 'negative') {
+    const value = String(item?.negative || '').trim();
+    return value ? [value] : [];
   }
+  const parts = [item?.prompt];
+  for (const character of item?.characterPrompts || []) parts.push(character.prompt);
   return parts.map(value => String(value || '').trim()).filter(Boolean);
 }
 
@@ -73,6 +78,22 @@ export function addSourceToPlan(entry, { negativeOnly = false, atIndex = null } 
   toast(negativeOnly ? `已加入负向：${entry.title}` : `已加入方案：${entry.title}`, '+');
 }
 
+/* 手写块：原始需求里的「随意放入含有标题的小方块」。数据层一直支持 kind:'block'，
+   但并入侧栏时漏了 UI 入口，等于这条需求只剩数据没有门。 */
+function addManualBlock() {
+  const title = window.prompt('块标题', '自定义块');
+  if (title === null) return;
+  const text = window.prompt('正向 Prompt（可留空，之后在块编辑器里改）', '');
+  if (text === null) return;
+  const action = commitRelay(next => appendBlockToPlan(next, next.activePlanId, {
+    title: String(title).trim() || '自定义块',
+    prompt: String(text).trim(),
+  }), { changed: 'plan' });
+  if (!action.ok) return;
+  toast('已加入自定义块', '+');
+  if (action.result?.id) selectBlock(action.result.id);
+}
+
 export function beginSourceDrag(entry) { pendingSource = entry; }
 export function endSourceDrag() { pendingSource = null; }
 
@@ -84,8 +105,17 @@ function selectBlock(itemId) {
   selectedItemId = itemId;
   refs.blockTitle.value = item.title;
   refs.blockWeight.value = ['0.8', '1', '1.1', '1.2'].includes(String(item.weight)) ? String(item.weight) : '1';
-  refs.blockText.value = promptParts(item, 'positive').join(',\n');
-  refs.blockNegative.value = promptParts(item, 'negative').join(',\n');
+  /* ⚠ 只编词条级 prompt / negative。以前这里把角色词摊平进正向框，保存时又把
+     characterPrompts 清空——用户点开看一眼再保存，角色分槽结构就永久没了。 */
+  refs.blockText.value = String(item.prompt || '');
+  refs.blockNegative.value = String(item.negative || '');
+  const chars = item.characterPrompts || [];
+  if (refs.blockChars) {
+    refs.blockChars.hidden = chars.length === 0;
+    refs.blockChars.textContent = chars.length
+      ? `含 ${chars.length} 组角色词，随块保留、不在此编辑${itemHasCharacterNegative(item) ? '；其中的角色级负面不并入负向输出' : ''}`
+      : '';
+  }
   refs.inspector.hidden = false;
   renderLane();
 }
@@ -143,6 +173,13 @@ function planBlock(item, index, total) {
   chip.className = `tag-relay-channel ${channel.key}`;
   chip.textContent = locked ? '锁定' : channel.label;
   header.append(title, chip);
+  if (!locked && itemHasCharacterNegative(item)) {
+    const warn = document.createElement('span');
+    warn.className = 'tag-relay-channel warn';
+    warn.textContent = '角色负面未并入';
+    warn.title = '角色级负面在 NovelAI 里按角色分槽填，合并没有意义，不会进入负向输出';
+    header.append(warn);
+  }
   const preview = document.createElement('p');
   preview.textContent = locked ? '当前权限关闭，不参与输出' : blockPreview(item);
   copy.append(header, preview);
@@ -244,6 +281,12 @@ function renderOutput() {
   refs.copyPositive.disabled = !latest.positive;
   refs.copyNegative.disabled = !latest.negative;
   refs.copyAll.disabled = !latest.positive && !latest.negative;
+  const tabCount = document.querySelector('#tagRelayComposeCount');
+  if (tabCount) {
+    const n = current?.items?.length || 0;
+    tabCount.textContent = n ? String(n) : '';
+    tabCount.hidden = !n;
+  }
   const lockedCount = current?.items?.filter(itemLocked).length || 0;
   refs.planStats.textContent = `${current?.items?.length || 0} 个块${lockedCount ? ` · ${lockedCount} 个锁定` : ''}`;
 }
@@ -324,7 +367,11 @@ function bindPlanBar() {
     commitRelay(next => {
       const created = createPlan(next, `${source.name} 副本`);
       for (const item of source.items) {
-        appendEntryToPlan(next, created.id, item, { allowDuplicate: true, enabled: item.enabled !== false, weight: item.weight });
+        /* ⚠ 按原本的 kind 复制。以前一律走 appendEntryToPlan，手写块会被悄悄转成
+           entry，标题与来源信息错位且不可逆。 */
+        const options = { allowDuplicate: true, enabled: item.enabled !== false, weight: item.weight };
+        if (item.kind === 'block') appendBlockToPlan(next, created.id, item, options);
+        else appendEntryToPlan(next, created.id, item, options);
       }
       return created;
     }, { changed: 'plan' });
@@ -349,18 +396,20 @@ function bindPlanBar() {
 }
 
 function bindInspector() {
+  refs.addBlock?.addEventListener('click', addManualBlock);
   refs.inspectorClose.addEventListener('click', closeInspector);
   refs.blockRemove.addEventListener('click', () => { if (selectedItemId) removeBlock(selectedItemId); });
   refs.blockSave.addEventListener('click', () => {
     if (!selectedItemId) return;
-    commitRelay(next => updatePlanItem(next, next.activePlanId, selectedItemId, {
+    const action = commitRelay(next => updatePlanItem(next, next.activePlanId, selectedItemId, {
       title: refs.blockTitle.value,
       weight: Number(refs.blockWeight.value) || 1,
       prompt: refs.blockText.value,
       negative: refs.blockNegative.value,
-      characterPrompts: [],
+      /* characterPrompts 原样保留：编辑器不碰它，就不该顺手清掉 */
     }), { changed: 'plan' });
-    toast('已保存修改', '✓');
+    /* 配额写失败时 commitRelay 会返回 ok:false 并自己弹错误，这里不能再报成功 */
+    if (action.ok) toast('已保存修改', '✓');
   });
 }
 
@@ -387,10 +436,18 @@ function bindLaneDrop() {
     target.addEventListener('dragleave', () => target.classList.remove('is-drop-target'));
     target.addEventListener('drop', event => {
       target.classList.remove('is-drop-target');
-      if (!pendingSource) return;
+      if (!pendingSource && !dragBlockId) return;
       event.preventDefault();
-      addSourceToPlan(pendingSource);
-      pendingSource = null;
+      if (pendingSource) {
+        addSourceToPlan(pendingSource);
+        pendingSource = null;
+        return;
+      }
+      /* 已有块拖到轨道空白处 = 移到末尾。以前这里直接 return，只有拖到另一块上才生效，
+         轨道下方那片空白看着像落点却没反应。 */
+      const items = plan()?.items || [];
+      commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, items.length - 1), { changed: 'plan' });
+      dragBlockId = '';
     });
   }
 }
@@ -425,6 +482,7 @@ export function setupRelayCompose(root) {
     renamePlan: q('#relayRenamePlan'),
     deletePlan: q('#relayDeletePlan'),
     planStats: q('#relayPlanStats'),
+    addBlock: q('#relayAddBlock'),
     lane: q('#relayPlanLane'),
     empty: q('#relayPlanEmpty'),
     inspector: q('#relayInspector'),
@@ -433,6 +491,7 @@ export function setupRelayCompose(root) {
     blockWeight: q('#relayBlockWeight'),
     blockText: q('#relayBlockText'),
     blockNegative: q('#relayBlockNegative'),
+    blockChars: q('#relayBlockChars'),
     blockRemove: q('#relayBlockRemove'),
     blockSave: q('#relayBlockSave'),
     positiveOut: q('#relayPositiveOutput'),

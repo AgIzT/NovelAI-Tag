@@ -38,6 +38,9 @@
       'html{--beta-bar-h:32px}',
       'body{padding-top:var(--beta-bar-h)!important}',
       '.topbar{top:calc(12px + var(--beta-bar-h))!important}',
+      /* ⚠ 左目录栏与中转站侧栏都按 --topbar-h 定 sticky 顶端和高度；
+         只推 body 和 .topbar 而不同步这个变量，两根栏会钻到顶栏底下。 */
+      ':root{--topbar-h:calc(80px + var(--beta-bar-h))}',
       '#betaBar{position:fixed;top:0;left:0;right:0;z-index:2147483000;',
       '  display:flex;align-items:center;justify-content:center;gap:8px;',
       '  height:var(--beta-bar-h);padding:0 12px;box-sizing:border-box;',

@@ -76,7 +76,9 @@ function sourceItem(entry, { removable = true } = {}) {
     add.type = 'button';
     add.className = 'tag-relay-item-add';
     add.textContent = '加入方案';
-    add.onclick = () => { addSourceToPlan(entry); showRailTab('compose'); };
+    /* 不切页签：连续浏览、连续收料时来回甩页正是侧栏化要消灭的打断感。
+       方案里加了几块由页签上的计数体现。 */
+    add.onclick = () => addSourceToPlan(entry);
     actions.append(add);
     if (String(entry.negative || '').trim()) {
       const negOnly = document.createElement('button');
@@ -84,7 +86,7 @@ function sourceItem(entry, { removable = true } = {}) {
       negOnly.className = 'tag-relay-item-add is-neg';
       negOnly.textContent = '只加负向';
       negOnly.title = '只把负向内容加入方案';
-      negOnly.onclick = () => { addSourceToPlan(entry, { negativeOnly: true }); showRailTab('compose'); };
+      negOnly.onclick = () => addSourceToPlan(entry, { negativeOnly: true });
       actions.append(negOnly);
     }
   }
@@ -237,6 +239,15 @@ function bindWarehouse() {
     if (!result.ok) return;
     toast('已清空最近复制', '✓');
   });
+}
+
+/* 分级开关由 ui.js 直接改内存 state，中转站收不到任何事件——必须由那边显式喊一声。
+   收藏缓存一并作废：它按当时的锁态映射过 access 标记。 */
+export function refreshRelayAccess() {
+  favorites = null;
+  renderWarehouse();
+  renderCompose();
+  if (sourceMode === 'favorites') void loadFavorites();
 }
 
 export function setupTagRelay() {

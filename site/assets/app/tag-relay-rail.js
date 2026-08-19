@@ -19,6 +19,7 @@ let rail = null;
 let backdrop = null;
 let bound = false;
 let activeTab = 'warehouse';
+let lastTrigger = null;
 const renderers = new Map();
 const dirty = new Set();
 
@@ -54,11 +55,22 @@ function flush() {
 function setOpenDirect(open) {
   if (!rail) return;
   rail.classList.toggle('closed', !open);
+  /* 收起不能只是视觉隐藏：不加 inert，Tab 仍会走进看不见的按钮和输入框 */
+  rail.inert = !open;
+  rail.setAttribute('aria-hidden', String(!open));
   try { localStorage.setItem(RAIL_STORAGE_KEY, open ? 'open' : 'closed'); } catch { /* 隐私模式写不了就算了 */ }
   syncChrome();
   if (open) {
     dirty.add(activeTab);
     flush();
+    /* 浮层态是模态语义：焦点必须进去，否则读屏与键盘用户还停在页面底下 */
+    if (overlayQuery.matches) {
+      lastTrigger = document.activeElement;
+      (rail.querySelector('[data-rail-tab][aria-selected="true"]') || rail).focus?.();
+    }
+  } else if (lastTrigger?.isConnected) {
+    lastTrigger.focus?.();
+    lastTrigger = null;
   }
 }
 
@@ -125,7 +137,10 @@ export function markRailDirty(changed) {
 
 function bindRail() {
   document.querySelector('#tagRelayBtn')?.addEventListener('click', toggleRelayRail);
-  document.querySelector('#tagRelayMenuLink')?.addEventListener('click', openRelayRail);
+  document.querySelector('#tagRelayMenuLink')?.addEventListener('click', () => {
+    document.querySelector('#moreBtn')?.click();   // 更多菜单点完自己收起，别把栏压在它下面
+    openRelayRail();
+  });
   document.querySelector('#tagRelayRailClose')?.addEventListener('click', closeRelayRail);
   backdrop?.addEventListener('click', closeRelayRail);
 
@@ -151,7 +166,13 @@ function bindRail() {
 
   /* 形态切换（拖窗口、转屏）：停靠 ⇄ 浮层的历史层归属会变，先把旧账清掉 */
   overlayQuery.addEventListener('change', () => {
-    if (!overlayQuery.matches) forgetHistoryLayer(RAIL_LAYER_ID);
+    if (overlayQuery.matches) {
+      /* 停靠 → 浮层：栏若开着，此刻才变成浮层，必须补注册历史层，
+         否则用户按返回键会直接离开页面而不是先关栏。 */
+      if (!isClosed()) openHistoryLayer(RAIL_LAYER_ID);
+    } else {
+      forgetHistoryLayer(RAIL_LAYER_ID);
+    }
     syncChrome();
   });
 }
@@ -168,7 +189,10 @@ export function setupTagRelayRail() {
      一进站就占掉 440px 会让第一次来的人莫名其妙。 */
   let saved = null;
   try { saved = localStorage.getItem(RAIL_STORAGE_KEY); } catch { saved = null; }
-  rail.classList.toggle('closed', !(saved === 'open' && !overlayQuery.matches));
+  const shouldOpen = saved === 'open' && !overlayQuery.matches;
+  rail.classList.toggle('closed', !shouldOpen);
+  rail.inert = !shouldOpen;
+  rail.setAttribute('aria-hidden', String(!shouldOpen));
   syncChrome();
   return { open: openRelayRail, close: closeRelayRail, showTab: showRailTab };
 }

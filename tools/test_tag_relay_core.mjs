@@ -9,6 +9,7 @@ import {
   compilePlan,
   touchInboxEntry,
   TAG_RELAY_INBOX_LIMIT,
+  itemHasCharacterNegative,
   mergedTotal,
   createPlan,
   createRelayState,
@@ -259,13 +260,18 @@ function entry(overrides = {}) {
     '1girl',
     'cinematic',
   ]);
+  /* ⚠ 角色级负面（extra fingers）**不得**出现在这里：它在 NAI 里按角色分槽填，
+     几条词条的角色 uc 揉成一个全局 uc 会过度压制画面。见 decisions/Tag中转站.md。
+     这条断言以前把错误行为固化成了预期，2026-08-18 纠正。 */
   assert.deepEqual(nai.negativeTokens, [
     'bad hands',
     'shared-negative',
-    'extra fingers',
     'watermark',
   ]);
+  assert.equal(nai.negative.includes('extra fingers'), false, '角色级负面绝不能进全局负向');
+  assert.equal(itemHasCharacterNegative(state.plans[0].items[0]), true, '有角色负面这件事要能被界面查到');
   assert.equal(nai.positive.includes('bad hands'), false);
+  assert.equal(nai.positive.includes('1girl'), true, '角色级**正向**照旧并入正向');
   assert.equal(nai.negative.includes('masterpiece'), false);
 
   updatePlanItem(state, plan.id, 'block-a', { weight: 0.8 }, { now: NOW });

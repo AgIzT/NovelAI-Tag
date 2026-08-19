@@ -583,12 +583,20 @@ export function compileRelayBlock(value, options = {}) {
   return `${formatWeight(weight)}::${adapted}::`;
 }
 
+/* 正向 = 词条正向 + 各角色词的**正向**（与 copy.js 的 entryPromptText 同一套规则）。
+   ⚠ 负向**只取词条级** negative，角色级负面绝不并进来：NAI 里那是按角色分槽填的，
+   把几条词条的角色 uc 揉成一个全局 uc 会过度压制画面。想精确填槽的走灯箱。
+   （这是 docs/decisions/Tag中转站.md 的明文约束，要改先去改文档。） */
 function itemPrompt(item, channel) {
-  const parts = [channel === 'negative' ? item.negative : item.prompt];
-  for (const character of item.characterPrompts || []) {
-    parts.push(channel === 'negative' ? character.negative : character.prompt);
-  }
+  if (channel === 'negative') return cleanPrompt(item.negative);
+  const parts = [item.prompt];
+  for (const character of item.characterPrompts || []) parts.push(character.prompt);
   return parts.map(cleanPrompt).filter(Boolean).join(',\n');
+}
+
+/** 这个块带没带角色级负面——界面据此提示「未并入」，别让它悄无声息地消失 */
+export function itemHasCharacterNegative(item) {
+  return (item?.characterPrompts || []).some(character => String(character?.negative || '').trim());
 }
 
 /* 去重默认开着：源串里同一个 tag 出现两次多半是整理时的手滑，帮用户合掉是服务。

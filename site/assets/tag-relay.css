@@ -84,6 +84,35 @@
 /* 侧栏常驻时右下浮动按钮会压在栏上，整组左移让位 */
 body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 
+/* 补：新增控件与角色负面提示 */
+.tag-relay-add-block{
+  flex:none;height:32px;padding:0 10px;border:1px dashed var(--line);border-radius:10px;
+  background:var(--card);color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap;
+}
+.tag-relay-add-block:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tag-relay-tab-count{
+  margin-left:5px;min-width:16px;display:inline-block;padding:0 5px;border-radius:999px;
+  background:rgba(255,255,255,.24);font-size:10px;font-weight:800;
+}
+.tag-relay-rail-tab:not([aria-selected="true"]) .tag-relay-tab-count{background:var(--tagbg);color:var(--muted)}
+.tag-relay-tab-count[hidden]{display:none}
+.tag-relay-channel.warn{background:rgba(245,179,1,.16);color:#a5760a}
+body.dark .tag-relay-channel.warn{color:#f3c261}
+.tag-relay-inspector-note{
+  margin:0;padding:6px 8px;border-radius:8px;background:var(--tagbg);
+  color:var(--muted);font-size:10.5px;line-height:1.55;
+}
+.tag-relay-inspector-note[hidden]{display:none}
+/* 素材列表必须自己能滚：父面板 overflow:hidden，不给滚动容器就会被裁掉 */
+.tag-relay-rail .tag-relay-source-list{
+  flex:1;min-height:0;overflow-y:auto;padding:0 12px 10px;margin:0;
+  display:flex;flex-direction:column;gap:7px;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.tag-relay-rail .tag-relay-source-tabs{flex:none;padding:0 16px 8px}
+.tag-relay-rail .tag-relay-source-status{flex:none;padding:0 16px 6px;margin:0}
+.tag-relay-rail .tag-relay-source-empty{flex:1;min-height:0}
+
 @media (max-width:1100px){
   /* 挤不动了就改成盖：再挤下去瀑布流只剩一列，浏览就废了 */
   .tag-relay-rail{
@@ -118,6 +147,138 @@ body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 @media (prefers-reduced-motion:reduce){
   .tag-relay-rail{transition:none}
 }
+
+/* ---------- 中转站条目 / 块 / 输出的基础视觉 ---------- */
+/* 这三节原属独立工作台，但侧栏沿用同一套类名，所以必须留下。
+   2026-08-18 删独立页时曾把它们连同页面框架一起整段删掉，导致侧栏里的
+   来源页签、块卡片、工具按钮、分段控件、输出框全部退回浏览器默认样式。
+   ⚠ 以后再删「独立页专属」样式，先确认侧栏没在用同一个类名。 */
+
+/* ---------- 素材架 ---------- */
+.tag-relay-source-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:12px 12px 0;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg)}
+.tag-relay-source-tabs button,.tag-relay-segment button{
+  border:0;border-radius:999px;background:transparent;color:var(--muted);padding:7px 8px;font-size:11px;font-weight:800;white-space:nowrap;
+}
+.tag-relay-source-tabs button:hover,.tag-relay-segment button:hover{color:var(--text);background:var(--card)}
+.tag-relay-source-tabs button[aria-selected="true"],.tag-relay-segment button[aria-pressed="true"]{background:var(--card);color:var(--accent);box-shadow:var(--shadow)}
+.tag-relay-source-status{margin:0;padding:9px 14px;color:var(--muted);font-size:10.5px;line-height:1.45}
+.tag-relay-source-list{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:0 12px 14px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.tag-relay-source-card{
+  position:relative;display:grid;grid-template-columns:44px minmax(0,1fr);gap:9px;border:1px solid var(--line);
+  border-radius:13px;background:var(--card);padding:8px;box-shadow:var(--shadow);transition:border-color .12s,box-shadow .12s,transform .12s;
+}
+.tag-relay-source-card:hover{border-color:color-mix(in srgb,var(--accent) 44%,var(--line));box-shadow:var(--shadow-hover);transform:translateY(-1px)}
+.tag-relay-source-card.is-dragging{opacity:.5}
+.tag-relay-source-thumb{width:44px;height:44px;border-radius:9px;object-fit:cover;background:var(--tagbg)}
+.tag-relay-source-thumb.is-placeholder{display:grid;place-items:center;color:var(--accent);background:var(--accent-soft);font:800 16px/1 var(--font-display)}
+.tag-relay-source-main{min-width:0;padding-right:2px}
+.tag-relay-source-main b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+.tag-relay-source-main>small{display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font:500 9.5px/1.4 var(--font-prompt)}
+.tag-relay-source-actions{grid-column:1/-1;display:flex;align-items:center;gap:5px;padding-top:2px}
+.tag-relay-source-actions button{
+  flex:1;min-height:29px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--muted);padding:4px 7px;font-size:10.5px;font-weight:800;
+}
+.tag-relay-source-actions button:first-child{border-color:color-mix(in srgb,var(--accent) 35%,var(--line));color:var(--accent);background:var(--accent-soft)}
+.tag-relay-source-actions button:hover{border-color:var(--accent);color:var(--accent)}
+.tag-relay-source-actions .source-remove{flex:0 0 30px;color:var(--muted);background:transparent}
+.tag-relay-source-actions .source-remove:hover{border-color:var(--new);color:var(--new)}
+.tag-relay-source-empty{display:grid;place-items:center;align-content:center;min-height:180px;padding:24px;text-align:center;color:var(--muted);font-size:11px;line-height:1.6}
+.tag-relay-source-empty b{color:var(--text);font-size:13px}
+.tag-relay-history-card{display:flex;flex-direction:column;gap:7px;border:1px solid var(--line);border-radius:13px;background:var(--card);padding:10px;box-shadow:var(--shadow)}
+.tag-relay-history-card header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tag-relay-history-card b{font-size:12.5px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-relay-history-card time{color:var(--muted);font-size:9px;white-space:nowrap}
+.tag-relay-history-card p{margin:0;color:var(--muted);font:500 9.5px/1.45 var(--font-prompt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tag-relay-history-card button{align-self:flex-start;border:1px solid var(--accent);border-radius:999px;background:var(--accent-soft);color:var(--accent);padding:5px 10px;font-size:10.5px;font-weight:800}
+
+/* ---------- 编排台 ---------- */
+.tag-relay-manual{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:8px;margin:10px 14px 0;padding:11px;border:1px solid var(--line);border-radius:13px;background:var(--card);box-shadow:var(--shadow)}
+.tag-relay-manual label,.tag-relay-inspector label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:10px;font-weight:800}
+.tag-relay-manual .is-wide,.tag-relay-inspector .is-wide{grid-column:1/-1}
+.tag-relay-manual input,.tag-relay-manual select,.tag-relay-manual textarea,
+.tag-relay-inspector input,.tag-relay-inspector select,.tag-relay-inspector textarea{
+  width:100%;border:1px solid var(--line);border-radius:9px;background:var(--tagbg);color:var(--text);padding:8px 9px;font:500 11.5px/1.45 var(--font-ui);resize:vertical;
+}
+.tag-relay-manual textarea,.tag-relay-inspector textarea{font-family:var(--font-prompt)}
+.tag-relay-manual input:focus,.tag-relay-manual select:focus,.tag-relay-manual textarea:focus,
+.tag-relay-inspector input:focus,.tag-relay-inspector select:focus,.tag-relay-inspector textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tag-relay-manual-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:6px}
+.tag-relay-manual-actions button{min-height:32px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);padding:5px 12px;font-size:11px;font-weight:800}
+.tag-relay-manual-actions .tag-relay-primary{color:#fff;background:var(--accent);border-color:var(--accent)}
+
+.tag-relay-plan-lane{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:13px 14px 90px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.tag-relay-plan-lane.is-drop-target{background:var(--accent-soft)}
+.tag-relay-plan-empty.is-drop-target{background:var(--accent-soft);outline:2px dashed var(--accent);outline-offset:-8px}
+.tag-relay-block{
+  display:grid;grid-template-columns:24px 28px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:68px;
+  border:1px solid var(--line);border-radius:14px;background:var(--card);padding:9px 9px 9px 7px;box-shadow:var(--shadow);
+  transition:border-color .12s,box-shadow .12s,transform .14s,opacity .12s;
+}
+.tag-relay-block:hover{border-color:color-mix(in srgb,var(--accent) 38%,var(--line));box-shadow:var(--shadow-hover)}
+.tag-relay-block.is-selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),var(--shadow)}
+.tag-relay-block.is-dragging{opacity:.42;transform:scale(.985)}
+.tag-relay-block-handle{height:40px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);font-size:16px;cursor:grab;touch-action:none}
+.tag-relay-block-handle:active{cursor:grabbing}
+.tag-relay-block-index{width:27px;height:27px;display:grid;place-items:center;border-radius:9px;background:var(--tagbg);color:var(--muted);font:800 10px/1 var(--font-prompt)}
+.tag-relay-block-copy{min-width:0;cursor:pointer}
+.tag-relay-block-copy header{display:flex;align-items:center;gap:6px;min-width:0}
+.tag-relay-block-copy b{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+.tag-relay-channel{flex:none;border-radius:999px;padding:2px 6px;background:var(--accent-soft);color:var(--accent);font-size:8.5px;font-weight:900;text-transform:uppercase}
+.tag-relay-channel.negative{background:color-mix(in srgb,var(--new) 11%,var(--card));color:var(--new)}
+.tag-relay-block-copy p{margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font:500 10px/1.45 var(--font-prompt)}
+.tag-relay-block-tools{display:grid;grid-template-columns:repeat(2,26px);gap:3px}
+.tag-relay-block-tools button{width:26px;height:26px;border:1px solid var(--line);border-radius:8px;background:var(--tagbg);color:var(--muted);font-size:12px;line-height:1}
+.tag-relay-block-tools button:hover{border-color:var(--accent);color:var(--accent)}
+.tag-relay-plan-empty{flex:1;display:grid;place-content:center;justify-items:center;text-align:center;padding:20px;color:var(--muted)}
+.tag-relay-plan-empty>span{width:58px;height:58px;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:18px;background:var(--accent-soft);color:var(--accent);font-size:24px}
+.tag-relay-plan-empty b{margin-top:14px;color:var(--text);font-size:14px}
+
+.tag-relay-inspector{position:absolute;left:14px;right:14px;bottom:14px;z-index:5;padding:12px;border:1px solid var(--popover-line);border-radius:15px;background:var(--popover-glass);box-shadow:var(--popover-shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.tag-relay-inspector-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.tag-relay-inspector-head b{font-size:12px}
+.tag-relay-inspector-head button{width:27px;height:27px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:18px}
+.tag-relay-inspector-head button:hover{background:var(--tagbg);color:var(--text)}
+.tag-relay-inspector-grid{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:8px}
+.tag-relay-inspector-actions{display:flex;justify-content:space-between;gap:8px;margin-top:9px}
+.tag-relay-inspector-actions button{min-height:32px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);padding:5px 12px;font-size:10.5px;font-weight:800}
+.tag-relay-inspector-actions .is-danger:hover{border-color:var(--new);color:var(--new)}
+.tag-relay-inspector-actions .tag-relay-primary{margin-left:auto;color:#fff;background:var(--accent);border-color:var(--accent)}
+
+/* ---------- 输出台 ---------- */
+.tag-relay-output{padding-bottom:14px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.tag-relay-output .tag-relay-pane-head{position:sticky;top:0;z-index:3;background:var(--panel)}
+.tag-relay-output-option{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px 0}
+.tag-relay-output-option>span{color:var(--muted);font-size:10.5px;font-weight:800}
+.tag-relay-segment{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg)}
+.tag-relay-segment button{padding:5px 9px;font-size:10.5px}
+.tag-relay-output-box{display:flex;flex-direction:column;gap:6px;margin:13px 14px 0}
+.tag-relay-output-box>span{display:flex;align-items:center;justify-content:space-between}
+.tag-relay-output-box b{font-size:11px;letter-spacing:.5px}
+.tag-relay-output-box small{color:var(--muted);font-size:9.5px}
+/* 视觉只是一小段文字，但触屏要能点中：靠 padding 撑热区、再用负 margin 抵消掉占位 */
+.tag-relay-merged{border:0;background:none;padding:8px 4px;margin:-8px -4px;font:inherit;color:var(--accent);cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
+.tag-relay-merged:hover{text-decoration-style:solid}
+.tag-relay-output-box textarea{
+  width:100%;min-height:98px;resize:vertical;border:1px solid var(--line);border-radius:12px;
+  background:var(--tagbg);color:var(--text);padding:10px;font:500 10.5px/1.55 var(--font-prompt);
+}
+.tag-relay-output-box textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tag-relay-copy-secondary{align-self:flex-end;margin:6px 14px 0;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);padding:5px 10px;font-size:10.5px;font-weight:800}
+.tag-relay-copy-secondary:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tag-relay-copy-secondary:disabled{opacity:.42;cursor:not-allowed}
+.tag-relay-copy-primary{margin:auto 14px 0;min-height:50px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;width:calc(100% - 28px);border:0;border-radius:14px;background:var(--accent);color:#fff;padding:9px 14px;box-shadow:0 8px 24px var(--accent-glow);text-align:left}
+.tag-relay-copy-primary:hover{box-shadow:0 12px 30px color-mix(in srgb,var(--accent) 30%,transparent);transform:translateY(-1px)}
+.tag-relay-copy-primary:disabled{opacity:.42;cursor:not-allowed;transform:none;box-shadow:none}
+.tag-relay-copy-primary span{font-size:13px;font-weight:900}
+.tag-relay-copy-note{margin:7px 16px 0;color:var(--muted);font-size:9.5px;line-height:1.45}
+
+.tag-relay-mobile-tabs{display:none}
+.tag-relay-toast{
+  position:fixed;left:50%;bottom:26px;z-index:120;transform:translateX(-50%);max-width:min(420px,calc(100vw - 30px));
+  border:1px solid var(--popover-line);border-radius:999px;background:var(--popover-glass);color:var(--text);
+  padding:9px 14px;box-shadow:var(--popover-shadow);backdrop-filter:blur(16px);font-size:11.5px;font-weight:700;
+}
+
 
 /* ---------- 侧栏内：素材条目的动作 ---------- */
 .tag-relay-quick-item{position:relative}

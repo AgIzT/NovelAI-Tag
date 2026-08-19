@@ -13,6 +13,7 @@ import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
 import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
+import { refreshRelayAccess } from './tag-relay.js';
 import { setupHomeShortcutGuide } from './home-shortcut.js';
 import {
   closeHistoryLayer,
@@ -495,6 +496,7 @@ export function bindUI() {
       renderCodexHeader();
       uiActions.applyFilter({ resetScroll: true });
     }
+    refreshRelayAccess();   // 侧栏只订阅自己的 store，分级是内存 state，必须显式通知，否则锁后仍有可选中的残留文本
     if (announce) toast(state.allowNsfw ? 'NSFW 法典已解锁' : 'NSFW 法典已锁定');
   };
   const cancelNsfwConfirm = () => {
@@ -557,6 +559,7 @@ export function bindUI() {
   const cancelR18gConfirm = () => { if (r18gToggle) r18gToggle.checked = false; closeMask(r18gMask); };
   const setR18gAccess = (on, { announce = false } = {}) => {
     state.allowR18g = Boolean(on) && state.allowNsfw;
+    refreshRelayAccess();
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
     localStorage.setItem(R18G_STORAGE_KEY, state.allowR18g ? '1' : '0');
     if (r18gToggle) r18gToggle.checked = state.allowR18g;
