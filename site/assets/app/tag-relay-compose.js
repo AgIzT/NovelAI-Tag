@@ -7,6 +7,7 @@
 
 import { toast } from './feedback.js';
 import { copyText } from './copy.js';
+import { requestRelayAction } from './tag-relay-action.js';
 import {
   appendBlockToPlan,
   appendEntryToPlan,
@@ -36,8 +37,10 @@ let outputFormat = 'nai';
 let joinMode = 'comma';
 let latest = { positive: '', negative: '', positiveTokens: [], negativeTokens: [] };
 let dragBlockId = '';
-let pendingSource = null;
 let historyOpen = false;
+let orphanedDraft = null;
+let editorPlanId = '';
+let editorAccessSnapshot = null;
 
 const plan = () => getActivePlan(relayState());
 const itemLocked = item => snapshotLocked(item);
@@ -65,8 +68,9 @@ const blockPreview = item => promptParts(item, 'positive').join(', ')
   || promptParts(item, 'negative').join(', ')
   || '空块';
 
-/* 素材页签把词条送进方案时走这里；拖拽落点也复用它 */
-export function addSourceToPlan(entry, { negativeOnly = false, atIndex = null } = {}) {
+/* 素材页签把词条送进方案时走这里。素材与编排是互斥页签，所以来源条目
+   明确用按钮加入；拖拽只留给编排轨道内的重新排序。 */
+export function addSourceToPlan(entry, { negativeOnly = false } = {}) {
   if (itemLocked(entry)) {
     toast('该词条当前处于访问锁定状态', '!');
     return;
@@ -75,13 +79,10 @@ export function addSourceToPlan(entry, { negativeOnly = false, atIndex = null } 
   const source = negativeOnly
     ? { ...entry, prompt: '', negative: promptParts(entry, 'negative').join(',\n'), characterPrompts: [] }
     : entry;
-  const action = commitRelay(next => {
-    const appended = appendEntryToPlan(next, next.activePlanId, source, { allowDuplicate: true });
-    if (appended.item && Number.isInteger(atIndex)) {
-      movePlanItem(next, next.activePlanId, appended.item.id, atIndex);
-    }
-    return appended;
-  }, { changed: 'plan' });
+  const action = commitRelay(
+    next => appendEntryToPlan(next, next.activePlanId, source, { allowDuplicate: true }),
+    { changed: 'plan' },
+  );
   if (!action.ok || !action.result?.item) return;
   toast(negativeOnly ? `已加入负向：${entry.title}` : `已加入方案：${entry.title}`, '+');
 }
@@ -89,8 +90,11 @@ export function addSourceToPlan(entry, { negativeOnly = false, atIndex = null } 
 /* 手写块：原始需求里的「随意放入含有标题的小方块」。数据层一直支持 kind:'block'，
    但并入侧栏时漏了 UI 入口，等于这条需求只剩数据没有门。 */
 function addManualBlock() {
+  orphanedDraft = null;
   creatingBlock = true;
   selectedItemId = '';
+  editorPlanId = plan()?.id || '';
+  editorAccessSnapshot = null;
   refs.inspectorTitle.textContent = '新建自定义块';
   refs.blockTitle.value = '自定义块';
   refs.blockWeight.value = '1';
@@ -106,9 +110,6 @@ function addManualBlock() {
   refs.blockTitle.select();
 }
 
-export function beginSourceDrag(entry) { pendingSource = entry; }
-export function endSourceDrag() { pendingSource = null; }
-
 /* ---------------- 块 ---------------- */
 
 function selectBlock(itemId) {
@@ -116,6 +117,8 @@ function selectBlock(itemId) {
   if (!item || itemLocked(item)) return;
   creatingBlock = false;
   selectedItemId = itemId;
+  editorPlanId = plan()?.id || '';
+  editorAccessSnapshot = item;
   refs.inspectorTitle.textContent = '编辑块';
   refs.blockTitle.value = item.title;
   refs.blockWeight.value = String(item.weight ?? 1);
@@ -132,6 +135,7 @@ function selectBlock(itemId) {
   }
   refs.blockRemove.textContent = '从方案移除';
   refs.blockSave.textContent = '保存修改';
+  orphanedDraft = null;
   refs.inspector.hidden = false;
   renderLane();
 }
@@ -140,6 +144,18 @@ function selectBlock(itemId) {
    可能仍然留着成人明文，必须立即关掉并清空，避免随后保存或复制。 */
 export function refreshComposeAccess() {
   if (!refs) return;
+  const orphanLocked = orphanedDraft?.accessSnapshot && itemLocked(orphanedDraft.accessSnapshot);
+  if (orphanLocked) {
+    orphanedDraft = null;
+    closeInspector();
+    for (const field of [refs.blockTitle, refs.blockWeight, refs.blockText, refs.blockNegative, refs.blockChars]) {
+      if (!field) continue;
+      if ('value' in field) field.value = '';
+      else field.textContent = '';
+      field.hidden = field === refs.blockChars;
+    }
+    return;
+  }
   const selected = selectedItemId
     ? plan()?.items?.find(item => item.id === selectedItemId)
     : null;
@@ -155,9 +171,48 @@ export function refreshComposeAccess() {
   }
 }
 
+function draftFromInspector() {
+  if (!refs?.inspector || refs.inspector.hidden || (!creatingBlock && !selectedItemId)) return null;
+  return {
+    planId: editorPlanId,
+    mode: creatingBlock ? 'create' : 'edit',
+    itemId: selectedItemId,
+    title: refs.blockTitle.value,
+    weight: refs.blockWeight.value,
+    prompt: refs.blockText.value,
+    negative: refs.blockNegative.value,
+    characterPrompts: editorAccessSnapshot?.characterPrompts || [],
+    accessSnapshot: editorAccessSnapshot,
+  };
+}
+
+function preserveOrphanedDraft() {
+  const draft = draftFromInspector();
+  if (draft) orphanedDraft = draft;
+}
+
+function renderOrphanedDraft() {
+  if (!orphanedDraft || !refs?.inspector || !refs.inspector.hidden) return;
+  refs.inspectorTitle.textContent = '未保存的编辑';
+  refs.blockTitle.value = orphanedDraft.title;
+  refs.blockWeight.value = orphanedDraft.weight;
+  refs.blockText.value = orphanedDraft.prompt;
+  refs.blockNegative.value = orphanedDraft.negative;
+  refs.blockChars.hidden = true;
+  refs.blockRemove.textContent = '放弃草稿';
+  refs.blockSave.textContent = '新建为自定义块';
+  refs.inspector.hidden = false;
+  selectedItemId = '';
+  creatingBlock = false;
+  editorPlanId = plan()?.id || '';
+  editorAccessSnapshot = orphanedDraft.accessSnapshot || null;
+}
+
 export function closeInspector() {
   creatingBlock = false;
   selectedItemId = '';
+  editorPlanId = '';
+  editorAccessSnapshot = null;
   if (refs?.inspector) refs.inspector.hidden = true;
   for (const node of refs?.lane.querySelectorAll('.is-selected') || []) node.classList.remove('is-selected');
 }
@@ -256,7 +311,6 @@ function planBlock(item, index, total) {
 
   block.addEventListener('dragstart', event => {
     dragBlockId = item.id;
-    pendingSource = null;
     block.classList.add('is-dragging');
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', item.id);
@@ -266,18 +320,16 @@ function planBlock(item, index, total) {
     block.classList.remove('is-dragging');
   });
   block.addEventListener('dragover', event => {
-    if (!dragBlockId && !pendingSource) return;
+    if (!dragBlockId) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = pendingSource ? 'copy' : 'move';
+    event.dataTransfer.dropEffect = 'move';
   });
   block.addEventListener('drop', event => {
-    if (!dragBlockId && !pendingSource) return;
+    if (!dragBlockId) return;
     event.preventDefault();
     event.stopPropagation();
-    if (pendingSource) addSourceToPlan(pendingSource, { atIndex: index });
-    else commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, index), { changed: 'plan' });
+    commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, index), { changed: 'plan' });
     dragBlockId = '';
-    pendingSource = null;
   });
   return block;
 }
@@ -388,6 +440,8 @@ async function copyHistoryRecord(record, channel, trigger) {
   await copyText(text, `已复制历史${label}`, trigger, {
     convert: false,
     sampleLabel: `已复制历史${label}`,
+    accessGuard: () => !historyRecordLocked(record),
+    onAccessBlocked: () => toast('这条复制历史已因权限变化锁定', '!'),
   });
 }
 
@@ -459,11 +513,20 @@ function renderHistory() {
 
 export function renderCompose() {
   if (!refs) return;
+  const current = plan();
+  const editorTargetGone = !refs.inspector.hidden && editorPlanId && (
+    current?.id !== editorPlanId
+    || (!creatingBlock && selectedItemId && !current?.items?.some(item => item.id === selectedItemId))
+  );
+  if (editorTargetGone) {
+    preserveOrphanedDraft();
+    closeInspector();
+    renderOrphanedDraft();
+  }
   renderPlanControls();
   renderLane();
   renderOutput();
   renderHistory();
-  if (!creatingBlock && selectedItemId && !plan()?.items?.some(item => item.id === selectedItemId)) closeInspector();
 }
 
 function outputText(channel) {
@@ -497,7 +560,12 @@ async function copyOutput(channel, trigger) {
     positiveCount: latest.positiveCount,
     negativeCount: latest.negativeCount,
   };
-  const result = await copyText(text, `已复制${label}`, trigger, { convert: false, sampleLabel: `已复制${label}` });
+  const result = await copyText(text, `已复制${label}`, trigger, {
+    convert: false,
+    sampleLabel: `已复制${label}`,
+    accessGuard: () => historyPlan.items.every(item => !itemLocked(item)),
+    onAccessBlocked: () => toast('方案中有内容已因权限变化锁定', '!'),
+  });
   if (!result?.ok || !historyPlan) return;
   commitRelay(next => recordCopyHistory(next, {
     label: `${historyPlan.name} · ${label}`,
@@ -514,15 +582,53 @@ async function copyOutput(channel, trigger) {
 
 function bindPlanBar() {
   refs.planSelect.addEventListener('change', () => {
-    const action = commitRelay(next => setActivePlan(next, refs.planSelect.value), { changed: 'plan' });
-    if (action.ok) closeInspector();
+    commitRelay(next => setActivePlan(next, refs.planSelect.value), { changed: 'plan' });
   });
   const menu = refs.planMenu;
-  const closeMenu = () => { menu.hidden = true; refs.planMenuBtn.setAttribute('aria-expanded', 'false'); };
+  const menuItems = () => [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+  const closeMenu = ({ restoreFocus = false } = {}) => {
+    menu.hidden = true;
+    refs.planMenuBtn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) refs.planMenuBtn.focus({ preventScroll: true });
+  };
+  const openMenu = (focus = 'first') => {
+    menu.hidden = false;
+    refs.planMenuBtn.setAttribute('aria-expanded', 'true');
+    const items = menuItems();
+    (focus === 'last' ? items.at(-1) : items[0])?.focus({ preventScroll: true });
+  };
   refs.planMenuBtn.addEventListener('click', event => {
     event.stopPropagation();
-    menu.hidden = !menu.hidden;
-    refs.planMenuBtn.setAttribute('aria-expanded', String(!menu.hidden));
+    if (menu.hidden) openMenu();
+    else closeMenu({ restoreFocus: true });
+  });
+  refs.planMenuBtn.addEventListener('keydown', event => {
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    openMenu(event.key === 'ArrowUp' ? 'last' : 'first');
+  });
+  menu.addEventListener('keydown', event => {
+    const items = menuItems();
+    if (!items.length) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu({ restoreFocus: true });
+      return;
+    }
+    if (event.key === 'Tab') {
+      closeMenu();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = Math.max(0, items.indexOf(document.activeElement));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? items.length - 1
+        : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next].focus({ preventScroll: true });
   });
   document.addEventListener('click', event => {
     if (!menu.hidden && !menu.contains(event.target) && event.target !== refs.planMenuBtn) closeMenu();
@@ -537,9 +643,17 @@ function bindPlanBar() {
     historyOpen = false;
     renderHistory();
   });
-  refs.historyClear?.addEventListener('click', () => {
+  refs.historyClear?.addEventListener('click', async event => {
     const count = relayState().history.length;
-    if (!count || !window.confirm(`确认清空 ${count} 条复制历史？`)) return;
+    if (!count) return;
+    const accepted = await requestRelayAction({
+      title: '清空复制历史？',
+      message: `${count} 条成品记录会被删除，当前方案不会受影响。`,
+      confirmLabel: '确认清空',
+      danger: true,
+      trigger: event.currentTarget,
+    });
+    if (!accepted) return;
     const action = commitRelay(next => clearCopyHistory(next), { changed: 'history' });
     if (action.ok) toast('已清空复制历史', '−');
   });
@@ -566,21 +680,34 @@ function bindPlanBar() {
     }, { changed: 'plan' });
     if (action.ok) toast('已复制为副本', '+');
   });
-  refs.renamePlan.addEventListener('click', () => {
+  refs.renamePlan.addEventListener('click', async () => {
     closeMenu();
     const current = plan();
     if (!current) return;
-    const name = window.prompt('方案名称', current.name);
+    const name = await requestRelayAction({
+      title: '重命名方案',
+      confirmLabel: '保存名称',
+      input: { label: '方案名称', value: current.name, maxLength: 60 },
+      trigger: refs.planMenuBtn,
+    });
     if (!name) return;
-    commitRelay(next => renamePlan(next, next.activePlanId, name), { changed: 'plan' });
+    const action = commitRelay(next => renamePlan(next, current.id, name), { changed: 'plan' });
+    if (action.ok && action.result) toast('已重命名方案', '✓');
   });
-  refs.deletePlan.addEventListener('click', () => {
+  refs.deletePlan.addEventListener('click', async () => {
     closeMenu();
     const current = plan();
     if (!current || relayState().plans.length <= 1) return;
-    if (!window.confirm(`确认删除「${current.name}」？`)) return;
-    const action = commitRelay(next => deletePlan(next, next.activePlanId), { changed: 'plan' });
-    if (action.ok) closeInspector();
+    const accepted = await requestRelayAction({
+      title: `删除「${current.name}」？`,
+      message: '其中的编排块会一并删除，复制历史不会受影响。',
+      confirmLabel: '删除方案',
+      danger: true,
+      trigger: refs.planMenuBtn,
+    });
+    if (!accepted) return;
+    const action = commitRelay(next => deletePlan(next, current.id), { changed: 'plan' });
+    if (action.ok && action.result && !orphanedDraft) closeInspector();
   });
 }
 
@@ -594,24 +721,36 @@ function editorWeight() {
 
 function bindInspector() {
   refs.addBlock?.addEventListener('click', addManualBlock);
-  refs.inspectorClose.addEventListener('click', closeInspector);
+  refs.inspectorClose.addEventListener('click', () => {
+    orphanedDraft = null;
+    closeInspector();
+  });
   refs.blockRemove.addEventListener('click', () => {
+    if (orphanedDraft) {
+      orphanedDraft = null;
+      closeInspector();
+      return;
+    }
     if (creatingBlock) closeInspector();
     else if (selectedItemId) removeBlock(selectedItemId);
   });
   refs.blockSave.addEventListener('click', () => {
     const weight = editorWeight();
     if (weight === null) return;
-    if (creatingBlock) {
+    if (creatingBlock || orphanedDraft) {
+      const draft = orphanedDraft;
       const action = commitRelay(next => appendBlockToPlan(next, next.activePlanId, {
-        title: refs.blockTitle.value || '自定义块',
+        title: refs.blockTitle.value || draft?.title || '自定义块',
         weight,
         prompt: refs.blockText.value,
         negative: refs.blockNegative.value,
+        characterPrompts: draft?.characterPrompts,
+        access: draft?.accessSnapshot?.access,
       }), { changed: 'plan' });
       if (!action.ok) return;
+      orphanedDraft = null;
       closeInspector();
-      toast('已加入自定义块', '+');
+      toast(draft ? '未保存内容已保留为自定义块' : '已加入自定义块', '+');
       return;
     }
     if (!selectedItemId) return;
@@ -649,20 +788,15 @@ function bindSegments() {
 function bindLaneDrop() {
   for (const target of [refs.lane, refs.empty]) {
     target.addEventListener('dragover', event => {
-      if (!pendingSource && !dragBlockId) return;
+      if (!dragBlockId) return;
       event.preventDefault();
       target.classList.add('is-drop-target');
     });
     target.addEventListener('dragleave', () => target.classList.remove('is-drop-target'));
     target.addEventListener('drop', event => {
       target.classList.remove('is-drop-target');
-      if (!pendingSource && !dragBlockId) return;
+      if (!dragBlockId) return;
       event.preventDefault();
-      if (pendingSource) {
-        addSourceToPlan(pendingSource);
-        pendingSource = null;
-        return;
-      }
       /* 已有块拖到轨道空白处 = 移到末尾。以前这里直接 return，只有拖到另一块上才生效，
          轨道下方那片空白看着像落点却没反应。 */
       const items = plan()?.items || [];
@@ -677,13 +811,16 @@ function bindEscape(root) {
   root.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     if (!refs.planMenu.hidden) {
+      event.preventDefault();
       event.stopPropagation();
       refs.planMenu.hidden = true;
       refs.planMenuBtn.setAttribute('aria-expanded', 'false');
+      refs.planMenuBtn.focus({ preventScroll: true });
       return;
     }
     if (!refs.inspector.hidden) {
       event.stopPropagation();
+      orphanedDraft = null;
       closeInspector();
       return;
     }

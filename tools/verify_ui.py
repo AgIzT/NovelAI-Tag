@@ -562,14 +562,18 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         )
 
         cases = [
-            ("dock", 1440, 820, False),
-            ("drawer", 900, 820, False),
-            ("sheet", 390, 844, True),
+            ("dock", 1440, 820, False, "dock"),
+            # 1240px 以下必须转抽屉；继续停靠会把 440px 侧栏与 248px 目录
+            # 同时压进页面，让主瀑布流退化成单列。
+            ("edge-drawer", 1220, 720, False, "drawer"),
+            ("drawer", 900, 620, False, "drawer"),
+            ("sheet-boundary", 600, 760, False, "sheet"),
+            ("sheet", 390, 640, True, "sheet"),
         ]
         details = {}
         shots = []
 
-        for mode, width, height, mobile in cases:
+        for mode, width, height, mobile, shape in cases:
             clear_errors(cdp)
             cdp.command("Emulation.setDeviceMetricsOverride", {
                 "width": width,
@@ -631,7 +635,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             if shell["documentOverflow"] > 1:
                 raise CheckFailed(f"Relay {mode} causes horizontal page overflow: {shell}")
 
-            if mode == "dock":
+            if shape == "dock":
                 if (
                     shell["position"] != "sticky"
                     or not 430 <= shell["rail"]["width"] <= 450
@@ -642,7 +646,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                     or not shell["docked"]
                 ):
                     raise CheckFailed(f"Relay desktop dock shape is wrong: {shell}")
-            elif mode == "drawer":
+            elif shape == "drawer":
                 if (
                    shell["position"] != "fixed"
                    or not 430 <= shell["rail"]["width"] <= 450

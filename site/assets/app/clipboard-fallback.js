@@ -85,3 +85,13 @@ export function closeClipboardFallback(options) {
   const mask = globalThis.document?.getElementById?.(MASK_ID);
   if (mask) closeMask(mask, options);
 }
+
+/* 撤销内容权限时，关闭动画期间也不能继续把原文留在 textarea / 可访问树里。 */
+export function scrubClipboardFallback(options) {
+  const mask = globalThis.document?.getElementById?.(MASK_ID);
+  if (!mask) return false;
+  const area = mask.querySelector?.('.clipboard-fallback-text');
+  if (area) area.value = '';
+  if (isMaskOpen(mask)) closeMask(mask, options);
+  return true;
+}

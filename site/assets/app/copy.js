@@ -88,19 +88,39 @@ export async function copyText(text, message, node, options = {}) {
     || (options.accessEntry ? prepareCopiedEntry(options.accessEntry) : null)
     || options.accessSnapshot
     || null;
-  if (accessSnapshot && snapshotLocked(accessSnapshot)) {
-    if (accessSnapshot.access?.r18g && !state.allowR18g) showR18gLockedHint();
+  const accessAllowed = () => {
+    if (accessSnapshot && snapshotLocked(accessSnapshot)) return false;
+    if (typeof options.accessGuard !== 'function') return true;
+    try { return options.accessGuard() !== false; }
+    catch { return false; }
+  };
+  const showAccessBlocked = () => {
+    if (typeof options.onAccessBlocked === 'function') {
+      options.onAccessBlocked();
+      return;
+    }
+    if (accessSnapshot?.access?.r18g && !state.allowR18g) showR18gLockedHint();
     else showNsfwLockedHint();
+  };
+  if (!accessAllowed()) {
+    showAccessBlocked();
     return { ok: false, blocked: true };
   }
   const formatted = formatCopyText(text, {
     sdMode: state.sdMode,
     convert: options.convert !== false,
   });
-  const result = await writeClipboardText(formatted.text, options.clipboardOptions);
+  const result = await writeClipboardText(formatted.text, {
+    ...(options.clipboardOptions || {}),
+    canWrite: accessAllowed,
+  });
   if (!result.ok) {
+    if (result.blocked) {
+      showAccessBlocked();
+      return result;
+    }
     let manualFallbackShown = false;
-    if (options.manualFallback !== false) {
+    if (options.manualFallback !== false && accessAllowed()) {
       try {
         manualFallbackShown = showClipboardFallback(formatted.text, {
           trigger: node || globalThis.document?.activeElement,
@@ -108,6 +128,9 @@ export async function copyText(text, message, node, options = {}) {
       } catch {
         // A broken overlay must not resurrect the old false-success path.
       }
+    } else if (!accessAllowed()) {
+      showAccessBlocked();
+      return { ...result, blocked: true, manualFallbackShown: false };
     }
     toast(
       manualFallbackShown
@@ -142,7 +165,12 @@ export async function copyText(text, message, node, options = {}) {
       }),
     }
     : null;
-  toast(`${message}${formatted.converted ? '（SD 格式）' : ''}`, '✓', action);
+  const intakeFailed = Boolean(relaySnapshot) && !intake;
+  toast(
+    `${message}${formatted.converted ? '（SD 格式）' : ''}${intakeFailed ? '；中转站未保存，请重试' : ''}`,
+    intakeFailed ? '!' : '✓',
+    action,
+  );
   return { ...result, converted: formatted.converted, manualFallbackShown: false };
 }
 

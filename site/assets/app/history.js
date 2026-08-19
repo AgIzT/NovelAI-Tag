@@ -119,6 +119,10 @@ export function recordRecentEntry(e) {
 
 export function isHistoryItemLocked(item) {
   const meta = findCodexMeta(item?.codexId);
+  const codexId = String(item?.codexId || '').trim();
+  const virtual = codexId === FAVORITES_CODEX_ID || codexId === SITE_SEARCH_CODEX_ID;
+  /* 法典索引加载完成后仍找不到来源的旧记录，无法证明它是安全内容。 */
+  if (state.codexes?.length && codexId && !virtual && !meta) return 'nsfw';
   const access = item?.access || {};
   const nsfw = access.nsfw === true || meta?.nsfw === true || isHistoryNsfw(item);
   const r18g = access.r18g === true || isHistoryR18g(item);

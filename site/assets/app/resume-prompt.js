@@ -5,6 +5,18 @@ const SESSION_KEY = 'fadian-resume-prompt-shown-v1';
 const DISMISS_KEY = 'fadian-resume-prompt-dismissed-v1';
 const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
+let activePrompt = null;
+let activePromptTimer = 0;
+
+export function dismissResumePrompt() {
+  window.clearTimeout?.(activePromptTimer);
+  activePromptTimer = 0;
+  if (!activePrompt) return false;
+  activePrompt.remove();
+  activePrompt = null;
+  return true;
+}
+
 function storageGet(storage, key) {
   try { return storage?.getItem(key) || ''; } catch { return ''; }
 }
@@ -57,19 +69,23 @@ export function setupResumePrompt({ route = {}, onboardingShown = false } = {}) 
     <button class="resume-prompt-close" type="button" aria-label="本次关闭">×</button>`;
   chip.querySelector('b').textContent = browseDesc(state.lastBrowse);
   document.body.appendChild(chip);
+  activePrompt = chip;
   requestAnimationFrame(() => chip.classList.add('show'));
 
-  let timer = 0;
   const hide = () => {
-    window.clearTimeout(timer);
+    window.clearTimeout(activePromptTimer);
+    activePromptTimer = 0;
     chip.classList.remove('show');
-    window.setTimeout(() => chip.remove(), 240);
+    window.setTimeout(() => {
+      chip.remove();
+      if (activePrompt === chip) activePrompt = null;
+    }, 240);
   };
   const arm = () => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(hide, 10_000);
+    window.clearTimeout(activePromptTimer);
+    activePromptTimer = window.setTimeout(hide, 10_000);
   };
-  chip.addEventListener('pointerenter', () => window.clearTimeout(timer));
+  chip.addEventListener('pointerenter', () => window.clearTimeout(activePromptTimer));
   chip.addEventListener('pointerleave', arm);
   chip.addEventListener('focusin', () => window.clearTimeout(timer));
   chip.addEventListener('focusout', event => {

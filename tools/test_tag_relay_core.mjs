@@ -404,8 +404,27 @@ function entry(overrides = {}) {
   assert.equal(rating.access.r18g, true);
   assert.equal(path.access.r18g, true);
   assert.deepEqual(path.path, ['r18g']);
+  assert.deepEqual(migrated.plans[0].items[0].path, [], '自定义块也应保持数组形 path 契约');
   assert.equal(level.access.nsfw, true);
   assert.equal(migrated.plans[0].items[0].access.r18g, true);
+}
+
+// 未知的旧引用不能因为 normalizePlan 补成空 entry 就被当成完整历史快照放行；
+// 字符串 NSFW path 也要成为迁移时的分级证据。
+{
+  const migrated = normalizeRelayState({
+    version: 1,
+    inbox: [{ id: 'legacy-nsfw-path', codexId: 'gone-book', path: 'NSFW', title: 'hidden', prompt: 'secret' }],
+    history: [{
+      id: 'reference-only',
+      channel: 'positive',
+      output: 'adult-secret',
+      items: [{ kind: 'entry', entryKey: 'entry:gone-book:adult' }],
+    }],
+  }, { now: NOW });
+  assert.equal(migrated.inbox[0].access.nsfw, true);
+  assert.equal(migrated.history[0].snapshotComplete, false);
+  assert.equal(restoreHistoryAsPlan(migrated, 'reference-only', { now: NOW }), null);
 }
 
 // Storage round-trips valid JSON and safely falls back for corrupt/blocked storage.

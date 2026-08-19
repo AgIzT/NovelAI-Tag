@@ -28,13 +28,30 @@ import { state } from '../site/assets/app/state.js';
   }
 }
 
+// 已删法典的旧引用没有任何分级证据时，不能因查不到 meta 而 fail-open。
+{
+  const previousCodexes = state.codexes;
+  try {
+    state.codexes = [];
+    assert.equal(snapshotLocked({ codexId: 'gone-book', entryId: 'adult', accessKnown: false, access: {} }), true);
+  } finally {
+    state.codexes = previousCodexes;
+  }
+}
+
 // 权限撤销必须同时清理已打开的编排编辑器和灯箱，敏感操作入口还要在执行时复核。
 {
-  const [relaySource, composeSource, lightboxSource, uiSource, indexSource] = await Promise.all([
+  const [relaySource, composeSource, lightboxSource, uiSource, copySource, clipboardSource, fallbackSource, resumeSource, feedbackSource, coreSource, indexSource] = await Promise.all([
     readFile(new URL('../site/assets/app/tag-relay.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/tag-relay-compose.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/copy.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/clipboard.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/clipboard-fallback.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/resume-prompt.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/feedback.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/app/tag-relay-core.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/index.html', import.meta.url), 'utf8'),
   ]);
 
@@ -53,6 +70,15 @@ import { state } from '../site/assets/app/state.js';
     6,
     '角色、正向、负向、完整、raw tag 与原图入口都必须在执行时复核权限',
   );
+  assert.match(uiSource, /const scrubRestrictedSurfaces = \(\) => \{[\s\S]*renderHistoryPanel\(\)[\s\S]*dismissResumePrompt\(\)[\s\S]*scrubClipboardFallback\(\)[\s\S]*dismissToast\(\{ clear: true \}\)/);
+  assert.match(uiSource, /if \(!state\.allowNsfw\) scrubRestrictedSurfaces\(\)/);
+  assert.match(uiSource, /if \(!state\.allowR18g && scrub\) scrubRestrictedSurfaces\(\)/);
+  assert.match(resumeSource, /export function dismissResumePrompt\(\)/);
+  assert.match(fallbackSource, /export function scrubClipboardFallback\(options\)/);
+  assert.match(feedbackSource, /export function dismissToast\(\{ clear = false \} = \{\}\)/);
+  assert.match(copySource, /const accessAllowed = \(\) => \{[\s\S]*writeClipboardText\(formatted\.text, \{[\s\S]*canWrite: accessAllowed/);
+  assert.match(clipboardSource, /function copyStillAllowed\(options\)[\s\S]*if \(!copyStillAllowed\(options\)\) return blockedResult\(\);[\s\S]*await navigatorApi\.clipboard\.writeText[\s\S]*if \(!copyStillAllowed\(options\)\) return blockedResult\(\);[\s\S]*execCommand/);
+  assert.match(coreSource, /snapshotComplete: source\.snapshotComplete === true && hasVerifiedItemSnapshots/);
   assert.match(
     lightboxSource,
     /#copyRawTag[\s\S]*copyText\(item\.rawTag[\s\S]*accessEntry: e/,

@@ -3,9 +3,9 @@
    所以分区可以反过来 import 本模块（拿 showRailTab）而不成环。
 
    三种形态：
-   - 停靠（>1100px）：走 .layout 的 flex 把瀑布流挤窄。**不是浮层**，
+   - 停靠（>1240px）：走 .layout 的 flex 把瀑布流挤窄。**不是浮层**，
      所以不进 Esc 链、不算 overlayOpen、不注册历史层——它是页面家具，和左边目录栏一个性质。
-   - 抽屉（600~1100px）：固定定位 + 遮罩，是浮层。
+   - 抽屉（600~1240px）：固定定位 + 遮罩，是浮层。
    - 底部 sheet（≤600px）：同样是浮层。 */
 
 import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistoryLayer } from './browser-history.js';
@@ -14,7 +14,7 @@ import { trapFocus } from './modal.js';
 const RAIL_STORAGE_KEY = 'fadian-tag-relay-rail';
 const RAIL_LAYER_ID = 'tag-relay-rail';
 /* 断点与 tag-relay.css 里的 @media 必须对齐，否则会出现「CSS 认为是浮层、JS 认为是停靠」的错位 */
-const overlayQuery = window.matchMedia('(max-width:1100px)');
+const overlayQuery = window.matchMedia('(max-width:1240px)');
 
 let rail = null;
 let backdrop = null;
@@ -61,7 +61,7 @@ function flush() {
   /* 当前页签之外的脏标记留着，等切过去再画 */
 }
 
-function setOpenDirect(open) {
+function setOpenDirect(open, trigger = null) {
   if (!rail) return;
   rail.classList.toggle('closed', !open);
   /* 收起不能只是视觉隐藏：不加 inert，Tab 仍会走进看不见的按钮和输入框 */
@@ -74,7 +74,7 @@ function setOpenDirect(open) {
     flush();
     /* 浮层态是模态语义：焦点必须进去，否则读屏与键盘用户还停在页面底下 */
     if (overlayQuery.matches) {
-      lastTrigger = document.activeElement;
+      lastTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
       (rail.querySelector('[data-rail-tab][aria-selected="true"]') || rail).focus?.();
     }
   } else if (lastTrigger?.isConnected) {
@@ -83,9 +83,9 @@ function setOpenDirect(open) {
   }
 }
 
-export function openRelayRail() {
+export function openRelayRail(trigger = null) {
   if (!isClosed()) return;
-  setOpenDirect(true);
+  setOpenDirect(true, trigger);
   if (overlayQuery.matches) openHistoryLayer(RAIL_LAYER_ID);
 }
 
@@ -96,8 +96,8 @@ export function closeRelayRail() {
   forgetHistoryLayer(RAIL_LAYER_ID);
 }
 
-export function toggleRelayRail() {
-  if (isClosed()) openRelayRail();
+export function toggleRelayRail(trigger = null) {
+  if (isClosed()) openRelayRail(trigger);
   else closeRelayRail();
 }
 
@@ -147,10 +147,11 @@ export function markRailDirty(changed) {
 }
 
 function bindRail() {
-  document.querySelector('#tagRelayBtn')?.addEventListener('click', toggleRelayRail);
+  document.querySelector('#tagRelayBtn')?.addEventListener('click', event => toggleRelayRail(event.currentTarget));
   document.querySelector('#tagRelayMenuLink')?.addEventListener('click', () => {
-    document.querySelector('#moreBtn')?.click();   // 更多菜单点完自己收起，别把栏压在它下面
-    openRelayRail();
+    const moreButton = document.querySelector('#moreBtn');
+    moreButton?.click();   // 更多菜单点完自己收起，别把栏压在它下面
+    openRelayRail(moreButton);
   });
   document.querySelector('#tagRelayRailClose')?.addEventListener('click', closeRelayRail);
   backdrop?.addEventListener('click', closeRelayRail);

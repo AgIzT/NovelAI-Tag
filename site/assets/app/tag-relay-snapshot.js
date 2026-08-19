@@ -47,6 +47,7 @@ export function snapshotEntry(entry) {
       nsfw: context.meta?.nsfw === true || isEntryNsfw(entry),
       r18g: isR18gEntry({ ...entry, path }),
     },
+    accessKnown: true,
   };
 }
 
@@ -55,7 +56,11 @@ export function snapshotEntry(entry) {
 export function snapshotLocked(snapshot) {
   /* 首版中转站曾把 access 当成可选字段。正常快照都带它；但若用户本地
      留着那批旧数据，至少还能用 codexId 回查整本 NSFW 标记，不能静默放行。 */
-  const sourceNsfw = findCodexMeta(snapshot?.codexId)?.nsfw === true;
+  const sourceMeta = findCodexMeta(snapshot?.codexId);
+  const sourceNsfw = sourceMeta?.nsfw === true;
+  /* 旧的 entry 只留引用、又没有任何分级证据时，未知来源必须锁定。
+     新建自定义块在 normalizePlanItem 中显式标记 accessKnown=true，不受此规则影响。 */
+  if (snapshot?.accessKnown === false && snapshot?.kind !== 'block') return true;
   if ((snapshot?.access?.nsfw || sourceNsfw || isEntryNsfw(snapshot)) && !state.allowNsfw) return true;
   if ((snapshot?.access?.r18g || isR18gEntry(snapshot)) && !state.allowR18g) return true;
   return false;

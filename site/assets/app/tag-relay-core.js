@@ -86,13 +86,27 @@ function normalizePath(value) {
    快照。迁移时仍要按主站同一套规则补齐，不能因为字段缺失就把成人内容当普通块。 */
 function inferredAccess(source = {}) {
   const rating = text(source.rating ?? source.level).toLowerCase();
-  const nsfw = ['restricted', 'r18', 'r18g', 'nsfw'].includes(rating);
   const path = Array.isArray(source.path) ? source.path : [source.path];
+  const nsfwPath = path.some(segment => {
+    const value = text(segment).toLowerCase();
+    return value.includes('nsfw') || value.includes('r18') || value.includes('限制级');
+  });
+  const nsfw = ['restricted', 'r18', 'r18g', 'nsfw'].includes(rating) || nsfwPath;
   const r18gPath = path.some(segment => {
     const value = text(segment).toLowerCase();
     return value.includes('r18g') || value.includes('重口');
   });
   return { nsfw, r18g: rating === 'r18g' || r18gPath };
+}
+
+function hasAccessEvidence(source = {}) {
+  const access = isObject(source.access) ? source.access : null;
+  const direct = Boolean(
+    access && (Object.hasOwn(access, 'nsfw') || Object.hasOwn(access, 'r18g'))
+  ) || [
+    'nsfw', 'r18g', 'sourceNsfw', 'sourceR18g', 'rating', 'level',
+  ].some(key => source[key] !== undefined && source[key] !== null);
+  return direct || normalizePath(source.path).length > 0;
 }
 
 function normalizeAccess(value, source = {}) {
@@ -158,6 +172,9 @@ export function normalizeRelayEntry(entry, context = {}) {
     path: normalizePath(source.path),
     image: text(source.image ?? source.imageUrl ?? source.thumb),
     access: normalizeAccess(source.access, source),
+    /* 旧引用可能没有任何可核验分级字段。把证据是否存在一并保留，
+       snapshotLocked 才能对未知来源采取 fail-closed，而不误锁新的安全快照。 */
+    accessKnown: source.accessKnown === true || hasAccessEvidence(source),
     addedAt: timestamp(source.addedAt, fallbackNow),
   };
 }
@@ -190,11 +207,14 @@ function normalizePlanItem(item, context = {}) {
       ? normalizeCharacterPrompts(source.characterPrompts ?? entry.characterPrompts)
       : normalizeCharacterPrompts(source.characterPrompts),
     book: kind === 'entry' ? text(source.book, entry.book) : '',
-    path: kind === 'entry' ? normalizePath(source.path ?? entry.path) : '',
+    path: kind === 'entry' ? normalizePath(source.path ?? entry.path) : [],
     image: kind === 'entry' ? text(source.image, entry.image) : '',
-    access: kind === 'entry'
-      ? normalizeAccess(source.access, entry.access)
-      : normalizeAccess(source.access, source),
+      access: kind === 'entry'
+        ? normalizeAccess(source.access, entry.access)
+        : normalizeAccess(source.access, source),
+      accessKnown: kind === 'entry'
+        ? source.accessKnown === true || entry.accessKnown === true
+        : true,
     enabled: source.enabled !== false && source.on !== false,
     weight: normalizeWeight(source.weight),
     createdAt: timestamp(source.createdAt, fallbackNow),
@@ -229,9 +249,21 @@ function normalizePlan(plan, context = {}) {
 function normalizeHistoryRecord(record, context = {}) {
   const source = isObject(record) ? record : {};
   const fallbackNow = nowIso(context);
-  const hasPlanSnapshot = isObject(source.plan)
-    ? Array.isArray(source.plan.items)
-    : Array.isArray(source.items);
+  const rawItems = isObject(source.plan) ? source.plan.items : source.items;
+  /* 旧版曾只留 entryKey 引用。normalizePlan 会把它伪装成空 entry，若据此标为
+     完整快照就会把无法核验权限的 output 再次放行。新记录必须显式带标记；
+     兼容的历史记录也必须每一项都有可独立判断的正文与 access。 */
+  const hasVerifiedItemSnapshots = Array.isArray(rawItems) && rawItems.every(item => {
+    if (!isObject(item)) return false;
+    const access = isObject(item.access) ? item.access : null;
+    const accessComplete = access && typeof access.nsfw === 'boolean' && typeof access.r18g === 'boolean';
+    if (!accessComplete) return false;
+    if (item.kind === 'block') return true;
+    const prompt = text(item.prompt ?? item.positive ?? item.tags);
+    const negative = text(item.negative);
+    const characters = normalizeCharacterPrompts(item.characterPrompts);
+    return Boolean(prompt || negative || characters.length);
+  });
   const planSource = isObject(source.plan)
     ? source.plan
     : { id: source.planId, name: source.planName ?? source.label, items: source.items };
@@ -259,7 +291,7 @@ function normalizeHistoryRecord(record, context = {}) {
     plan,
     /* 早期半成品只记了输出字符串，没有可复核权限的方案快照。界面必须把它
        当未知来源锁住，不能因为没有 access 字段就重新展示或恢复明文。 */
-    snapshotComplete: source.snapshotComplete === true || hasPlanSnapshot,
+    snapshotComplete: source.snapshotComplete === true && hasVerifiedItemSnapshots,
     createdAt: timestamp(source.createdAt ?? source.time, fallbackNow),
   };
 }

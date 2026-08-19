@@ -76,6 +76,27 @@
 .tag-relay-rail-tab:hover{border-color:var(--accent);color:var(--accent)}
 .tag-relay-rail-tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 
+.tag-relay-inline-action{
+  flex:none;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;
+  margin:0 0 10px;padding:10px 16px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  background:var(--tagbg);
+}
+.tag-relay-inline-action[hidden]{display:none}
+.tag-relay-inline-action-copy{min-width:0}
+.tag-relay-inline-action-copy b{display:block;font-size:12.5px}
+.tag-relay-inline-action-copy p{margin:2px 0 0;color:var(--muted);font-size:10.5px;line-height:1.45}
+.tag-relay-inline-action label{grid-column:1/-1;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:10.5px;font-weight:800}
+.tag-relay-inline-action label[hidden]{display:none}
+.tag-relay-inline-action label span{flex:none}
+.tag-relay-inline-action input{
+  min-width:0;flex:1;height:32px;border:1px solid var(--line);border-radius:9px;
+  background:var(--card);color:var(--text);padding:0 9px;font-size:12px;
+}
+.tag-relay-inline-action input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tag-relay-inline-action-buttons{display:flex;align-items:center;gap:6px}
+.tag-relay-inline-action-buttons button{min-height:30px;padding:5px 10px;font-size:10.5px}
+.tag-relay-inline-action-buttons .is-danger{border-color:var(--new);background:var(--new);color:#fff;box-shadow:none}
+
 .tag-relay-rail-pane{flex:1;min-height:0;display:none;flex-direction:column;overflow:hidden}
 .tag-relay-rail-pane.is-active{display:flex}
 .tag-relay-rail-foot{flex:none;display:flex;align-items:center;gap:8px;margin:0 16px;padding:12px 0 14px;border-top:1px solid var(--line)}
@@ -115,7 +136,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-rail .tag-relay-source-status{flex:none;padding:0 16px 6px;margin:0}
 .tag-relay-rail .tag-relay-source-empty{flex:1;min-height:0}
 
-@media (max-width:1100px){
+@media (max-width:1240px){
   /* 挤不动了就改成盖：再挤下去瀑布流只剩一列，浏览就废了 */
   .tag-relay-rail{
     position:fixed;z-index:83;top:var(--topbar-h);right:8px;left:auto;
@@ -144,6 +165,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-rail-head{padding:12px 14px 8px}
   .tag-relay-rail-tabs{padding:0 14px 8px}
   .tag-relay-rail-foot{margin:0 14px}
+  .tag-relay-inline-action{grid-template-columns:1fr;padding:9px 14px}
+  .tag-relay-inline-action-buttons{justify-content:flex-end}
 }
 
 @media (prefers-reduced-motion:reduce){

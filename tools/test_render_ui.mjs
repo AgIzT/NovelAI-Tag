@@ -822,4 +822,31 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   }
 }
 
+// 中转站侧栏契约：窄桌面不再硬停靠；所有确认留在侧栏内，来源页签不暴露
+// 一个实际上无法跨互斥页签完成的 HTML5 拖拽入口。
+{
+  const [relaySource, composeSource, railSource, actionSource, relayCss, indexSource] = await Promise.all([
+    '../site/assets/app/tag-relay.js',
+    '../site/assets/app/tag-relay-compose.js',
+    '../site/assets/app/tag-relay-rail.js',
+    '../site/assets/app/tag-relay-action.js',
+    '../site/assets/tag-relay.css',
+    '../site/index.html',
+  ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
+  assert.doesNotMatch(`${relaySource}\n${composeSource}`, /window\.(?:prompt|confirm)\s*\(/);
+  assert.doesNotMatch(relaySource, /\.draggable\s*=|beginSourceDrag|endSourceDrag/);
+  assert.doesNotMatch(composeSource, /pendingSource|beginSourceDrag|endSourceDrag/);
+  assert.match(railSource, /matchMedia\('\(max-width:1240px\)'\)/);
+  assert.match(relayCss, /@media \(max-width:1240px\)/);
+  assert.match(actionSource, /export function requestRelayAction/);
+  assert.match(indexSource, /id="relayInlineAction"/);
+  assert.match(indexSource, /rel="modulepreload" href="assets\/app\/tag-relay-action\.js"/);
+  /* 方案被另一标签页切走或删掉时，正在编辑的内容必须转成可另存的草稿，不能由
+     下一次 render 直接 closeInspector 后静默消失。 */
+  assert.match(
+    composeSource,
+    /function draftFromInspector\(\)[\s\S]*return \{[\s\S]*function preserveOrphanedDraft\(\)[\s\S]*orphanedDraft = draft;[\s\S]*function renderCompose\(\)[\s\S]*if \(editorTargetGone\) \{[\s\S]*preserveOrphanedDraft\(\);[\s\S]*renderOrphanedDraft\(\);/,
+  );
+}
+
 console.log('render UI regressions: PASS');

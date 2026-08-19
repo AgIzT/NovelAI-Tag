@@ -11,6 +11,7 @@ import { buildFavoritesCodex } from './fav-codex.js';
 import { subscribeFavoritesChanges } from './favorites-backup.js';
 import { toast } from './feedback.js';
 import { hasEntryImage, thumbUrl } from './media.js';
+import { requestRelayAction } from './tag-relay-action.js';
 import { clearInbox, normalizeRelayEntry, removeInboxEntry } from './tag-relay-core.js';
 import {
   markRailDirty,
@@ -21,8 +22,6 @@ import {
 } from './tag-relay-rail.js';
 import {
   addSourceToPlan,
-  beginSourceDrag,
-  endSourceDrag,
   renderCompose,
   refreshComposeAccess,
   setupRelayCompose,
@@ -112,16 +111,6 @@ function sourceItem(entry, { removable = true } = {}) {
   }
   /* 收藏来源不给「移出」：那会让人以为是在取消收藏 */
   item.append(copy, remove || document.createElement('span'), actions);
-  /* 桌面端可以直接把条目拖进编排轨道；触屏没有 HTML5 拖放，靠上面的「加入方案」按钮 */
-  if (!locked) {
-    item.draggable = true;
-    item.addEventListener('dragstart', event => {
-      beginSourceDrag(entry);
-      event.dataTransfer.effectAllowed = 'copy';
-      event.dataTransfer.setData('text/plain', entry.title || '');
-    });
-    item.addEventListener('dragend', endSourceDrag);
-  }
   return item;
 }
 
@@ -281,10 +270,17 @@ function bindWarehouse() {
   subscribeFavoritesChanges('atlas', () => {
     invalidateFavorites();
   });
-  warehouseRoot.querySelector('#tagRelayClear')?.addEventListener('click', () => {
+  warehouseRoot.querySelector('#tagRelayClear')?.addEventListener('click', async event => {
     const count = relayInbox().length;
     if (!count) return;
-    if (!window.confirm(`确认清空 ${count} 条最近复制？方案不会受影响。`)) return;
+    const accepted = await requestRelayAction({
+      title: '清空最近复制？',
+      message: `${count} 条素材会移出中转站，已有方案不会受影响。`,
+      confirmLabel: '确认清空',
+      danger: true,
+      trigger: event.currentTarget,
+    });
+    if (!accepted) return;
     const result = commitRelay(next => clearInbox(next), { changed: 'inbox' });
     if (!result.ok) return;
     toast('已清空最近复制', '✓');

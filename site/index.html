@@ -57,6 +57,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/tag-relay-core.js">
 <link rel="modulepreload" href="assets/app/tag-relay-snapshot.js">
 <link rel="modulepreload" href="assets/app/tag-relay-store.js">
+<link rel="modulepreload" href="assets/app/tag-relay-action.js">
 <link rel="modulepreload" href="assets/app/tag-relay-rail.js">
 <link rel="modulepreload" href="assets/app/tag-relay-compose.js">
 <link rel="modulepreload" href="assets/app/tag-relay.js">
@@ -277,6 +278,21 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <button id="tagRelayTabWarehouse" class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="warehouse" aria-selected="true" aria-controls="tagRelayPaneWarehouse" tabindex="0">素材</button>
       <button id="tagRelayTabCompose" class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="compose" aria-selected="false" aria-controls="tagRelayPaneCompose" tabindex="-1">编排<span id="tagRelayComposeCount" class="tag-relay-tab-count"></span></button>
     </nav>
+
+    <form id="relayInlineAction" class="tag-relay-inline-action" hidden aria-labelledby="relayInlineActionTitle">
+      <div class="tag-relay-inline-action-copy">
+        <b id="relayInlineActionTitle">确认操作</b>
+        <p id="relayInlineActionMessage"></p>
+      </div>
+      <label id="relayInlineActionInputWrap" hidden>
+        <span id="relayInlineActionInputLabel">名称</span>
+        <input id="relayInlineActionInput" type="text" maxlength="60" autocomplete="off">
+      </label>
+      <div class="tag-relay-inline-action-buttons">
+        <button id="relayInlineActionCancel" class="tag-relay-secondary" type="button">取消</button>
+        <button id="relayInlineActionConfirm" class="tag-relay-primary" type="submit">确认</button>
+      </div>
+    </form>
 
     <section id="tagRelayPaneWarehouse" class="tag-relay-rail-pane is-active" data-rail-pane="warehouse" role="tabpanel" aria-labelledby="tagRelayTabWarehouse">
       <div class="tag-relay-source-tabs" role="tablist" aria-label="素材来源" aria-orientation="horizontal">

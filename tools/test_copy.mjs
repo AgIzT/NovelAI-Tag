@@ -156,6 +156,36 @@ function execDocument(result) {
   });
 }
 
+// Clipboard 请求等待期间撤权后，即使请求随后失败，也不能再降级写入 execCommand。
+{
+  const { documentApi, record } = execDocument(true);
+  let rejectClipboard;
+  let execCalls = 0;
+  let allowed = true;
+  documentApi.execCommand = () => {
+    execCalls += 1;
+    return true;
+  };
+  const pending = writeClipboardText('locked while pending', {
+    navigatorApi: {
+      clipboard: {
+        writeText: () => new Promise((resolve, reject) => {
+          rejectClipboard = reject;
+        }),
+      },
+    },
+    documentApi,
+    canWrite: () => allowed,
+  });
+  assert.equal(typeof rejectClipboard, 'function');
+  allowed = false;
+  rejectClipboard(new Error('permission revoked'));
+  const result = await pending;
+  assert.deepEqual(result, { ok: false, blocked: true, method: 'blocked', text: '' });
+  assert.equal(execCalls, 0);
+  assert.equal(record.appended, 0);
+}
+
 // execCommand=false 不能再伪装成成功；失败结果必须携带最终文本供手动复制。
 {
   const { documentApi, record } = execDocument(false);
