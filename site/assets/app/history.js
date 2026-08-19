@@ -2,7 +2,7 @@ import { state, RECENT_ENTRY_LIMIT, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY 
 import { $, esc, updateSearchClear, updateScrollProgress } from './utils.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { syncUrlState } from './router.js';
-import { firstUnlockedCodex, isCodexLocked, isR18gPath, showNsfwLockedHint, showR18gLockedHint } from './access.js';
+import { firstUnlockedCodex, isCodexLocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { toast } from './feedback.js';
 import { findCodexMeta } from './data.js';
 import { FAVORITES_CODEX_ID } from './fav-codex.js';
@@ -24,6 +24,21 @@ export function setHistoryActions(actions = {}) {
   Object.assign(historyActions, actions);
 }
 
+function normalizeHistoryPath(value) {
+  const parts = Array.isArray(value) ? value : [value];
+  return parts.map(part => String(part || '').trim()).filter(Boolean);
+}
+
+function isHistoryNsfw(item) {
+  return isEntryNsfw(item) || normalizeHistoryPath(item?.path).some(part => (
+    isNsfwPathSegment(part) || part.toLowerCase().includes('nsfw')
+  ));
+}
+
+function isHistoryR18g(item) {
+  return isR18gEntry({ ...item, path: normalizeHistoryPath(item?.path) });
+}
+
 export function normalizeRecentEntries(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -33,8 +48,12 @@ export function normalizeRecentEntries(value) {
       codexTitle: String(item.codexTitle || item.codexId),
       entryId: String(item.entryId),
       title: String(item.title),
-      path: Array.isArray(item.path) ? item.path.map(String) : [],
+      path: normalizeHistoryPath(item.path),
       thumb: String(item.thumb || ''),
+      access: {
+        nsfw: item.access?.nsfw === true || item.nsfw === true || item.sourceNsfw === true || isHistoryNsfw(item),
+        r18g: item.access?.r18g === true || item.r18g === true || item.sourceR18g === true || isHistoryR18g(item),
+      },
       at: Number(item.at) || Date.now(),
     }))
     .slice(0, RECENT_ENTRY_LIMIT);
@@ -45,7 +64,7 @@ export function normalizeLastBrowse(value) {
   return {
     codexId: String(value.codexId),
     codexTitle: String(value.codexTitle || value.codexId),
-    path: Array.isArray(value.path) ? value.path.map(String) : [],
+    path: normalizeHistoryPath(value.path),
     q: String(value.q || ''),
     onlyImaged: Boolean(value.onlyImaged),
     onlyNew: Boolean(value.onlyNew),
@@ -54,6 +73,10 @@ export function normalizeLastBrowse(value) {
     siteSearchView: Boolean(value.siteSearchView || value.searchView || value.codexId === SITE_SEARCH_CODEX_ID),
     searchScope: value.searchScope === 'codex' ? 'codex' : 'site',
     entryId: String(value.entryId || ''),
+    access: {
+      nsfw: value.access?.nsfw === true || value.nsfw === true || value.sourceNsfw === true || isHistoryNsfw(value),
+      r18g: value.access?.r18g === true || value.r18g === true || value.sourceR18g === true || isHistoryR18g(value),
+    },
     scrollY: Math.max(0, Number(value.scrollY) || 0),
     at: Number(value.at) || Date.now(),
   };
@@ -79,8 +102,12 @@ export function recordRecentEntry(e) {
     codexTitle,
     entryId: e.id,
     title: e.title,
-    path: e._srcPath || e.path || [],
+    path: normalizeHistoryPath(e._srcPath || e.path),
     thumb: hasEntryImage(e) ? thumbUrl(e) : '',
+    access: {
+      nsfw: findCodexMeta(codexId)?.nsfw === true || isHistoryNsfw({ ...e, path: e._srcPath || e.path }),
+      r18g: isHistoryR18g({ ...e, path: e._srcPath || e.path }),
+    },
     at: Date.now(),
   };
   state.recentEntries = [
@@ -90,17 +117,31 @@ export function recordRecentEntry(e) {
   saveRecentEntries();
 }
 
+export function isHistoryItemLocked(item) {
+  const meta = findCodexMeta(item?.codexId);
+  const access = item?.access || {};
+  const nsfw = access.nsfw === true || meta?.nsfw === true || isHistoryNsfw(item);
+  const r18g = access.r18g === true || isHistoryR18g(item);
+  if (r18g && !state.allowR18g) return 'r18g';
+  if (nsfw && !state.allowNsfw) return 'nsfw';
+  return '';
+}
+
+/* 兼容旧调用。新代码统一用 isHistoryItemLocked，避免仅看 path 而漏掉 NSFW。 */
 export function isHiddenR18gHistoryItem(item) {
-  return !state.allowR18g && isR18gPath(item?.path || []);
+  return isHistoryItemLocked(item) === 'r18g';
 }
 
 let browseSaveTimer = 0;
 let browseSaveSuppressedUntil = 0;
-export function currentBrowseSnapshot(entryId = state.lightbox.entry?.id || '') {
+export function currentBrowseSnapshot(entryId = state.lightbox.entry?.id || '', entry = state.lightbox.entry) {
   if (!state.codex) return null;
   const favoritesView = Boolean(state.favoritesView);
   const siteSearchView = Boolean(state.siteSearchView);
   const routeCodex = (favoritesView || siteSearchView) ? (state.browseCodex || firstUnlockedCodex() || state.codex) : state.codex;
+  const entryPath = normalizeHistoryPath(entry?._srcPath || entry?.path);
+  const entryCodexId = entry?._srcCodexId || routeCodex.id;
+  const entryMeta = findCodexMeta(entryCodexId);
   return {
     codexId: routeCodex.id,
     codexTitle: favoritesView ? '全部收藏' : (siteSearchView ? '全站搜索' : routeCodex.title),
@@ -113,6 +154,10 @@ export function currentBrowseSnapshot(entryId = state.lightbox.entry?.id || '') 
     onlyNew: Boolean(state.onlyNew),
     onlyFav: favoritesView,
     entryId,
+    access: {
+      nsfw: entryMeta?.nsfw === true || isHistoryNsfw({ ...entry, path: entryPath }) || routeCodex?.nsfw === true,
+      r18g: isHistoryR18g({ ...entry, path: entryPath }),
+    },
     scrollY: Math.max(0, Math.round(window.scrollY || 0)),
     at: Date.now(),
   };
@@ -123,8 +168,8 @@ export function suppressBrowseStateSave(ms = 450) {
   clearTimeout(browseSaveTimer);
 }
 
-export function saveBrowseStateNow(entryId) {
-  const snapshot = currentBrowseSnapshot(entryId);
+export function saveBrowseStateNow(entryId, entry) {
+  const snapshot = currentBrowseSnapshot(entryId, entry);
   if (!snapshot) return;
   state.lastBrowse = snapshot;
   try {
@@ -151,7 +196,9 @@ window.addEventListener?.('pagehide', checkpointBrowseState);
 
 export function browseDesc(snapshot) {
   if (!snapshot) return '暂无可恢复的位置';
-  if (isHiddenR18gHistoryItem(snapshot)) return '上次位置包含 R18G / 重口内容，已隐藏';
+  const locked = isHistoryItemLocked(snapshot);
+  if (locked === 'r18g') return '上次位置包含 R18G / 重口内容，已隐藏';
+  if (locked === 'nsfw') return '上次位置包含限制级内容，已隐藏';
   if (snapshot.favoritesView) {
     if (snapshot.q) return `全部收藏 · 搜索 “${snapshot.q}”`;
     if (snapshot.path?.length) return `全部收藏 · ${snapshot.path.join(' › ')}`;
@@ -183,11 +230,11 @@ export function formatRecentTime(ts) {
 export function renderHistoryPanel() {
   const resume = $('#resumeBrowse');
   const resumeDesc = $('#resumeDesc');
-  const resumeHidden = isHiddenR18gHistoryItem(state.lastBrowse);
+  const resumeLocked = isHistoryItemLocked(state.lastBrowse);
   if (resumeDesc) resumeDesc.textContent = browseDesc(state.lastBrowse);
-  if (resume) resume.disabled = !state.lastBrowse || resumeHidden;
+  if (resume) resume.disabled = !state.lastBrowse || Boolean(resumeLocked);
   const clearBtn = $('#clearRecent');
-  const recentEntries = state.recentEntries.filter(item => !isHiddenR18gHistoryItem(item));
+  const recentEntries = state.recentEntries.filter(item => !isHistoryItemLocked(item));
   if (clearBtn) clearBtn.disabled = recentEntries.length === 0;
 
   const list = $('#recentList');
@@ -197,7 +244,7 @@ export function renderHistoryPanel() {
     const empty = document.createElement('div');
     empty.className = 'recent-empty';
     empty.textContent = state.recentEntries.length
-      ? '最近记录中只有已隐藏的 R18G / 重口内容。开启 R18G 后可查看。'
+      ? '最近记录中只有当前已隐藏的限制级内容。开启对应内容权限后可查看。'
       : '最近还没有打开过词条。点卡片放大图或复制词条后，这里会自动记录。';
     list.appendChild(empty);
     return;
@@ -303,8 +350,13 @@ export function restoreBrowseScroll(top, { token } = {}) {
 export async function resumeLastBrowse(options = {}) {
   const snapshot = state.lastBrowse;
   if (!snapshot) return;
-  if (isHiddenR18gHistoryItem(snapshot)) {
+  const locked = isHistoryItemLocked(snapshot);
+  if (locked === 'r18g') {
     showR18gLockedHint();
+    return;
+  }
+  if (locked === 'nsfw') {
+    showNsfwLockedHint();
     return;
   }
   const wantsFavorites = Boolean(snapshot.favoritesView || snapshot.onlyFav || snapshot.codexId === FAVORITES_CODEX_ID);
@@ -361,8 +413,13 @@ export async function resumeLastBrowse(options = {}) {
 
 export async function openRecentEntry(item, options = {}) {
   if (!item?.codexId || !item.entryId) return;
-  if (isHiddenR18gHistoryItem(item)) {
+  const locked = isHistoryItemLocked(item);
+  if (locked === 'r18g') {
     showR18gLockedHint();
+    return;
+  }
+  if (locked === 'nsfw') {
+    showNsfwLockedHint();
     return;
   }
   const meta = findCodexMeta(item.codexId);

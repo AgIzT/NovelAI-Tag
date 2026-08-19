@@ -30,6 +30,7 @@ globalThis.window = {
   innerHeight: 800,
   setTimeout,
   addEventListener(type, listener) { windowListeners.set(type, listener); },
+  dispatchEvent() { return true; },
   removeEventListener(type, listener) {
     if (windowListeners.get(type) === listener) windowListeners.delete(type);
   },
@@ -55,7 +56,10 @@ const [{ state }, historyModule, favoritesModule] = await Promise.all([
 ]);
 
 state.codex = { id: 'test-codex', title: 'Test Codex' };
-state.codexes = [{ id: 'test-codex', title: 'Test Codex' }];
+state.codexes = [
+  { id: 'test-codex', title: 'Test Codex' },
+  { id: 'adult-codex', title: 'Adult Codex', nsfw: true },
+];
 state.recentEntries = [];
 state.favs = new Set();
 
@@ -68,6 +72,38 @@ globalThis.setTimeout = () => 0;
 globalThis.clearTimeout = () => {};
 
 try {
+  // 历史记录即使是旧 shape，也必须从法典元数据、rating / level 与 string path
+  // 推导访问权限；关闭开关后不能把标题或缩略图重新渲染出来。
+  state.allowNsfw = false;
+  state.allowR18g = false;
+  const [codexAdult, ratingAdult, r18gPath] = historyModule.normalizeRecentEntries([
+    { codexId: 'adult-codex', entryId: 'meta', title: 'Meta adult', path: [] },
+    { codexId: 'test-codex', entryId: 'rating', title: 'Rating adult', rating: 'restricted', path: [] },
+    { codexId: 'test-codex', entryId: 'path', title: 'Path adult', path: 'R18G' },
+  ]);
+  assert.equal(historyModule.isHistoryItemLocked(codexAdult), 'nsfw');
+  assert.equal(historyModule.isHistoryItemLocked(ratingAdult), 'nsfw');
+  assert.deepEqual(r18gPath.path, ['R18G']);
+  assert.equal(historyModule.isHistoryItemLocked(r18gPath), 'r18g');
+
+  const legacyBrowse = historyModule.normalizeLastBrowse({
+    codexId: 'test-codex',
+    codexTitle: 'Secret route',
+    path: 'NSFW-限制级别',
+    at: Date.now(),
+  });
+  assert.equal(historyModule.isHistoryItemLocked(legacyBrowse), 'nsfw');
+  assert.match(historyModule.browseDesc(legacyBrowse), /限制级内容/);
+
+  const entrySnapshot = historyModule.currentBrowseSnapshot('entry-adult', {
+    id: 'entry-adult',
+    title: 'Rating adult',
+    rating: 'restricted',
+    path: ['NSFW'],
+  });
+  assert.equal(entrySnapshot.access.nsfw, true);
+  assert.equal(historyModule.isHistoryItemLocked(entrySnapshot), 'nsfw');
+
   assert.doesNotThrow(() => historyModule.recordRecentEntry({
     id: 'entry-1',
     title: 'Entry One',

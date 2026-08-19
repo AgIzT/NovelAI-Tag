@@ -51,9 +51,9 @@ export function subscribeFavoritesChanges(scope, callback) {
   };
 }
 
-function emitFavoritesChanged(scopes) {
+export function emitFavoritesChanged(scopes, reason = 'restore') {
   window.dispatchEvent(new CustomEvent(CHANGE_EVENT, {
-    detail: { scopes, reason: 'restore' },
+    detail: { scopes, reason },
   }));
 }
 

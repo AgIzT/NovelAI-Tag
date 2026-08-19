@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { browseDesc, isHiddenR18gHistoryItem, resumeLastBrowse } from './history.js';
+import { browseDesc, isHistoryItemLocked, resumeLastBrowse } from './history.js';
 
 const SESSION_KEY = 'fadian-resume-prompt-shown-v1';
 const DISMISS_KEY = 'fadian-resume-prompt-dismissed-v1';
@@ -35,7 +35,7 @@ export function shouldOfferResume({
   migrationVisible = false,
 } = {}) {
   if (!snapshot || onboardingShown || migrationVisible || !isDefaultResumeRoute(route)) return false;
-  if (isHiddenR18gHistoryItem(snapshot)) return false;
+  if (isHistoryItemLocked(snapshot)) return false;
   const age = now - Number(snapshot.at || 0);
   if (age < 0 || age > MAX_AGE) return false;
   if (storageGet(sessionStorage, SESSION_KEY) || storageGet(localStorage, DISMISS_KEY)) return false;

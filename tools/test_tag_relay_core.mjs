@@ -318,6 +318,34 @@ function entry(overrides = {}) {
   assert.equal(clearCopyHistory(state), 3);
 }
 
+// History records may receive a pre-filtered plan snapshot. This is what lets
+// the UI preserve the text actually copied without serializing a now-locked
+// source block; output-only legacy records remain unavailable by default.
+{
+  const state = createRelayState({ now: NOW });
+  const original = state.plans[0];
+  appendBlockToPlan(state, original.id, { title: 'safe', prompt: 'safe-tag' }, { now: NOW });
+  appendBlockToPlan(state, original.id, {
+    title: 'adult', prompt: 'adult-tag', access: { nsfw: true },
+  }, { now: NOW });
+  const safeSnapshot = { ...original, items: [original.items[0]] };
+  const record = recordCopyHistory(state, {
+    plan: safeSnapshot,
+    channel: 'positive',
+    output: { positive: 'safe-tag', negative: '', positiveCount: 1, negativeCount: 0 },
+  }, { now: NOW });
+  assert.equal(record.snapshotComplete, true);
+  assert.deepEqual(record.plan.items.map(item => item.title), ['safe']);
+  assert.equal(record.positive, 'safe-tag');
+
+  const outputOnly = normalizeRelayState({
+    version: 2,
+    history: [{ id: 'old-output-only', label: 'old', channel: 'positive', output: 'secret' }],
+  }, { now: NOW });
+  assert.equal(outputOnly.history[0].snapshotComplete, false);
+  assert.equal(restoreHistoryAsPlan(outputOnly, 'old-output-only', { now: NOW }), null);
+}
+
 // Legacy aliases migrate; malformed nested values are dropped without breaking invariants.
 {
   const migrated = normalizeRelayState({
@@ -352,6 +380,32 @@ function entry(overrides = {}) {
   assert.equal(migrated.plans[0].revision, 4);
   assert.equal(migrated.plans[0].items[0].enabled, false);
   assert.equal(migrated.history[0].positive, 'old-positive');
+}
+
+// Legacy relay snapshots without an access object still inherit the main site's
+// rating / level / path gates during normalization.
+{
+  const migrated = normalizeRelayState({
+    version: 1,
+    inbox: [
+      { id: 'r18g-rating', codexId: 'book', rating: 'r18g', title: 'hidden', prompt: 'x' },
+      { id: 'r18-path', codexId: 'book', path: 'r18g', title: 'hidden path', prompt: 'y' },
+      { id: 'nsfw-level', codexId: 'book', level: 'restricted', title: 'hidden level', prompt: 'z' },
+    ],
+    plans: [{
+      id: 'plan-legacy-access',
+      items: [{ id: 'raw-r18g', kind: 'block', rating: 'r18g', title: 'hidden block', prompt: 'secret' }],
+    }],
+  }, { now: NOW });
+  const rating = migrated.inbox.find(item => item.entryId === 'r18g-rating');
+  const path = migrated.inbox.find(item => item.entryId === 'r18-path');
+  const level = migrated.inbox.find(item => item.entryId === 'nsfw-level');
+  assert.equal(rating.access.nsfw, true);
+  assert.equal(rating.access.r18g, true);
+  assert.equal(path.access.r18g, true);
+  assert.deepEqual(path.path, ['r18g']);
+  assert.equal(level.access.nsfw, true);
+  assert.equal(migrated.plans[0].items[0].access.r18g, true);
 }
 
 // Storage round-trips valid JSON and safely falls back for corrupt/blocked storage.

@@ -9,6 +9,7 @@
    - 底部 sheet（≤600px）：同样是浮层。 */
 
 import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistoryLayer } from './browser-history.js';
+import { trapFocus } from './modal.js';
 
 const RAIL_STORAGE_KEY = 'fadian-tag-relay-rail';
 const RAIL_LAYER_ID = 'tag-relay-rail';
@@ -37,7 +38,15 @@ export function isRelayRailModal() {
 
 function syncChrome() {
   const open = !isClosed();
+  const modal = open && overlayQuery.matches;
   document.body.classList.toggle('rail-docked', open && !overlayQuery.matches);
+  if (modal) {
+    rail.setAttribute('role', 'dialog');
+    rail.setAttribute('aria-modal', 'true');
+  } else {
+    rail.removeAttribute('role');
+    rail.removeAttribute('aria-modal');
+  }
   const button = document.querySelector('#tagRelayBtn');
   if (button) button.setAttribute('aria-expanded', String(open));
 }
@@ -102,7 +111,9 @@ export function showRailTab(name) {
     pane.hidden = !on;
   }
   for (const tab of rail.querySelectorAll('[data-rail-tab]')) {
-    tab.setAttribute('aria-selected', String(tab.dataset.railTab === name));
+    const on = tab.dataset.railTab === name;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
   }
   dirty.add(name);
   flush();
@@ -149,9 +160,25 @@ function bindRail() {
     if (tab) showRailTab(tab.dataset.railTab);
   });
 
+  rail.querySelector('.tag-relay-rail-tabs')?.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = [...rail.querySelectorAll('[data-rail-tab]')];
+    if (!tabs.length) return;
+    const current = Math.max(0, tabs.indexOf(document.activeElement));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    showRailTab(tabs[next].dataset.railTab);
+    tabs[next].focus();
+  });
+
   /* Esc 由内向外：先关栏内的浮层（后续分区会自己 stopPropagation），
      最外层只在浮层形态下关栏；停靠态什么都不做，让事件继续冒泡给 ui.js 的链子。 */
   rail.addEventListener('keydown', event => {
+    if (isRelayRailModal()) trapFocus(event, rail);
     if (event.key !== 'Escape') return;
     if (!isRelayRailModal()) return;
     event.stopPropagation();
@@ -170,6 +197,10 @@ function bindRail() {
       /* 停靠 → 浮层：栏若开着，此刻才变成浮层，必须补注册历史层，
          否则用户按返回键会直接离开页面而不是先关栏。 */
       if (!isClosed()) openHistoryLayer(RAIL_LAYER_ID);
+      if (!isClosed() && !rail.contains(document.activeElement)) {
+        lastTrigger = document.activeElement;
+        (rail.querySelector('[data-rail-tab][aria-selected="true"]') || rail).focus?.();
+      }
     } else {
       forgetHistoryLayer(RAIL_LAYER_ID);
     }

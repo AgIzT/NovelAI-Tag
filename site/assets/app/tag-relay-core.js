@@ -78,15 +78,35 @@ function normalizeCharacterPrompts(value) {
 }
 
 function normalizePath(value) {
-  if (Array.isArray(value)) return value.map(item => text(item)).filter(Boolean);
-  return text(value);
+  const parts = Array.isArray(value) ? value : [value];
+  return parts.map(item => text(item)).filter(Boolean);
+}
+
+/* 早期中转站数据只保存了原词条的 rating / level / path，没有显式 access
+   快照。迁移时仍要按主站同一套规则补齐，不能因为字段缺失就把成人内容当普通块。 */
+function inferredAccess(source = {}) {
+  const rating = text(source.rating ?? source.level).toLowerCase();
+  const nsfw = ['restricted', 'r18', 'r18g', 'nsfw'].includes(rating);
+  const path = Array.isArray(source.path) ? source.path : [source.path];
+  const r18gPath = path.some(segment => {
+    const value = text(segment).toLowerCase();
+    return value.includes('r18g') || value.includes('重口');
+  });
+  return { nsfw, r18g: rating === 'r18g' || r18gPath };
 }
 
 function normalizeAccess(value, source = {}) {
   const access = isObject(value) ? value : {};
+  const inferred = inferredAccess(source);
   return {
-    nsfw: access.nsfw === true || source.nsfw === true || source.sourceNsfw === true,
-    r18g: access.r18g === true || source.r18g === true || source.sourceR18g === true,
+    nsfw: access.nsfw === true
+      || source.nsfw === true
+      || source.sourceNsfw === true
+      || inferred.nsfw,
+    r18g: access.r18g === true
+      || source.r18g === true
+      || source.sourceR18g === true
+      || inferred.r18g,
   };
 }
 
@@ -209,6 +229,9 @@ function normalizePlan(plan, context = {}) {
 function normalizeHistoryRecord(record, context = {}) {
   const source = isObject(record) ? record : {};
   const fallbackNow = nowIso(context);
+  const hasPlanSnapshot = isObject(source.plan)
+    ? Array.isArray(source.plan.items)
+    : Array.isArray(source.items);
   const planSource = isObject(source.plan)
     ? source.plan
     : { id: source.planId, name: source.planName ?? source.label, items: source.items };
@@ -234,6 +257,9 @@ function normalizeHistoryRecord(record, context = {}) {
     positiveCount: Math.max(0, Number.parseInt(source.positiveCount, 10) || splitTopLevel(positive).length),
     negativeCount: Math.max(0, Number.parseInt(source.negativeCount, 10) || splitTopLevel(negative).length),
     plan,
+    /* 早期半成品只记了输出字符串，没有可复核权限的方案快照。界面必须把它
+       当未知来源锁住，不能因为没有 access 字段就重新展示或恢复明文。 */
+    snapshotComplete: source.snapshotComplete === true || hasPlanSnapshot,
     createdAt: timestamp(source.createdAt ?? source.time, fallbackNow),
   };
 }
@@ -663,7 +689,11 @@ export function compilePlan(stateOrPlan, options = {}) {
 
 export function recordCopyHistory(state, details = {}, options = {}) {
   if (!Array.isArray(state.history)) state.history = [];
-  const plan = getPlan(state, details.planId ?? state.activePlanId);
+  /* 调用方可以传入已经过权限过滤的 plan 快照。复制历史必须反映“实际写进
+     剪贴板的内容”，而不是从活方案重新取一份可能含当前已锁内容的副本。 */
+  const plan = isObject(details.plan)
+    ? normalizePlan(details.plan, { now: nowIso(options) })
+    : getPlan(state, details.planId ?? state.activePlanId);
   if (!plan) return null;
   const target = normalizeTarget(details.target);
   const compiled = isObject(details.output)
@@ -686,6 +716,7 @@ export function recordCopyHistory(state, details = {}, options = {}) {
     positiveCount: compiled.positiveCount,
     negativeCount: compiled.negativeCount,
     plan: planSnapshot,
+    snapshotComplete: true,
     createdAt: nowIso(options),
   }, options);
   state.history.unshift(record);
@@ -703,7 +734,7 @@ export function clearCopyHistory(state) {
 /** Restoring never overwrites current work: it creates and activates a new plan. */
 export function restoreHistoryAsPlan(state, historyId, options = {}) {
   const record = state.history?.find(item => item.id === historyId);
-  if (!record?.plan) return null;
+  if (!record?.plan || record.snapshotComplete !== true) return null;
   if (!Array.isArray(state.plans)) state.plans = [];
   const now = nowIso(options);
   const plan = normalizePlan({

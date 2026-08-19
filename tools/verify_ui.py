@@ -514,6 +514,239 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         shot = screenshot(cdp, out_dir, "desktop-home")
         return {**info, "screenshot": shot}
 
+    def tag_relay_responsive():
+        """Exercise the relay as dock, drawer, and bottom sheet with real geometry."""
+        fixture = {
+            "version": 2,
+            "inbox": [],
+            "plans": [{
+                "id": "qa-plan",
+                "name": "UI 回归方案",
+                "items": [{
+                    "id": f"qa-block-{index}",
+                    "kind": "block",
+                    "title": f"测试块 {index}",
+                    "prompt": f"portrait test segment {index}, detailed lighting, balanced composition",
+                    "negative": f"artifact {index}, low quality",
+                    "weight": 1,
+                    "enabled": True,
+                } for index in range(1, 9)],
+                "createdAt": "2026-08-19T00:00:00.000Z",
+                "updatedAt": "2026-08-19T00:00:00.000Z",
+            }],
+            "activePlanId": "qa-plan",
+            "history": [],
+        }
+
+        # Establish the origin before writing localStorage, then reload so the
+        # store module reads the fixture rather than retaining its first load.
+        cdp.command("Emulation.setDeviceMetricsOverride", {
+            "width": 1440, "height": 820, "deviceScaleFactor": 1, "mobile": False,
+        })
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "relay fixture app")
+        cdp.eval(
+            "localStorage.setItem('fadian-tag-relay-v1', "
+            + js_string(json.dumps(fixture, ensure_ascii=False))
+            + "); localStorage.setItem('fadian-tag-relay-rail', 'closed');"
+            + " localStorage.setItem('fadian-onboarding-v1-done', '1'); true"
+        )
+        cdp.command("Page.reload", {})
+        wait_for(
+            cdp,
+            "document.querySelectorAll('.card').length >= 1"
+            " && document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+            " && document.querySelector('#tagRelayRail')?.inert === true",
+            "relay fixture reload",
+            timeout=15,
+        )
+
+        cases = [
+            ("dock", 1440, 820, False),
+            ("drawer", 900, 820, False),
+            ("sheet", 390, 844, True),
+        ]
+        details = {}
+        shots = []
+
+        for mode, width, height, mobile in cases:
+            clear_errors(cdp)
+            cdp.command("Emulation.setDeviceMetricsOverride", {
+                "width": width,
+                "height": height,
+                "deviceScaleFactor": 1,
+                "mobile": mobile,
+            })
+            wait_for(cdp, f"innerWidth === {width} && innerHeight === {height}", f"relay {mode} viewport")
+            settle(cdp, 120)
+
+            cdp.eval("document.querySelector('#tagRelayBtn')?.click()")
+            wait_for(
+                cdp,
+                "!document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+                " && document.querySelector('#tagRelayBtn')?.getAttribute('aria-expanded') === 'true'"
+                " && document.querySelector('#tagRelayRail')?.inert === false",
+                f"relay {mode} opens",
+            )
+            settle(cdp, 160)
+
+            shell = cdp.eval(r"""
+(() => {
+  const rail = document.querySelector('#tagRelayRail');
+  const main = document.querySelector('#main');
+  const backdrop = document.querySelector('#tagRelayRailBackdrop');
+  const sourceTabs = document.querySelector('.tag-relay-source-tabs');
+  const sourceButtons = [...sourceTabs.querySelectorAll('[role="tab"]')];
+  const rr = rail.getBoundingClientRect();
+  const mr = main.getBoundingClientRect();
+    const sr = sourceTabs.getBoundingClientRect();
+    const clientWidth = document.documentElement.clientWidth;
+  const first = sourceButtons[0]?.getBoundingClientRect();
+  const last = sourceButtons.at(-1)?.getBoundingClientRect();
+  return {
+    position: getComputedStyle(rail).position,
+    rail: {left: rr.left, top: rr.top, right: rr.right, bottom: rr.bottom, width: rr.width},
+    main: {left: mr.left, right: mr.right, width: mr.width},
+    backdropDisplay: getComputedStyle(backdrop).display,
+    role: rail.getAttribute('role'),
+    ariaModal: rail.getAttribute('aria-modal'),
+    docked: document.body.classList.contains('rail-docked'),
+    warehouseSelected: document.querySelector('#tagRelayTabWarehouse')?.getAttribute('aria-selected'),
+    warehouseActive: !document.querySelector('#tagRelayPaneWarehouse')?.hidden,
+    sourceTabCount: sourceButtons.length,
+    sourceTabWidthDelta: first && last ? Math.abs(first.width - last.width) : 999,
+    sourceRightGap: last ? Math.abs(sr.right - last.right) : 999,
+    documentOverflow: document.scrollingElement.scrollWidth - clientWidth,
+    clientWidth,
+    /* html uses scrollbar-gutter:stable. Fixed drawers are therefore positioned
+       against its scrollport, which is narrower than window.innerWidth on desktop. */
+    viewportRight: document.documentElement.getBoundingClientRect().right,
+  };
+})()
+""")
+            if shell["warehouseSelected"] != "true" or not shell["warehouseActive"]:
+                raise CheckFailed(f"Relay {mode} did not open on the warehouse tab: {shell}")
+            if shell["sourceTabCount"] != 2 or shell["sourceTabWidthDelta"] > 2 or shell["sourceRightGap"] > 8:
+                raise CheckFailed(f"Relay {mode} source tabs do not fill two equal segments: {shell}")
+            if shell["documentOverflow"] > 1:
+                raise CheckFailed(f"Relay {mode} causes horizontal page overflow: {shell}")
+
+            if mode == "dock":
+                if (
+                    shell["position"] != "sticky"
+                    or not 430 <= shell["rail"]["width"] <= 450
+                    or shell["main"]["right"] > shell["rail"]["left"] + 2
+                    or shell["backdropDisplay"] != "none"
+                    or shell["role"] is not None
+                    or shell["ariaModal"] is not None
+                    or not shell["docked"]
+                ):
+                    raise CheckFailed(f"Relay desktop dock shape is wrong: {shell}")
+            elif mode == "drawer":
+                if (
+                   shell["position"] != "fixed"
+                   or not 430 <= shell["rail"]["width"] <= 450
+                    or abs(shell["rail"]["right"] - (shell["viewportRight"] - 8)) > 2
+                   or shell["backdropDisplay"] == "none"
+                   or shell["role"] != "dialog"
+                    or shell["ariaModal"] != "true"
+                    or shell["docked"]
+                ):
+                    raise CheckFailed(f"Relay tablet drawer shape is wrong: {shell}")
+            else:
+                if (
+                   shell["position"] != "fixed"
+                   or abs(shell["rail"]["left"]) > 2
+                    or abs(shell["rail"]["right"] - shell["viewportRight"]) > 2
+                   or abs(shell["rail"]["bottom"] - height) > 2
+                   or shell["rail"]["top"] < 80
+                    or shell["backdropDisplay"] == "none"
+                    or shell["role"] != "dialog"
+                    or shell["ariaModal"] != "true"
+                    or shell["docked"]
+                ):
+                    raise CheckFailed(f"Relay mobile sheet shape is wrong: {shell}")
+
+            cdp.eval("document.querySelector('#tagRelayTabCompose')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#tagRelayTabCompose')?.getAttribute('aria-selected') === 'true'"
+                " && document.querySelector('#tagRelayPaneCompose')?.hidden === false"
+                " && document.querySelectorAll('.tag-relay-block').length === 8",
+                f"relay {mode} compose tab",
+            )
+            cdp.eval("document.querySelector('.tag-relay-block-copy[role=\"button\"]')?.click()")
+            wait_for(cdp, "document.querySelector('#relayInspector')?.hidden === false", f"relay {mode} inspector")
+            cdp.eval("(() => { const pane = document.querySelector('#tagRelayPaneCompose'); pane.scrollTop = pane.scrollHeight; return true; })()")
+            settle(cdp, 120)
+
+            compose = cdp.eval(r"""
+(() => {
+  const rail = document.querySelector('#tagRelayRail');
+  const pane = document.querySelector('#tagRelayPaneCompose');
+  const inspector = document.querySelector('#relayInspector');
+  const output = pane.querySelector('.tag-relay-output');
+  const actions = output.querySelector('.tag-relay-output-actions');
+  const rr = rail.getBoundingClientRect();
+  const pr = pane.getBoundingClientRect();
+  const ir = inspector.getBoundingClientRect();
+  const or = output.getBoundingClientRect();
+  const ar = actions.getBoundingClientRect();
+  return {
+    composeSelected: document.querySelector('#tagRelayTabCompose')?.getAttribute('aria-selected'),
+    inspectorPosition: getComputedStyle(inspector).position,
+    inspectorOutputGap: or.top - ir.bottom,
+    paneAtBottom: pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2,
+    actionsVisible: ar.top >= pr.top - 1 && ar.bottom <= pr.bottom + 1,
+    panelOverflow: pane.scrollWidth - pane.clientWidth,
+    inspectorWithinRail: ir.left >= rr.left - 1 && ir.right <= rr.right + 1,
+    outputWithinRail: or.left >= rr.left - 1 && or.right <= rr.right + 1,
+    documentOverflow: document.scrollingElement.scrollWidth - document.documentElement.clientWidth,
+    scrollTop: pane.scrollTop,
+    scrollHeight: pane.scrollHeight,
+    clientHeight: pane.clientHeight,
+  };
+})()
+""")
+            if compose["composeSelected"] != "true":
+                raise CheckFailed(f"Relay {mode} compose tab selection was lost: {compose}")
+            if compose["inspectorPosition"] in ("absolute", "fixed") or compose["inspectorOutputGap"] < -1:
+                raise CheckFailed(f"Relay {mode} inspector overlaps the output: {compose}")
+            if not compose["paneAtBottom"] or not compose["actionsVisible"]:
+                raise CheckFailed(f"Relay {mode} output controls cannot be scrolled fully into view: {compose}")
+            if (
+                compose["panelOverflow"] > 1
+                or compose["documentOverflow"] > 1
+                or not compose["inspectorWithinRail"]
+                or not compose["outputWithinRail"]
+            ):
+                raise CheckFailed(f"Relay {mode} compose content overflows horizontally: {compose}")
+
+            shots.append(screenshot(cdp, out_dir, f"tag-relay-{mode}"))
+            cdp.eval(
+                "document.querySelector('#relayInspectorClose')?.click();"
+                " document.querySelector('#tagRelayTabWarehouse')?.click(); true"
+            )
+            wait_for(
+                cdp,
+                "document.querySelector('#relayInspector')?.hidden === true"
+                " && document.querySelector('#tagRelayTabWarehouse')?.getAttribute('aria-selected') === 'true'",
+                f"relay {mode} resets tabs",
+            )
+            cdp.eval("document.querySelector('#tagRelayRailClose')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+                " && document.querySelector('#tagRelayRail')?.inert === true"
+                " && document.querySelector('#tagRelayRail')?.getAttribute('aria-hidden') === 'true'"
+                " && getComputedStyle(document.querySelector('#tagRelayRailBackdrop')).display === 'none'",
+                f"relay {mode} closes inert",
+            )
+            check_no_errors(cdp)
+            details[mode] = {"shell": shell, "compose": compose}
+
+        return {"viewports": details, "screenshots": shots}
+
     def announcements_panel():
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
@@ -1761,6 +1994,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
     checks = [
         ("desktop home renders", desktop_load),
+        ("Tag relay responsive layout", tag_relay_responsive),
         ("announcements render", announcements_panel),
         ("feedback panel responsive", feedback_panel_responsive),
         ("NEW update filter", new_update_filter),

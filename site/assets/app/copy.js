@@ -6,7 +6,9 @@ import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
 import { playCopySample } from './copy-fx.js';
 import { relayTossTarget } from './tag-relay-rail.js';
-import { recordCopiedEntry } from './tag-relay-store.js';
+import { prepareCopiedEntry, recordPreparedCopiedEntry } from './tag-relay-store.js';
+import { snapshotLocked } from './tag-relay-snapshot.js';
+import { showNsfwLockedHint, showR18gLockedHint } from './access.js';
 
 export { fmtSdWeight, naiToSd } from './nai-sd.js';
 
@@ -60,7 +62,7 @@ export function combinedPromptLabel(e) {
 
 export async function copyEntry(e, node) {
   recordRecentEntry(e);
-  saveBrowseStateNow();
+  saveBrowseStateNow(e?.id, e);
   const negative = String(e.negative || '').trim();
   const charCount = (e.characterPrompts || []).length;
   // 提示这条含角色词：既解释「为什么比卡片上看到的多」，也引导想精确填槽的人去开灯箱
@@ -77,6 +79,20 @@ export async function copyEntry(e, node) {
 }
 
 export async function copyText(text, message, node, options = {}) {
+  /* 词条归属必须在任何 await 之前冻住；否则剪贴板授权等待期间切换法典，
+     snapshotEntry 会读到新的 state.codex，把刚复制的旧词条挂到错误书下。 */
+  const relaySnapshot = options.entry ? prepareCopiedEntry(options.entry) : null;
+  /* 有些复制仍归属于一条词条、却不应入库（例如图片的 raw tag）。用
+     accessEntry 复用同一份冻结分级快照，而不是把它伪装成没有来源的普通文本。 */
+  const accessSnapshot = relaySnapshot
+    || (options.accessEntry ? prepareCopiedEntry(options.accessEntry) : null)
+    || options.accessSnapshot
+    || null;
+  if (accessSnapshot && snapshotLocked(accessSnapshot)) {
+    if (accessSnapshot.access?.r18g && !state.allowR18g) showR18gLockedHint();
+    else showNsfwLockedHint();
+    return { ok: false, blocked: true };
+  }
   const formatted = formatCopyText(text, {
     sdMode: state.sdMode,
     convert: options.convert !== false,
@@ -111,7 +127,7 @@ export async function copyText(text, message, node, options = {}) {
      ② opt-in —— 不传 entry 就不入库，分享链接与所有非词条复制天然免疫；
      ③ 排在 playCopySample **之前** —— 芯片要不要抛向中转站，取决于这次到底存没存进去，
         存失败了还演一遍「收走了」就是撒谎。写盘代价是 50 条快照的 stringify，约 1ms，可以忍。 */
-  const intake = options.entry ? recordCopiedEntry(options.entry) : false;
+  const intake = relaySnapshot ? recordPreparedCopiedEntry(relaySnapshot) : false;
   playCopySample(node, formatted.text, options.sampleLabel, {
     flyTo: intake ? relayTossTarget() : null,
   });
@@ -122,6 +138,7 @@ export async function copyText(text, message, node, options = {}) {
       duration: 5_000,
       onClick: () => copyText(followUp.text, followUp.message || '已复制负面', node, {
         sampleLabel: '已复制负面',
+        accessSnapshot,
       }),
     }
     : null;

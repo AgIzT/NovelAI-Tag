@@ -7,7 +7,7 @@ import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, ra
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
-import { bindLightboxControls } from './lightbox.js';
+import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
 import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
 import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
@@ -474,13 +474,13 @@ export function bindUI() {
   const feedbackMask = $('#feedbackPanel');
   const onboardingMask = $('#onboarding');
   const nsfwToggle = $('#nsfwToggle');
-  const setNsfwAccess = (on, { announce = false } = {}) => {
+  const setNsfwAccess = (on, { announce = false, persist = true } = {}) => {
     state.allowNsfw = Boolean(on);
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
-    localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
-    if (state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
+    if (persist) localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
+    if (persist && state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     if (nsfwToggle) nsfwToggle.checked = state.allowNsfw;
-    if (!state.allowNsfw) setR18gAccess(false);  // R18G 依赖 NSFW，关掉 NSFW 一并强制关闭 R18G
+    if (!state.allowNsfw) setR18gAccess(false, { persist });  // R18G 依赖 NSFW，关掉 NSFW 一并强制关闭 R18G
     if (!state.allowNsfw && (state.activePath || []).some(isNsfwPathSegment)) state.activePath = [];
     updateR18gToggleState();
     updateCodexPickerState();
@@ -497,6 +497,7 @@ export function bindUI() {
       uiActions.applyFilter({ resetScroll: true });
     }
     refreshRelayAccess();   // 侧栏只订阅自己的 store，分级是内存 state，必须显式通知，否则锁后仍有可选中的残留文本
+    refreshLightboxAccess();
     if (announce) toast(state.allowNsfw ? 'NSFW 法典已解锁' : 'NSFW 法典已锁定');
   };
   const cancelNsfwConfirm = () => {
@@ -557,11 +558,12 @@ export function bindUI() {
   };
   const openR18gConfirm = () => { r18gStep = 0; renderR18gStep(); openMask(r18gMask, r18gToggle); };
   const cancelR18gConfirm = () => { if (r18gToggle) r18gToggle.checked = false; closeMask(r18gMask); };
-  const setR18gAccess = (on, { announce = false } = {}) => {
+  const setR18gAccess = (on, { announce = false, persist = true } = {}) => {
     state.allowR18g = Boolean(on) && state.allowNsfw;
     refreshRelayAccess();
+    refreshLightboxAccess();
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
-    localStorage.setItem(R18G_STORAGE_KEY, state.allowR18g ? '1' : '0');
+    if (persist) localStorage.setItem(R18G_STORAGE_KEY, state.allowR18g ? '1' : '0');
     if (r18gToggle) r18gToggle.checked = state.allowR18g;
     if (!state.allowR18g && (state.activePath || []).some(isR18gName)) state.activePath = [];  // 关闭时若停在 r18g 分类则退回全部
     if (state.codex) {
@@ -604,6 +606,25 @@ export function bindUI() {
     r18gMask.onkeydown = ev => trapFocus(ev, r18gMask);
   }
   updateR18gToggleState();
+  /* 两个开关是同源持久化偏好，不应在多标签页里各自保留一套权限状态。
+     storage 事件不回发当前页，所以本地确认流程仍只走上面的 setter。 */
+  window.addEventListener('storage', event => {
+    if (event.storageArea && event.storageArea !== localStorage) return;
+    if (event.key === null) {
+      setNsfwAccess(false, { persist: false });
+      return;
+    }
+    if (event.key === NSFW_STORAGE_KEY) {
+      setNsfwAccess(event.newValue === '1', { persist: false });
+      return;
+    }
+    if (event.key === R18G_STORAGE_KEY) {
+      if (event.newValue === '1' && !state.allowNsfw && localStorage.getItem(NSFW_STORAGE_KEY) === '1') {
+        setNsfwAccess(true, { persist: false });
+      }
+      setR18gAccess(event.newValue === '1', { persist: false });
+    }
+  });
   const openFromMore = (mask, trigger = moreBtn) => {
     const topLayer = topHistoryLayerId();
     const replaceLayer = topLayer === 'more-menu' || topLayer === 'banner-about';

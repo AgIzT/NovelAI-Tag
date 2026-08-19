@@ -10,6 +10,7 @@ import { copyText } from './copy.js';
 import {
   appendBlockToPlan,
   appendEntryToPlan,
+  clearCopyHistory,
   compilePlan,
   createPlan,
   deletePlan,
@@ -17,8 +18,10 @@ import {
   itemHasCharacterNegative,
   mergedTotal,
   movePlanItem,
+  recordCopyHistory,
   removePlanItem,
   renamePlan,
+  restoreHistoryAsPlan,
   setActivePlan,
   updatePlanItem,
 } from './tag-relay-core.js';
@@ -28,11 +31,13 @@ import { commitRelay, relayState } from './tag-relay-store.js';
 let refs = null;
 let bound = false;
 let selectedItemId = '';
+let creatingBlock = false;
 let outputFormat = 'nai';
 let joinMode = 'comma';
 let latest = { positive: '', negative: '', positiveTokens: [], negativeTokens: [] };
 let dragBlockId = '';
 let pendingSource = null;
+let historyOpen = false;
 
 const plan = () => getActivePlan(relayState());
 const itemLocked = item => snapshotLocked(item);
@@ -70,28 +75,35 @@ export function addSourceToPlan(entry, { negativeOnly = false, atIndex = null } 
   const source = negativeOnly
     ? { ...entry, prompt: '', negative: promptParts(entry, 'negative').join(',\n'), characterPrompts: [] }
     : entry;
-  const action = commitRelay(next => appendEntryToPlan(next, next.activePlanId, source, { allowDuplicate: true }), { changed: 'plan' });
+  const action = commitRelay(next => {
+    const appended = appendEntryToPlan(next, next.activePlanId, source, { allowDuplicate: true });
+    if (appended.item && Number.isInteger(atIndex)) {
+      movePlanItem(next, next.activePlanId, appended.item.id, atIndex);
+    }
+    return appended;
+  }, { changed: 'plan' });
   if (!action.ok || !action.result?.item) return;
-  if (Number.isInteger(atIndex)) {
-    commitRelay(next => movePlanItem(next, next.activePlanId, action.result.item.id, atIndex), { changed: 'plan' });
-  }
   toast(negativeOnly ? `已加入负向：${entry.title}` : `已加入方案：${entry.title}`, '+');
 }
 
 /* 手写块：原始需求里的「随意放入含有标题的小方块」。数据层一直支持 kind:'block'，
    但并入侧栏时漏了 UI 入口，等于这条需求只剩数据没有门。 */
 function addManualBlock() {
-  const title = window.prompt('块标题', '自定义块');
-  if (title === null) return;
-  const text = window.prompt('正向 Prompt（可留空，之后在块编辑器里改）', '');
-  if (text === null) return;
-  const action = commitRelay(next => appendBlockToPlan(next, next.activePlanId, {
-    title: String(title).trim() || '自定义块',
-    prompt: String(text).trim(),
-  }), { changed: 'plan' });
-  if (!action.ok) return;
-  toast('已加入自定义块', '+');
-  if (action.result?.id) selectBlock(action.result.id);
+  creatingBlock = true;
+  selectedItemId = '';
+  refs.inspectorTitle.textContent = '新建自定义块';
+  refs.blockTitle.value = '自定义块';
+  refs.blockWeight.value = '1';
+  refs.blockText.value = '';
+  refs.blockNegative.value = '';
+  refs.blockChars.textContent = '';
+  refs.blockChars.hidden = true;
+  refs.blockRemove.textContent = '取消';
+  refs.blockSave.textContent = '加入方案';
+  refs.inspector.hidden = false;
+  renderLane();
+  refs.blockTitle.focus();
+  refs.blockTitle.select();
 }
 
 export function beginSourceDrag(entry) { pendingSource = entry; }
@@ -102,9 +114,11 @@ export function endSourceDrag() { pendingSource = null; }
 function selectBlock(itemId) {
   const item = plan()?.items?.find(candidate => candidate.id === itemId);
   if (!item || itemLocked(item)) return;
+  creatingBlock = false;
   selectedItemId = itemId;
+  refs.inspectorTitle.textContent = '编辑块';
   refs.blockTitle.value = item.title;
-  refs.blockWeight.value = ['0.8', '1', '1.1', '1.2'].includes(String(item.weight)) ? String(item.weight) : '1';
+  refs.blockWeight.value = String(item.weight ?? 1);
   /* ⚠ 只编词条级 prompt / negative。以前这里把角色词摊平进正向框，保存时又把
      characterPrompts 清空——用户点开看一眼再保存，角色分槽结构就永久没了。 */
   refs.blockText.value = String(item.prompt || '');
@@ -116,11 +130,33 @@ function selectBlock(itemId) {
       ? `含 ${chars.length} 组角色词，随块保留、不在此编辑${itemHasCharacterNegative(item) ? '；其中的角色级负面不并入负向输出' : ''}`
       : '';
   }
+  refs.blockRemove.textContent = '从方案移除';
+  refs.blockSave.textContent = '保存修改';
   refs.inspector.hidden = false;
   renderLane();
 }
 
+/* 分级开关由主站 ui.js 显式通知。撤权时不只重绘轨道：编辑器里的输入框本身也
+   可能仍然留着成人明文，必须立即关掉并清空，避免随后保存或复制。 */
+export function refreshComposeAccess() {
+  if (!refs) return;
+  const selected = selectedItemId
+    ? plan()?.items?.find(item => item.id === selectedItemId)
+    : null;
+  /* 解锁或切换其它安全项不应销毁用户正在编辑的草稿；只有当前选中块
+     已变成锁定状态（或从活动方案消失）时，才需要撤掉编辑器里的明文。 */
+  if (!selectedItemId || (selected && !itemLocked(selected))) return;
+  closeInspector();
+  for (const field of [refs.blockTitle, refs.blockWeight, refs.blockText, refs.blockNegative, refs.blockChars]) {
+    if (!field) continue;
+    if ('value' in field) field.value = '';
+    else field.textContent = '';
+    field.hidden = field === refs.blockChars;
+  }
+}
+
 export function closeInspector() {
+  creatingBlock = false;
   selectedItemId = '';
   if (refs?.inspector) refs.inspector.hidden = true;
   for (const node of refs?.lane.querySelectorAll('.is-selected') || []) node.classList.remove('is-selected');
@@ -136,7 +172,8 @@ function removeBlock(itemId) {
   const action = commitRelay(next => removePlanItem(next, next.activePlanId, itemId), { changed: 'plan' });
   if (!action.ok || !action.result) return;
   if (selectedItemId === itemId) closeInspector();
-  toast(`已移除：${action.result.title}`, '−');
+  const title = itemLocked(action.result) ? '已锁定的成人内容' : action.result.title;
+  toast(`已移除：${title}`, '−');
 }
 
 function toggleBlock(itemId) {
@@ -165,6 +202,11 @@ function planBlock(item, index, total) {
 
   const copy = document.createElement('div');
   copy.className = 'tag-relay-block-copy';
+  if (!locked) {
+    copy.setAttribute('role', 'button');
+    copy.tabIndex = 0;
+    copy.setAttribute('aria-label', `编辑块：${item.title}`);
+  }
   const header = document.createElement('header');
   const title = document.createElement('b');
   title.textContent = locked ? '已锁定的成人内容' : item.title;
@@ -184,6 +226,11 @@ function planBlock(item, index, total) {
   preview.textContent = locked ? '当前权限关闭，不参与输出' : blockPreview(item);
   copy.append(header, preview);
   copy.onclick = () => selectBlock(item.id);
+  copy.onkeydown = event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    selectBlock(item.id);
+  };
 
   const tools = document.createElement('div');
   tools.className = 'tag-relay-block-tools';
@@ -192,7 +239,7 @@ function planBlock(item, index, total) {
     button.type = 'button';
     button.textContent = label;
     button.title = titleText;
-    button.setAttribute('aria-label', `${titleText}：${item.title}`);
+    button.setAttribute('aria-label', `${titleText}：${locked ? '已锁定的成人内容' : item.title}`);
     button.disabled = disabled;
     button.onclick = action;
     return button;
@@ -303,12 +350,120 @@ function renderPlanControls() {
   refs.deletePlan.disabled = state.plans.length <= 1;
 }
 
+function historyRecordLocked(record) {
+  /* 没有完整方案快照的早期记录无法证明输出来自哪些权限范围，宁可锁住，
+     也不能把孤立的旧 output 字符串重新放进页面或剪贴板。 */
+  if (record?.snapshotComplete !== true) return true;
+  const items = Array.isArray(record.plan?.items) ? record.plan.items : [];
+  if (!items.length && (record.positive || record.negative)) return true;
+  return items.some(itemLocked);
+}
+
+function historyOutput(record, channel = record?.channel) {
+  if (channel === 'positive') return String(record?.positive || '').trim();
+  if (channel === 'negative') return String(record?.negative || '').trim();
+  const sections = [];
+  if (String(record?.positive || '').trim()) sections.push(String(record.positive).trim());
+  if (String(record?.negative || '').trim()) sections.push(`Negative:\n${String(record.negative).trim()}`);
+  return sections.join('\n\n');
+}
+
+function historyTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '较早记录';
+  return date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function copyHistoryRecord(record, channel, trigger) {
+  if (historyRecordLocked(record)) {
+    toast('这条复制历史包含当前锁定内容，暂不可使用', '!');
+    return;
+  }
+  const text = historyOutput(record, channel);
+  if (!text) {
+    toast('这条历史没有可复制内容', '!');
+    return;
+  }
+  const label = channel === 'both' ? '完整方案' : (channel === 'positive' ? '正向' : '负向');
+  await copyText(text, `已复制历史${label}`, trigger, {
+    convert: false,
+    sampleLabel: `已复制历史${label}`,
+  });
+}
+
+function restoreHistoryRecord(record) {
+  if (historyRecordLocked(record)) {
+    toast('这条复制历史包含当前锁定内容，暂不可恢复', '!');
+    return;
+  }
+  const action = commitRelay(next => restoreHistoryAsPlan(next, record.id), { changed: 'plan' });
+  if (!action.ok || !action.result) return;
+  historyOpen = false;
+  toast(`已恢复方案：${action.result.name}`, '+');
+}
+
+function renderHistory() {
+  if (!refs?.historyPanel) return;
+  refs.historyPanel.hidden = !historyOpen;
+  refs.historyToggle?.setAttribute('aria-expanded', String(historyOpen));
+  const records = relayState().history || [];
+  refs.historyStatus.textContent = records.length ? String(records.length) : '';
+  refs.historyClear.disabled = records.length === 0;
+  refs.historyList.replaceChildren();
+  if (!historyOpen) return;
+  if (!records.length) {
+    const empty = document.createElement('p');
+    empty.className = 'tag-relay-history-empty';
+    empty.textContent = '复制过的方案会留在这里，方便对比和恢复。';
+    refs.historyList.append(empty);
+    return;
+  }
+  for (const record of records) {
+    const locked = historyRecordLocked(record);
+    const card = document.createElement('article');
+    card.className = 'tag-relay-history-card';
+    const head = document.createElement('header');
+    const title = document.createElement('b');
+    title.textContent = locked ? '已锁定的复制历史' : (record.label || record.planName || '复制历史');
+    const time = document.createElement('time');
+    time.dateTime = record.createdAt || '';
+    time.textContent = locked ? '当前权限已关闭' : historyTime(record.createdAt);
+    head.append(title, time);
+    const preview = document.createElement('p');
+    preview.textContent = locked
+      ? '这条记录含有当前不可用的内容，重新开启对应权限后可继续使用。'
+      : historyOutput(record).slice(0, 180);
+    card.append(head, preview);
+    const actions = document.createElement('div');
+    actions.className = 'tag-relay-history-actions';
+    if (locked) {
+      const lockedNote = document.createElement('span');
+      lockedNote.className = 'tag-relay-history-locked';
+      lockedNote.textContent = '已锁定';
+      actions.append(lockedNote);
+    } else {
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.textContent = '再次复制';
+      copy.onclick = () => copyHistoryRecord(record, record.channel, copy);
+      const restore = document.createElement('button');
+      restore.type = 'button';
+      restore.textContent = '恢复为方案';
+      restore.onclick = () => restoreHistoryRecord(record);
+      actions.append(copy, restore);
+    }
+    card.append(actions);
+    refs.historyList.append(card);
+  }
+}
+
 export function renderCompose() {
   if (!refs) return;
   renderPlanControls();
   renderLane();
   renderOutput();
-  if (!plan()?.items?.some(item => item.id === selectedItemId)) closeInspector();
+  renderHistory();
+  if (!creatingBlock && selectedItemId && !plan()?.items?.some(item => item.id === selectedItemId)) closeInspector();
 }
 
 function outputText(channel) {
@@ -334,15 +489,33 @@ async function copyOutput(channel, trigger) {
      再让 copyText 按全局 SD 开关转一次就是二次转换。
      也不传 entry：中转站自己的成品不该再回流进「最近复制」，否则复制一次成品，
      成品又变成新料。 */
-  copyText(text, `已复制${label}`, trigger, { convert: false });
+  const sourcePlan = safePlan(plan());
+  const historyPlan = sourcePlan ? { ...sourcePlan, items: [...sourcePlan.items] } : null;
+  const historyOutputSnapshot = {
+    positive: latest.positive,
+    negative: latest.negative,
+    positiveCount: latest.positiveCount,
+    negativeCount: latest.negativeCount,
+  };
+  const result = await copyText(text, `已复制${label}`, trigger, { convert: false, sampleLabel: `已复制${label}` });
+  if (!result?.ok || !historyPlan) return;
+  commitRelay(next => recordCopyHistory(next, {
+    label: `${historyPlan.name} · ${label}`,
+    planId: historyPlan.id,
+    plan: historyPlan,
+    target: outputFormat,
+    joinMode,
+    channel,
+    output: historyOutputSnapshot,
+  }), { changed: 'history' });
 }
 
 /* ---------------- 绑定 ---------------- */
 
 function bindPlanBar() {
   refs.planSelect.addEventListener('change', () => {
-    commitRelay(next => setActivePlan(next, refs.planSelect.value), { changed: 'plan' });
-    closeInspector();
+    const action = commitRelay(next => setActivePlan(next, refs.planSelect.value), { changed: 'plan' });
+    if (action.ok) closeInspector();
   });
   const menu = refs.planMenu;
   const closeMenu = () => { menu.hidden = true; refs.planMenuBtn.setAttribute('aria-expanded', 'false'); };
@@ -355,6 +528,22 @@ function bindPlanBar() {
     if (!menu.hidden && !menu.contains(event.target) && event.target !== refs.planMenuBtn) closeMenu();
   });
 
+  refs.historyToggle?.addEventListener('click', () => {
+    closeMenu();
+    historyOpen = !historyOpen;
+    renderHistory();
+  });
+  refs.historyClose?.addEventListener('click', () => {
+    historyOpen = false;
+    renderHistory();
+  });
+  refs.historyClear?.addEventListener('click', () => {
+    const count = relayState().history.length;
+    if (!count || !window.confirm(`确认清空 ${count} 条复制历史？`)) return;
+    const action = commitRelay(next => clearCopyHistory(next), { changed: 'history' });
+    if (action.ok) toast('已清空复制历史', '−');
+  });
+
   refs.newPlan.addEventListener('click', () => {
     closeMenu();
     const action = commitRelay(next => createPlan(next), { changed: 'plan' });
@@ -364,7 +553,7 @@ function bindPlanBar() {
     closeMenu();
     const source = plan();
     if (!source) return;
-    commitRelay(next => {
+    const action = commitRelay(next => {
       const created = createPlan(next, `${source.name} 副本`);
       for (const item of source.items) {
         /* ⚠ 按原本的 kind 复制。以前一律走 appendEntryToPlan，手写块会被悄悄转成
@@ -375,7 +564,7 @@ function bindPlanBar() {
       }
       return created;
     }, { changed: 'plan' });
-    toast('已复制为副本', '+');
+    if (action.ok) toast('已复制为副本', '+');
   });
   refs.renamePlan.addEventListener('click', () => {
     closeMenu();
@@ -390,20 +579,51 @@ function bindPlanBar() {
     const current = plan();
     if (!current || relayState().plans.length <= 1) return;
     if (!window.confirm(`确认删除「${current.name}」？`)) return;
-    commitRelay(next => deletePlan(next, next.activePlanId), { changed: 'plan' });
-    closeInspector();
+    const action = commitRelay(next => deletePlan(next, next.activePlanId), { changed: 'plan' });
+    if (action.ok) closeInspector();
   });
+}
+
+function editorWeight() {
+  const weight = Number(refs.blockWeight.value);
+  if (Number.isFinite(weight) && weight >= 0.05 && weight <= 10) return weight;
+  toast('权重需填写 0.05 到 10 之间的数字', '!');
+  refs.blockWeight.focus();
+  return null;
 }
 
 function bindInspector() {
   refs.addBlock?.addEventListener('click', addManualBlock);
   refs.inspectorClose.addEventListener('click', closeInspector);
-  refs.blockRemove.addEventListener('click', () => { if (selectedItemId) removeBlock(selectedItemId); });
+  refs.blockRemove.addEventListener('click', () => {
+    if (creatingBlock) closeInspector();
+    else if (selectedItemId) removeBlock(selectedItemId);
+  });
   refs.blockSave.addEventListener('click', () => {
+    const weight = editorWeight();
+    if (weight === null) return;
+    if (creatingBlock) {
+      const action = commitRelay(next => appendBlockToPlan(next, next.activePlanId, {
+        title: refs.blockTitle.value || '自定义块',
+        weight,
+        prompt: refs.blockText.value,
+        negative: refs.blockNegative.value,
+      }), { changed: 'plan' });
+      if (!action.ok) return;
+      closeInspector();
+      toast('已加入自定义块', '+');
+      return;
+    }
     if (!selectedItemId) return;
+    const current = plan()?.items?.find(item => item.id === selectedItemId);
+    if (!current || itemLocked(current)) {
+      refreshComposeAccess();
+      toast('该词条当前处于访问锁定状态', '!');
+      return;
+    }
     const action = commitRelay(next => updatePlanItem(next, next.activePlanId, selectedItemId, {
       title: refs.blockTitle.value,
-      weight: Number(refs.blockWeight.value) || 1,
+      weight,
       prompt: refs.blockText.value,
       negative: refs.blockNegative.value,
       /* characterPrompts 原样保留：编辑器不碰它，就不该顺手清掉 */
@@ -465,6 +685,12 @@ function bindEscape(root) {
     if (!refs.inspector.hidden) {
       event.stopPropagation();
       closeInspector();
+      return;
+    }
+    if (historyOpen) {
+      event.stopPropagation();
+      historyOpen = false;
+      renderHistory();
     }
   });
 }
@@ -477,6 +703,12 @@ export function setupRelayCompose(root) {
     planSelect: q('#relayPlanSelect'),
     planMenuBtn: q('#relayPlanMenuBtn'),
     planMenu: q('#relayPlanMenu'),
+    historyToggle: q('#relayHistoryToggle'),
+    historyPanel: q('#relayCopyHistory'),
+    historyClose: q('#relayHistoryClose'),
+    historyClear: q('#relayHistoryClear'),
+    historyStatus: q('#relayHistoryStatus'),
+    historyList: q('#relayHistoryList'),
     newPlan: q('#relayNewPlan'),
     duplicatePlan: q('#relayDuplicatePlan'),
     renamePlan: q('#relayRenamePlan'),
@@ -486,6 +718,7 @@ export function setupRelayCompose(root) {
     lane: q('#relayPlanLane'),
     empty: q('#relayPlanEmpty'),
     inspector: q('#relayInspector'),
+    inspectorTitle: q('#relayInspectorTitle'),
     inspectorClose: q('#relayInspectorClose'),
     blockTitle: q('#relayBlockTitle'),
     blockWeight: q('#relayBlockWeight'),

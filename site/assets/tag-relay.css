@@ -109,7 +109,9 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   display:flex;flex-direction:column;gap:7px;
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
-.tag-relay-rail .tag-relay-source-tabs{flex:none;padding:0 16px 8px}
+/* 基础样式把这里做成两段完整的胶囊；不要留下旧侧栏的 16px 内边距，
+   否则格子本身会被挤窄，右侧出现一段不对称的空白。 */
+.tag-relay-rail .tag-relay-source-tabs{flex:none}
 .tag-relay-rail .tag-relay-source-status{flex:none;padding:0 16px 6px;margin:0}
 .tag-relay-rail .tag-relay-source-empty{flex:1;min-height:0}
 
@@ -155,7 +157,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
    ⚠ 以后再删「独立页专属」样式，先确认侧栏没在用同一个类名。 */
 
 /* ---------- 素材架 ---------- */
-.tag-relay-source-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:12px 12px 0;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg)}
+.tag-relay-source-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;margin:12px 12px 0;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg)}
 .tag-relay-source-tabs button,.tag-relay-segment button{
   border:0;border-radius:999px;background:transparent;color:var(--muted);padding:7px 8px;font-size:11px;font-weight:800;white-space:nowrap;
 }
@@ -304,6 +306,13 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   background:var(--card);color:var(--text);font-size:12.5px;padding:0 8px;
 }
 .tag-relay-plan-menu-wrap{position:relative;flex:none}
+.tag-relay-history-toggle{
+  flex:none;height:32px;border:1px solid var(--line);border-radius:10px;background:var(--card);
+  color:var(--muted);padding:0 8px;font-size:11px;font-weight:800;
+}
+.tag-relay-history-toggle:hover,.tag-relay-history-toggle[aria-expanded="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tag-relay-history-count{margin-left:4px;color:inherit;font-size:9px}
+.tag-relay-history-count:empty{display:none}
 .tag-relay-plan-more{
   width:32px;height:32px;border:1px solid var(--line);border-radius:10px;background:var(--card);
   color:var(--muted);font-size:16px;line-height:1;
@@ -324,6 +333,23 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-plan-menu button:disabled{opacity:.4;cursor:not-allowed}
 .tag-relay-plan-stats{flex:none;margin:0;padding:0 16px 8px;color:var(--muted);font-size:11px}
 
+.tag-relay-history{flex:none;margin:0 12px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
+.tag-relay-history[hidden]{display:none}
+.tag-relay-history>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
+.tag-relay-history>header>b{font-size:12px}
+.tag-relay-history>header>div{display:flex;align-items:center;gap:3px}
+.tag-relay-history>header button{min-width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:11px;font-weight:800}
+.tag-relay-history>header button:hover:not(:disabled){background:var(--tagbg);color:var(--accent)}
+.tag-relay-history>header button:disabled{opacity:.42;cursor:not-allowed}
+.tag-relay-history>header #relayHistoryClose{font-size:17px;line-height:1}
+.tag-relay-history-list{display:flex;flex-direction:column;gap:7px;max-height:228px;overflow-y:auto;padding:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.tag-relay-history-empty{margin:8px;color:var(--muted);font-size:11px;line-height:1.6;text-align:center}
+.tag-relay-history-card{gap:6px;border-radius:10px;padding:8px;box-shadow:none}
+.tag-relay-history-card p{font-size:9.5px}
+.tag-relay-history-actions{display:flex;align-items:center;gap:6px}
+.tag-relay-history-actions button{border-radius:8px;padding:5px 8px}
+.tag-relay-history-locked{color:var(--muted);font-size:10.5px;font-weight:800}
+
 .tag-relay-rail .tag-relay-plan-lane{
   flex:1;min-height:60px;overflow-y:auto;padding:0 12px 10px;margin:0;
   display:flex;flex-direction:column;gap:7px;
@@ -342,13 +368,15 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-rail .tag-relay-block-handle{grid-area:handle}
 .tag-relay-rail .tag-relay-block-index{grid-area:idx}
 .tag-relay-rail .tag-relay-block-copy{grid-area:copy;min-width:0}
+.tag-relay-rail .tag-relay-block-copy[role="button"]{cursor:pointer;border-radius:8px;outline:none}
+.tag-relay-rail .tag-relay-block-copy[role="button"]:focus-visible{box-shadow:0 0 0 3px var(--accent-soft)}
 .tag-relay-rail .tag-relay-block-tools{grid-area:tools;display:flex;gap:5px;justify-content:flex-end}
 
 .tag-relay-rail .tag-relay-inspector{
-  position:absolute;left:12px;right:12px;bottom:12px;z-index:5;
+  position:static;flex:none;margin:0 12px 10px;z-index:5;
   border:1px solid var(--popover-line);border-radius:14px;background:var(--popover-glass);
   box-shadow:var(--popover-shadow);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  padding:12px;display:flex;flex-direction:column;gap:8px;
+  padding:12px;display:flex;flex-direction:column;gap:8px;max-height:min(46vh,390px);overflow-y:auto;
 }
 .tag-relay-rail .tag-relay-inspector[hidden]{display:none}
 .tag-relay-inspector-head{display:flex;align-items:center;justify-content:space-between}
@@ -369,6 +397,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   flex:none;border-top:1px solid var(--line);padding:10px 16px 14px;background:var(--bg);
   display:flex;flex-direction:column;gap:8px;overflow:visible;
 }
+.tag-relay-rail [data-rail-pane="compose"]{overflow-y:auto;overscroll-behavior:contain}
+.tag-relay-rail [data-rail-pane="compose"] .tag-relay-plan-lane{flex:1 1 120px}
 .tag-relay-rail .tag-relay-output-option{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0}
 .tag-relay-rail .tag-relay-output-box{margin:0}
 .tag-relay-rail .tag-relay-output-box textarea{min-height:0;font-size:11px}

@@ -3,7 +3,7 @@
    而且法典 JSON 动辄 7~11MB，只存引用等于刷新后要重下整本才拼得出词。
    这里只负责「把一条活的词条压成可序列化的快照」，不碰存储、不碰 DOM。 */
 
-import { isEntryNsfw, isR18gPath } from './access.js';
+import { isEntryNsfw, isR18gEntry } from './access.js';
 import { findCodexMeta } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { state } from './state.js';
@@ -45,7 +45,7 @@ export function snapshotEntry(entry) {
        不能因为「当时是解锁状态存进来的」就永久放行。 */
     access: {
       nsfw: context.meta?.nsfw === true || isEntryNsfw(entry),
-      r18g: isR18gPath(path),
+      r18g: isR18gEntry({ ...entry, path }),
     },
   };
 }
@@ -53,7 +53,10 @@ export function snapshotEntry(entry) {
 /* ⚠ 判分级只看内存里的 state，不要去读 localStorage：ui.js 是在会话内直接改
    state.allowNsfw 的，同标签页的写入根本不触发 storage 事件，读盘会读到过期值。 */
 export function snapshotLocked(snapshot) {
-  if (snapshot?.access?.nsfw && !state.allowNsfw) return true;
-  if (snapshot?.access?.r18g && !state.allowR18g) return true;
+  /* 首版中转站曾把 access 当成可选字段。正常快照都带它；但若用户本地
+     留着那批旧数据，至少还能用 codexId 回查整本 NSFW 标记，不能静默放行。 */
+  const sourceNsfw = findCodexMeta(snapshot?.codexId)?.nsfw === true;
+  if ((snapshot?.access?.nsfw || sourceNsfw || isEntryNsfw(snapshot)) && !state.allowNsfw) return true;
+  if ((snapshot?.access?.r18g || isR18gEntry(snapshot)) && !state.allowR18g) return true;
   return false;
 }

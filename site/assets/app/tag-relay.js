@@ -5,7 +5,7 @@
    入库是「复制即入库」（见 copy.js 里 recordCopiedEntry 的调用点），
    卡片和灯箱上没有手动入站按钮——卡片因此保持原样，不会和收藏星混淆。 */
 
-import { isEntryNsfw, isR18gPath } from './access.js';
+import { isEntryNsfw, isR18gEntry } from './access.js';
 import { findCodexMeta } from './data.js';
 import { buildFavoritesCodex } from './fav-codex.js';
 import { subscribeFavoritesChanges } from './favorites-backup.js';
@@ -24,6 +24,7 @@ import {
   beginSourceDrag,
   endSourceDrag,
   renderCompose,
+  refreshComposeAccess,
   setupRelayCompose,
 } from './tag-relay-compose.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
@@ -34,6 +35,9 @@ let warehouseRoot = null;
 let sourceMode = 'inbox';
 let favorites = null;
 let favoritesLoading = false;
+let favoritesGeneration = 0;
+let favoritesReloadPending = false;
+let favoritesReloadQueued = false;
 
 function placeholder(title = '') {
   const node = document.createElement('span');
@@ -44,6 +48,7 @@ function placeholder(title = '') {
 
 function sourceItem(entry, { removable = true } = {}) {
   const locked = snapshotLocked(entry);
+  const visibleTitle = locked ? '已锁定的成人内容' : entry.title;
   const item = document.createElement('article');
   item.className = 'tag-relay-quick-item';
 
@@ -97,12 +102,12 @@ function sourceItem(entry, { removable = true } = {}) {
     remove.type = 'button';
     remove.className = 'tag-relay-quick-remove';
     remove.textContent = '×';
-    remove.title = `移除${entry.title}`;
-    remove.setAttribute('aria-label', `从最近复制移除${entry.title}`);
+    remove.title = `移除${visibleTitle}`;
+    remove.setAttribute('aria-label', `从最近复制移除${visibleTitle}`);
     remove.onclick = () => {
       const result = commitRelay(next => removeInboxEntry(next, entry.key), { changed: 'inbox' });
       if (!result.ok) return;
-      toast(`已移出最近复制：${entry.title}`, '−');
+      toast(`已移出最近复制：${visibleTitle}`, '−');
     };
   }
   /* 收藏来源不给「移出」：那会让人以为是在取消收藏 */
@@ -125,12 +130,17 @@ function sourceItem(entry, { removable = true } = {}) {
    「收藏」页签的瞬间冲掉正在跑的法典索引和收藏集。所以引导那半段整段删掉，
    只留下「收藏词条 → 中转站快照」的映射。 */
 async function loadFavorites() {
-  if (favoritesLoading || favorites !== null) return;
+  if (favorites !== null) return;
+  if (favoritesLoading) {
+    favoritesReloadPending = true;
+    return;
+  }
+  const generation = favoritesGeneration;
   favoritesLoading = true;
   renderWarehouse();
   try {
     const codex = await buildFavoritesCodex();
-    favorites = codex.entries.map(entry => {
+    const loaded = codex.entries.map(entry => {
       const sourceId = String(entry._srcCodexId || '').trim();
       const meta = findCodexMeta(sourceId);
       let image = '';
@@ -147,27 +157,54 @@ async function loadFavorites() {
         book: entry._srcCodexTitle || meta?.selectorTitle || meta?.title || '',
         path,
         image,
-        access: { nsfw: meta?.nsfw === true || isEntryNsfw(entry), r18g: isR18gPath(path) },
+        access: { nsfw: meta?.nsfw === true || isEntryNsfw(entry), r18g: isR18gEntry({ ...entry, path }) },
       });
     });
+    if (generation === favoritesGeneration) favorites = loaded;
   } catch (error) {
     console.warn('[tag-relay] 收藏素材加载失败', error);
-    favorites = [];
-    toast('收藏加载失败，请稍后重试', '!');
+    if (generation === favoritesGeneration) {
+      favorites = [];
+      toast('收藏加载失败，请稍后重试', '!');
+    }
   } finally {
     favoritesLoading = false;
     renderWarehouse();
+    if (favoritesReloadPending || generation !== favoritesGeneration) {
+      favoritesReloadPending = false;
+      favorites = null;
+      void loadFavorites();
+    }
   }
+}
+
+function invalidateFavorites() {
+  favorites = null;
+  favoritesGeneration += 1;
+  if (favoritesLoading) favoritesReloadPending = true;
+  if (sourceMode !== 'favorites' || favoritesLoading || favoritesReloadQueued) return;
+  /* storage / CustomEvent listeners run in registration order.主站更新 state.favs
+     的监听可能排在本模块之后；延到当前事件派发结束，避免用旧集合构建收藏列。 */
+  favoritesReloadQueued = true;
+  Promise.resolve().then(() => {
+    favoritesReloadQueued = false;
+    if (sourceMode === 'favorites') void loadFavorites();
+  });
 }
 
 function setSourceMode(next) {
   sourceMode = next;
   for (const button of warehouseRoot?.querySelectorAll('[data-relay-source]') || []) {
-    button.setAttribute('aria-selected', String(button.dataset.relaySource === next));
+    const on = button.dataset.relaySource === next;
+    button.setAttribute('aria-selected', String(on));
+    button.tabIndex = on ? 0 : -1;
   }
   /* 每次切过来都重建：点星标走的是 favorites.js 的 saveFavs，同页内不发任何事件，
      缓存着就会显示上一次的收藏。buildFavoritesCodex 用的是已缓存的法典，重建很便宜。 */
-  if (next === 'favorites') favorites = null;
+  if (next === 'favorites') {
+    favorites = null;
+    favoritesGeneration += 1;
+  }
   renderWarehouse();
   if (next === 'favorites') void loadFavorites();
 }
@@ -225,11 +262,24 @@ function bindWarehouse() {
   for (const button of warehouseRoot.querySelectorAll('[data-relay-source]')) {
     button.addEventListener('click', () => setSourceMode(button.dataset.relaySource));
   }
+  warehouseRoot.querySelector('.tag-relay-source-tabs')?.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = [...warehouseRoot.querySelectorAll('[data-relay-source]')];
+    if (!tabs.length) return;
+    const current = Math.max(0, tabs.indexOf(document.activeElement));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    setSourceMode(tabs[next].dataset.relaySource);
+    tabs[next].focus();
+  });
   /* 这个订阅只覆盖备份恢复与跨标签页（同页点星标不发事件，靠上面切页签时重建）。
      ⚠ scope 只接受 atlas / community，传别的会静默返回空函数。 */
   subscribeFavoritesChanges('atlas', () => {
-    favorites = null;
-    if (sourceMode === 'favorites') void loadFavorites();
+    invalidateFavorites();
   });
   warehouseRoot.querySelector('#tagRelayClear')?.addEventListener('click', () => {
     const count = relayInbox().length;
@@ -244,10 +294,10 @@ function bindWarehouse() {
 /* 分级开关由 ui.js 直接改内存 state，中转站收不到任何事件——必须由那边显式喊一声。
    收藏缓存一并作废：它按当时的锁态映射过 access 标记。 */
 export function refreshRelayAccess() {
-  favorites = null;
+  invalidateFavorites();
   renderWarehouse();
+  refreshComposeAccess();
   renderCompose();
-  if (sourceMode === 'favorites') void loadFavorites();
 }
 
 export function setupTagRelay() {

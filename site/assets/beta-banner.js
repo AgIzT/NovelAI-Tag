@@ -18,8 +18,6 @@
   if (host === CANONICAL_HOST) return;                                   // 正式站：永不显示
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return;  // 本地开发：别打扰
 
-  var expired = new Date().toISOString().slice(0, 10) > EXPIRES;
-
   function style(css) {
     var tag = document.createElement('style');
     tag.textContent = css;
@@ -31,7 +29,53 @@
     else document.addEventListener('DOMContentLoaded', build, { once: true });
   }
 
-  if (!expired) {
+  function isExpired() {
+    return new Date().toISOString().slice(0, 10) > EXPIRES;
+  }
+
+  function mountGate() {
+    if (document.getElementById('betaGate')) return;
+    document.getElementById('betaBar')?.remove();
+    document.documentElement.style.overflow = 'hidden';
+    var gate = document.createElement('div');
+    gate.id = 'betaGate';
+    var box = document.createElement('div');
+    var h = document.createElement('h2');
+    h.textContent = '这个测试版已经结束了';
+    var p = document.createElement('p');
+    p.textContent = '它只是一次功能内测，不是法典图鉴的正式地址，数据也不会保留。请改用正式站。';
+    var a = document.createElement('a');
+    a.href = CANONICAL_URL;
+    a.rel = 'noopener';
+    a.textContent = '前往法典图鉴正式站';
+    box.appendChild(h);
+    box.appendChild(p);
+    box.appendChild(a);
+    gate.appendChild(box);
+    document.body.appendChild(gate);
+  }
+
+  function scheduleGate() {
+    /* EXPIRES 是一个 UTC 日期。页面长期挂着时，跨过下一次日期边界也要立即
+       关闭预览入口；visibilitychange 用来处理后台标签页定时器被冻结的情况。 */
+    function check() {
+      if (!isExpired()) return false;
+      mountGate();
+      return true;
+    }
+    function schedule() {
+      if (check()) return;
+      var now = new Date();
+      var next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+      window.setTimeout(schedule, Math.max(1_000, next.getTime() - now.getTime() + 50));
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) check();
+    });
+    schedule();
+  }
+
+  if (!isExpired()) {
     /* 常驻顶条：不可关闭。真正需要看到它的，正是那个不知道自己在测试版上的人。
        主站顶栏是 position:sticky;top:12px，所以顺手把它压下去，别被横幅盖住。 */
     style([
@@ -50,6 +94,7 @@
       '#betaBar:hover{background:#8f1d17}',
       '#betaBar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '#betaBar b{flex:none;font-weight:800;text-decoration:underline;text-underline-offset:2px}',
+      '@media(max-width:600px){:root{--topbar-h:calc(64px + var(--beta-bar-h))}.topbar{top:calc(8px + var(--beta-bar-h))!important}}',
       '@media(max-width:520px){#betaBar{font-size:11.5px}#betaBar b{display:none}}',
     ].join('\n'));
     mount(function () {
@@ -61,6 +106,7 @@
       bar.firstChild.textContent = TEXT;
       bar.lastChild.textContent = '→';
       document.body.appendChild(bar);
+      scheduleGate();
     });
     return;
   }
@@ -76,23 +122,5 @@
     '#betaGate a{display:inline-block;padding:11px 24px;border-radius:12px;',
     '  background:#6f5cf2;color:#fff;text-decoration:none;font-weight:800;font-size:14px}',
   ].join('\n'));
-  mount(function () {
-    var gate = document.createElement('div');
-    gate.id = 'betaGate';
-    var box = document.createElement('div');
-    var h = document.createElement('h2');
-    h.textContent = '这个测试版已经结束了';
-    var p = document.createElement('p');
-    p.textContent = '它只是一次功能内测，不是法典图鉴的正式地址，数据也不会保留。请改用正式站。';
-    var a = document.createElement('a');
-    a.href = CANONICAL_URL;
-    a.rel = 'noopener';
-    a.textContent = '前往法典图鉴正式站';
-    box.appendChild(h);
-    box.appendChild(p);
-    box.appendChild(a);
-    gate.appendChild(box);
-    document.body.appendChild(gate);
-    document.documentElement.style.overflow = 'hidden';
-  });
+  mount(mountGate);
 })();
