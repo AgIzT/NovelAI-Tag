@@ -274,7 +274,15 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <aside id="tagRelayRail" class="tag-relay-rail closed" aria-label="Tag 中转站">
     <header class="tag-relay-rail-head">
       <h2 id="tagRelayRailTitle">中转站</h2>
-      <select id="relayPlanSelect" class="tag-relay-plan-pick" aria-label="当前方案"></select>
+      <div class="tag-relay-plan-picker">
+        <!-- 原生 select 只保留为状态值桥；可见交互由下方自定义 listbox 承担，避免系统下拉样式割裂。 -->
+        <select id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"></select>
+        <button id="relayPlanPickerBtn" class="tag-relay-plan-pick" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="relayPlanList">
+          <span id="relayPlanPickerLabel">当前方案</span>
+          <svg class="tag-relay-plan-pick-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+        </button>
+        <div id="relayPlanList" class="tag-relay-plan-list" role="listbox" aria-label="选择方案" hidden></div>
+      </div>
       <div class="tag-relay-plan-menu-wrap">
         <button id="relayPlanMenuBtn" class="tag-relay-plan-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="方案操作">⋯</button>
         <div id="relayPlanMenu" class="tag-relay-plan-menu" role="menu" hidden>
@@ -381,6 +389,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <section id="tagRelayPaneWarehouse" class="tag-relay-zone tag-relay-zone-source" data-rail-pane="warehouse" aria-label="素材">
       <div class="tag-relay-zone-head">
         <div class="tag-relay-source-tabs" role="tablist" aria-label="素材来源" aria-orientation="horizontal">
+          <span class="tag-relay-source-slider" aria-hidden="true"></span>
           <button id="relaySourceTabInbox" type="button" role="tab" data-relay-source="inbox" aria-selected="true" aria-controls="relaySourcePanel" tabindex="0">最近复制</button>
           <button id="relaySourceTabFavorites" type="button" role="tab" data-relay-source="favorites" aria-selected="false" aria-controls="relaySourcePanel" tabindex="-1">收藏</button>
         </div>

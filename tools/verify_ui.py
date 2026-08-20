@@ -551,6 +551,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 } for index in range(1, 9)],
                 "createdAt": "2026-08-19T00:00:00.000Z",
                 "updatedAt": "2026-08-19T00:00:00.000Z",
+            }, {
+                "id": "qa-plan-alt",
+                "name": "UI 空方案",
+                "items": [],
+                "createdAt": "2026-08-19T00:00:00.000Z",
+                "updatedAt": "2026-08-19T00:00:00.000Z",
             }],
             "activePlanId": "qa-plan",
             "history": [],
@@ -622,12 +628,19 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const sourceList = document.querySelector('#relaySourceList');
   const firstSourceChip = sourceList.querySelector('.tag-relay-chip');
   const sourceButtons = [...sourceTabs.querySelectorAll('[role="tab"]')];
+  const sourceSlider = sourceTabs.querySelector('.tag-relay-source-slider');
+  const planPicker = document.querySelector('#relayPlanPickerBtn');
+  const planSelect = document.querySelector('#relayPlanSelect');
+  const planList = document.querySelector('#relayPlanList');
   const rr = rail.getBoundingClientRect();
   const mr = main.getBoundingClientRect();
-    const sr = sourceTabs.getBoundingClientRect();
-    const clientWidth = document.documentElement.clientWidth;
+  const sr = sourceTabs.getBoundingClientRect();
+  const clientWidth = document.documentElement.clientWidth;
   const first = sourceButtons[0]?.getBoundingClientRect();
   const last = sourceButtons.at(-1)?.getBoundingClientRect();
+  const sourceSliderRect = sourceSlider?.getBoundingClientRect();
+  const planPickerRect = planPicker?.getBoundingClientRect();
+  const planSelectRect = planSelect?.getBoundingClientRect();
   const sourceListRect = sourceList.getBoundingClientRect();
   const firstSourceRect = firstSourceChip?.getBoundingClientRect();
   return {
@@ -647,10 +660,30 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
       && firstSourceRect.height >= 29
       && firstSourceRect.top >= sourceListRect.top - 1
       && firstSourceRect.bottom <= Math.min(sourceListRect.bottom, innerHeight) + 1,
-    outputCollapsed: document.querySelector('#relayOutputBoxes')?.hidden === true,
+    outputCollapsed: document.querySelector('#relayOutputBoxes')?.hidden === true
+      && getComputedStyle(document.querySelector('#relayOutputBoxes')).display === 'none',
     sourceTabCount: sourceButtons.length,
     sourceTabWidthDelta: first && last ? Math.abs(first.width - last.width) : 999,
     sourceRightGap: last ? Math.abs(sr.right - last.right) : 999,
+    sourceSliderLeft: sourceSliderRect?.left ?? -1,
+    sourceSliderWidth: sourceSliderRect?.width || 0,
+    planPickerVisible: Boolean(
+      planPickerRect
+      && planPickerRect.width > 20
+      && planPickerRect.height > 20
+      && getComputedStyle(planPicker).display !== 'none'
+      && getComputedStyle(planPicker).visibility !== 'hidden'
+    ),
+    planSelectHidden: Boolean(
+      planSelect
+      && planSelect.getAttribute('aria-hidden') === 'true'
+      && planSelect.tabIndex === -1
+      && planSelectRect
+      && planSelectRect.width <= 2
+      && planSelectRect.height <= 2
+    ),
+    planListInitiallyHidden: planList?.hidden === true
+      && getComputedStyle(planList).display === 'none',
     documentOverflow: document.scrollingElement.scrollWidth - clientWidth,
     clientWidth,
     /* html uses scrollbar-gutter:stable. Fixed drawers are therefore positioned
@@ -670,6 +703,14 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} output should start collapsed: {shell}")
             if shell["sourceTabCount"] != 2 or shell["sourceTabWidthDelta"] > 2 or shell["sourceRightGap"] > 8:
                 raise CheckFailed(f"Relay {mode} source tabs do not fill two equal segments: {shell}")
+            if (
+                not shell["planPickerVisible"]
+                or not shell["planSelectHidden"]
+                or not shell["planListInitiallyHidden"]
+            ):
+                raise CheckFailed(f"Relay {mode} plan picker did not replace the legacy select cleanly: {shell}")
+            if shell["sourceSliderWidth"] <= 8:
+                raise CheckFailed(f"Relay {mode} source slider has no usable geometry: {shell}")
             if shell["documentOverflow"] > 1:
                 raise CheckFailed(f"Relay {mode} causes horizontal page overflow: {shell}")
 
@@ -709,11 +750,108 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 ):
                     raise CheckFailed(f"Relay mobile sheet shape is wrong: {shell}")
 
+            # Motion is disabled for deterministic screenshots, so this checks the
+            # picker's accessible/open and selected/closed end states, not timing.
+            cdp.eval("document.querySelector('#relayPlanPickerBtn')?.click()")
             wait_for(
                 cdp,
-                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8",
-                f"relay {mode} plan chips",
+                "document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'true'"
+                " && document.querySelector('#relayPlanList')?.hidden === false"
+                " && document.querySelector('#relayPlanList')?.getBoundingClientRect().width > 20"
+                " && document.querySelector('#relayPlanList')?.getBoundingClientRect().height > 20",
+                f"relay {mode} opens plan picker",
             )
+            picker_open = cdp.eval(
+                "({optionCount: document.querySelectorAll('#relayPlanList [role=\"option\"]').length,"
+                " selected: document.querySelector('#relayPlanList [aria-selected=\"true\"]')?.dataset.planId || ''})"
+            )
+            if picker_open["optionCount"] != 2 or picker_open["selected"] != "qa-plan":
+                raise CheckFailed(f"Relay {mode} plan picker options are wrong: {picker_open}")
+            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan-alt\"]')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanSelect')?.value === 'qa-plan-alt'"
+                " && document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 0"
+                " && document.querySelector('#relayPlanEmpty')?.hidden === false"
+                " && document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'false'"
+                " && document.querySelector('#relayPlanList')?.hidden === true"
+                " && getComputedStyle(document.querySelector('#relayPlanList')).display === 'none'",
+                f"relay {mode} selects empty plan",
+            )
+            cdp.eval("document.querySelector('#relayPlanPickerBtn')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'true'"
+                " && document.querySelector('#relayPlanList')?.hidden === false",
+                f"relay {mode} reopens plan picker",
+            )
+            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan\"]')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanSelect')?.value === 'qa-plan'"
+                " && document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8"
+                " && document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'false'"
+                " && document.querySelector('#relayPlanList')?.hidden === true"
+                " && getComputedStyle(document.querySelector('#relayPlanList')).display === 'none'",
+                f"relay {mode} restores populated plan",
+            )
+            shell["planPickerOptionCount"] = picker_open["optionCount"]
+            shell["planPickerRoundTrip"] = True
+
+            # 确认条通常自己截住 Escape；但焦点若被用户点到栏内别处，事件会直接到 rail。
+            # 外壳仍应取消确认而不是把整栏关掉或因“内层可见”把按键吞成 no-op。
+            cdp.eval("document.querySelector('#relayPlanMenuBtn')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanMenu')?.hidden === false",
+                f"relay {mode} opens plan actions",
+            )
+            cdp.eval("document.querySelector('#relayDeletePlan')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayInlineAction')?.hidden === false",
+                f"relay {mode} opens inline confirmation",
+            )
+            cdp.eval(r"""
+(() => {
+  const outside = document.querySelector('#relayPlanPickerBtn');
+  outside?.focus();
+  outside?.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
+  return true;
+})()
+""")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayInlineAction')?.hidden === true"
+                " && !document.querySelector('#tagRelayRail')?.classList.contains('closed')",
+                f"relay {mode} Escape cancels inline confirmation only",
+            )
+            shell["inlineActionEscapeStayedOpen"] = True
+
+            # The source rail uses the same sliding selection language as the
+            # format controls. With motion off, assert only the two final positions.
+            source_slider_start = shell["sourceSliderLeft"]
+            cdp.eval("document.querySelector('#relaySourceTabFavorites')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relaySourceTabFavorites')?.getAttribute('aria-selected') === 'true'"
+                " && (() => { const slider = document.querySelector('.tag-relay-source-slider');"
+                f" const rect = slider?.getBoundingClientRect(); return !!rect && Math.abs(rect.left - {source_slider_start!r}) > Math.max(4, rect.width * .5); }})()",
+                f"relay {mode} moves source slider to favorites",
+            )
+            source_slider_favorites = cdp.eval(
+                "document.querySelector('.tag-relay-source-slider')?.getBoundingClientRect().left"
+            )
+            cdp.eval("document.querySelector('#relaySourceTabInbox')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relaySourceTabInbox')?.getAttribute('aria-selected') === 'true'"
+                " && (() => { const left = document.querySelector('.tag-relay-source-slider')"
+                f"?.getBoundingClientRect().left; return Number.isFinite(left) && Math.abs(left - {source_slider_start!r}) <= 2; }})()",
+                f"relay {mode} restores source slider to inbox",
+            )
+            shell["sourceSliderFavoritesLeft"] = source_slider_favorites
+            shell["sourceSliderRoundTrip"] = True
 
             # 真正派发 HTML DragEvent，而不是只看 draggable 属性。drop 回调会异步等 Web Lock；
             # 载荷 ID 若仍从会被 dragend 清空的模块变量读取，这里就不会发生换位。
@@ -756,6 +894,21 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             )
             if not added["sourceStillVisible"]:
                 raise CheckFailed(f"Relay {mode} hid the source zone after adding: {added}")
+            cdp.eval("document.querySelector('#relaySourceList .tag-relay-chip-main')?.click()")
+            settle(cdp, 220)
+            duplicate = cdp.eval(r"""
+(() => {
+  const state = JSON.parse(localStorage.getItem('fadian-tag-relay-v1') || '{}');
+  const active = (state.plans || []).find(item => item.id === state.activePlanId);
+  return {
+    planChips: document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length,
+    storedItems: active?.items?.length ?? -1,
+  };
+})()
+""")
+            if duplicate["planChips"] != 9 or duplicate["storedItems"] != 9:
+                raise CheckFailed(f"Relay {mode} allowed the same source into one plan twice: {duplicate}")
+            added["duplicateStayedAtNine"] = True
             # 复位，后面的断言仍按 8 块算
             cdp.eval(
                 "(() => { const chips = document.querySelectorAll('#relayPlanLane .tag-relay-plan-card');"
@@ -848,11 +1001,22 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} compose content overflows horizontally: {compose}")
 
             shots.append(screenshot(cdp, out_dir, f"tag-relay-{mode}"))
-            cdp.eval("document.querySelector('#relayInspectorClose')?.click(); true")
+            # Inspector / history 与 rail 外壳的 Escape 监听都挂在 rail；注册顺序若处理错，
+            # stopPropagation 挡不住同节点的早监听，浮层态会一次把编辑器和整栏都关掉。
+            cdp.eval(r"""
+(() => {
+  const target = document.querySelector('#relayInspectorClose');
+  target?.focus();
+  target?.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
+  return true;
+})()
+""")
             wait_for(
                 cdp,
-                "document.querySelector('#relayInspector')?.hidden === true",
-                f"relay {mode} closes inspector",
+                "document.querySelector('#relayInspector')?.hidden === true"
+                " && !document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+                " && document.querySelector('#tagRelayRail')?.getAttribute('aria-hidden') === 'false'",
+                f"relay {mode} Escape closes only inspector",
             )
             cdp.eval("document.querySelector('#tagRelayRailClose')?.click()")
             wait_for(
@@ -864,7 +1028,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 f"relay {mode} closes inert",
             )
             check_no_errors(cdp)
-            details[mode] = {"shell": shell, "compose": compose}
+            details[mode] = {"shell": shell, "compose": compose, "sourceAdd": added}
 
         return {"viewports": details, "screenshots": shots}
 

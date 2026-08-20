@@ -68,7 +68,6 @@
   margin:0 0 10px;padding:10px 16px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
   background:var(--tagbg);
 }
-.tag-relay-inline-action[hidden]{display:none}
 .tag-relay-inline-action-copy{min-width:0}
 .tag-relay-inline-action-copy b{display:block;font-size:12.5px}
 .tag-relay-inline-action-copy p{margin:2px 0 0;color:var(--muted);font-size:10.5px;line-height:1.45}
@@ -291,7 +290,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   display:flex;flex-direction:column;gap:2px;
 }
-.tag-relay-plan-menu[hidden]{display:none}
 .tag-relay-plan-menu button{
   border:0;border-radius:8px;background:transparent;color:var(--text);
   padding:7px 10px;text-align:left;font-size:12.5px;
@@ -300,7 +298,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-plan-menu button:disabled{opacity:.4;cursor:not-allowed}
 
 .tag-relay-history{flex:none;margin:0 12px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
-.tag-relay-history[hidden]{display:none}
 .tag-relay-history>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
 .tag-relay-history>header>b{font-size:12px}
 .tag-relay-history>header>div{display:flex;align-items:center;gap:3px}
@@ -344,7 +341,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   box-shadow:var(--popover-shadow);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
   padding:12px;display:flex;flex-direction:column;gap:8px;max-height:min(46vh,390px);overflow-y:auto;
 }
-.tag-relay-rail .tag-relay-inspector[hidden]{display:none}
 .tag-relay-inspector-head{display:flex;align-items:center;justify-content:space-between}
 .tag-relay-inspector-head b{font-size:13px}
 .tag-relay-inspector-head button{border:0;background:transparent;color:var(--muted);font-size:17px;line-height:1;width:26px;height:26px;border-radius:8px}
@@ -418,11 +414,40 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
    ============================================================ */
 
 /* ---- 栏头：吞掉原来的方案条 ---- */
+.tag-relay-plan-picker{position:relative;flex:1;min-width:0;max-width:154px}
 .tag-relay-rail .tag-relay-plan-pick{
-  flex:1;min-width:0;max-width:154px;height:26px;
+  width:100%;min-width:0;height:26px;display:flex;align-items:center;gap:5px;
   border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);
-  font-size:11.5px;font-weight:800;padding:0 6px;
+  font-size:11.5px;font-weight:800;padding:0 7px;text-align:left;
 }
+.tag-relay-plan-pick:hover,.tag-relay-plan-pick[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
+.tag-relay-plan-pick:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tag-relay-plan-pick>span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-relay-plan-pick-arrow{
+  flex:none;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;transition:rotate .16s cubic-bezier(.22,1,.36,1);
+}
+.tag-relay-plan-pick[aria-expanded="true"] .tag-relay-plan-pick-arrow{rotate:180deg}
+.tag-relay-plan-list{
+  position:absolute;left:0;top:calc(100% + 6px);z-index:6;
+  width:max(100%,190px);max-width:min(260px,calc(100vw - 28px));max-height:min(46vh,288px);
+  display:flex;flex-direction:column;gap:2px;overflow-y:auto;overscroll-behavior:contain;padding:6px;
+  border:1px solid var(--popover-line);border-radius:12px;background:var(--popover-glass);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.tag-relay-plan-list [role="option"]{
+  width:100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  border:0;border-radius:8px;background:transparent;color:var(--text);padding:7px 9px;
+  text-align:left;font-size:11.5px;font-weight:700;cursor:pointer;
+}
+.tag-relay-plan-list [role="option"]:hover,.tag-relay-plan-list [role="option"]:focus-visible{
+  outline:none;background:var(--tagbg);color:var(--accent);
+}
+.tag-relay-plan-list [role="option"][aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
+.tag-relay-plan-list [role="option"]>span:first-child{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-relay-plan-list [role="option"]>small{flex:none;color:var(--muted);font-size:9.5px;font-weight:700;white-space:nowrap}
+.tag-relay-plan-option-check{flex:none;width:12px;color:var(--accent);text-align:center;font-size:10px;font-weight:900}
 
 /* ---- 分区骨架 ---- */
 .tag-relay-rail .tag-relay-zone{
@@ -543,7 +568,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   border:1px solid var(--popover-line);border-radius:15px;background:var(--popover-glass);
   box-shadow:var(--popover-shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
 }
-.tag-relay-rail .tag-relay-history[hidden]{display:none}
 
 @media (prefers-reduced-motion:reduce){
   .tag-relay-chip,.tag-relay-chip-x,.tag-relay-output-caret{transition:none}
@@ -667,10 +691,73 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 
 /* 来源切换已经搬进分区头，旧独立页的外边距/底部 padding 必须在这里归零。 */
 .tag-relay-rail .tag-relay-zone-head .tag-relay-source-tabs{
-  flex:1;min-width:0;margin:0;padding:2px;
+  position:relative;flex:1;min-width:0;margin:0;padding:2px;
 }
 .tag-relay-rail .tag-relay-zone-head .tag-relay-source-tabs button{padding:5px 7px}
 .tag-relay-rail .tag-relay-zone-head .tag-relay-source-status{margin:0;padding:0;white-space:nowrap}
+
+/* 来源页签与上方「格式 / 连接」共用同一种滑块语言；旧浏览器不支持 :has 时保留原选中底色。 */
+.tag-relay-source-slider{display:none}
+@supports selector(:has(*)){
+  .tag-relay-source-slider{
+    position:absolute;z-index:0;left:2px;top:2px;bottom:2px;
+    width:calc((100% - 4px - 3px) / 2);display:block;border-radius:999px;
+    background:var(--card);box-shadow:var(--shadow);pointer-events:none;
+    translate:0 0;transition:translate .24s cubic-bezier(.22,1,.36,1);
+  }
+  .tag-relay-source-tabs:has(>[data-relay-source="favorites"][aria-selected="true"]) .tag-relay-source-slider{
+    translate:calc(100% + 3px) 0;
+  }
+  .tag-relay-source-tabs button{position:relative;z-index:1}
+  .tag-relay-source-tabs button[aria-selected="true"]{background:transparent;box-shadow:none}
+}
+
+/* 隐藏态仍由 HTML hidden 同步维护；display 的离散过渡只负责把可见退场撑到末帧，
+   不延迟 aria-expanded，也不让 JS 等动画。位移使用独立 translate，避免占用 transform。 */
+.tag-relay-plan-list,.tag-relay-plan-menu,
+.tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,
+.tag-relay-rail .tag-relay-inspector,.tag-relay-inline-action{
+  opacity:1;translate:0 0;scale:1;
+  transition:opacity .16s ease,translate .18s cubic-bezier(.22,1,.36,1),
+    scale .18s cubic-bezier(.22,1,.36,1),display .18s allow-discrete;
+}
+.tag-relay-output-boxes,.tag-relay-inline-action{
+  max-height:260px;overflow:hidden;
+  transition:max-height .22s cubic-bezier(.22,1,.36,1),opacity .16s ease,
+    translate .18s cubic-bezier(.22,1,.36,1),scale .18s cubic-bezier(.22,1,.36,1),
+    display .22s allow-discrete;
+}
+.tag-relay-plan-list,.tag-relay-plan-menu{transform-origin:top center}
+.tag-relay-rail .tag-relay-history,.tag-relay-rail .tag-relay-inspector{transform-origin:bottom center}
+.tag-relay-plan-list[hidden],.tag-relay-plan-menu[hidden]{
+  display:none;opacity:0;translate:0 -6px;scale:.97;pointer-events:none;
+}
+.tag-relay-output-boxes[hidden],.tag-relay-inline-action[hidden]{
+  display:none;max-height:0;opacity:0;translate:0 -5px;scale:.99;pointer-events:none;
+}
+.tag-relay-rail .tag-relay-history[hidden],.tag-relay-rail .tag-relay-inspector[hidden]{
+  display:none;opacity:0;translate:0 9px;scale:.985;pointer-events:none;
+}
+@starting-style{
+  .tag-relay-plan-list:not([hidden]),.tag-relay-plan-menu:not([hidden]){
+    opacity:0;translate:0 -6px;scale:.97;
+  }
+  .tag-relay-output-boxes:not([hidden]),.tag-relay-inline-action:not([hidden]){
+    max-height:0;opacity:0;translate:0 -5px;scale:.99;
+  }
+  .tag-relay-rail .tag-relay-history:not([hidden]),.tag-relay-rail .tag-relay-inspector:not([hidden]){
+    opacity:0;translate:0 9px;scale:.985;
+  }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .tag-relay-plan-pick-arrow,.tag-relay-source-slider,
+  .tag-relay-plan-list,.tag-relay-plan-menu,
+  .tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,
+  .tag-relay-rail .tag-relay-inspector,.tag-relay-inline-action{
+    transition:none!important;
+  }
+}
 
 @media (max-width:600px){
   .tag-relay-rail .tag-relay-zone-plan{max-height:min(60%,318px)}

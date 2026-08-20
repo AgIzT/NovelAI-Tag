@@ -24,6 +24,7 @@ import {
   renamePlan,
   restoreHistoryAsPlan,
   setActivePlan,
+  stableEntryKey,
   updatePlanItem,
   weightAppliesTo,
 } from './tag-relay-core.js';
@@ -74,8 +75,9 @@ const blockPreview = item => promptParts(item, 'positive').join(', ')
   || promptParts(item, 'negative').join(', ')
   || '空块';
 
-/* 素材架把词条送进方案时走这里：点主体加入完整词条，点「负」只加入负向，
-   两种路径都给一次可撤销反馈。 */
+/* 素材架把词条送进方案时走这里：点主体加入完整词条，点「负」只加入负向。
+   同一词条在一个方案里只能占一个槽位；完整 / 仅负向共用加入前冻结的 relayKey，
+   否则没有法典 ID 的本地词条会因「仅负向」清空正向正文而算出另一把内容哈希。 */
 export async function addSourceToPlan(entry, { negativeOnly = false } = {}) {
   if (itemLocked(entry)) {
     toast('该词条当前处于访问锁定状态', '!');
@@ -83,16 +85,27 @@ export async function addSourceToPlan(entry, { negativeOnly = false } = {}) {
   }
   const targetPlanId = plan()?.id || '';
   if (!targetPlanId) return;
+  const relayKey = stableEntryKey(entry);
+  const shownTitle = entry.title || '未命名词条';
+  if (plan()?.items?.some(item => item.kind === 'entry' && item.entryKey === relayKey)) {
+    toast(`已在当前方案中：${shownTitle}`, '=');
+    return;
+  }
   const source = negativeOnly
-    ? { ...entry, prompt: '', negative: promptParts(entry, 'negative').join(',\n'), characterPrompts: [] }
-    : entry;
+    ? { ...entry, relayKey, prompt: '', negative: promptParts(entry, 'negative').join(',\n'), characterPrompts: [] }
+    : { ...entry, relayKey };
   const action = await commitRelay(
-    next => appendEntryToPlan(next, targetPlanId, source, { allowDuplicate: true }),
+    next => appendEntryToPlan(next, targetPlanId, source),
     { changed: 'plan' },
   );
   if (!action.ok || !action.result?.item) return;
+  /* 预检查只为省掉常规重复点击的落盘；真正的不变式仍在锁内的 core。
+     两个标签页同时加入时，后进入锁的那次会走这里，绝不能给它一个会删掉旧块的「撤销」。 */
+  if (action.result.added === false) {
+    toast(`已在当前方案中：${shownTitle}`, '=');
+    return;
+  }
   const addedItemId = action.result.item.id;
-  const shownTitle = entry.title || '未命名词条';
   toast(negativeOnly ? `已仅加入负向：${shownTitle}` : `已加入方案：${shownTitle}`, '+', {
     label: '撤销',
     onClick: () => {
@@ -228,13 +241,19 @@ function renderOrphanedDraft() {
   editorAccessSnapshot = orphanedDraft.accessSnapshot || null;
 }
 
-export function closeInspector() {
+export function closeInspector({ restoreFocus = false } = {}) {
+  const returnItemId = selectedItemId;
   creatingBlock = false;
   selectedItemId = '';
   editorPlanId = '';
   editorAccessSnapshot = null;
   if (refs?.inspector) refs.inspector.hidden = true;
   for (const node of refs?.lane.querySelectorAll('.is-selected') || []) node.classList.remove('is-selected');
+  if (restoreFocus) {
+    const returnCard = [...(refs?.lane.querySelectorAll('.tag-relay-plan-card') || [])]
+      .find(card => card.dataset.itemId === returnItemId);
+    (returnCard || refs?.addBlock || refs?.planPickerBtn)?.focus({ preventScroll: true });
+  }
 }
 
 /* 轨道自己不再当活区（每次全量重建会让读屏把 N 个块重念一遍），
@@ -522,11 +541,38 @@ function renderOutput() {
 
 function renderPlanControls() {
   const state = relayState();
+  const current = state.plans.find(item => item.id === state.activePlanId) || state.plans[0];
   refs.planSelect.replaceChildren(...state.plans.map(item => {
     const option = document.createElement('option');
     option.value = item.id;
     option.textContent = `${item.name} · ${item.items.length}`;
     option.selected = item.id === state.activePlanId;
+    return option;
+  }));
+  refs.planPickerLabel.textContent = current ? `${current.name} · ${current.items.length}` : '选择方案';
+  refs.planPickerBtn.setAttribute(
+    'aria-label',
+    current ? `当前方案：${current.name}，${current.items.length} 个块` : '选择方案',
+  );
+  refs.planList.replaceChildren(...state.plans.map((item, index) => {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.id = `relayPlanOption${index}`;
+    option.className = 'tag-relay-plan-option';
+    option.dataset.planId = item.id;
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', String(item.id === state.activePlanId));
+    option.tabIndex = -1;
+
+    const name = document.createElement('span');
+    name.textContent = item.name;
+    const count = document.createElement('small');
+    count.textContent = `${item.items.length} 个块`;
+    const check = document.createElement('span');
+    check.className = 'tag-relay-plan-option-check';
+    check.setAttribute('aria-hidden', 'true');
+    check.textContent = item.id === state.activePlanId ? '✓' : '';
+    option.append(name, count, check);
     return option;
   }));
   refs.deletePlan.disabled = state.plans.length <= 1;
@@ -738,22 +784,104 @@ async function copyOutput(channel, trigger) {
 /* ---------------- 绑定 ---------------- */
 
 function bindPlanBar() {
-  refs.planSelect.addEventListener('change', async () => {
-    await commitRelay(next => setActivePlan(next, refs.planSelect.value), { changed: 'plan' });
-  });
+  const picker = refs.planPickerBtn;
+  const list = refs.planList;
   const menu = refs.planMenu;
+  const planOptions = () => [...list.querySelectorAll('[role="option"]')];
   const menuItems = () => [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+  const closePicker = ({ restoreFocus = false } = {}) => {
+    list.hidden = true;
+    picker.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) picker.focus({ preventScroll: true });
+  };
   const closeMenu = ({ restoreFocus = false } = {}) => {
     menu.hidden = true;
     refs.planMenuBtn.setAttribute('aria-expanded', 'false');
     if (restoreFocus) refs.planMenuBtn.focus({ preventScroll: true });
   };
+  const openPicker = (focus = 'selected') => {
+    closeMenu();
+    list.hidden = false;
+    picker.setAttribute('aria-expanded', 'true');
+    const options = planOptions();
+    const selected = options.find(option => option.getAttribute('aria-selected') === 'true');
+    const target = focus === 'first'
+      ? options[0]
+      : focus === 'last'
+        ? options.at(-1)
+        : selected || options[0];
+    target?.focus({ preventScroll: true });
+  };
   const openMenu = (focus = 'first') => {
+    closePicker();
     menu.hidden = false;
     refs.planMenuBtn.setAttribute('aria-expanded', 'true');
     const items = menuItems();
     (focus === 'last' ? items.at(-1) : items[0])?.focus({ preventScroll: true });
   };
+  const selectPlan = async (planId, { restoreFocus = true } = {}) => {
+    if (!planId) return;
+    closePicker({ restoreFocus });
+    refs.planSelect.value = planId;
+    await commitRelay(next => setActivePlan(next, planId), { changed: 'plan' });
+  };
+
+  /* 隐藏原生 select 只是旧调用方的值桥；可见交互统一走带动画的 listbox。 */
+  refs.planSelect.addEventListener('change', () => selectPlan(refs.planSelect.value, { restoreFocus: false }));
+  picker.addEventListener('click', event => {
+    event.stopPropagation();
+    if (list.hidden) openPicker();
+    else closePicker({ restoreFocus: true });
+  });
+  picker.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !list.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      closePicker({ restoreFocus: true });
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    openPicker(event.key === 'ArrowUp' || event.key === 'End' ? 'last' : (event.key === 'Home' ? 'first' : 'selected'));
+  });
+  list.addEventListener('click', event => {
+    const option = event.target?.closest?.('[data-plan-id]');
+    if (!option || !list.contains(option)) return;
+    void selectPlan(option.dataset.planId);
+  });
+  list.addEventListener('keydown', event => {
+    const options = planOptions();
+    if (!options.length) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closePicker({ restoreFocus: true });
+      return;
+    }
+    if (event.key === 'Tab') {
+      /* 先让浏览器完成原生 Tab 移焦，再收起浮层；同步隐藏当前焦点会让部分浏览器
+         从 body 重新开始遍历，键盘用户一下跳回页面最前面。 */
+      setTimeout(() => closePicker(), 0);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      const option = event.target?.closest?.('[data-plan-id]');
+      if (!option) return;
+      event.preventDefault();
+      void selectPlan(option.dataset.planId);
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = Math.max(0, options.indexOf(document.activeElement));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? options.length - 1
+        : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+    options[next].focus({ preventScroll: true });
+  });
+
   refs.planMenuBtn.addEventListener('click', event => {
     event.stopPropagation();
     if (menu.hidden) openMenu();
@@ -788,10 +916,12 @@ function bindPlanBar() {
     items[next].focus({ preventScroll: true });
   });
   document.addEventListener('click', event => {
+    if (!list.hidden && !list.contains(event.target) && event.target !== picker) closePicker();
     if (!menu.hidden && !menu.contains(event.target) && event.target !== refs.planMenuBtn) closeMenu();
   });
 
   refs.historyToggle?.addEventListener('click', () => {
+    closePicker();
     closeMenu();
     historyOpen = !historyOpen;
     renderHistory();
@@ -799,6 +929,7 @@ function bindPlanBar() {
   refs.historyClose?.addEventListener('click', () => {
     historyOpen = false;
     renderHistory();
+    refs.historyToggle.focus({ preventScroll: true });
   });
   refs.historyClear?.addEventListener('click', async event => {
     const count = relayState().history.length;
@@ -880,15 +1011,15 @@ function bindInspector() {
   refs.addBlock?.addEventListener('click', addManualBlock);
   refs.inspectorClose.addEventListener('click', () => {
     orphanedDraft = null;
-    closeInspector();
+    closeInspector({ restoreFocus: true });
   });
   refs.blockRemove.addEventListener('click', () => {
     if (orphanedDraft) {
       orphanedDraft = null;
-      closeInspector();
+      closeInspector({ restoreFocus: true });
       return;
     }
-    if (creatingBlock) closeInspector();
+    if (creatingBlock) closeInspector({ restoreFocus: true });
     else if (selectedItemId) removeBlock(selectedItemId);
   });
   refs.blockSave.addEventListener('click', async () => {
@@ -1050,6 +1181,14 @@ function bindLaneDrop() {
 function bindEscape(root) {
   root.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
+    if (!refs.planList.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      refs.planList.hidden = true;
+      refs.planPickerBtn.setAttribute('aria-expanded', 'false');
+      refs.planPickerBtn.focus({ preventScroll: true });
+      return;
+    }
     if (!refs.planMenu.hidden) {
       event.preventDefault();
       event.stopPropagation();
@@ -1059,15 +1198,18 @@ function bindEscape(root) {
       return;
     }
     if (!refs.inspector.hidden) {
+      event.preventDefault();
       event.stopPropagation();
       orphanedDraft = null;
-      closeInspector();
+      closeInspector({ restoreFocus: true });
       return;
     }
     if (historyOpen) {
+      event.preventDefault();
       event.stopPropagation();
       historyOpen = false;
       renderHistory();
+      refs.historyToggle.focus({ preventScroll: true });
     }
   });
 }
@@ -1082,6 +1224,9 @@ export function setupRelayCompose(root) {
   refs = {
     root,
     planSelect: q('#relayPlanSelect'),
+    planPickerBtn: q('#relayPlanPickerBtn'),
+    planPickerLabel: q('#relayPlanPickerLabel'),
+    planList: q('#relayPlanList'),
     planMenuBtn: q('#relayPlanMenuBtn'),
     planMenu: q('#relayPlanMenu'),
     historyToggle: q('#relayHistoryToggle'),
@@ -1132,7 +1277,7 @@ export function setupRelayCompose(root) {
     bindLaneDrop();
     bindZoneTools();
     bindOutputToggle();
-    bindEscape(root);
+    bindEscape(scope);
     refs.copyPositive.addEventListener('click', event => copyOutput('positive', event.currentTarget));
     refs.copyNegative.addEventListener('click', event => copyOutput('negative', event.currentTarget));
     refs.copyAll.addEventListener('click', event => copyOutput('both', event.currentTarget));

@@ -841,6 +841,14 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   // 素材必须可拖，且载荷是带类型的快照（收藏来源不在 relayInbox 里，按 key 回查会落空）。
   assert.match(relaySource, /chip\.draggable = !locked/);
   assert.match(relaySource, /setData\(RELAY_SOURCE_MIME, JSON\.stringify\(entry\)\)/);
+  // 同一词条在一个方案里只占一个槽位；完整 / 仅负向先冻结同一身份，重复分支不能给撤销。
+  const addSourceBody = composeSource.slice(
+    composeSource.indexOf('export async function addSourceToPlan'),
+    composeSource.indexOf('/* 手写块：'),
+  );
+  assert.match(addSourceBody, /const relayKey = stableEntryKey\(entry\)/);
+  assert.doesNotMatch(addSourceBody, /allowDuplicate/);
+  assert.match(addSourceBody, /action\.result\.added === false[\s\S]*已在当前方案中/);
   // 方案块必须可拖，且主体**不能**是 button——Chrome 里按钮会吞掉拖拽手势，
   // draggable 的祖先收不到 dragstart，就是"能拖但什么都不会发生"。
   assert.match(composeSource, /card\.draggable = !locked/);
@@ -867,6 +875,22 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(actionSource, /export function requestRelayAction/);
   assert.match(indexSource, /id="relayInlineAction"/);
   assert.match(indexSource, /rel="modulepreload" href="assets\/app\/tag-relay-action\.js"/);
+  // 方案选择不再暴露系统 select；可见按钮 + listbox 与来源滑块都必须在 DOM 中。
+  assert.match(indexSource, /id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"/);
+  assert.match(indexSource, /id="relayPlanPickerBtn"[\s\S]*aria-haspopup="listbox"[\s\S]*aria-controls="relayPlanList"/);
+  assert.match(indexSource, /id="relayPlanList" class="tag-relay-plan-list" role="listbox"/);
+  assert.match(indexSource, /class="tag-relay-source-slider" aria-hidden="true"/);
+  assert.match(composeSource, /\[role="option"\][\s\S]*ArrowDown[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/);
+  assert.match(railSource, /querySelector\('#relayPlanPickerBtn'\)/);
+  assert.match(railSource, /const hasOpenInnerLayer = \(\) => \[[\s\S]*#relayCopyHistory[\s\S]*#relayInspector[\s\S]*cancelRelayAction\(\);[\s\S]*if \(hasOpenInnerLayer\(\)\) return/);
+  // 与格式 / 连接同源的滑块语言，以及各披露面板统一的入退场与减弱动效兜底。
+  assert.match(relayCss, /@supports selector\(:has\(\*\)\)[\s\S]*tag-relay-source-slider[\s\S]*transition:translate \.24s/);
+  assert.match(relayCss, /tag-relay-plan-list[\s\S]*tag-relay-output-boxes[\s\S]*display \.18s allow-discrete/);
+  assert.match(relayCss, /tag-relay-plan-list\[hidden\],[^\{]+\{\s*display:none/);
+  assert.match(relayCss, /tag-relay-output-boxes\[hidden\],[^\{]+\{\s*display:none/);
+  assert.match(relayCss, /tag-relay-history\[hidden\],[^\{]+tag-relay-inspector\[hidden\]\{\s*display:none/);
+  assert.match(relayCss, /@starting-style[\s\S]*tag-relay-plan-list:not\(\[hidden\]\)[\s\S]*tag-relay-inspector:not\(\[hidden\]\)/);
+  assert.match(relayCss, /@media \(prefers-reduced-motion:reduce\)[\s\S]*tag-relay-source-slider[\s\S]*transition:none!important/);
   /* 方案被另一标签页切走或删掉时，正在编辑的内容必须转成可另存的草稿，不能由
      下一次 render 直接 closeInspector 后静默消失。 */
   assert.match(

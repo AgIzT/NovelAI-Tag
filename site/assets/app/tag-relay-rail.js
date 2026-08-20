@@ -95,7 +95,7 @@ function setOpenDirect(open, trigger = null) {
       : (fallback instanceof HTMLElement && fallback !== document.body ? fallback : null);
     /* 浮层态是模态语义：焦点必须进去，否则读屏与键盘用户还停在页面底下 */
     if (overlayQuery.matches) {
-      (rail.querySelector('#relayPlanSelect') || rail.querySelector('button') || rail).focus?.();
+      (rail.querySelector('#relayPlanPickerBtn') || rail.querySelector('button') || rail).focus?.();
     }
   } else {
     /* 没走完的确认 / 命名条不能留到下一次打开——「清空最近复制」「删除方案」
@@ -181,12 +181,30 @@ function bindRail() {
     if (tab) showRailTab(tab.dataset.railTab);
   });
 
-  /* Esc 由内向外：先关栏内的浮层（后续分区会自己 stopPropagation），
-     最外层只在浮层形态下关栏；停靠态什么都不做，让事件继续冒泡给 ui.js 的链子。 */
+  /* Esc 由内向外。Inspector / 历史的处理器也绑在 rail 上，而且 compose 比本模块晚初始化；
+     stopPropagation 阻止不了同一节点上已经排在前面的监听。因此外壳必须先看 DOM 状态主动
+     让出这一击，不能指望内层事后截断，否则抽屉 / sheet 会一键把面板和整栏一起关掉。 */
+  const hasOpenInnerLayer = () => [
+    '#relayPlanList',
+    '#relayPlanMenu',
+    '#relayCopyHistory',
+    '#relayInspector',
+  ].some(selector => {
+    const layer = rail.querySelector(selector);
+    return layer && !layer.hidden;
+  });
   rail.addEventListener('keydown', event => {
     if (isRelayRailModal()) trapFocus(event, rail);
     if (event.key !== 'Escape') return;
+    const inlineAction = rail.querySelector('#relayInlineAction');
+    if (inlineAction && !inlineAction.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelRelayAction();
+      return;
+    }
     if (!isRelayRailModal()) return;
+    if (hasOpenInnerLayer()) return;
     event.stopPropagation();
     closeRelayRail();
   });
@@ -223,7 +241,7 @@ function bindRail() {
       if (!isClosed()) openHistoryLayer(RAIL_LAYER_ID);
       if (!isClosed() && !rail.contains(document.activeElement)) {
         lastTrigger = document.activeElement;
-        (rail.querySelector('#relayPlanSelect') || rail.querySelector('button') || rail).focus?.();
+        (rail.querySelector('#relayPlanPickerBtn') || rail.querySelector('button') || rail).focus?.();
       }
     } else {
       /* 浮层 → 停靠：开栏时 openHistoryLayer 是 push 出来的一条真记录，

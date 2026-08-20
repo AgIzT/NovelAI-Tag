@@ -385,7 +385,9 @@ function fakeElement(tag = 'div') {
        编辑器与成品是栏级浮层，ref 的作用域得放宽到整条栏。这个假 DOM 是「按选择器惰性生成」
        的单层结构，没有真的父链，所以直接把自己当成那条栏返回——本测试只关心能不能查到节点。 */
     closest(selector) {
-      return String(selector).includes('tag-relay-rail') ? node : null;
+      if (String(selector).includes('tag-relay-rail')) return node;
+      if (selector === '[data-plan-id]' && node.dataset.planId) return node;
+      return null;
     },
     fire(type, event = {}) {
       for (const listener of node.listeners.get(type) || []) {
@@ -407,7 +409,7 @@ function fakeElement(tag = 'div') {
     },
     getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 50, x: 0, y: 0 }; },
     contains(other) { return other === node || node.children.some(child => child.contains?.(other)); },
-    focus() {},
+    focus() { if (globalThis.document) globalThis.document.activeElement = node; },
     select() {},
     setSelectionRange() {},
     querySelector: () => null,
@@ -445,8 +447,21 @@ const storage = new Map();
 const pool = new Map();
 const relayShell = fakeElement('aside');
 const relayRoot = fakeElement('section');
+const initiallyHidden = new Set([
+  '#relayPlanList', '#relayPlanMenu', '#relayCopyHistory', '#relayInspector',
+  '#relayOutputBoxes', '#relayInlineAction', '#relayBlockTools',
+]);
 relayShell.querySelector = selector => {
-  if (!pool.has(selector)) pool.set(selector, fakeElement('div'));
+  if (!pool.has(selector)) {
+    const node = fakeElement('div');
+    node.hidden = initiallyHidden.has(selector);
+    if (selector === '#relayPlanList') {
+      node.querySelectorAll = query => query === '[role="option"]'
+        ? node.children.filter(child => child.getAttribute?.('role') === 'option')
+        : [];
+    }
+    pool.set(selector, node);
+  }
   return pool.get(selector);
 };
 relayRoot.closest = selector => (String(selector).includes('tag-relay-rail') ? relayShell : null);
@@ -616,6 +631,68 @@ try {
     assert.equal(joinButtons[1].getAttribute('aria-checked'), 'true');
     formatButtons[0].fire('click');
     joinButtons[0].fire('click');
+
+    /* —— 方案选择器：可见按钮 + listbox 同步开合，Escape 归还焦点 —— */
+    const planPicker = ref('#relayPlanPickerBtn');
+    const planList = ref('#relayPlanList');
+    assert.equal(planList.hidden, true);
+    planPicker.fire('click');
+    assert.equal(planList.hidden, false);
+    assert.equal(planPicker.getAttribute('aria-expanded'), 'true');
+    relayShell.fire('keydown', { key: 'Escape' });
+    assert.equal(planList.hidden, true);
+    assert.equal(planPicker.getAttribute('aria-expanded'), 'false');
+    assert.equal(document.activeElement, planPicker, 'Escape 关闭方案列表后要把焦点还给触发按钮');
+
+    /* —— 同一词条只能进入当前方案一次 ——
+       常规重复由内存预检查拦下；Promise.all 则让两次请求一起越过预检查，验证 Web Lock
+       内的 core 去重仍生效。完整 / 仅负向还必须共用冻结的本地 relayKey。 */
+    const laneIds = () => ref('#relayPlanLane').children.map(card => card.dataset.itemId);
+    const originalIds = laneIds();
+    await compose.addSourceToPlan(LOCKED_ITEM);
+    await compose.addSourceToPlan(LOCKED_ITEM, { negativeOnly: true });
+    view.render();
+    assert.deepEqual(laneIds(), originalIds, '方案里已有的真实词条不得因完整或仅负向入口再加一块');
+
+    const localEntry = {
+      title: '本地去重词条',
+      prompt: 'local-positive',
+      negative: 'local-negative',
+      access: { nsfw: false, r18g: false },
+      accessKnown: true,
+    };
+    await Promise.all([
+      compose.addSourceToPlan(localEntry),
+      compose.addSourceToPlan(localEntry),
+    ]);
+    view.render();
+    assert.equal(laneIds().length, originalIds.length + 1, '并发加入同一素材也只能落一个方案块');
+    const localCard = ref('#relayPlanLane').children.find(card => visibleText(card).includes(localEntry.title));
+    assert.ok(localCard, '并发去重后应保留先进入的那一个块');
+    await compose.addSourceToPlan(localEntry, { negativeOnly: true });
+    view.render();
+    assert.equal(laneIds().length, originalIds.length + 1, '无来源 ID 的仅负向投影也要命中原完整词条');
+    await compose.removeBlock(localCard.dataset.itemId);
+    view.render();
+    assert.deepEqual(laneIds(), originalIds, '去重用例清理后不得污染后续拖排状态');
+
+    const negativeFirst = {
+      title: '先负向词条',
+      prompt: 'must-not-upgrade',
+      negative: 'negative-first',
+      access: { nsfw: false, r18g: false },
+      accessKnown: true,
+    };
+    await compose.addSourceToPlan(negativeFirst, { negativeOnly: true });
+    await compose.addSourceToPlan(negativeFirst);
+    view.render();
+    assert.doesNotMatch(ref('#relayPositiveOutput').value, /must-not-upgrade/, '重复加入不能暗中覆盖先进入的仅负向块');
+    assert.match(ref('#relayNegativeOutput').value, /negative-first/);
+    const negativeCard = ref('#relayPlanLane').children.find(card => visibleText(card).includes(negativeFirst.title));
+    assert.ok(negativeCard);
+    await compose.removeBlock(negativeCard.dataset.itemId);
+    view.render();
+    assert.deepEqual(laneIds(), originalIds);
 
     /* —— 原生拖放：自投不误移；异步 drop 也不依赖会被 dragend 清空的模块状态 —— */
     const makeDataTransfer = () => {
