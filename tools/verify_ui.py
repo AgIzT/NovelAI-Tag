@@ -585,6 +585,78 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             timeout=15,
         )
 
+        def relay_plan_ids() -> list[str]:
+            return cdp.eval(
+                "[...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                ".map(card => card.dataset.itemId)"
+            )
+
+        def wait_for_relay_plan_order(expected: list[str], label: str) -> None:
+            expected_json = js_string(json.dumps(expected, ensure_ascii=False, separators=(",", ":")))
+            wait_for(
+                cdp,
+                "JSON.stringify([...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".map(card => card.dataset.itemId)) === {expected_json}",
+                label,
+            )
+
+        def assert_relay_undo_toast(label: str, expected_message: str = "已移出方案") -> dict:
+            wait_for(
+                cdp,
+                "document.querySelector('#toast')?.classList.contains('show')"
+                " && document.querySelector('#toast')?.classList.contains('has-action')"
+                " && document.querySelector('#toast .toast-action')?.textContent.trim() === '撤销'",
+                label,
+            )
+            data = cdp.eval(r"""
+(() => {
+  const toast = document.querySelector('#toast');
+  const message = toast?.querySelector('.toast-message');
+  const action = toast?.querySelector('.toast-action');
+  const rect = toast?.getBoundingClientRect();
+  const actionRect = action?.getBoundingClientRect();
+  return {
+    message: message?.textContent.trim() || '',
+    action: action?.textContent.trim() || '',
+    width: rect?.width || 0,
+    height: rect?.height || 0,
+    left: rect?.left ?? -1,
+    right: rect?.right ?? -1,
+    top: rect?.top ?? -1,
+    bottom: rect?.bottom ?? -1,
+    viewportWidth: innerWidth,
+    viewportHeight: innerHeight,
+    actionWidth: actionRect?.width || 0,
+    actionHeight: actionRect?.height || 0,
+    actionInside: Boolean(
+      rect && actionRect
+      && actionRect.left >= rect.left - 1
+      && actionRect.right <= rect.right + 1
+      && actionRect.top >= rect.top - 1
+      && actionRect.bottom <= rect.bottom + 1
+    ),
+  };
+})()
+""")
+            max_compact_width = min(280, data["viewportWidth"] - 24)
+            if (
+                expected_message not in data["message"]
+                or data["action"] != "撤销"
+                or data["width"] <= 0
+                or data["width"] > max_compact_width + 1
+                or data["height"] < 36
+                or data["height"] > 56
+                or data["left"] < 11
+                or data["right"] > data["viewportWidth"] - 11
+                or data["top"] < 8
+                or data["bottom"] > data["viewportHeight"] - 8
+                or data["actionWidth"] < 36
+                or data["actionHeight"] < 36
+                or not data["actionInside"]
+            ):
+                raise CheckFailed(f"{label} is oversized or outside the viewport: {data}")
+            return data
+
         cases = [
             ("dock", 1440, 820, False, "dock"),
             # 1240px 以下必须转抽屉；继续停靠会把 440px 侧栏与 248px 目录
@@ -861,15 +933,16 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const cards = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
   if (cards.length < 2) return false;
   const source = cards[0];
+  const sourceMain = source.querySelector('.tag-relay-plan-card-main');
   const target = cards[1];
+  if (!sourceMain) return false;
   const rect = target.getBoundingClientRect();
   const dataTransfer = new DataTransfer();
-  dataTransfer.setData('application/x-relay-plan-item', source.dataset.itemId);
-  dataTransfer.setData('text/plain', source.textContent || '');
   const init = {bubbles:true, cancelable:true, dataTransfer, clientX:rect.left + rect.width / 2, clientY:rect.bottom - 2};
+  sourceMain.dispatchEvent(new DragEvent('dragstart', init));
   target.dispatchEvent(new DragEvent('dragover', init));
   target.dispatchEvent(new DragEvent('drop', init));
-  source.dispatchEvent(new DragEvent('dragend', {bubbles:true, dataTransfer}));
+  sourceMain.dispatchEvent(new DragEvent('dragend', {bubbles:true, dataTransfer}));
   return true;
 })()
 """)
@@ -894,6 +967,10 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             )
             if not added["sourceStillVisible"]:
                 raise CheckFailed(f"Relay {mode} hid the source zone after adding: {added}")
+            added["undoToast"] = assert_relay_undo_toast(
+                f"relay {mode} source add undo toast",
+                "已加入方案",
+            )
             cdp.eval("document.querySelector('#relaySourceList .tag-relay-chip-main')?.click()")
             settle(cdp, 220)
             duplicate = cdp.eval(r"""
@@ -909,17 +986,125 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             if duplicate["planChips"] != 9 or duplicate["storedItems"] != 9:
                 raise CheckFailed(f"Relay {mode} allowed the same source into one plan twice: {duplicate}")
             added["duplicateStayedAtNine"] = True
-            # 复位，后面的断言仍按 8 块算
-            cdp.eval(
-                "(() => { const chips = document.querySelectorAll('#relayPlanLane .tag-relay-plan-card');"
-                " chips[chips.length - 1]?.click();"
-                " document.querySelector('[data-block-tool=\"remove\"]')?.click(); return true; })()"
-            )
+            # 复位也必须走卡内常驻删除键：顶部工具条已经不再承担删除入口。
+            cdp.eval("""
+(() => {
+  const cards = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
+  cards.at(-1)?.querySelector('.tag-relay-plan-card-remove')?.click();
+  return true;
+})()
+""")
             wait_for(
                 cdp,
                 "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8",
                 f"relay {mode} restores fixture",
             )
+
+            # 卡内删除必须立即生效，并给出紧凑、完全落在视口内的撤销 toast；
+            # 撤销不仅恢复数量，还要把原块插回原来的相邻关系，不能悄悄挪到队尾。
+            baseline_ids = relay_plan_ids()
+            if len(baseline_ids) != 8:
+                raise CheckFailed(f"Relay {mode} did not establish an eight-block removal baseline: {baseline_ids}")
+            direct_removed_id = baseline_ids[3]
+            direct_removed_literal = json.dumps(direct_removed_id)
+            cdp.eval(
+                "(() => { const card = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".find(node => node.dataset.itemId === {direct_removed_literal});"
+                " card?.querySelector('.tag-relay-plan-card-remove')?.click(); return Boolean(card); })()"
+            )
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 7"
+                " && ![...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".some(card => card.dataset.itemId === {direct_removed_literal})",
+                f"relay {mode} direct card remove",
+            )
+            direct_toast = assert_relay_undo_toast(f"relay {mode} direct remove undo toast")
+            cdp.eval("document.querySelector('#toast.show .toast-action')?.click()")
+            wait_for_relay_plan_order(baseline_ids, f"relay {mode} direct remove undo restores order")
+
+            # 停靠形态的法典正文是可见落点；抽屉 / sheet 中法典被遮罩覆盖，实际能接到
+            # 指针的是 backdrop。dragover 后不等待任何绘制便立即 drop，并且不得生成提示框 class。
+            drop_target_selector = "#main" if shape == "dock" else "#tagRelayRailBackdrop"
+            drop_source_id = baseline_ids[0]
+            drop_script = r"""
+(() => {
+  const sourceId = __SOURCE_ID__;
+  const targetSelector = __TARGET_SELECTOR__;
+  const source = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]
+    .find(card => card.dataset.itemId === sourceId);
+  const target = document.querySelector(targetSelector);
+  if (!source || !target) return {dispatched:false, sourceId, targetSelector};
+  const sourceMain = source.querySelector('.tag-relay-plan-card-main');
+  if (!sourceMain) return {dispatched:false, sourceId, targetSelector, reason:'missing-main'};
+  const sourceRect = source.getBoundingClientRect();
+  const rect = target.getBoundingClientRect();
+  const dataTransfer = new DataTransfer();
+  sourceMain.dispatchEvent(new DragEvent('dragstart', {
+    bubbles:true,
+    cancelable:true,
+    dataTransfer,
+    clientX:sourceRect.left + Math.max(1, sourceRect.width / 2),
+    clientY:sourceRect.top + Math.max(1, sourceRect.height / 2),
+  }));
+  const init = {
+    bubbles:true,
+    cancelable:true,
+    dataTransfer,
+    clientX:rect.left + Math.max(1, rect.width / 2),
+    clientY:rect.top + Math.max(1, rect.height / 2),
+  };
+  const overPrevented = !target.dispatchEvent(new DragEvent('dragover', init));
+  const visualClassOnDragover = target.classList.contains('is-relay-remove-target');
+  const dropPrevented = !target.dispatchEvent(new DragEvent('drop', init));
+  sourceMain.dispatchEvent(new DragEvent('dragend', {bubbles:true, cancelable:false, dataTransfer}));
+  return {
+    dispatched:true,
+    sourceId,
+    targetSelector,
+    overPrevented,
+    visualClassOnDragover,
+    dropPrevented,
+    hasPlanContext:dataTransfer.types.includes('application/x-relay-plan-context'),
+    visualClassAfterDrop:target.classList.contains('is-relay-remove-target'),
+  };
+})()
+"""
+            drop_result = cdp.eval(
+                drop_script
+                .replace("__SOURCE_ID__", json.dumps(drop_source_id))
+                .replace("__TARGET_SELECTOR__", json.dumps(drop_target_selector))
+            )
+            if (
+                not drop_result.get("dispatched")
+                or not drop_result.get("overPrevented")
+                or not drop_result.get("dropPrevented")
+                or not drop_result.get("hasPlanContext")
+                or drop_result.get("visualClassOnDragover")
+                or drop_result.get("visualClassAfterDrop")
+            ):
+                raise CheckFailed(f"Relay {mode} did not accept its outside removal drop: {drop_result}")
+            drop_source_literal = json.dumps(drop_source_id)
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 7"
+                " && ![...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".some(card => card.dataset.itemId === {drop_source_literal})",
+                f"relay {mode} outside drop removes block",
+            )
+            drop_toast = assert_relay_undo_toast(f"relay {mode} outside drop undo toast")
+            cdp.eval("document.querySelector('#toast.show .toast-action')?.click()")
+            wait_for_relay_plan_order(baseline_ids, f"relay {mode} outside drop undo restores order")
+            removal_checks = {
+                "baselineIds": baseline_ids,
+                "directRemovedId": direct_removed_id,
+                "directUndoToast": direct_toast,
+                "dropRemovedId": drop_source_id,
+                "dropTarget": drop_target_selector,
+                "dropDispatch": drop_result,
+                "dropUndoToast": drop_toast,
+            }
+
             # 点芯片只选中（分区头出工具条），编辑要再点 ✎ —— 排序才是高频操作，
             # 不该每动一次就被浮层糊屏。
             cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card')?.click()")
@@ -956,7 +1141,21 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
       const slider = rail.querySelector('#relayFormatControl .tag-relay-segment-slider');
       return Boolean(slider && slider.getBoundingClientRect().width > 8);
     })(),
-    planCardsDraggable: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(el => el.draggable),
+    planCardsDraggable: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(card => (
+      card.draggable === false && card.querySelector('.tag-relay-plan-card-main')?.draggable === true
+    )),
+    directRemoveCount: rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card-remove').length,
+    directRemoveTargetsSized: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card-remove')].every(button => {
+      const rect = button.getBoundingClientRect();
+      return rect.width >= 30 && rect.height >= 30;
+    }),
+    planCardMainsSemantic: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(card => {
+      const main = card.querySelector('.tag-relay-plan-card-main');
+      const remove = card.querySelector('.tag-relay-plan-card-remove');
+      return main?.getAttribute('role') === 'button'
+        && remove?.tagName === 'BUTTON'
+        && remove?.type === 'button';
+    }),
     planCardsSingleColumn: (() => {
       const cards = [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
       if (cards.length < 2) return false;
@@ -988,6 +1187,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} segment slider was never positioned: {compose}")
             if not compose["planCardsDraggable"] or not compose["sourceChipsDraggable"]:
                 raise CheckFailed(f"Relay {mode} drag entry points are missing: {compose}")
+            if (
+                compose["directRemoveCount"] != 8
+                or not compose["directRemoveTargetsSized"]
+                or not compose["planCardMainsSemantic"]
+            ):
+                raise CheckFailed(f"Relay {mode} direct card remove controls are incomplete: {compose}")
             if not compose["planCardsSingleColumn"]:
                 raise CheckFailed(f"Relay {mode} plan cards are not full-width single-column bars: {compose}")
             if not compose["planZoneStillVisible"]:
@@ -1028,7 +1233,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 f"relay {mode} closes inert",
             )
             check_no_errors(cdp)
-            details[mode] = {"shell": shell, "compose": compose, "sourceAdd": added}
+            details[mode] = {
+                "shell": shell,
+                "compose": compose,
+                "sourceAdd": added,
+                "removal": removal_checks,
+            }
 
         return {"viewports": details, "screenshots": shots}
 

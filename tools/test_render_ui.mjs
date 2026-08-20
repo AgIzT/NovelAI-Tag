@@ -820,6 +820,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   for (const selector of ['.badge-char{', '.badge-char-chip{', 'body.dark .badge-char{', 'body.dark .badge-char-chip{']) {
     assert.ok(stylesSource.includes(selector), `styles.css 缺少 ${selector}`);
   }
+  // 带动作的 toast 会承载中转站撤销；长标题也不得把胶囊撑出视口或撑成 58px 高的大框。
+  assert.match(stylesSource, /\.toast\{[\s\S]*max-width:min\(360px,calc\(100vw - 24px\)\)/);
+  assert.match(stylesSource, /\.toast\.has-action\{[\s\S]*min-height:44px[\s\S]*padding:4px 6px 4px 14px/);
+  assert.match(stylesSource, /\.toast\.has-action \.toast-message\{[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/);
 }
 
 // 中转站侧栏契约：窄桌面不再硬停靠；所有确认留在侧栏内。
@@ -849,10 +853,15 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(addSourceBody, /const relayKey = stableEntryKey\(entry\)/);
   assert.doesNotMatch(addSourceBody, /allowDuplicate/);
   assert.match(addSourceBody, /action\.result\.added === false[\s\S]*已在当前方案中/);
-  // 方案块必须可拖，且主体**不能**是 button——Chrome 里按钮会吞掉拖拽手势，
-  // draggable 的祖先收不到 dragstart，就是"能拖但什么都不会发生"。
-  assert.match(composeSource, /card\.draggable = !locked/);
-  assert.match(composeSource, /card\.setAttribute\('role', 'button'\)/);
+  assert.match(addSourceBody, /toast\(negativeOnly \? '已仅加入负向' : '已加入方案', '\+', \{/);
+  // main 同时承载拖拽与选择，删除是真实同级按钮；外壳不能 draggable，否则从 × 起拖时
+  // 部分浏览器会把祖先卡片当拖拽源，反过来又让直接删除变成误操作入口。
+  assert.match(composeSource, /main\.draggable = !locked/);
+  assert.doesNotMatch(composeSource, /card\.draggable = !locked/);
+  assert.match(composeSource, /card\.setAttribute\('role', 'group'\)/);
+  assert.match(composeSource, /main\.className = 'tag-relay-plan-card-main'[\s\S]*main\.setAttribute\('role', 'button'\)/);
+  assert.match(composeSource, /remove\.className = 'tag-relay-plan-card-remove'[\s\S]*removeBlock\(item\.id, \{ planId: cardPlanId \}\)/);
+  assert.doesNotMatch(indexSource, /data-block-tool="remove"/);
   assert.doesNotMatch(composeSource, /main\.className = 'tag-relay-chip-main'/);
   // footer 是 compose 的兄弟：格式/连接必须从整条 rail 取；行为差异另由 access 测试驱动。
   assert.match(composeSource, /formatButtons:\s*\[\.\.\.scope\.querySelectorAll\('\[data-format\]'\)\]/);
@@ -868,8 +877,13 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{[^}]*min-height:88px/);
   assert.match(relayCss, /\.tag-relay-primary:disabled,\.tag-relay-secondary:disabled/);
   assert.match(relaySource, /tag-relay-chip-negative/);
-  // 拖回素材区 = 移出方案
-  assert.match(relaySource, /is-remove-target/);
+  // 素材区、法典正文与抽屉遮罩都接收显式方案 drop；载荷固定来源方案，取消拖拽不删除。
+  assert.match(composeSource, /setData\(RELAY_PLAN_CONTEXT_MIME/);
+  assert.match(relaySource, /document\.querySelector\('#main'\)/);
+  assert.match(relaySource, /document\.querySelector\('#tagRelayRailBackdrop'\)/);
+  // 移出目标只接收 drop，不给万卡主区切 class / 画提示框，以免 dragover 重绘拖慢松手提交。
+  assert.doesNotMatch(relaySource, /is-relay-remove-target/);
+  assert.doesNotMatch(relayCss, /is-relay-remove-target|松手移出方案/);
   assert.match(railSource, /matchMedia\('\(max-width:1240px\)'\)/);
   assert.match(relayCss, /@media \(max-width:1240px\)/);
   assert.match(actionSource, /export function requestRelayAction/);

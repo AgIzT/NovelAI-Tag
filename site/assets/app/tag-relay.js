@@ -20,6 +20,7 @@ import {
   setupTagRelayRail,
 } from './tag-relay-rail.js';
 import {
+  RELAY_PLAN_CONTEXT_MIME,
   RELAY_PLAN_MIME,
   RELAY_SOURCE_MIME,
   addSourceToPlan,
@@ -265,28 +266,42 @@ function renderRelayChrome() {
   if (railCount) railCount.textContent = count ? `${count} 条` : '';
 }
 
-/* 把方案块拖回素材区 = 移出方案。方向和直觉一致：往上拖是加进来，往下拖是拿出去。
-   ⚠ 只认 RELAY_PLAN_MIME，素材自己在区内拖不会误触发。 */
+/* 把方案块拖出编排区 = 移出方案。桌面时法典正文直接收 drop；抽屉 / sheet 打开时
+   遮罩盖在法典上方，所以遮罩也必须是同一个目标。只认方案 MIME，取消拖拽绝不删除。
+   这里刻意不切换目标 class：dragover 会按指针频率触发，在巨大 #main 上反复重绘会拖慢 drop。 */
 function bindRemoveByDrag() {
-  const zone = warehouseRoot;
-  if (!zone) return;
-  const isPlanDrag = event => (event.dataTransfer?.types || []).includes(RELAY_PLAN_MIME);
-  zone.addEventListener('dragover', event => {
-    if (!isPlanDrag(event)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-    zone.classList.add('is-remove-target');
-  });
-  zone.addEventListener('dragleave', event => {
-    if (event.target === zone) zone.classList.remove('is-remove-target');
-  });
-  zone.addEventListener('drop', async event => {
-    zone.classList.remove('is-remove-target');
-    if (!isPlanDrag(event)) return;
-    event.preventDefault();
-    const itemId = event.dataTransfer.getData(RELAY_PLAN_MIME);
-    if (itemId) await removeBlock(itemId);
-  });
+  const targets = [
+    warehouseRoot,
+    document.querySelector('#main'),
+    document.querySelector('#tagRelayRailBackdrop'),
+  ].filter(Boolean);
+  if (!targets.length) return;
+  const isPlanDrag = event => [...(event.dataTransfer?.types || [])].includes(RELAY_PLAN_MIME);
+  const contextFrom = event => {
+    let context = null;
+    try {
+      context = JSON.parse(event.dataTransfer?.getData(RELAY_PLAN_CONTEXT_MIME) || 'null');
+    } catch {}
+    return {
+      itemId: String(context?.itemId || event.dataTransfer?.getData(RELAY_PLAN_MIME) || ''),
+      planId: String(context?.planId || ''),
+    };
+  };
+  for (const target of targets) {
+    target.addEventListener('dragover', event => {
+      if (!isPlanDrag(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = 'move';
+    }, true);
+    target.addEventListener('drop', async event => {
+      if (!isPlanDrag(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const context = contextFrom(event);
+      if (context.itemId) await removeBlock(context.itemId, { planId: context.planId });
+    }, true);
+  }
 }
 
 function bindWarehouse() {

@@ -430,6 +430,24 @@ function buttonsIn(node) {
   return [...own, ...(node.children || []).flatMap(buttonsIn)];
 }
 
+function elementsIn(node, predicate) {
+  if (!node) return [];
+  const own = predicate(node) ? [node] : [];
+  return [...own, ...(node.children || []).flatMap(child => elementsIn(child, predicate))];
+}
+
+async function fireAsync(node, type, event = {}) {
+  const base = {
+    type,
+    target: node,
+    currentTarget: node,
+    preventDefault() {},
+    stopPropagation() {},
+    ...event,
+  };
+  await Promise.all((node.listeners.get(type) || []).map(listener => listener(base)));
+}
+
 const savedGlobals = {
   window: globalThis.window,
   document: globalThis.document,
@@ -605,6 +623,26 @@ try {
   await withAccess({}, async () => {
     const view = compose.setupRelayCompose(relayRoot);
 
+    /* —— 方案横条：拖拽外壳、可选主体、直接删除必须是三个不嵌套的职责 —— */
+    const initialCards = ref('#relayPlanLane').children;
+    assert.equal(initialCards.length, 2);
+    for (const card of initialCards) {
+      assert.equal(card.getAttribute('role'), 'group');
+      const mains = elementsIn(card, node => node.className === 'tag-relay-plan-card-main');
+      const removes = elementsIn(card, node => node.className === 'tag-relay-plan-card-remove');
+      assert.equal(mains.length, 1, '每条方案块必须有一个独立的可选主体');
+      assert.equal(mains[0].getAttribute('role'), 'button');
+      assert.equal(card.draggable, false, '删除键所在的外壳不能 draggable，否则从 × 起拖会误拖卡片');
+      assert.equal(mains[0].draggable, card.dataset.itemId !== 'locked-1');
+      assert.equal(removes.length, 1, '每条方案块必须直接提供一个移出按钮');
+      assert.equal(removes[0].tagName, 'BUTTON');
+    }
+    const lockedRemove = elementsIn(
+      initialCards.find(card => card.dataset.itemId === 'locked-1'),
+      node => node.className === 'tag-relay-plan-card-remove',
+    )[0];
+    assert.doesNotMatch(lockedRemove.getAttribute('aria-label'), /成人词条/, '锁定块的删除按钮不得泄露真实标题');
+
     /* —— 混合方案编译：受限块的 tag 一个字都不许进成品 —— */
     assert.equal(ref('#relayPositiveOutput').value, '1.2::{sunlight}::');
     assert.equal(ref('#relayNegativeOutput').value, '1.2::blurry::');
@@ -672,9 +710,10 @@ try {
     await compose.addSourceToPlan(localEntry, { negativeOnly: true });
     view.render();
     assert.equal(laneIds().length, originalIds.length + 1, '无来源 ID 的仅负向投影也要命中原完整词条');
-    await compose.removeBlock(localCard.dataset.itemId);
+    const localRemove = elementsIn(localCard, node => node.className === 'tag-relay-plan-card-remove')[0];
+    await fireAsync(localRemove, 'click');
     view.render();
-    assert.deepEqual(laneIds(), originalIds, '去重用例清理后不得污染后续拖排状态');
+    assert.deepEqual(laneIds(), originalIds, '卡片内删除必须直接移出该块，且不污染后续拖排状态');
 
     const negativeFirst = {
       title: '先负向词条',

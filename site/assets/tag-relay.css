@@ -593,23 +593,22 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   gap:5px;align-content:start;overflow-x:hidden;overflow-y:auto;
 }
 .tag-relay-plan-card{
-  position:relative;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;
-  align-items:center;width:100%;min-width:0;min-height:46px;padding:5px 9px 5px 10px;overflow:hidden;
+  position:relative;display:grid;grid-template-columns:minmax(0,1fr) 32px;gap:5px;
+  align-items:center;width:100%;min-width:0;min-height:46px;padding:5px 6px 5px 10px;overflow:hidden;
   border:1px solid color-mix(in srgb,var(--accent) 34%,var(--line));border-radius:12px;
   background:var(--card);color:var(--text);text-align:left;box-shadow:0 2px 8px rgba(24,28,46,.055);
-  cursor:grab;transition:border-color .12s,box-shadow .12s,opacity .12s;
+  transition:border-color .12s,box-shadow .12s,opacity .12s;
 }
 .tag-relay-plan-card::before{
   content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;
   background:var(--accent);opacity:.72;
 }
-.tag-relay-plan-card:active{cursor:grabbing}
 .tag-relay-plan-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
-.tag-relay-plan-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tag-relay-plan-card:has(.tag-relay-plan-card-main:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
 .tag-relay-plan-card.is-selected{outline:2px solid var(--accent);outline-offset:1px;background:var(--accent-soft)}
 .tag-relay-plan-card.is-off{opacity:.45}
 .tag-relay-plan-card.is-dragging{opacity:.22}
-.tag-relay-plan-card.is-locked{background:var(--tagbg);border-color:var(--line);color:var(--muted);cursor:not-allowed}
+.tag-relay-plan-card.is-locked{background:var(--tagbg);border-color:var(--line);color:var(--muted)}
 .tag-relay-plan-card.is-locked::before{background:var(--muted);opacity:.35}
 .tag-relay-plan-card.is-drop-before::after,.tag-relay-plan-card.is-drop-after::after{
   content:'';position:absolute;left:6px;right:6px;height:3px;border-radius:999px;background:var(--accent);
@@ -621,6 +620,15 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   position:fixed!important;left:-9999px!important;top:-9999px!important;z-index:2147483647!important;
   opacity:1!important;background:var(--card)!important;box-shadow:var(--shadow-hover)!important;pointer-events:none!important;
 }
+.tag-relay-plan-drag-image .tag-relay-plan-card-remove{visibility:hidden}
+
+.tag-relay-plan-card-main{
+  grid-column:1;grid-row:1;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;
+  align-items:center;min-width:0;min-height:34px;border-radius:8px;cursor:grab;
+}
+.tag-relay-plan-card-main:active{cursor:grabbing}
+.tag-relay-plan-card-main:focus-visible{outline:none}
+.tag-relay-plan-card.is-locked .tag-relay-plan-card-main{cursor:not-allowed}
 
 .tag-relay-plan-card-thumb{
   grid-column:1;grid-row:1;width:34px;height:34px;flex:none;border-radius:8px;
@@ -645,6 +653,14 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   font-size:9px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;
   pointer-events:none;
 }
+.tag-relay-plan-card-remove{
+  grid-column:2;grid-row:1;width:32px;height:32px;padding:0;border:0;border-radius:8px;
+  background:transparent;color:var(--muted);font:800 16px/1 var(--font-display);opacity:.62;cursor:pointer;
+  transition:background .12s,color .12s,opacity .12s;
+}
+.tag-relay-plan-card-remove:hover,.tag-relay-plan-card-remove:focus-visible{
+  outline:none;background:color-mix(in srgb,var(--new) 13%,transparent);color:var(--new);opacity:1;
+}
 .tag-relay-plan-card-meta:empty{display:none}
 
 /* 空方案的「＋」占位卡，和真卡同尺寸，一眼看得出这里能放东西 */
@@ -658,13 +674,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-chip{cursor:grab}
 .tag-relay-chip:active{cursor:grabbing}
 .tag-relay-chip.is-dragging{opacity:.35}
-/* 方案块拖到素材区 = 移出方案（往上拖是加，往下拖是移出，方向和直觉一致） */
-.tag-relay-zone-source.is-remove-target{
-  outline:2px dashed var(--new);outline-offset:-4px;border-radius:12px;
-}
-.tag-relay-zone-source.is-remove-target .tag-relay-zone-title::after{
-  content:'　松手移出方案';color:var(--new);font-weight:800;
-}
 .tag-relay-plan-lane.is-drop-target{
   border-radius:12px;box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent) 62%,transparent);
 }
@@ -763,7 +772,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-rail .tag-relay-zone-plan{max-height:min(60%,318px)}
   .tag-relay-rail .tag-relay-zone-source{flex-basis:92px;min-height:84px}
   .tag-relay-rail .tag-relay-plan-lane{grid-auto-rows:minmax(40px,auto);gap:4px}
-  .tag-relay-plan-card{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;min-height:40px;padding:4px 7px 4px 9px}
+  .tag-relay-plan-card{grid-template-columns:minmax(0,1fr) 32px;gap:4px;min-height:40px;padding:4px 5px 4px 9px}
+  .tag-relay-plan-card-main{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;min-height:30px}
   .tag-relay-plan-card-thumb{width:30px;height:30px;border-radius:7px;font-size:11px}
   .tag-relay-plan-card-body{gap:6px}
   .tag-relay-plan-card-title{font-size:11.5px;line-height:1.25}

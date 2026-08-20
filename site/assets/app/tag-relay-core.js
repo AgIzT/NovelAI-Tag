@@ -637,6 +637,29 @@ export function removePlanItem(state, planId, itemId, options = {}) {
   return removed;
 }
 
+/* 撤销“移出方案”必须把原来的槽位本身放回来，不能重新 append 素材：后者会换 id，
+   还可能丢掉用户改过的正文、权重、停用状态与原顺序。maxEntryCopies 默认守住“一条素材
+   一槽位”的现行不变式；调用方可传删除前的同 key 数量，让历史遗留的重复槽位也能原样撤销。 */
+export function restorePlanItem(state, planId, item, toIndex, options = {}) {
+  const plan = getPlan(state, planId);
+  if (!plan || !isObject(item)) return null;
+  const parsed = typeof toIndex === 'number' ? toIndex : Number.parseInt(toIndex, 10);
+  if (!Number.isInteger(parsed)) return null;
+  const restored = normalizePlanItem(item, options);
+  if (plan.items.some(candidate => candidate.id === restored.id)) return null;
+  if (restored.kind === 'entry') {
+    const maxCopies = Math.max(1, Number.parseInt(options.maxEntryCopies, 10) || 1);
+    const copies = plan.items.filter(candidate => (
+      candidate.kind === 'entry' && candidate.entryKey === restored.entryKey
+    )).length;
+    if (copies >= maxCopies) return null;
+  }
+  const target = Math.min(plan.items.length, Math.max(0, parsed));
+  plan.items.splice(target, 0, restored);
+  touchPlan(plan, options);
+  return restored;
+}
+
 /* 头尾都要剥：只剥尾的话 compileRelayBlock(',a') 会写出 `1.2::,a::`，
    那个前导逗号在 NAI 里是个空 tag。 */
 export function cleanPrompt(value) {

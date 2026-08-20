@@ -25,6 +25,7 @@ import {
   removeInboxEntry,
   removePlanItem,
   renamePlan,
+  restorePlanItem,
   restoreHistoryAsPlan,
   saveRelayState,
   serializeRelayState,
@@ -47,6 +48,52 @@ function entry(overrides = {}) {
     characterPrompts: [{ label: 'char1', prompt: '1girl, shared', negative: 'extra fingers' }],
     ...overrides,
   };
+}
+
+// “移出方案”的撤销恢复原槽位本身：顺序、id、编辑状态与历史遗留重复都不能漂。
+{
+  const state = createRelayState({ now: NOW });
+  const plan = state.plans[0];
+  appendBlockToPlan(state, plan.id, { title: 'A', prompt: 'a' }, { id: 'restore-a', now: NOW });
+  const middle = appendEntryToPlan(state, plan.id, entry({
+    title: '改过的 B', tags: 'edited-b', access: { nsfw: true, r18g: false }, accessKnown: true,
+  }), { id: 'restore-b', codexId: 'book-a', weight: 0.7, enabled: false, now: NOW }).item;
+  appendBlockToPlan(state, plan.id, { title: 'C', prompt: 'c' }, { id: 'restore-c', now: NOW });
+  const snapshot = JSON.parse(JSON.stringify(middle));
+  assert.equal(removePlanItem(state, plan.id, middle.id, { now: NOW })?.id, middle.id);
+  assert.deepEqual(plan.items.map(item => item.id), ['restore-a', 'restore-c']);
+  assert.deepEqual(
+    restorePlanItem(state, plan.id, snapshot, 1, { maxEntryCopies: 1, now: NOW }),
+    snapshot,
+  );
+  assert.deepEqual(plan.items.map(item => item.id), ['restore-a', 'restore-b', 'restore-c']);
+  assert.equal(restorePlanItem(state, plan.id, snapshot, 1, { now: NOW }), null, '同一撤销不能执行两次');
+  assert.equal(restorePlanItem(state, 'missing-plan', snapshot, 1, { now: NOW }), null);
+
+  const removed = removePlanItem(state, plan.id, middle.id, { now: NOW });
+  assert.equal(appendEntryToPlan(state, plan.id, entry(), {
+    id: 'replacement-b', codexId: 'book-a', now: NOW,
+  }).added, true);
+  assert.equal(
+    restorePlanItem(state, plan.id, removed, 1, { maxEntryCopies: 1, now: NOW }),
+    null,
+    '移出后若同一素材已重新加入，撤销不能制造重复',
+  );
+
+  const legacy = createRelayState({ now: NOW });
+  const legacyPlan = legacy.plans[0];
+  const first = appendEntryToPlan(legacy, legacyPlan.id, entry(), {
+    id: 'legacy-a', codexId: 'book-a', allowDuplicate: true, now: NOW,
+  }).item;
+  const second = appendEntryToPlan(legacy, legacyPlan.id, entry(), {
+    id: 'legacy-b', codexId: 'book-a', allowDuplicate: true, now: NOW,
+  }).item;
+  assert.equal(first.entryKey, second.entryKey);
+  const legacyRemoved = removePlanItem(legacy, legacyPlan.id, second.id, { now: NOW });
+  assert.ok(restorePlanItem(legacy, legacyPlan.id, legacyRemoved, 1, {
+    maxEntryCopies: 2, now: NOW,
+  }), '旧数据本来就有两个同源槽位时仍可原样撤销');
+  assert.deepEqual(legacyPlan.items.map(item => item.id), ['legacy-a', 'legacy-b']);
 }
 
 // Stable source keys dedupe title/prompt revisions, but keep codices separate.

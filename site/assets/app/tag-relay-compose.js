@@ -16,12 +16,14 @@ import {
   createPlan,
   deletePlan,
   getActivePlan,
+  getPlan,
   itemHasCharacterNegative,
   mergedTotal,
   movePlanItem,
   recordCopyHistory,
   removePlanItem,
   renamePlan,
+  restorePlanItem,
   restoreHistoryAsPlan,
   setActivePlan,
   stableEntryKey,
@@ -36,6 +38,7 @@ let refs = null;
 /* 拖拽载荷类型：方案块（重排 / 拖到素材区移出）与素材（拖进方案）各一种，
    接收方只看 dataTransfer.types 就能分辨，不必跨模块共享变量。 */
 export const RELAY_PLAN_MIME = 'application/x-relay-plan-item';
+export const RELAY_PLAN_CONTEXT_MIME = 'application/x-relay-plan-context';
 export const RELAY_SOURCE_MIME = 'application/x-relay-source';
 let bound = false;
 let selectedItemId = '';
@@ -106,7 +109,7 @@ export async function addSourceToPlan(entry, { negativeOnly = false } = {}) {
     return;
   }
   const addedItemId = action.result.item.id;
-  toast(negativeOnly ? `已仅加入负向：${shownTitle}` : `已加入方案：${shownTitle}`, '+', {
+  toast(negativeOnly ? '已仅加入负向' : '已加入方案', '+', {
     label: '撤销',
     onClick: () => {
       void commitRelay(next => removePlanItem(next, targetPlanId, addedItemId), { changed: 'plan' })
@@ -276,12 +279,58 @@ async function moveBlock(itemId, delta) {
   announceLane(`已${delta < 0 ? '上移' : '下移'}到第 ${moved + 1} 位 · 共 ${items.length} 块`);
 }
 
-export async function removeBlock(itemId) {
-  const action = await commitRelay(next => removePlanItem(next, next.activePlanId, itemId), { changed: 'plan' });
-  if (!action.ok || !action.result) return;
-  if (selectedItemId === itemId) closeInspector();
-  const title = itemLocked(action.result) ? '已锁定的成人内容' : action.result.title;
-  toast(`已移除：${title}`, '−');
+export async function removeBlock(itemId, { planId: requestedPlanId = '' } = {}) {
+  const targetPlanId = requestedPlanId || plan()?.id || '';
+  if (!itemId || !targetPlanId) return null;
+  const action = await commitRelay(next => {
+    const target = getPlan(next, targetPlanId);
+    const index = target?.items?.findIndex(item => item.id === itemId) ?? -1;
+    if (index < 0) return null;
+    const current = target.items[index];
+    const maxEntryCopies = current.kind === 'entry'
+      ? target.items.filter(item => item.kind === 'entry' && item.entryKey === current.entryKey).length
+      : 1;
+    const record = {
+      planId: targetPlanId,
+      index,
+      beforeId: target.items[index - 1]?.id || '',
+      afterId: target.items[index + 1]?.id || '',
+      maxEntryCopies,
+      item: null,
+    };
+    record.item = removePlanItem(next, targetPlanId, itemId);
+    return record.item ? record : null;
+  }, { changed: 'plan' });
+  if (!action.ok || !action.result?.item) return null;
+  const removed = action.result;
+  if (selectedItemId === itemId && (!editorPlanId || editorPlanId === targetPlanId)) closeInspector();
+  toast('已移出方案', '−', {
+    label: '撤销',
+    onClick: () => {
+      void commitRelay(next => {
+        const target = getPlan(next, removed.planId);
+        if (!target) return null;
+        const afterIndex = removed.afterId
+          ? target.items.findIndex(item => item.id === removed.afterId)
+          : -1;
+        const beforeIndex = removed.beforeId
+          ? target.items.findIndex(item => item.id === removed.beforeId)
+          : -1;
+        const targetIndex = afterIndex >= 0
+          ? afterIndex
+          : beforeIndex >= 0
+            ? beforeIndex + 1
+            : Math.min(removed.index, target.items.length);
+        return restorePlanItem(next, removed.planId, removed.item, targetIndex, {
+          maxEntryCopies: removed.maxEntryCopies,
+        });
+      }, { changed: 'plan' }).then(result => {
+        if (result.ok && result.result) toast('已撤销移出', '↶');
+        else toast('无法撤销：原方案已经变化', '!');
+      });
+    },
+  });
+  return removed;
 }
 
 async function toggleBlock(itemId) {
@@ -299,22 +348,31 @@ async function toggleBlock(itemId) {
 /* 方案块＝带图大卡，一行两个。
    NAI 上限 512 token，一个画风 + 一个场景 + 一个角色 + 一套服饰也就五六块——块数天然很少，
    做成小芯片反而难点、难拖、也认不出是哪条词条；带上缩略图才对得上用户脑子里的那张图。
-   ⚠ 卡片主体不能是 <button>：Chrome 里按钮会吞掉拖拽手势，draggable 的祖先收不到 dragstart，
-      于是"能拖但什么都不会发生"。所以用 div + role=button + tabIndex 自己实现可访问性。 */
+   ⚠ 可选主体不能是原生 <button>：Chrome 里按钮会吞掉拖拽手势。draggable 精确放在
+      div[role=button] 主体上，外壳只接冒泡的 DnD 事件；同级删除键因此不可能误启动拖拽。 */
 function planBlock(item, index, total) {
   const locked = itemLocked(item);
   const shownTitle = locked ? '已锁定的成人内容' : item.title;
+  const cardPlanId = plan()?.id || '';
   const card = document.createElement('div');
   card.className = 'tag-relay-plan-card';
   card.classList.toggle('is-selected', selectedItemId === item.id);
   card.classList.toggle('is-off', item.enabled === false);
   card.classList.toggle('is-locked', locked);
   card.dataset.itemId = item.id;
-  card.draggable = !locked;
-  card.setAttribute('role', 'button');
-  card.tabIndex = locked ? -1 : 0;
+  card.setAttribute('role', 'group');
   card.setAttribute('aria-label', (index + 1) + '. ' + shownTitle);
   card.title = locked ? '当前权限关闭，不参与输出' : shownTitle + '　·　' + blockPreview(item);
+
+  /* 拖拽源与交互控件分层：main 同时负责原生 DnD、选中与编辑，卡片外壳只承接
+     冒泡事件；删除是同级真实按钮。这样既不误拖，也没有 role=button 嵌 button。 */
+  const main = document.createElement('div');
+  main.className = 'tag-relay-plan-card-main';
+  main.setAttribute('role', 'button');
+  main.draggable = !locked;
+  main.tabIndex = locked ? -1 : 0;
+  main.setAttribute('aria-label', (index + 1) + '. ' + shownTitle);
+  if (locked) main.setAttribute('aria-disabled', 'true');
 
   const thumb = document.createElement('span');
   thumb.className = 'tag-relay-plan-card-thumb';
@@ -332,7 +390,6 @@ function planBlock(item, index, total) {
   const seq = document.createElement('span');
   seq.className = 'tag-relay-plan-card-seq';
   seq.textContent = String(index + 1).padStart(2, '0');
-  card.append(seq);
 
   const channel = itemChannel(item);
   if (!locked && channel.key !== 'positive') {
@@ -356,12 +413,42 @@ function planBlock(item, index, total) {
     meta.append(weight);
   }
   body.append(title, meta);
-  card.append(thumb, body);
+  main.append(thumb, body, seq);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'tag-relay-plan-card-remove';
+  remove.textContent = '×';
+  remove.draggable = false;
+  remove.title = '从方案移出';
+  remove.setAttribute('aria-label', `从方案移出：${shownTitle}`);
+  remove.addEventListener('pointerdown', event => event.stopPropagation());
+  remove.addEventListener('dragstart', event => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  remove.addEventListener('click', async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const currentIndex = plan()?.items?.findIndex(candidate => candidate.id === item.id) ?? index;
+    const removed = await removeBlock(item.id, { planId: cardPlanId });
+    if (!removed || plan()?.id !== cardPlanId) return;
+    requestAnimationFrame(() => {
+      const controls = [...(refs?.lane?.querySelectorAll('.tag-relay-plan-card-main') || [])];
+      const next = controls[Math.min(Math.max(0, currentIndex), controls.length - 1)] || refs?.addBlock;
+      next?.focus?.({ preventScroll: true });
+    });
+  });
+  card.append(main, remove);
 
   if (!locked) {
-    card.onclick = () => selectBlock(item.id, { edit: false });
-    card.ondblclick = () => selectBlock(item.id, { edit: true });
-    card.onkeydown = event => {
+    /* programmatic card.click() 与点到外壳留白仍保持“选中”；子控件自己处理，避免双触发。 */
+    card.onclick = event => {
+      if (event.target === card) selectBlock(item.id, { edit: false });
+    };
+    main.onclick = () => selectBlock(item.id, { edit: false });
+    main.ondblclick = () => selectBlock(item.id, { edit: true });
+    main.onkeydown = event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       selectBlock(item.id, { edit: event.key === 'Enter' });
@@ -374,6 +461,10 @@ function planBlock(item, index, total) {
     /* 用带类型的载荷而不是模块间共享变量：素材区在另一个模块里，
        它只要看 dataTransfer.types 就知道拖来的是不是方案块。 */
     event.dataTransfer.setData(RELAY_PLAN_MIME, item.id);
+    event.dataTransfer.setData(RELAY_PLAN_CONTEXT_MIME, JSON.stringify({
+      itemId: item.id,
+      planId: cardPlanId,
+    }));
     event.dataTransfer.setData('text/plain', item.title);
     /* 原位卡要变淡，但不能在浏览器截取 drag image 之前变淡；否则拖影只剩一层
        半透明文字，看起来像内容从卡框里掉了出来。克隆一张完整卡作为拖影，再下一帧淡化原位。 */
@@ -1020,7 +1111,7 @@ function bindInspector() {
       return;
     }
     if (creatingBlock) closeInspector({ restoreFocus: true });
-    else if (selectedItemId) removeBlock(selectedItemId);
+    else if (selectedItemId) removeBlock(selectedItemId, { planId: editorPlanId });
   });
   refs.blockSave.addEventListener('click', async () => {
     const weight = editorWeight();
@@ -1121,7 +1212,6 @@ function bindZoneTools() {
     else if (action === 'down') moveBlock(id, 1);
     else if (action === 'toggle') toggleBlock(id);
     else if (action === 'edit') selectBlock(id, { edit: true });
-    else if (action === 'remove') removeBlock(id);
   });
 }
 

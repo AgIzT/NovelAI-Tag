@@ -1545,16 +1545,19 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
 /* ---------- toast ---------- */
 .toast{
   position:fixed;left:50%;bottom:40px;transform:translateX(-50%) translateY(20px);
+  box-sizing:border-box;width:max-content;max-width:min(360px,calc(100vw - 24px));text-align:center;
   background:var(--accent);color:#fff;padding:10px 20px;border-radius:999px;font-weight:600;font-size:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;
   transition:opacity .2s,transform .34s cubic-bezier(.34,1.56,.64,1);z-index:1400;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.has-action{
-  display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;pointer-events:auto;
+  display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 6px 4px 14px;pointer-events:auto;
 }
+.toast-message{display:block;min-width:0;overflow-wrap:anywhere}
+.toast.has-action .toast-message{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .toast-action{
-  min-height:44px;border:1px solid rgba(255,255,255,.58);border-radius:999px;padding:7px 12px;
+  flex:none;min-height:36px;border:1px solid rgba(255,255,255,.58);border-radius:999px;padding:5px 10px;
   background:rgba(255,255,255,.14);color:#fff;font:inherit;font-size:12px;font-weight:850;white-space:nowrap;
 }
 .toast-action:hover,.toast-action:focus-visible{background:#fff;color:var(--accent);outline:none}
