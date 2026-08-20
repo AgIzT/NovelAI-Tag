@@ -635,7 +635,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     docked: document.body.classList.contains('rail-docked'),
     planZoneH: document.querySelector('.tag-relay-zone-plan')?.getBoundingClientRect().height || 0,
     sourceZoneH: document.querySelector('.tag-relay-zone-source')?.getBoundingClientRect().height || 0,
-    planChips: document.querySelectorAll('#relayPlanLane .tag-relay-chip').length,
+    planChips: document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length,
     sourceChips: document.querySelectorAll('#relaySourceList .tag-relay-chip').length,
     outputCollapsed: document.querySelector('#relayOutputBoxes')?.hidden === true,
     sourceTabCount: sourceButtons.length,
@@ -699,7 +699,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
             wait_for(
                 cdp,
-                "document.querySelectorAll('#relayPlanLane .tag-relay-chip').length === 8",
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8",
                 f"relay {mode} plan chips",
             )
 
@@ -708,11 +708,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp.eval("document.querySelector('#relaySourceList .tag-relay-chip-main')?.click()")
             wait_for(
                 cdp,
-                "document.querySelectorAll('#relayPlanLane .tag-relay-chip').length === 9",
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 9",
                 f"relay {mode} source chip adds to plan without switching panes",
             )
             added = cdp.eval(
-                "({planChips: document.querySelectorAll('#relayPlanLane .tag-relay-chip').length,"
+                "({planChips: document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length,"
                 " sourceStillVisible: (document.querySelector('.tag-relay-zone-source')"
                 "?.getBoundingClientRect().height || 0) > 40})"
             )
@@ -720,18 +720,18 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} hid the source zone after adding: {added}")
             # 复位，后面的断言仍按 8 块算
             cdp.eval(
-                "(() => { const chips = document.querySelectorAll('#relayPlanLane .tag-relay-chip');"
-                " chips[chips.length - 1]?.querySelector('.tag-relay-chip-main')?.click();"
+                "(() => { const chips = document.querySelectorAll('#relayPlanLane .tag-relay-plan-card');"
+                " chips[chips.length - 1]?.click();"
                 " document.querySelector('[data-block-tool=\"remove\"]')?.click(); return true; })()"
             )
             wait_for(
                 cdp,
-                "document.querySelectorAll('#relayPlanLane .tag-relay-chip').length === 8",
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8",
                 f"relay {mode} restores fixture",
             )
             # 点芯片只选中（分区头出工具条），编辑要再点 ✎ —— 排序才是高频操作，
             # 不该每动一次就被浮层糊屏。
-            cdp.eval("document.querySelector('#relayPlanLane .tag-relay-chip-main')?.click()")
+            cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card')?.click()")
             wait_for(
                 cdp,
                 "document.querySelector('#relayBlockTools')?.hidden === false"
@@ -757,7 +757,16 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   return {
     inspectorPosition: getComputedStyle(inspector).position,
     actionsVisible: ar.top >= rr.top - 1 && ar.bottom <= rr.bottom + 1,
+    /* 复制的是这个方案：成品必须紧挨编排区，中间不能再隔着素材货架。 */
+    outputAbovePlanShelf: or.top < (rail.querySelector('.tag-relay-zone-source')?.getBoundingClientRect().top ?? Infinity),
     planZoneStillVisible: pr.height > 20,
+    /* 滑块是 CSS 变量驱动的绝对定位条：量不到宽度就说明它从没被定位过。 */
+    segmentSliderSized: (() => {
+      const slider = rail.querySelector('#relayFormatControl .tag-relay-segment-slider');
+      return Boolean(slider && slider.getBoundingClientRect().width > 8);
+    })(),
+    planCardsDraggable: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(el => el.draggable),
+    sourceChipsDraggable: [...rail.querySelectorAll('#relaySourceList .tag-relay-chip')].every(el => el.draggable),
     panelOverflow: pane.scrollWidth - pane.clientWidth,
     inspectorWithinRail: ir.left >= rr.left - 1 && ir.right <= rr.right + 1,
     outputWithinRail: or.left >= rr.left - 1 && or.right <= rr.right + 1,
@@ -771,8 +780,14 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             # 编辑器现在**必须**是浮层：它是栏的直接子节点，static 会把两个分区和贴底成品一起顶开。
             if compose["inspectorPosition"] not in ("absolute", "fixed"):
                 raise CheckFailed(f"Relay {mode} inspector must float, not push the zones: {compose}")
+            if not compose["outputAbovePlanShelf"]:
+                raise CheckFailed(f"Relay {mode} output must sit right under the plan, not below the shelf: {compose}")
             if not compose["actionsVisible"]:
                 raise CheckFailed(f"Relay {mode} copy buttons are not pinned inside the rail: {compose}")
+            if not compose["segmentSliderSized"]:
+                raise CheckFailed(f"Relay {mode} segment slider was never positioned: {compose}")
+            if not compose["planCardsDraggable"] or not compose["sourceChipsDraggable"]:
+                raise CheckFailed(f"Relay {mode} drag entry points are missing: {compose}")
             if not compose["planZoneStillVisible"]:
                 raise CheckFailed(f"Relay {mode} plan zone vanished while editing: {compose}")
             if (

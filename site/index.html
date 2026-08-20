@@ -331,6 +331,48 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <p id="relayLaneStatus" class="sr-only" role="status" aria-live="polite"></p>
     </section>
 
+    <!-- 成品紧挨着编排区：复制的是这个方案，两者中间不该再隔着素材货架。 -->
+    <footer class="tag-relay-output">
+      <div class="tag-relay-output-option">
+        <span>格式</span>
+        <!-- 三选一 / 二选一，不是三个各自能按下的开关：radiogroup + aria-checked 才是这个语义。 -->
+        <div id="relayFormatControl" class="tag-relay-segment" role="radiogroup" aria-label="输出格式">
+          <span class="tag-relay-segment-slider" aria-hidden="true"></span>
+          <button type="button" role="radio" data-format="nai" aria-checked="true">NAI</button>
+          <button type="button" role="radio" data-format="sd" aria-checked="false">SD</button>
+          <button type="button" role="radio" data-format="plain" aria-checked="false">纯文本</button>
+        </div>
+        <span>连接</span>
+        <div id="relayJoinControl" class="tag-relay-segment" role="radiogroup" aria-label="连接方式">
+          <span class="tag-relay-segment-slider" aria-hidden="true"></span>
+          <button type="button" role="radio" data-join="comma" aria-checked="true">逗号</button>
+          <button type="button" role="radio" data-join="newline" aria-checked="false">逗号换行</button>
+        </div>
+      </div>
+      <!-- 成品默认收成一行摘要：两个只读文本框原先吃掉 129px，而用户从不读它们、只按下面的复制键。 -->
+      <button id="relayOutputToggle" class="tag-relay-output-summary" type="button" aria-expanded="false" aria-controls="relayOutputBoxes">
+        <span id="relayOutputSummary">还没有内容</span>
+        <span class="tag-relay-output-caret" aria-hidden="true">⌄</span>
+      </button>
+      <div id="relayOutputBoxes" class="tag-relay-output-boxes" hidden>
+        <!-- ⚠ 外框不能是 label：applyMergedNote 会往 #relay*Meta 里塞一个「已合并 N 条重复」按钮，
+             label 里嵌交互元素是无效 HTML。改成 div，另用真正的 label for 关联标题与 textarea。 -->
+        <div class="tag-relay-output-box">
+          <span><label for="relayPositiveOutput"><b>正向</b></label><small id="relayPositiveMeta">0 段</small></span>
+          <textarea id="relayPositiveOutput" rows="3" readonly placeholder="正向输出会显示在这里"></textarea>
+        </div>
+        <div class="tag-relay-output-box">
+          <span><label for="relayNegativeOutput"><b>负向</b></label><small id="relayNegativeMeta">0 段</small></span>
+          <textarea id="relayNegativeOutput" rows="2" readonly placeholder="负向输出会显示在这里"></textarea>
+        </div>
+      </div>
+      <div class="tag-relay-output-actions">
+        <button id="relayCopyPositive" class="tag-relay-secondary" type="button">复制正向</button>
+        <button id="relayCopyNegative" class="tag-relay-secondary" type="button">复制负向</button>
+        <button id="relayCopyAll" class="tag-relay-primary" type="button">复制完整方案</button>
+      </div>
+    </footer>
+
     <div class="tag-relay-zone-split" role="separator" aria-orientation="horizontal"></div>
 
     <section id="tagRelayPaneWarehouse" class="tag-relay-zone tag-relay-zone-source" data-rail-pane="warehouse" aria-label="素材">
@@ -381,44 +423,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
     </aside>
 
-    <footer class="tag-relay-output">
-      <div class="tag-relay-output-option">
-        <span>格式</span>
-        <!-- 三选一 / 二选一，不是三个各自能按下的开关：radiogroup + aria-checked 才是这个语义。 -->
-        <div id="relayFormatControl" class="tag-relay-segment" role="radiogroup" aria-label="输出格式">
-          <button type="button" role="radio" data-format="nai" aria-checked="true">NAI</button>
-          <button type="button" role="radio" data-format="sd" aria-checked="false">SD</button>
-          <button type="button" role="radio" data-format="plain" aria-checked="false">纯文本</button>
-        </div>
-        <span>连接</span>
-        <div id="relayJoinControl" class="tag-relay-segment" role="radiogroup" aria-label="连接方式">
-          <button type="button" role="radio" data-join="comma" aria-checked="true">逗号</button>
-          <button type="button" role="radio" data-join="newline" aria-checked="false">逗号换行</button>
-        </div>
-      </div>
-      <!-- 成品默认收成一行摘要：两个只读文本框原先吃掉 129px，而用户从不读它们、只按下面的复制键。 -->
-      <button id="relayOutputToggle" class="tag-relay-output-summary" type="button" aria-expanded="false" aria-controls="relayOutputBoxes">
-        <span id="relayOutputSummary">还没有内容</span>
-        <span class="tag-relay-output-caret" aria-hidden="true">⌄</span>
-      </button>
-      <div id="relayOutputBoxes" class="tag-relay-output-boxes" hidden>
-        <!-- ⚠ 外框不能是 label：applyMergedNote 会往 #relay*Meta 里塞一个「已合并 N 条重复」按钮，
-             label 里嵌交互元素是无效 HTML。改成 div，另用真正的 label for 关联标题与 textarea。 -->
-        <div class="tag-relay-output-box">
-          <span><label for="relayPositiveOutput"><b>正向</b></label><small id="relayPositiveMeta">0 段</small></span>
-          <textarea id="relayPositiveOutput" rows="3" readonly placeholder="正向输出会显示在这里"></textarea>
-        </div>
-        <div class="tag-relay-output-box">
-          <span><label for="relayNegativeOutput"><b>负向</b></label><small id="relayNegativeMeta">0 段</small></span>
-          <textarea id="relayNegativeOutput" rows="2" readonly placeholder="负向输出会显示在这里"></textarea>
-        </div>
-      </div>
-      <div class="tag-relay-output-actions">
-        <button id="relayCopyPositive" class="tag-relay-secondary" type="button">复制正向</button>
-        <button id="relayCopyNegative" class="tag-relay-secondary" type="button">复制负向</button>
-        <button id="relayCopyAll" class="tag-relay-primary" type="button">复制完整方案</button>
-      </div>
-    </footer>
   </aside>
   <button id="tagRelayRailBackdrop" class="tag-relay-rail-backdrop" type="button" tabindex="-1" aria-label="收起中转站"></button>
 </div>

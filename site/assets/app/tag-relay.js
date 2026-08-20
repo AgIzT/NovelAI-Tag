@@ -20,7 +20,10 @@ import {
   setupTagRelayRail,
 } from './tag-relay-rail.js';
 import {
+  RELAY_PLAN_MIME,
+  RELAY_SOURCE_MIME,
   addSourceToPlan,
+  removeBlock,
   renderCompose,
   renderComposeCounters,
   refreshComposeAccess,
@@ -54,12 +57,17 @@ function sourceItem(entry, { removable = true } = {}) {
 
   const chip = document.createElement('div');
   chip.className = locked ? 'tag-relay-chip is-locked' : 'tag-relay-chip';
+  chip.draggable = !locked;
 
-  const main = document.createElement('button');
-  main.type = 'button';
+  /* ⚠ 主体是 div + role=button，不是 <button>：Chrome 里按钮会吞掉拖拽手势，
+     draggable 的祖先根本收不到 dragstart，芯片就成了"看着能拖、拖了没反应"。 */
+  const main = document.createElement('div');
   main.className = 'tag-relay-chip-main';
-  main.disabled = locked;
-  main.title = locked ? '重新开启对应内容权限后可继续使用' : visibleTitle + '　·　点一下加入方案';
+  if (!locked) {
+    main.setAttribute('role', 'button');
+    main.tabIndex = 0;
+  }
+  main.title = locked ? '重新开启对应内容权限后可继续使用' : visibleTitle + '　·　点一下加入方案，也可以直接拖上去';
 
   /* 缩略图缩成 16px 圆点：它在这里只是视觉锚点，42px 的图在芯片里没有位置。 */
   const dot = document.createElement('span');
@@ -78,8 +86,26 @@ function sourceItem(entry, { removable = true } = {}) {
     flag.title = '这条带负向内容';
     main.append(flag);
   }
-  if (!locked) main.onclick = () => addSourceToPlan(entry);
+  if (!locked) {
+    main.onclick = () => addSourceToPlan(entry);
+    main.onkeydown = event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      addSourceToPlan(entry);
+    };
+  }
   chip.append(main);
+
+  if (!locked) {
+    chip.addEventListener('dragstart', event => {
+      chip.classList.add('is-dragging');
+      event.dataTransfer.effectAllowed = 'copy';
+      /* 载荷带整条快照：收藏来源的条目不在 relayInbox 里，接收方按 key 回查会落空。 */
+      event.dataTransfer.setData(RELAY_SOURCE_MIME, JSON.stringify(entry));
+      event.dataTransfer.setData('text/plain', entry.title || '');
+    });
+    chip.addEventListener('dragend', () => chip.classList.remove('is-dragging'));
+  }
 
   /* 收藏来源不给「移出」：那会让人以为是在取消收藏。 */
   if (removable) {
@@ -234,6 +260,30 @@ function renderRelayChrome() {
   if (railCount) railCount.textContent = count ? `${count} 条` : '';
 }
 
+/* 把方案块拖回素材区 = 移出方案。方向和直觉一致：往上拖是加进来，往下拖是拿出去。
+   ⚠ 只认 RELAY_PLAN_MIME，素材自己在区内拖不会误触发。 */
+function bindRemoveByDrag() {
+  const zone = warehouseRoot;
+  if (!zone) return;
+  const isPlanDrag = event => (event.dataTransfer?.types || []).includes(RELAY_PLAN_MIME);
+  zone.addEventListener('dragover', event => {
+    if (!isPlanDrag(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    zone.classList.add('is-remove-target');
+  });
+  zone.addEventListener('dragleave', event => {
+    if (event.target === zone) zone.classList.remove('is-remove-target');
+  });
+  zone.addEventListener('drop', async event => {
+    zone.classList.remove('is-remove-target');
+    if (!isPlanDrag(event)) return;
+    event.preventDefault();
+    const itemId = event.dataTransfer.getData(RELAY_PLAN_MIME);
+    if (itemId) await removeBlock(itemId);
+  });
+}
+
 function bindWarehouse() {
   if (!warehouseRoot) return;
   for (const button of warehouseRoot.querySelectorAll('[data-relay-source]')) {
@@ -294,6 +344,7 @@ export function setupTagRelay() {
   if (!relayBound) {
     relayBound = true;
     bindWarehouse();
+  bindRemoveByDrag();
     /* 状态变了由 store 广播：角标永远更新（它是入库唯一的即时反馈），
        列表只打脏标记，等侧栏开着或切过去才真画。
        ⚠ 编排页签上的块数同属「角标」：在素材页签点「加入方案」时 compose 不是当前

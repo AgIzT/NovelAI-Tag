@@ -822,8 +822,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   }
 }
 
-// 中转站侧栏契约：窄桌面不再硬停靠；所有确认留在侧栏内，来源页签不暴露
-// 一个实际上无法跨互斥页签完成的 HTML5 拖拽入口。
+// 中转站侧栏契约：窄桌面不再硬停靠；所有确认留在侧栏内。
+// ⚠ 2026-08-20 一屏化后，「素材拖拽」这条禁令作废并反转：当初禁它是因为素材与编排
+//    是互斥页签，拖到一半目标页签根本不在屏上；现在两个分区同屏，拖拽是可完成的，
+//    反而成了必须保证的入口（用户实测反馈：素材不能拖、方案块能拖却什么也不会发生）。
 {
   const [relaySource, composeSource, railSource, actionSource, relayCss, indexSource] = await Promise.all([
     '../site/assets/app/tag-relay.js',
@@ -834,8 +836,18 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     '../site/index.html',
   ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
   assert.doesNotMatch(`${relaySource}\n${composeSource}`, /window\.(?:prompt|confirm)\s*\(/);
-  assert.doesNotMatch(relaySource, /\.draggable\s*=|beginSourceDrag|endSourceDrag/);
-  assert.doesNotMatch(composeSource, /pendingSource|beginSourceDrag|endSourceDrag/);
+  // 页签已经不存在了：存在任何一个 role=tab 指向分区，就说明一屏化被改回去了。
+  assert.doesNotMatch(indexSource, /data-rail-tab/);
+  // 素材必须可拖，且载荷是带类型的快照（收藏来源不在 relayInbox 里，按 key 回查会落空）。
+  assert.match(relaySource, /chip\.draggable = !locked/);
+  assert.match(relaySource, /setData\(RELAY_SOURCE_MIME, JSON\.stringify\(entry\)\)/);
+  // 方案块必须可拖，且主体**不能**是 button——Chrome 里按钮会吞掉拖拽手势，
+  // draggable 的祖先收不到 dragstart，就是"能拖但什么都不会发生"。
+  assert.match(composeSource, /card\.draggable = !locked/);
+  assert.match(composeSource, /card\.setAttribute\('role', 'button'\)/);
+  assert.doesNotMatch(composeSource, /main\.className = 'tag-relay-chip-main'/);
+  // 拖回素材区 = 移出方案
+  assert.match(relaySource, /is-remove-target/);
   assert.match(railSource, /matchMedia\('\(max-width:1240px\)'\)/);
   assert.match(relayCss, /@media \(max-width:1240px\)/);
   assert.match(actionSource, /export function requestRelayAction/);

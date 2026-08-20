@@ -31,6 +31,11 @@ import { snapshotLocked } from './tag-relay-snapshot.js';
 import { commitRelay, relayState } from './tag-relay-store.js';
 
 let refs = null;
+
+/* 拖拽载荷类型：方案块（重排 / 拖到素材区移出）与素材（拖进方案）各一种，
+   接收方只看 dataTransfer.types 就能分辨，不必跨模块共享变量。 */
+export const RELAY_PLAN_MIME = 'application/x-relay-plan-item';
+export const RELAY_SOURCE_MIME = 'application/x-relay-source';
 let bound = false;
 let selectedItemId = '';
 let creatingBlock = false;
@@ -240,7 +245,7 @@ async function moveBlock(itemId, delta) {
   announceLane(`已${delta < 0 ? '上移' : '下移'}到第 ${moved + 1} 位 · 共 ${items.length} 块`);
 }
 
-async function removeBlock(itemId) {
+export async function removeBlock(itemId) {
   const action = await commitRelay(next => removePlanItem(next, next.activePlanId, itemId), { changed: 'plan' });
   if (!action.ok || !action.result) return;
   if (selectedItemId === itemId) closeInspector();
@@ -260,31 +265,43 @@ async function toggleBlock(itemId) {
 /* 编排芯片：与素材芯片同一套外形，靠 is-plan 区分。
    ⚠ 不再显示 prompt 预览——它本来就被省略号截断、读不全，反而把块撑成满宽一行；
    全文在编辑器里看。↑↓ / 停用 / 移除 移到分区头那条就地工具条上（选中才出现）。 */
+/* 方案块＝带图大卡，一行两个。
+   NAI 上限 512 token，一个画风 + 一个场景 + 一个角色 + 一套服饰也就五六块——块数天然很少，
+   做成小芯片反而难点、难拖、也认不出是哪条词条；带上缩略图才对得上用户脑子里的那张图。
+   ⚠ 卡片主体不能是 <button>：Chrome 里按钮会吞掉拖拽手势，draggable 的祖先收不到 dragstart，
+      于是"能拖但什么都不会发生"。所以用 div + role=button + tabIndex 自己实现可访问性。 */
 function planBlock(item, index, total) {
   const locked = itemLocked(item);
-  const chip = document.createElement('div');
-  chip.className = 'tag-relay-chip is-plan';
-  chip.classList.toggle('is-selected', selectedItemId === item.id);
-  chip.classList.toggle('is-off', item.enabled === false);
-  chip.classList.toggle('is-locked', locked);
-  chip.draggable = !locked;
-  chip.dataset.itemId = item.id;
-
-  const main = document.createElement('button');
-  main.type = 'button';
-  main.className = 'tag-relay-chip-main';
-  main.disabled = locked;
   const shownTitle = locked ? '已锁定的成人内容' : item.title;
-  main.title = locked ? '当前权限关闭，不参与输出' : shownTitle + '　·　' + blockPreview(item);
-  main.setAttribute('aria-label', (index + 1) + '. ' + shownTitle);
+  const card = document.createElement('div');
+  card.className = 'tag-relay-plan-card';
+  card.classList.toggle('is-selected', selectedItemId === item.id);
+  card.classList.toggle('is-off', item.enabled === false);
+  card.classList.toggle('is-locked', locked);
+  card.dataset.itemId = item.id;
+  card.draggable = !locked;
+  card.setAttribute('role', 'button');
+  card.tabIndex = locked ? -1 : 0;
+  card.setAttribute('aria-label', (index + 1) + '. ' + shownTitle);
+  card.title = locked ? '当前权限关闭，不参与输出' : shownTitle + '　·　' + blockPreview(item);
 
+  const thumb = document.createElement('span');
+  thumb.className = 'tag-relay-plan-card-thumb';
+  if (!locked && item.image) thumb.style.backgroundImage = 'url("' + item.image + '")';
+  else thumb.textContent = locked ? '锁' : (shownTitle.trim()[0] || '块');
+
+  const body = document.createElement('div');
+  body.className = 'tag-relay-plan-card-body';
+  const title = document.createElement('span');
+  title.className = 'tag-relay-plan-card-title';
+  title.textContent = shownTitle;
+  const meta = document.createElement('div');
+  meta.className = 'tag-relay-plan-card-meta';
+  /* 序号是角标不是内容：放进 meta 会让绝大多数「没有负向也没改权重」的块白占一行。 */
   const seq = document.createElement('span');
-  seq.className = 'tag-relay-chip-seq';
+  seq.className = 'tag-relay-plan-card-seq';
   seq.textContent = String(index + 1).padStart(2, '0');
-  const name = document.createElement('span');
-  name.className = 'tag-relay-chip-name';
-  name.textContent = shownTitle;
-  main.append(seq, name);
+  card.append(seq);
 
   const channel = itemChannel(item);
   if (!locked && channel.key === 'negative') {
@@ -292,49 +309,60 @@ function planBlock(item, index, total) {
     flag.className = 'tag-relay-chip-flag';
     flag.textContent = '负';
     flag.title = '这块只进负向通道';
-    main.append(flag);
+    meta.append(flag);
   }
   if (!locked && itemHasCharacterNegative(item)) {
     const warn = document.createElement('span');
     warn.className = 'tag-relay-chip-flag';
     warn.textContent = '⚠';
     warn.title = '角色级负面在 NovelAI 里按角色分槽填，不会并入负向输出';
-    main.append(warn);
+    meta.append(warn);
   }
   if (!locked && Number(item.weight) !== 1) {
     const weight = document.createElement('span');
     weight.className = 'tag-relay-chip-wt';
     weight.textContent = '×' + item.weight;
-    main.append(weight);
+    meta.append(weight);
+  }
+  body.append(title, meta);
+  card.append(thumb, body);
+
+  if (!locked) {
+    card.onclick = () => selectBlock(item.id, { edit: false });
+    card.ondblclick = () => selectBlock(item.id, { edit: true });
+    card.onkeydown = event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      selectBlock(item.id, { edit: event.key === 'Enter' });
+    };
   }
 
-  main.onclick = () => selectBlock(item.id, { edit: false });
-  main.ondblclick = () => selectBlock(item.id, { edit: true });
-  chip.append(main);
-
-  chip.addEventListener('dragstart', event => {
+  card.addEventListener('dragstart', event => {
     dragBlockId = item.id;
-    chip.classList.add('is-dragging');
+    card.classList.add('is-dragging');
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', item.id);
+    /* 用带类型的载荷而不是模块间共享变量：素材区在另一个模块里，
+       它只要看 dataTransfer.types 就知道拖来的是不是方案块。 */
+    event.dataTransfer.setData(RELAY_PLAN_MIME, item.id);
+    event.dataTransfer.setData('text/plain', item.title);
   });
-  chip.addEventListener('dragend', () => {
+  card.addEventListener('dragend', () => {
     dragBlockId = '';
-    chip.classList.remove('is-dragging');
+    card.classList.remove('is-dragging');
   });
-  chip.addEventListener('dragover', event => {
-    if (!dragBlockId) return;
+  card.addEventListener('dragover', event => {
+    if (!dragBlockId || dragBlockId === item.id) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   });
-  chip.addEventListener('drop', async event => {
-    if (!dragBlockId) return;
+  card.addEventListener('drop', async event => {
+    if (!dragBlockId || dragBlockId === item.id) return;
     event.preventDefault();
     event.stopPropagation();
     await commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, index), { changed: 'plan' });
     dragBlockId = '';
   });
-  return chip;
+  return card;
 }
 
 /* 选中块时才现的就地工具条：↑↓ 是触屏唯一的排序手段，不能藏进浮层。 */
@@ -425,6 +453,8 @@ function renderOutput() {
   refs.copyNegative.disabled = !latest.negative;
   refs.copyAll.disabled = !latest.positive && !latest.negative;
   /* 成品默认收起，只留一行摘要：两个只读框原先常驻 129px，而用户从不读它们、只按复制。 */
+  syncSegmentSlider(refs.formatButtons);
+  syncSegmentSlider(refs.joinButtons);
   if (refs.outputSummary) {
     const merged = (compiled.positiveMergedCount || 0) + (compiled.negativeMergedCount || 0);
     const parts = [];
@@ -849,6 +879,17 @@ function bindInspector() {
    方向键在组内移动并顺带选中——这正是 radio 与 tab 的分别（tab 只移动、不激活）。
    ⚠ 只把 role 换成 radiogroup 却不接方向键，读屏会念「单选按钮」但按键没反应，
    比原来的 role="group" + aria-pressed 更糟。要换就得连键盘一起换。 */
+/* 滑块只吃两个整数：第几格、共几格，位置由 CSS calc 算。
+   ⚠ 不要退回"用 JS 量 offsetWidth 写 px"——开栏是一段 .26s 的宽度过渡，
+     那时量到的是 0，滑块会被钉死在 0 宽再也不动（这个坑踩过一次）。 */
+function syncSegmentSlider(buttons) {
+  const index = buttons.findIndex(button => button.getAttribute('aria-checked') === 'true');
+  const group = buttons[0]?.closest('.tag-relay-segment');
+  if (!group || index < 0) return;
+  group.style.setProperty('--seg-n', String(buttons.length));
+  group.style.setProperty('--seg-i', String(index));
+}
+
 function bindSegmentGroup(buttons, apply) {
   const select = button => {
     for (const other of buttons) {
@@ -857,10 +898,12 @@ function bindSegmentGroup(buttons, apply) {
       other.tabIndex = on ? 0 : -1;
     }
     apply(button);
+    syncSegmentSlider(buttons);
     renderOutput();
   };
   buttons.forEach((button, index) => {
     button.tabIndex = button.getAttribute('aria-checked') === 'true' ? 0 : -1;
+    if (index === 0) syncSegmentSlider(buttons);
     button.addEventListener('click', () => select(button));
     button.addEventListener('keydown', event => {
       const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
@@ -913,17 +956,29 @@ function bindOutputToggle() {
 function bindLaneDrop() {
   for (const target of [refs.lane, refs.empty]) {
     target.addEventListener('dragover', event => {
-      if (!dragBlockId) return;
+      const types = event.dataTransfer?.types || [];
+      if (!dragBlockId && !types.includes(RELAY_SOURCE_MIME)) return;
       event.preventDefault();
       target.classList.add('is-drop-target');
     });
     target.addEventListener('dragleave', () => target.classList.remove('is-drop-target'));
     target.addEventListener('drop', async event => {
       target.classList.remove('is-drop-target');
-      if (!dragBlockId) return;
+      const types = event.dataTransfer?.types || [];
+      if (!dragBlockId && !types.includes(RELAY_SOURCE_MIME)) return;
       event.preventDefault();
       /* 已有块拖到轨道空白处 = 移到末尾。以前这里直接 return，只有拖到另一块上才生效，
          轨道下方那片空白看着像落点却没反应。 */
+      /* 素材直接拖进轨道 = 加入方案。载荷里带的是整条快照，省得跨模块回查——
+         收藏来源的条目根本不在 relayInbox 里，按 key 查会落空。 */
+      const payload = event.dataTransfer?.getData(RELAY_SOURCE_MIME);
+      if (payload) {
+        try { await addSourceToPlan(JSON.parse(payload)); }
+        catch (error) { console.warn('[tag-relay] 拖入的素材解析失败', error); }
+        dragBlockId = '';
+        return;
+      }
+      if (!dragBlockId) return;
       const items = plan()?.items || [];
       await commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, items.length - 1), { changed: 'plan' });
       dragBlockId = '';

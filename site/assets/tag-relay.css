@@ -534,3 +534,96 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-rail .tag-relay-zone-plan{max-height:38%}
   .tag-relay-rail .tag-relay-zone{padding:8px 12px}
 }
+
+/* ============================================================
+   一屏化 v2（2026-08-20，实际试用后的修正）
+   ① 成品挪到编排区正下方——复制的是这个方案，中间隔着素材货架很别扭
+   ② 方案块改成**带图的大卡**：NAI 上限 512 token，一个画风 + 一个场景 +
+      一个角色 + 一套服饰也就五六块，块数天然很少，做小反而难点、难拖、认不出
+   ③ 拖拽真正接上：原先方案块的主体是 <button>，Chrome 里按钮会吞掉拖拽手势，
+      draggable 的祖先根本收不到 dragstart——所以"能拖但什么也不会发生"
+   ④ 分段控件加滑块过渡
+   ============================================================ */
+
+/* ---- 方案块：大卡 + 缩略图，一行两个 ---- */
+.tag-relay-plan-card{
+  position:relative;display:grid;grid-template-columns:40px minmax(0,1fr);gap:9px;
+  align-items:center;width:calc(50% - 3px);min-width:0;padding:8px;
+  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:12px;
+  background:var(--accent-soft);color:var(--text);text-align:left;
+  cursor:grab;transition:border-color .12s,box-shadow .12s,opacity .12s;
+}
+.tag-relay-plan-card:active{cursor:grabbing}
+.tag-relay-plan-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
+.tag-relay-plan-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tag-relay-plan-card.is-selected{outline:2px solid var(--accent);outline-offset:1px}
+.tag-relay-plan-card.is-off{opacity:.45}
+.tag-relay-plan-card.is-dragging{opacity:.35}
+.tag-relay-plan-card.is-locked{background:var(--tagbg);border-color:var(--line);color:var(--muted);cursor:not-allowed}
+
+.tag-relay-plan-card-thumb{
+  width:40px;height:40px;flex:none;border-radius:9px;
+  background:var(--tagbg) center/cover no-repeat;
+  display:grid;place-items:center;color:var(--accent);font:800 14px/1 var(--font-display);
+}
+.tag-relay-plan-card-body{min-width:0;display:flex;flex-direction:column;gap:3px}
+.tag-relay-plan-card-title{
+  min-width:0;padding-right:14px;font-size:12px;font-weight:800;line-height:1.32;
+  display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.tag-relay-plan-card-meta{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
+.tag-relay-plan-card-seq{
+  position:absolute;top:5px;right:7px;
+  font-size:9px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;
+  pointer-events:none;
+}
+.tag-relay-plan-card-meta:empty{display:none}
+
+/* 空方案的「＋」占位卡，和真卡同尺寸，一眼看得出这里能放东西 */
+.tag-relay-plan-card.is-add{
+  background:transparent;border-style:dashed;border-color:var(--line);color:var(--muted);
+  cursor:pointer;place-items:center;grid-template-columns:1fr;justify-items:center;
+}
+.tag-relay-plan-card.is-add:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ---- 素材芯片：可以拖上去 ---- */
+.tag-relay-chip{cursor:grab}
+.tag-relay-chip:active{cursor:grabbing}
+.tag-relay-chip.is-dragging{opacity:.35}
+/* 方案块拖到素材区 = 移出方案（往上拖是加，往下拖是移出，方向和直觉一致） */
+.tag-relay-zone-source.is-remove-target{
+  outline:2px dashed var(--new);outline-offset:-4px;border-radius:12px;
+}
+.tag-relay-zone-source.is-remove-target .tag-relay-zone-title::after{
+  content:'　松手移出方案';color:var(--new);font-weight:800;
+}
+.tag-relay-plan-lane.is-drop-target{
+  outline:2px dashed var(--accent);outline-offset:-4px;border-radius:12px;
+}
+
+/* ---- 分段控件滑块 ---- */
+.tag-relay-segment{position:relative}
+.tag-relay-segment{--seg-n:3;--seg-i:0}
+.tag-relay-segment-slider{
+  --seg-unit:calc((100% - 6px - 2px * (var(--seg-n) - 1)) / var(--seg-n));
+  position:absolute;top:3px;bottom:3px;
+  width:var(--seg-unit);
+  left:calc(3px + (var(--seg-unit) + 2px) * var(--seg-i));
+  border-radius:999px;background:var(--card);box-shadow:var(--shadow);
+  transition:left .24s cubic-bezier(.22,1,.36,1),width .24s cubic-bezier(.22,1,.36,1);
+  pointer-events:none;
+}
+.tag-relay-segment button{position:relative;z-index:1}
+/* 选中态的底色交给滑块，按钮本身只留文字色，否则两层背景会打架 */
+.tag-relay-segment button[aria-checked="true"]{background:transparent;box-shadow:none;color:var(--accent)}
+
+@media (prefers-reduced-motion:reduce){
+  .tag-relay-segment-slider{transition:none}
+}
+
+/* 块变大了，编排区相应放宽一点；素材是货架，给它剩下的 */
+.tag-relay-rail .tag-relay-zone-plan{max-height:52%}
+@media (max-width:600px){
+  .tag-relay-rail .tag-relay-zone-plan{max-height:46%}
+  .tag-relay-plan-card{width:100%}
+}
