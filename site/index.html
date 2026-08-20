@@ -311,7 +311,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <section id="tagRelayPaneCompose" class="tag-relay-zone tag-relay-zone-plan" data-rail-pane="compose" aria-label="编排">
       <div class="tag-relay-zone-head">
         <p id="relayPlanStats" class="tag-relay-zone-title" aria-live="polite"></p>
-        <span id="tagRelayComposeCount" class="tag-relay-tab-count" hidden></span>
         <!-- 选中某块时才出现。↑↓ 是触屏上唯一的排序手段，收进浮层就成了「开浮层→点一下→关浮层」，
              所以就地放在分区头右半：不占额外行，也不遮挡轨道。 -->
         <div id="relayBlockTools" class="tag-relay-lane-tools" hidden role="group" aria-label="选中块操作">
@@ -334,19 +333,23 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <!-- 成品紧挨着编排区：复制的是这个方案，两者中间不该再隔着素材货架。 -->
     <footer class="tag-relay-output">
       <div class="tag-relay-output-option">
-        <span>格式</span>
-        <!-- 三选一 / 二选一，不是三个各自能按下的开关：radiogroup + aria-checked 才是这个语义。 -->
-        <div id="relayFormatControl" class="tag-relay-segment" role="radiogroup" aria-label="输出格式">
-          <span class="tag-relay-segment-slider" aria-hidden="true"></span>
-          <button type="button" role="radio" data-format="nai" aria-checked="true">NAI</button>
-          <button type="button" role="radio" data-format="sd" aria-checked="false">SD</button>
-          <button type="button" role="radio" data-format="plain" aria-checked="false">纯文本</button>
+        <div class="tag-relay-output-option-group">
+          <span>格式</span>
+          <!-- 三选一 / 二选一，不是三个各自能按下的开关：radiogroup + aria-checked 才是这个语义。 -->
+          <div id="relayFormatControl" class="tag-relay-segment" role="radiogroup" aria-label="输出格式">
+            <span class="tag-relay-segment-slider" aria-hidden="true"></span>
+            <button type="button" role="radio" data-format="nai" aria-checked="true">NAI</button>
+            <button type="button" role="radio" data-format="sd" aria-checked="false">SD</button>
+            <button type="button" role="radio" data-format="plain" aria-checked="false">纯文本</button>
+          </div>
         </div>
-        <span>连接</span>
-        <div id="relayJoinControl" class="tag-relay-segment" role="radiogroup" aria-label="连接方式">
-          <span class="tag-relay-segment-slider" aria-hidden="true"></span>
-          <button type="button" role="radio" data-join="comma" aria-checked="true">逗号</button>
-          <button type="button" role="radio" data-join="newline" aria-checked="false">逗号换行</button>
+        <div class="tag-relay-output-option-group">
+          <span>连接</span>
+          <div id="relayJoinControl" class="tag-relay-segment" role="radiogroup" aria-label="连接方式">
+            <span class="tag-relay-segment-slider" aria-hidden="true"></span>
+            <button type="button" role="radio" data-join="comma" aria-checked="true">逗号</button>
+            <button type="button" role="radio" data-join="newline" aria-checked="false">逗号换行</button>
+          </div>
         </div>
       </div>
       <!-- 成品默认收成一行摘要：两个只读文本框原先吃掉 129px，而用户从不读它们、只按下面的复制键。 -->

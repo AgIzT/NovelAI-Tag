@@ -846,6 +846,20 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(composeSource, /card\.draggable = !locked/);
   assert.match(composeSource, /card\.setAttribute\('role', 'button'\)/);
   assert.doesNotMatch(composeSource, /main\.className = 'tag-relay-chip-main'/);
+  // footer 是 compose 的兄弟：格式/连接必须从整条 rail 取；行为差异另由 access 测试驱动。
+  assert.match(composeSource, /formatButtons:\s*\[\.\.\.scope\.querySelectorAll\('\[data-format\]'\)\]/);
+  assert.match(composeSource, /joinButtons:\s*\[\.\.\.scope\.querySelectorAll\('\[data-join\]'\)\]/);
+  // drop 进入 Web Lock 前必须把 ID 抄到局部变量，事务闭包不能再读取会被 dragend 清空的全局值。
+  assert.match(composeSource, /const draggedId = event\.dataTransfer\?\.getData\(RELAY_PLAN_MIME\) \|\| dragBlockId;[\s\S]*movePlanItem\(next, targetPlanId, draggedId, targetIndex\)/);
+  // 方案头只留「N 个块」一份计数；格式/连接各自成组，窄屏换行也不会拆散标签与控件。
+  assert.doesNotMatch(indexSource, /tagRelayComposeCount/);
+  assert.equal((indexSource.match(/class="tag-relay-output-option-group"/g) || []).length, 2);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-plan-lane\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(relayCss, /\.tag-relay-plan-card-body\{[\s\S]*display:flex;align-items:center/);
+  assert.match(composeSource, /event\.clientY < rect\.top \+ rect\.height \/ 2/);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{[^}]*min-height:88px/);
+  assert.match(relayCss, /\.tag-relay-primary:disabled,\.tag-relay-secondary:disabled/);
+  assert.match(relaySource, /tag-relay-chip-negative/);
   // 拖回素材区 = 移出方案
   assert.match(relaySource, /is-remove-target/);
   assert.match(railSource, /matchMedia\('\(max-width:1240px\)'\)/);

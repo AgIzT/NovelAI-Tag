@@ -587,6 +587,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             ("drawer", 900, 620, False, "drawer"),
             ("sheet-boundary", 600, 760, False, "sheet"),
             ("sheet", 390, 640, True, "sheet"),
+            ("sheet-short", 390, 600, True, "sheet"),
         ]
         details = {}
         shots = []
@@ -618,6 +619,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const main = document.querySelector('#main');
   const backdrop = document.querySelector('#tagRelayRailBackdrop');
   const sourceTabs = document.querySelector('.tag-relay-source-tabs');
+  const sourceList = document.querySelector('#relaySourceList');
+  const firstSourceChip = sourceList.querySelector('.tag-relay-chip');
   const sourceButtons = [...sourceTabs.querySelectorAll('[role="tab"]')];
   const rr = rail.getBoundingClientRect();
   const mr = main.getBoundingClientRect();
@@ -625,6 +628,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     const clientWidth = document.documentElement.clientWidth;
   const first = sourceButtons[0]?.getBoundingClientRect();
   const last = sourceButtons.at(-1)?.getBoundingClientRect();
+  const sourceListRect = sourceList.getBoundingClientRect();
+  const firstSourceRect = firstSourceChip?.getBoundingClientRect();
   return {
     position: getComputedStyle(rail).position,
     rail: {left: rr.left, top: rr.top, right: rr.right, bottom: rr.bottom, width: rr.width},
@@ -637,6 +642,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     sourceZoneH: document.querySelector('.tag-relay-zone-source')?.getBoundingClientRect().height || 0,
     planChips: document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length,
     sourceChips: document.querySelectorAll('#relaySourceList .tag-relay-chip').length,
+    sourceListH: sourceListRect.height,
+    firstSourceFullyVisible: !!firstSourceRect
+      && firstSourceRect.height >= 29
+      && firstSourceRect.top >= sourceListRect.top - 1
+      && firstSourceRect.bottom <= Math.min(sourceListRect.bottom, innerHeight) + 1,
     outputCollapsed: document.querySelector('#relayOutputBoxes')?.hidden === true,
     sourceTabCount: sourceButtons.length,
     sourceTabWidthDelta: first && last ? Math.abs(first.width - last.width) : 999,
@@ -654,6 +664,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} does not show both zones at once: {shell}")
             if shell["planChips"] < 1 or shell["sourceChips"] < 1:
                 raise CheckFailed(f"Relay {mode} did not render chips in both zones: {shell}")
+            if shell["sourceListH"] < 30 or not shell["firstSourceFullyVisible"]:
+                raise CheckFailed(f"Relay {mode} does not leave one complete clickable source row: {shell}")
             if not shell["outputCollapsed"]:
                 raise CheckFailed(f"Relay {mode} output should start collapsed: {shell}")
             if shell["sourceTabCount"] != 2 or shell["sourceTabWidthDelta"] > 2 or shell["sourceRightGap"] > 8:
@@ -689,7 +701,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                    or abs(shell["rail"]["left"]) > 2
                     or abs(shell["rail"]["right"] - shell["viewportRight"]) > 2
                    or abs(shell["rail"]["bottom"] - height) > 2
-                   or shell["rail"]["top"] < 80
+                   or shell["rail"]["top"] < 36
                     or shell["backdropDisplay"] == "none"
                     or shell["role"] != "dialog"
                     or shell["ariaModal"] != "true"
@@ -701,6 +713,32 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 cdp,
                 "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8",
                 f"relay {mode} plan chips",
+            )
+
+            # 真正派发 HTML DragEvent，而不是只看 draggable 属性。drop 回调会异步等 Web Lock；
+            # 载荷 ID 若仍从会被 dragend 清空的模块变量读取，这里就不会发生换位。
+            dragged_id = cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card')?.dataset.itemId")
+            cdp.eval(r"""
+(() => {
+  const cards = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
+  if (cards.length < 2) return false;
+  const source = cards[0];
+  const target = cards[1];
+  const rect = target.getBoundingClientRect();
+  const dataTransfer = new DataTransfer();
+  dataTransfer.setData('application/x-relay-plan-item', source.dataset.itemId);
+  dataTransfer.setData('text/plain', source.textContent || '');
+  const init = {bubbles:true, cancelable:true, dataTransfer, clientX:rect.left + rect.width / 2, clientY:rect.bottom - 2};
+  target.dispatchEvent(new DragEvent('dragover', init));
+  target.dispatchEvent(new DragEvent('drop', init));
+  source.dispatchEvent(new DragEvent('dragend', {bubbles:true, dataTransfer}));
+  return true;
+})()
+""")
+            wait_for(
+                cdp,
+                f"document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')[1]?.dataset.itemId === {json.dumps(dragged_id)}",
+                f"relay {mode} native drag reorder",
             )
 
             # 一屏化最核心的那步：点素材芯片，块直接落进上方编排区。
@@ -766,6 +804,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
       return Boolean(slider && slider.getBoundingClientRect().width > 8);
     })(),
     planCardsDraggable: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(el => el.draggable),
+    planCardsSingleColumn: (() => {
+      const cards = [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
+      if (cards.length < 2) return false;
+      const first = cards[0].getBoundingClientRect();
+      const second = cards[1].getBoundingClientRect();
+      return Math.abs(first.left - second.left) < 2
+        && second.top >= first.bottom - 1
+        && first.width >= rail.querySelector('#relayPlanLane').clientWidth * .9;
+    })(),
     sourceChipsDraggable: [...rail.querySelectorAll('#relaySourceList .tag-relay-chip')].every(el => el.draggable),
     panelOverflow: pane.scrollWidth - pane.clientWidth,
     inspectorWithinRail: ir.left >= rr.left - 1 && ir.right <= rr.right + 1,
@@ -788,6 +835,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} segment slider was never positioned: {compose}")
             if not compose["planCardsDraggable"] or not compose["sourceChipsDraggable"]:
                 raise CheckFailed(f"Relay {mode} drag entry points are missing: {compose}")
+            if not compose["planCardsSingleColumn"]:
+                raise CheckFailed(f"Relay {mode} plan cards are not full-width single-column bars: {compose}")
             if not compose["planZoneStillVisible"]:
                 raise CheckFailed(f"Relay {mode} plan zone vanished while editing: {compose}")
             if (

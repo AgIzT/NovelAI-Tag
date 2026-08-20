@@ -30,7 +30,9 @@
 .tag-relay-primary:hover{box-shadow:0 9px 24px var(--accent-glow);transform:translateY(-1px)}
 .tag-relay-secondary{border:1px solid var(--line);background:var(--card);color:var(--muted)}
 .tag-relay-secondary:hover{border-color:var(--accent);color:var(--accent)}
-.tag-relay-secondary:disabled{opacity:.42;cursor:not-allowed}
+.tag-relay-primary:disabled,.tag-relay-secondary:disabled{opacity:.42;cursor:not-allowed;transform:none;box-shadow:none}
+.tag-relay-primary:disabled:hover{transform:none;box-shadow:none}
+.tag-relay-secondary:disabled:hover{border-color:var(--line);color:var(--muted)}
 
 /* ---------- 浏览页：中转站侧栏 ---------- */
 /* 形态与左侧目录栏 .sidebar 镜像对称：宽屏贴边常驻并把瀑布流挤窄（走 .layout 的 flex，
@@ -119,7 +121,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 /* 基础样式把这里做成两段完整的胶囊；不要留下旧侧栏的 16px 内边距，
    否则格子本身会被挤窄，右侧出现一段不对称的空白。 */
 .tag-relay-rail .tag-relay-source-tabs{flex:none}
-.tag-relay-rail .tag-relay-source-status{flex:none;padding:0 16px 6px;margin:0}
+.tag-relay-rail .tag-relay-source-status{flex:none;padding:0;margin:0}
 .tag-relay-rail .tag-relay-source-empty{flex:1;min-height:0}
 
 @media (max-width:1240px){
@@ -149,13 +151,19 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 @media (max-width:600px){
   /* 手机转底部 sheet */
   .tag-relay-rail{
-    top:auto;bottom:0;right:0;left:0;width:100%;height:min(82dvh,720px);
+    top:auto;bottom:0;right:0;left:0;width:100%;height:min(88dvh,720px);
     border-radius:22px 22px 0 0;border-bottom:0;
   }
   .tag-relay-rail.closed{transform:translateY(calc(100% + 16px));width:100%}
   .tag-relay-rail-head{padding:12px 14px 8px}
   .tag-relay-inline-action{grid-template-columns:1fr;padding:9px 14px}
   .tag-relay-inline-action-buttons{justify-content:flex-end}
+}
+
+/* 短屏里的方案改成单列横条后会多占几行；sheet 再抬高一点，尽量同时留下
+   五六条方案和一整行素材，避免在两个相邻小滚动区来回滚。 */
+@media (max-width:600px) and (max-height:640px){
+  .tag-relay-rail{height:min(calc(100dvh - 36px),720px)}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -355,9 +363,15 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   flex:none;border-top:1px solid var(--line);padding:10px 16px 14px;background:var(--bg);
   display:flex;flex-direction:column;gap:8px;overflow:visible;
 }
-.tag-relay-rail [data-rail-pane="compose"]{overflow-y:auto;overscroll-behavior:contain}
+.tag-relay-rail [data-rail-pane="compose"]{overflow:hidden;overscroll-behavior:contain}
 .tag-relay-rail [data-rail-pane="compose"] .tag-relay-plan-lane{flex:1 1 120px}
-.tag-relay-rail .tag-relay-output-option{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0}
+.tag-relay-rail .tag-relay-output-option{
+  display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);align-items:center;gap:8px;
+  padding:0;
+}
+.tag-relay-output-option-group{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px;min-width:0}
+.tag-relay-output-option-group>span{color:var(--muted);font-size:10.5px;font-weight:800;white-space:nowrap}
+.tag-relay-output-option-group .tag-relay-segment{min-width:0}
 .tag-relay-rail .tag-relay-output-box{margin:0}
 .tag-relay-rail .tag-relay-output-box textarea{min-height:0;font-size:11px}
 .tag-relay-output-actions{display:flex;gap:7px}
@@ -365,8 +379,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 
 /* ⚠ 统计行不能按视口宽度藏：侧栏恒宽 440px，1100px 的抽屉里没有、1300px 的停靠里有，
    同样宽的一根栏两种表现，纯属把独立页的响应式当成了侧栏的响应式。
-   真正会挤的是底部 sheet 形态（高度只有 min(82dvh,720px)），所以按形态藏在这一档里。
-   块数本身在「编排」页签的角标上还有一份，藏掉不丢信息。 */
+   真正会挤的是底部 sheet 形态，所以按形态收紧内边距；块数由方案区标题显示。 */
 @media (max-width:600px){
   .tag-relay-rail .tag-relay-output{padding:10px 14px 14px}
 }
@@ -415,12 +428,11 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-rail .tag-relay-zone{
   display:flex;flex-direction:column;gap:7px;padding:9px 14px;min-height:0;
 }
-/* 编排按内容自适应，但封顶 45%：方案一长就会把素材整个挤没，那等于又回到了单分区。 */
-.tag-relay-rail .tag-relay-zone-plan{flex:0 1 auto;max-height:45%}
-/* 编排轨道贴着内容走：块少的时候把多出来的高度让给素材区，
-   块多了再被 45% 的上限截住并自己滚动。写 flex:1 会让它先把空高度占满。 */
+/* 编排按内容自适应；单列横条优先给到六块的高度，空间不足时才由轨道自身滚动。 */
+.tag-relay-rail .tag-relay-zone-plan{flex:0 1 auto;max-height:min(64%,360px)}
+/* 编排轨道贴着内容走：块少时把空高度让给素材区。 */
 .tag-relay-rail .tag-relay-zone-plan .tag-relay-plan-lane{flex:0 1 auto}
-.tag-relay-rail .tag-relay-zone-source{flex:1 1 auto}
+.tag-relay-rail .tag-relay-zone-source{flex:1 1 96px;min-height:88px}
 
 .tag-relay-zone-head{display:flex;align-items:center;gap:6px;min-height:24px;flex:none}
 .tag-relay-zone-title{
@@ -482,6 +494,14 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   flex:none;font-size:8.5px;font-weight:900;border-radius:4px;padding:1px 4px;
   background:color-mix(in srgb,var(--new) 12%,var(--card));color:var(--new);
 }
+.tag-relay-chip-negative{
+  flex:none;width:23px;height:22px;margin-right:3px;padding:0;border:0;border-radius:6px;
+  background:color-mix(in srgb,var(--new) 12%,var(--card));color:var(--new);
+  font-size:9px;font-weight:900;line-height:1;cursor:pointer;
+}
+.tag-relay-chip-negative:hover,.tag-relay-chip-negative:focus-visible{
+  outline:none;background:var(--new);color:#fff;
+}
 /* 移除键：桌面 hover 才现，触屏没有 hover，常驻但压低存在感 */
 .tag-relay-chip-x{
   flex:none;width:18px;height:18px;margin-right:5px;padding:0;border:0;border-radius:5px;
@@ -529,51 +549,75 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-chip,.tag-relay-chip-x,.tag-relay-output-caret{transition:none}
 }
 
-/* ≤600px 底部 sheet：高度最紧，编排让出更多给素材，成品仍贴底 */
+/* ≤600px 底部 sheet：高度最紧，素材仍要至少露出一整行 */
 @media (max-width:600px){
-  .tag-relay-rail .tag-relay-zone-plan{max-height:38%}
   .tag-relay-rail .tag-relay-zone{padding:8px 12px}
 }
 
 /* ============================================================
    一屏化 v2（2026-08-20，实际试用后的修正）
    ① 成品挪到编排区正下方——复制的是这个方案，中间隔着素材货架很别扭
-   ② 方案块改成**带图的大卡**：NAI 上限 512 token，一个画风 + 一个场景 +
-      一个角色 + 一套服饰也就五六块，块数天然很少，做小反而难点、难拖、认不出
-   ③ 拖拽真正接上：原先方案块的主体是 <button>，Chrome 里按钮会吞掉拖拽手势，
-      draggable 的祖先根本收不到 dragstart——所以"能拖但什么也不会发生"
-   ④ 分段控件加滑块过渡
+   ② 方案块改成**带图的单列横条**：NAI 上限 512 token，一个画风 + 一个场景 +
+      一个角色 + 一套服饰也就五六块；整行都是落点，比两列小卡更容易点选和拖排
+   ③ 拖影用完整卡片，落点用插入线，原位卡才变淡
+   ④ 分段控件加滑块过渡；格式与连接各自作为不可拆开的原子组
    ============================================================ */
 
-/* ---- 方案块：大卡 + 缩略图，一行两个 ---- */
+/* ---- 方案块：白底横条 + 左侧紫色定位条；轨道固定单列 ---- */
+.tag-relay-rail .tag-relay-plan-lane{
+  display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(46px,auto);
+  gap:5px;align-content:start;overflow-x:hidden;overflow-y:auto;
+}
 .tag-relay-plan-card{
-  position:relative;display:grid;grid-template-columns:40px minmax(0,1fr);gap:9px;
-  align-items:center;width:calc(50% - 3px);min-width:0;padding:8px;
-  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:12px;
-  background:var(--accent-soft);color:var(--text);text-align:left;
+  position:relative;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;
+  align-items:center;width:100%;min-width:0;min-height:46px;padding:5px 9px 5px 10px;overflow:hidden;
+  border:1px solid color-mix(in srgb,var(--accent) 34%,var(--line));border-radius:12px;
+  background:var(--card);color:var(--text);text-align:left;box-shadow:0 2px 8px rgba(24,28,46,.055);
   cursor:grab;transition:border-color .12s,box-shadow .12s,opacity .12s;
+}
+.tag-relay-plan-card::before{
+  content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;
+  background:var(--accent);opacity:.72;
 }
 .tag-relay-plan-card:active{cursor:grabbing}
 .tag-relay-plan-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
 .tag-relay-plan-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.tag-relay-plan-card.is-selected{outline:2px solid var(--accent);outline-offset:1px}
+.tag-relay-plan-card.is-selected{outline:2px solid var(--accent);outline-offset:1px;background:var(--accent-soft)}
 .tag-relay-plan-card.is-off{opacity:.45}
-.tag-relay-plan-card.is-dragging{opacity:.35}
+.tag-relay-plan-card.is-dragging{opacity:.22}
 .tag-relay-plan-card.is-locked{background:var(--tagbg);border-color:var(--line);color:var(--muted);cursor:not-allowed}
+.tag-relay-plan-card.is-locked::before{background:var(--muted);opacity:.35}
+.tag-relay-plan-card.is-drop-before::after,.tag-relay-plan-card.is-drop-after::after{
+  content:'';position:absolute;left:6px;right:6px;height:3px;border-radius:999px;background:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-soft);z-index:2;
+}
+.tag-relay-plan-card.is-drop-before::after{top:1px}
+.tag-relay-plan-card.is-drop-after::after{bottom:1px}
+.tag-relay-plan-drag-image{
+  position:fixed!important;left:-9999px!important;top:-9999px!important;z-index:2147483647!important;
+  opacity:1!important;background:var(--card)!important;box-shadow:var(--shadow-hover)!important;pointer-events:none!important;
+}
 
 .tag-relay-plan-card-thumb{
-  width:40px;height:40px;flex:none;border-radius:9px;
+  grid-column:1;grid-row:1;width:34px;height:34px;flex:none;border-radius:8px;
   background:var(--tagbg) center/cover no-repeat;
-  display:grid;place-items:center;color:var(--accent);font:800 14px/1 var(--font-display);
+  display:grid;place-items:center;color:var(--accent);font:800 12px/1 var(--font-display);
 }
-.tag-relay-plan-card-body{min-width:0;display:flex;flex-direction:column;gap:3px}
+.tag-relay-plan-card-body{
+  grid-column:2;grid-row:1;min-width:0;display:flex;align-items:center;gap:8px;
+}
 .tag-relay-plan-card-title{
-  min-width:0;padding-right:14px;font-size:12px;font-weight:800;line-height:1.32;
-  display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  flex:1;min-width:0;font-size:12px;font-weight:800;line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.tag-relay-plan-card-meta{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
+.tag-relay-plan-card-meta{display:flex;align-items:center;gap:4px;flex:none;flex-wrap:nowrap;min-width:0}
+.tag-relay-channel-badge{
+  flex:none;border-radius:5px;padding:1px 5px;font-size:8.5px;font-weight:900;line-height:1.35;
+}
+.tag-relay-channel-badge.is-both{background:var(--accent-soft);color:var(--accent)}
+.tag-relay-channel-badge.is-negative{background:color-mix(in srgb,var(--new) 12%,var(--card));color:var(--new)}
 .tag-relay-plan-card-seq{
-  position:absolute;top:5px;right:7px;
+  position:static;grid-column:3;grid-row:1;align-self:center;
   font-size:9px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;
   pointer-events:none;
 }
@@ -598,7 +642,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   content:'　松手移出方案';color:var(--new);font-weight:800;
 }
 .tag-relay-plan-lane.is-drop-target{
-  outline:2px dashed var(--accent);outline-offset:-4px;border-radius:12px;
+  border-radius:12px;box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent) 62%,transparent);
 }
 
 /* ---- 分段控件滑块 ---- */
@@ -621,9 +665,23 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-segment-slider{transition:none}
 }
 
-/* 块变大了，编排区相应放宽一点；素材是货架，给它剩下的 */
-.tag-relay-rail .tag-relay-zone-plan{max-height:52%}
+/* 来源切换已经搬进分区头，旧独立页的外边距/底部 padding 必须在这里归零。 */
+.tag-relay-rail .tag-relay-zone-head .tag-relay-source-tabs{
+  flex:1;min-width:0;margin:0;padding:2px;
+}
+.tag-relay-rail .tag-relay-zone-head .tag-relay-source-tabs button{padding:5px 7px}
+.tag-relay-rail .tag-relay-zone-head .tag-relay-source-status{margin:0;padding:0;white-space:nowrap}
+
 @media (max-width:600px){
-  .tag-relay-rail .tag-relay-zone-plan{max-height:46%}
-  .tag-relay-plan-card{width:100%}
+  .tag-relay-rail .tag-relay-zone-plan{max-height:min(60%,318px)}
+  .tag-relay-rail .tag-relay-zone-source{flex-basis:92px;min-height:84px}
+  .tag-relay-rail .tag-relay-plan-lane{grid-auto-rows:minmax(40px,auto);gap:4px}
+  .tag-relay-plan-card{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;min-height:40px;padding:4px 7px 4px 9px}
+  .tag-relay-plan-card-thumb{width:30px;height:30px;border-radius:7px;font-size:11px}
+  .tag-relay-plan-card-body{gap:6px}
+  .tag-relay-plan-card-title{font-size:11.5px;line-height:1.25}
+  .tag-relay-plan-card-seq{font-size:8.5px}
+  .tag-relay-output-option-group{gap:4px}
+  .tag-relay-output-option-group>span{font-size:10px}
+  .tag-relay-output-option-group .tag-relay-segment button{padding:5px 4px;font-size:10px}
 }

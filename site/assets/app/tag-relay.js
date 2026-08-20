@@ -49,7 +49,8 @@ function relayScope() {
 /* 素材芯片：30px 高、宽随标题自适应，440px 的栏一行放得下 2~3 个。
    原先一条占 100px（42px 缩略图 + 28px 常驻按钮行 + 边距），一屏只看得到 4 条，
    而那行 tag 预览还是被省略号截断的——真正承载信息的只有中间 37px。
-   ⚠ 单击即加入正向：省掉一次决策，也省掉那条常驻按钮。「只加负向」与撤销都并进加入后的 toast。 */
+   ⚠ 单击主体加入完整词条；带负向的条目另有一个小「负」键，避免把仅负向藏在菜单里。
+      每次加入后的 toast 都提供撤销。 */
 function sourceItem(entry, { removable = true } = {}) {
   const locked = snapshotLocked(entry);
   const visibleTitle = locked ? '已锁定的成人内容' : entry.title;
@@ -79,13 +80,6 @@ function sourceItem(entry, { removable = true } = {}) {
   name.textContent = visibleTitle;
   main.append(dot, name);
 
-  if (hasNegative) {
-    const flag = document.createElement('span');
-    flag.className = 'tag-relay-chip-flag';
-    flag.textContent = '负';
-    flag.title = '这条带负向内容';
-    main.append(flag);
-  }
   if (!locked) {
     main.onclick = () => addSourceToPlan(entry);
     main.onkeydown = event => {
@@ -95,6 +89,17 @@ function sourceItem(entry, { removable = true } = {}) {
     };
   }
   chip.append(main);
+
+  if (hasNegative) {
+    const negative = document.createElement('button');
+    negative.type = 'button';
+    negative.className = 'tag-relay-chip-negative';
+    negative.textContent = '负';
+    negative.title = '仅把这条的负向内容加入方案';
+    negative.setAttribute('aria-label', `仅将${visibleTitle}的负向内容加入方案`);
+    negative.onclick = () => addSourceToPlan(entry, { negativeOnly: true });
+    chip.append(negative);
+  }
 
   if (!locked) {
     chip.addEventListener('dragstart', event => {

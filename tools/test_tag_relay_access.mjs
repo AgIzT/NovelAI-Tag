@@ -352,12 +352,16 @@ function fakeClassList() {
 }
 
 function fakeElement(tag = 'div') {
+  const styleValues = new Map();
   const node = {
     tagName: String(tag).toUpperCase(),
     children: [],
     listeners: new Map(),
     dataset: {},
-    style: {},
+    style: {
+      setProperty(name, value) { styleValues.set(name, String(value)); },
+      getPropertyValue(name) { return styleValues.get(name) || ''; },
+    },
     attrs: new Map(),
     classList: fakeClassList(),
     className: '',
@@ -395,6 +399,13 @@ function fakeElement(tag = 'div') {
     appendChild(child) { node.children.push(child); return child; },
     replaceChildren(...nodes) { node.children = [...nodes]; },
     remove() {},
+    cloneNode() {
+      const clone = fakeElement(tag);
+      clone.className = node.className;
+      clone.textContent = node.textContent;
+      return clone;
+    },
+    getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 50, x: 0, y: 0 }; },
     contains(other) { return other === node || node.children.some(child => child.contains?.(other)); },
     focus() {},
     select() {},
@@ -424,14 +435,48 @@ const savedGlobals = {
   HTMLElement: globalThis.HTMLElement,
   requestAnimationFrame: globalThis.requestAnimationFrame,
 };
+const installedTestNavigator = !globalThis.navigator;
+if (installedTestNavigator) {
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
+}
+const testNavigator = globalThis.navigator;
+const savedNavigatorLocks = Object.getOwnPropertyDescriptor(testNavigator, 'locks');
 const storage = new Map();
 const pool = new Map();
+const relayShell = fakeElement('aside');
 const relayRoot = fakeElement('section');
-relayRoot.querySelector = selector => {
+relayShell.querySelector = selector => {
   if (!pool.has(selector)) pool.set(selector, fakeElement('div'));
   return pool.get(selector);
 };
-const ref = selector => relayRoot.querySelector(selector);
+relayRoot.closest = selector => (String(selector).includes('tag-relay-rail') ? relayShell : null);
+const formatGroup = fakeElement('div');
+const joinGroup = fakeElement('div');
+const segmentButton = (key, value, checked, group) => {
+  const button = fakeElement('button');
+  button.dataset[key] = value;
+  button.setAttribute('aria-checked', String(checked));
+  button.closest = selector => (String(selector).includes('tag-relay-segment') ? group : null);
+  return button;
+};
+const formatButtons = [
+  segmentButton('format', 'nai', true, formatGroup),
+  segmentButton('format', 'sd', false, formatGroup),
+  segmentButton('format', 'plain', false, formatGroup),
+];
+const joinButtons = [
+  segmentButton('join', 'comma', true, joinGroup),
+  segmentButton('join', 'newline', false, joinGroup),
+];
+relayShell.querySelectorAll = selector => {
+  if (selector === '[data-format]') return formatButtons;
+  if (selector === '[data-join]') return joinButtons;
+  return [];
+};
+/* footer 是 compose section 的兄弟：root 内查不到分段控件，整条 rail 才查得到。
+   这正是 2026-08-20 一屏化后格式/连接失效的真实 DOM 形状。 */
+relayRoot.querySelectorAll = () => [];
+const ref = selector => relayShell.querySelector(selector);
 
 globalThis.HTMLElement = class HTMLElement {};
 globalThis.window = {
@@ -447,6 +492,16 @@ globalThis.window = {
   performance,
 };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
+Object.defineProperty(testNavigator, 'locks', {
+  configurable: true,
+  value: {
+    request: async (_name, _options, callback) => {
+      /* 强制事务晚于 dragend 执行，稳定复现浏览器 Web Locks 下的事件竞态。 */
+      await Promise.resolve();
+      return callback();
+    },
+  },
+});
 globalThis.localStorage = {
   getItem: key => (storage.has(key) ? storage.get(key) : null),
   setItem: (key, value) => { storage.set(key, String(value)); },
@@ -481,8 +536,9 @@ try {
     kind: 'block',
     id: 'plain-1',
     title: '普通块',
-    prompt: 'sunlight',
+    prompt: '{sunlight}',
     negative: 'blurry',
+    weight: 1.2,
     access: { nsfw: false, r18g: false },
   };
 
@@ -535,8 +591,8 @@ try {
     const view = compose.setupRelayCompose(relayRoot);
 
     /* —— 混合方案编译：受限块的 tag 一个字都不许进成品 —— */
-    assert.equal(ref('#relayPositiveOutput').value, 'sunlight');
-    assert.equal(ref('#relayNegativeOutput').value, 'blurry');
+    assert.equal(ref('#relayPositiveOutput').value, '1.2::{sunlight}::');
+    assert.equal(ref('#relayNegativeOutput').value, '1.2::blurry::');
     assert.doesNotMatch(ref('#relayPositiveOutput').value, /adult-positive/);
     assert.doesNotMatch(ref('#relayNegativeOutput').value, /adult-negative/, '负向通道同样要摘掉受限块');
     assert.equal(ref('#relayCopyPositive').disabled, false);
@@ -544,8 +600,80 @@ try {
     // 开关打开后同一方案要能编出完整成品（证明上面不是把内容永久丢了）
     state.allowNsfw = true;
     view.render();
-    assert.equal(ref('#relayPositiveOutput').value, 'sunlight, adult-positive');
-    assert.equal(ref('#relayNegativeOutput').value, 'blurry, adult-negative');
+    assert.equal(ref('#relayPositiveOutput').value, '1.2::{sunlight}::, adult-positive');
+    assert.equal(ref('#relayNegativeOutput').value, '1.2::blurry::, adult-negative');
+
+    /* —— footer 分段控件：真实 scope + 三种格式 + 两种连接 —— */
+    const naiOutput = ref('#relayPositiveOutput').value;
+    formatButtons[1].fire('click');
+    const sdOutput = ref('#relayPositiveOutput').value;
+    formatButtons[2].fire('click');
+    const plainOutput = ref('#relayPositiveOutput').value;
+    assert.equal(new Set([naiOutput, sdOutput, plainOutput]).size, 3, 'NAI / SD / 纯文本必须产出三种不同语法');
+    assert.equal(formatButtons[2].getAttribute('aria-checked'), 'true');
+    joinButtons[1].fire('click');
+    assert.match(ref('#relayPositiveOutput').value, /,\n/, '逗号换行必须真的改变输出连接符');
+    assert.equal(joinButtons[1].getAttribute('aria-checked'), 'true');
+    formatButtons[0].fire('click');
+    joinButtons[0].fire('click');
+
+    /* —— 原生拖放：自投不误移；异步 drop 也不依赖会被 dragend 清空的模块状态 —— */
+    const makeDataTransfer = () => {
+      const transferData = new Map();
+      return {
+        types: [],
+        effectAllowed: '',
+        dropEffect: '',
+        setData(type, value) {
+          transferData.set(type, String(value));
+          if (!this.types.includes(type)) this.types.push(type);
+        },
+        getData(type) { return transferData.get(type) || ''; },
+        setDragImage() {},
+      };
+    };
+
+    const lane = ref('#relayPlanLane');
+    const self = lane.children[0];
+    const selfTransfer = makeDataTransfer();
+    let selfDropStopped = false;
+    self.fire('dragstart', { dataTransfer: selfTransfer, offsetX: 20, offsetY: 20 });
+    const selfDropTasks = (self.listeners.get('drop') || []).map(listener => listener({
+      type: 'drop', target: self, currentTarget: self, dataTransfer: selfTransfer,
+      preventDefault() {}, stopPropagation() { selfDropStopped = true; },
+    }));
+    // 假 DOM 不会自动冒泡；旧实现没 stopPropagation 时，显式模拟事件继续落到 lane。
+    if (!selfDropStopped) {
+      selfDropTasks.push(...(lane.listeners.get('drop') || []).map(listener => listener({
+        type: 'drop', target: self, currentTarget: lane, dataTransfer: selfTransfer,
+        preventDefault() {}, stopPropagation() {},
+      })));
+    }
+    self.fire('dragend', { dataTransfer: selfTransfer });
+    await Promise.all(selfDropTasks);
+    view.render();
+    assert.deepEqual(
+      ref('#relayPlanLane').children.map(card => card.dataset.itemId),
+      ['plain-1', 'locked-1'],
+      '条目拖回自身时必须截断冒泡，不能被轨道 drop 误移到末尾',
+    );
+
+    const [dragged, target] = ref('#relayPlanLane').children;
+    const dataTransfer = makeDataTransfer();
+    dragged.fire('dragstart', { dataTransfer, offsetX: 20, offsetY: 20 });
+    target.fire('dragover', { dataTransfer, clientY: 48 });
+    const dropTasks = (target.listeners.get('drop') || []).map(listener => listener({
+      type: 'drop', target, currentTarget: target, dataTransfer,
+      preventDefault() {}, stopPropagation() {},
+    }));
+    dragged.fire('dragend', { dataTransfer });
+    await Promise.all(dropTasks);
+    view.render();
+    assert.deepEqual(
+      ref('#relayPlanLane').children.map(card => card.dataset.itemId),
+      ['locked-1', 'plain-1'],
+      'dragend 先发生也不能清掉已捕获的拖拽条目 ID',
+    );
 
     /* —— 复制历史的三条分支 —— */
     state.allowNsfw = false;
@@ -657,6 +785,9 @@ try {
     }
   }
 } finally {
+  if (savedNavigatorLocks) Object.defineProperty(testNavigator, 'locks', savedNavigatorLocks);
+  else delete testNavigator.locks;
+  if (installedTestNavigator) delete globalThis.navigator;
   for (const [name, value] of Object.entries(savedGlobals)) {
     if (value === undefined) delete globalThis[name];
     else globalThis[name] = value;

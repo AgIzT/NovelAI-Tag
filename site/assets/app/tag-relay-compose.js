@@ -74,23 +74,35 @@ const blockPreview = item => promptParts(item, 'positive').join(', ')
   || promptParts(item, 'negative').join(', ')
   || '空块';
 
-/* 素材页签把词条送进方案时走这里。素材与编排是互斥页签，所以来源条目
-   明确用按钮加入；拖拽只留给编排轨道内的重新排序。 */
+/* 素材架把词条送进方案时走这里：点主体加入完整词条，点「负」只加入负向，
+   两种路径都给一次可撤销反馈。 */
 export async function addSourceToPlan(entry, { negativeOnly = false } = {}) {
   if (itemLocked(entry)) {
     toast('该词条当前处于访问锁定状态', '!');
     return;
   }
-  if (!plan()) return;
+  const targetPlanId = plan()?.id || '';
+  if (!targetPlanId) return;
   const source = negativeOnly
     ? { ...entry, prompt: '', negative: promptParts(entry, 'negative').join(',\n'), characterPrompts: [] }
     : entry;
   const action = await commitRelay(
-    next => appendEntryToPlan(next, next.activePlanId, source, { allowDuplicate: true }),
+    next => appendEntryToPlan(next, targetPlanId, source, { allowDuplicate: true }),
     { changed: 'plan' },
   );
   if (!action.ok || !action.result?.item) return;
-  toast(negativeOnly ? `已加入负向：${entry.title}` : `已加入方案：${entry.title}`, '+');
+  const addedItemId = action.result.item.id;
+  const shownTitle = entry.title || '未命名词条';
+  toast(negativeOnly ? `已仅加入负向：${shownTitle}` : `已加入方案：${shownTitle}`, '+', {
+    label: '撤销',
+    onClick: () => {
+      void commitRelay(next => removePlanItem(next, targetPlanId, addedItemId), { changed: 'plan' })
+        .then(result => {
+          if (result.ok && result.result) toast(`已撤销加入：${shownTitle}`, '↶');
+          else toast('无法撤销：原方案已经变化', '!');
+        });
+    },
+  });
 }
 
 /* 手写块：原始需求里的「随意放入含有标题的小方块」。数据层一直支持 kind:'block'，
@@ -304,11 +316,11 @@ function planBlock(item, index, total) {
   card.append(seq);
 
   const channel = itemChannel(item);
-  if (!locked && channel.key === 'negative') {
+  if (!locked && channel.key !== 'positive') {
     const flag = document.createElement('span');
-    flag.className = 'tag-relay-chip-flag';
-    flag.textContent = '负';
-    flag.title = '这块只进负向通道';
+    flag.className = 'tag-relay-channel-badge ' + (channel.key === 'both' ? 'is-both' : 'is-negative');
+    flag.textContent = channel.label;
+    flag.title = channel.key === 'both' ? '这块同时进入正向与负向通道' : '这块只进入负向通道';
     meta.append(flag);
   }
   if (!locked && itemHasCharacterNegative(item)) {
@@ -339,30 +351,77 @@ function planBlock(item, index, total) {
 
   card.addEventListener('dragstart', event => {
     dragBlockId = item.id;
-    card.classList.add('is-dragging');
     event.dataTransfer.effectAllowed = 'move';
     /* 用带类型的载荷而不是模块间共享变量：素材区在另一个模块里，
        它只要看 dataTransfer.types 就知道拖来的是不是方案块。 */
     event.dataTransfer.setData(RELAY_PLAN_MIME, item.id);
     event.dataTransfer.setData('text/plain', item.title);
+    /* 原位卡要变淡，但不能在浏览器截取 drag image 之前变淡；否则拖影只剩一层
+       半透明文字，看起来像内容从卡框里掉了出来。克隆一张完整卡作为拖影，再下一帧淡化原位。 */
+    if (typeof event.dataTransfer.setDragImage === 'function') {
+      const ghost = card.cloneNode(true);
+      ghost.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after');
+      ghost.classList.add('tag-relay-plan-drag-image');
+      ghost.style.width = `${card.getBoundingClientRect().width}px`;
+      document.body.append(ghost);
+      event.dataTransfer.setDragImage(ghost, Math.max(12, event.offsetX || 24), Math.max(12, event.offsetY || 24));
+      setTimeout(() => ghost.remove(), 0);
+    }
+    requestAnimationFrame(() => {
+      if (dragBlockId === item.id && card.isConnected) card.classList.add('is-dragging');
+    });
   });
   card.addEventListener('dragend', () => {
     dragBlockId = '';
     card.classList.remove('is-dragging');
+    clearDropMarkers();
   });
   card.addEventListener('dragover', event => {
-    if (!dragBlockId || dragBlockId === item.id) return;
+    const types = event.dataTransfer?.types || [];
+    if ((!dragBlockId && !types.includes(RELAY_PLAN_MIME)) || dragBlockId === item.id) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
+    clearDropMarkers();
+    const rect = card.getBoundingClientRect();
+    /* 方案卡是单列横条：上半区插到前面、下半区插到后面。继续按左右判断会让
+       用户明明拖到下一条下沿，落点却仍由横坐标决定，排序手势和视觉完全相反。 */
+    card.classList.add(event.clientY < rect.top + rect.height / 2 ? 'is-drop-before' : 'is-drop-after');
   });
+  card.addEventListener('dragleave', () => card.classList.remove('is-drop-before', 'is-drop-after'));
   card.addEventListener('drop', async event => {
-    if (!dragBlockId || dragBlockId === item.id) return;
+    /* commitRelay 会先异步等待 Web Lock；所有事务参数必须在第一次 await 之前捕获。
+       旧实现让 mutator 读取 dragBlockId，而 dragend 会在锁回调前把它清空，最终静默 no-op。 */
+    const draggedId = event.dataTransfer?.getData(RELAY_PLAN_MIME) || dragBlockId;
+    const targetPlanId = plan()?.id || '';
+    if (!draggedId || !targetPlanId) return;
     event.preventDefault();
     event.stopPropagation();
-    await commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, index), { changed: 'plan' });
+    /* 放回自己是 no-op，但仍要截住冒泡；否则 lane 会把它当成「落在轨道空白」并移到末尾。 */
+    if (draggedId === item.id) {
+      clearDropMarkers();
+      return;
+    }
+    const currentItems = plan()?.items || [];
+    const fromIndex = currentItems.findIndex(candidate => candidate.id === draggedId);
+    const after = card.classList.contains('is-drop-after');
+    let targetIndex = index + (after ? 1 : 0);
+    if (fromIndex >= 0 && fromIndex < targetIndex) targetIndex -= 1;
+    targetIndex = Math.max(0, Math.min(currentItems.length - 1, targetIndex));
     dragBlockId = '';
+    clearDropMarkers();
+    const action = await commitRelay(
+      next => movePlanItem(next, targetPlanId, draggedId, targetIndex),
+      { changed: 'plan' },
+    );
+    if (action.ok && action.result) announceLane(`已移动到第 ${targetIndex + 1} 位 · 共 ${currentItems.length} 块`);
   });
   return card;
+}
+
+function clearDropMarkers() {
+  for (const node of refs?.lane?.querySelectorAll('.is-drop-before,.is-drop-after') || []) {
+    node.classList.remove('is-drop-before', 'is-drop-after');
+  }
 }
 
 /* 选中块时才现的就地工具条：↑↓ 是触屏唯一的排序手段，不能藏进浮层。 */
@@ -430,11 +489,6 @@ function applyMergedNote(meta, base, merged) {
 export function renderComposeCounters() {
   const current = plan();
   const total = current?.items?.length || 0;
-  const tabCount = document.querySelector('#tagRelayComposeCount');
-  if (tabCount) {
-    tabCount.textContent = total ? String(total) : '';
-    tabCount.hidden = !total;
-  }
   /* refs 要等 setupRelayCompose 才填，订阅可能先到 */
   if (!refs.planStats) return;
   const lockedCount = current?.items?.filter(itemLocked).length || 0;
@@ -957,7 +1011,7 @@ function bindLaneDrop() {
   for (const target of [refs.lane, refs.empty]) {
     target.addEventListener('dragover', event => {
       const types = event.dataTransfer?.types || [];
-      if (!dragBlockId && !types.includes(RELAY_SOURCE_MIME)) return;
+      if (!dragBlockId && !types.includes(RELAY_PLAN_MIME) && !types.includes(RELAY_SOURCE_MIME)) return;
       event.preventDefault();
       target.classList.add('is-drop-target');
     });
@@ -965,7 +1019,7 @@ function bindLaneDrop() {
     target.addEventListener('drop', async event => {
       target.classList.remove('is-drop-target');
       const types = event.dataTransfer?.types || [];
-      if (!dragBlockId && !types.includes(RELAY_SOURCE_MIME)) return;
+      if (!dragBlockId && !types.includes(RELAY_PLAN_MIME) && !types.includes(RELAY_SOURCE_MIME)) return;
       event.preventDefault();
       /* 已有块拖到轨道空白处 = 移到末尾。以前这里直接 return，只有拖到另一块上才生效，
          轨道下方那片空白看着像落点却没反应。 */
@@ -978,10 +1032,16 @@ function bindLaneDrop() {
         dragBlockId = '';
         return;
       }
-      if (!dragBlockId) return;
-      const items = plan()?.items || [];
-      await commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, items.length - 1), { changed: 'plan' });
+      const draggedId = event.dataTransfer?.getData(RELAY_PLAN_MIME) || dragBlockId;
+      const targetPlanId = plan()?.id || '';
+      const targetIndex = Math.max(0, (plan()?.items?.length || 1) - 1);
+      if (!draggedId || !targetPlanId) return;
       dragBlockId = '';
+      clearDropMarkers();
+      await commitRelay(
+        next => movePlanItem(next, targetPlanId, draggedId, targetIndex),
+        { changed: 'plan' },
+      );
     });
   }
 }
@@ -1061,8 +1121,8 @@ export function setupRelayCompose(root) {
     copyPositive: q('#relayCopyPositive'),
     copyNegative: q('#relayCopyNegative'),
     copyAll: q('#relayCopyAll'),
-    formatButtons: [...root.querySelectorAll('[data-format]')],
-    joinButtons: [...root.querySelectorAll('[data-join]')],
+    formatButtons: [...scope.querySelectorAll('[data-format]')],
+    joinButtons: [...scope.querySelectorAll('[data-join]')],
   };
   if (!bound) {
     bound = true;
