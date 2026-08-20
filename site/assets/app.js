@@ -148,6 +148,10 @@ export async function init() {
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
     state.allowR18g = state.allowNsfw && localStorage.getItem(R18G_STORAGE_KEY) === '1';
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
+    /* ⚠ 必须排在分级开关恢复之后：建栏时会立刻渲染一次「最近复制」，而 snapshotLocked 读的是
+       内存里的 state.allowNsfw / allowR18g。它原先在模块体里跑，早于这里，首屏那一版整列都会
+       被误判成锁定——之前只是被 store 里那次无条件的 pageshow 重载恰好盖住了。 */
+    setupTagRelay();
     applyDensity(localStorage.getItem(DENSITY_STORAGE_KEY), { render: false });
     state.searchScope = normalizeSearchScope(localStorage.getItem(SEARCH_SCOPE_STORAGE_KEY));
     const { codexes, media, about } = await loadBootstrapData();
@@ -238,7 +242,13 @@ function maybeLoadEditMode() {
   });
 }
 
-async function syncAtlasFavoritesFromStorage() {
+async function syncAtlasFavoritesFromStorage(detail = {}) {
+  /* ⚠ 点星标（reason:'toggle'）不能走下面的整份重建：toggleFav 自己已经改好 state.favs、
+     用 setFavoriteButtonState / syncRenderedFavoriteButtons 做了外科式更新，收藏视图也由它
+     经 refreshFavoritesView 处理（还带 deferViewRefresh 供灯箱延后）。这里再 applyFilter /
+     openFavoritesView 一次，等于每点一颗星就把整条虚拟瀑布流销毁重建，顺带把 deferViewRefresh
+     整个架空。中转站侧栏收藏列另有自己的订阅（只置脏、切页签才重建），不依赖这条路径。 */
+  if (detail?.reason === 'toggle') return;
   state.favs = new Set(readStoredFavorites(localStorage, state.codexes).atlasKeys);
   if (!state.codex) return;
   if (state.favoritesView) {
@@ -675,8 +685,6 @@ setHistoryActions({
 });
 
 setFavoritesActions({ applyFilter, refreshFavoritesView });
-
-setupTagRelay();
 
 setMasonryActions({
   openLightbox,

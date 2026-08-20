@@ -87,7 +87,7 @@ export function setupResumePrompt({ route = {}, onboardingShown = false } = {}) 
   };
   chip.addEventListener('pointerenter', () => window.clearTimeout(activePromptTimer));
   chip.addEventListener('pointerleave', arm);
-  chip.addEventListener('focusin', () => window.clearTimeout(timer));
+  chip.addEventListener('focusin', () => window.clearTimeout(activePromptTimer));
   chip.addEventListener('focusout', event => {
     if (!chip.contains(event.relatedTarget)) arm();
   });
