@@ -1,6 +1,7 @@
 /* 中转站侧栏的外壳：开合、三种形态、页签切换、脏标记。
    内容由各分区模块渲染，经 setRailPaneRenderers 注入——外壳不认识它们，
-   所以分区可以反过来 import 本模块（拿 showRailTab）而不成环。
+   所以分区可以反过来 import { prefersReducedMotion } from './utils.js';
+import 本模块（拿 showRailTab）而不成环。
 
    三种形态：
    - 停靠（>1240px）：走 .layout 的 flex 把瀑布流挤窄。**不是浮层**，
@@ -8,6 +9,7 @@
    - 抽屉（600~1240px）：固定定位 + 遮罩，是浮层。
    - 底部 sheet（≤600px）：同样是浮层。 */
 
+import { prefersReducedMotion } from './utils.js';
 import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistoryLayer } from './browser-history.js';
 import { trapFocus } from './modal.js';
 import { cancelRelayAction } from './tag-relay-action.js';
@@ -57,14 +59,14 @@ function syncChrome() {
   if (button) button.setAttribute('aria-expanded', String(open));
 }
 
+/* 素材与编排现在同屏，没有「当前页签」这回事了：脏了哪块就画哪块，两块都可能同时脏。
+   ⚠ 收栏时仍然整体跳过（isClosed），开栏那一刻由 setOpenDirect 补一次全量。 */
 function flush() {
   if (isClosed()) return;
   for (const name of [...dirty]) {
-    if (name !== activeTab) continue;
     renderers.get(name)?.();
     dirty.delete(name);
   }
-  /* 当前页签之外的脏标记留着，等切过去再画 */
 }
 
 function setOpenDirect(open, trigger = null) {
@@ -82,7 +84,8 @@ function setOpenDirect(open, trigger = null) {
   }
   syncChrome();
   if (open) {
-    dirty.add(activeTab);
+    dirty.add('warehouse');
+    dirty.add('compose');
     flush();
     /* 触发者一律记下来（停靠态也记）：停靠态收栏后同样要有地方还焦点，
        否则 Tab 进栏、按 × 收起，焦点掉回 <body>，下一次 Tab 从文档最开头重来。 */
@@ -92,7 +95,7 @@ function setOpenDirect(open, trigger = null) {
       : (fallback instanceof HTMLElement && fallback !== document.body ? fallback : null);
     /* 浮层态是模态语义：焦点必须进去，否则读屏与键盘用户还停在页面底下 */
     if (overlayQuery.matches) {
-      (rail.querySelector('[data-rail-tab][aria-selected="true"]') || rail).focus?.();
+      (rail.querySelector('#relayPlanSelect') || rail.querySelector('button') || rail).focus?.();
     }
   } else {
     /* 没走完的确认 / 命名条不能留到下一次打开——「清空最近复制」「删除方案」
@@ -125,25 +128,15 @@ export function toggleRelayRail(trigger = null) {
   else closeRelayRail();
 }
 
+/* 页签没了，但这个名字还留着：调用方（浮钮、抛入动效）表达的是「让我看到某个分区」，
+   同屏之后这件事就是把它滚进视野 + 保证它是新的，而不是切显隐。 */
 export function showRailTab(name) {
-  /* 只要有对应的面板就切；渲染器还没注册（分区尚未接上）时切过去是空面板，不是死按钮 */
-  if (!rail || !rail.querySelector(`[data-rail-pane="${name}"]`)) return;
-  /* 确认 / 命名条是三个页签的公共兄弟节点，不跟着页签走；换页签就得收掉它，
-     否则「删除「方案 1」？」会原样飘到素材页签上等一次误触。 */
-  if (activeTab !== name) cancelRelayAction();
+  const pane = rail?.querySelector(`[data-rail-pane="${name}"]`);
+  if (!pane) return;
   activeTab = name;
-  for (const pane of rail.querySelectorAll('[data-rail-pane]')) {
-    const on = pane.dataset.railPane === name;
-    pane.classList.toggle('is-active', on);
-    pane.hidden = !on;
-  }
-  for (const tab of rail.querySelectorAll('[data-rail-tab]')) {
-    const on = tab.dataset.railTab === name;
-    tab.setAttribute('aria-selected', String(on));
-    tab.tabIndex = on ? 0 : -1;
-  }
   dirty.add(name);
   flush();
+  pane.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
 }
 
 /* 抛入动效的落点：栏关着就飞浮钮，开着就飞栏头那个计数——两者都是「条数」的所在，
@@ -188,21 +181,6 @@ function bindRail() {
     if (tab) showRailTab(tab.dataset.railTab);
   });
 
-  rail.querySelector('.tag-relay-rail-tabs')?.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const tabs = [...rail.querySelectorAll('[data-rail-tab]')];
-    if (!tabs.length) return;
-    const current = Math.max(0, tabs.indexOf(document.activeElement));
-    const next = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? tabs.length - 1
-        : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-    event.preventDefault();
-    showRailTab(tabs[next].dataset.railTab);
-    tabs[next].focus();
-  });
-
   /* Esc 由内向外：先关栏内的浮层（后续分区会自己 stopPropagation），
      最外层只在浮层形态下关栏；停靠态什么都不做，让事件继续冒泡给 ui.js 的链子。 */
   rail.addEventListener('keydown', event => {
@@ -245,7 +223,7 @@ function bindRail() {
       if (!isClosed()) openHistoryLayer(RAIL_LAYER_ID);
       if (!isClosed() && !rail.contains(document.activeElement)) {
         lastTrigger = document.activeElement;
-        (rail.querySelector('[data-rail-tab][aria-selected="true"]') || rail).focus?.();
+        (rail.querySelector('#relayPlanSelect') || rail.querySelector('button') || rail).focus?.();
       }
     } else {
       /* 浮层 → 停靠：开栏时 openHistoryLayer 是 push 出来的一条真记录，

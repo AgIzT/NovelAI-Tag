@@ -518,7 +518,25 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         """Exercise the relay as dock, drawer, and bottom sheet with real geometry."""
         fixture = {
             "version": 2,
-            "inbox": [],
+            # 一屏化之后素材区必须一起验：它和编排区共用同一列高度，
+            # 空着的话「两个分区同屏」这条断言等于只验了一半。
+            "inbox": [{
+                "key": f"entry:qa:{index}",
+                "codexId": "qa",
+                "entryId": f"qa-{index}",
+                "title": title,
+                "prompt": f"style sample {index}, soft lighting",
+                "negative": "lowres" if index % 2 == 0 else "",
+                "book": "UI 回归法典",
+                "path": ["各种风格"],
+                "image": "",
+                "access": {"nsfw": False, "r18g": False},
+                "accessKnown": True,
+                "addedAt": "2026-08-19T00:00:00.000Z",
+            } for index, title in enumerate([
+                "厚涂 · 油画质感", "赛博霓虹", "水彩淡彩",
+                "胶片颗粒", "日系动画风", "逆光剪影",
+            ], start=1)],
             "plans": [{
                 "id": "qa-plan",
                 "name": "UI 回归方案",
@@ -615,8 +633,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     role: rail.getAttribute('role'),
     ariaModal: rail.getAttribute('aria-modal'),
     docked: document.body.classList.contains('rail-docked'),
-    warehouseSelected: document.querySelector('#tagRelayTabWarehouse')?.getAttribute('aria-selected'),
-    warehouseActive: !document.querySelector('#tagRelayPaneWarehouse')?.hidden,
+    planZoneH: document.querySelector('.tag-relay-zone-plan')?.getBoundingClientRect().height || 0,
+    sourceZoneH: document.querySelector('.tag-relay-zone-source')?.getBoundingClientRect().height || 0,
+    planChips: document.querySelectorAll('#relayPlanLane .tag-relay-chip').length,
+    sourceChips: document.querySelectorAll('#relaySourceList .tag-relay-chip').length,
+    outputCollapsed: document.querySelector('#relayOutputBoxes')?.hidden === true,
     sourceTabCount: sourceButtons.length,
     sourceTabWidthDelta: first && last ? Math.abs(first.width - last.width) : 999,
     sourceRightGap: last ? Math.abs(sr.right - last.right) : 999,
@@ -628,8 +649,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   };
 })()
 """)
-            if shell["warehouseSelected"] != "true" or not shell["warehouseActive"]:
-                raise CheckFailed(f"Relay {mode} did not open on the warehouse tab: {shell}")
+            # 一屏化的核心不变式：素材与编排必须同时可见，不再有「当前页签」。
+            if shell["planZoneH"] < 40 or shell["sourceZoneH"] < 40:
+                raise CheckFailed(f"Relay {mode} does not show both zones at once: {shell}")
+            if shell["planChips"] < 1 or shell["sourceChips"] < 1:
+                raise CheckFailed(f"Relay {mode} did not render chips in both zones: {shell}")
+            if not shell["outputCollapsed"]:
+                raise CheckFailed(f"Relay {mode} output should start collapsed: {shell}")
             if shell["sourceTabCount"] != 2 or shell["sourceTabWidthDelta"] > 2 or shell["sourceRightGap"] > 8:
                 raise CheckFailed(f"Relay {mode} source tabs do not fill two equal segments: {shell}")
             if shell["documentOverflow"] > 1:
@@ -671,17 +697,49 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 ):
                     raise CheckFailed(f"Relay mobile sheet shape is wrong: {shell}")
 
-            cdp.eval("document.querySelector('#tagRelayTabCompose')?.click()")
             wait_for(
                 cdp,
-                "document.querySelector('#tagRelayTabCompose')?.getAttribute('aria-selected') === 'true'"
-                " && document.querySelector('#tagRelayPaneCompose')?.hidden === false"
-                " && document.querySelectorAll('.tag-relay-block').length === 8",
-                f"relay {mode} compose tab",
+                "document.querySelectorAll('#relayPlanLane .tag-relay-chip').length === 8",
+                f"relay {mode} plan chips",
             )
-            cdp.eval("document.querySelector('.tag-relay-block-copy[role=\"button\"]')?.click()")
+
+            # 一屏化最核心的那步：点素材芯片，块直接落进上方编排区。
+            # 旧流程是「复制 → 切素材 → 点加入 → 切编排」四步两切换，这里必须验到零切换。
+            cdp.eval("document.querySelector('#relaySourceList .tag-relay-chip-main')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-chip').length === 9",
+                f"relay {mode} source chip adds to plan without switching panes",
+            )
+            added = cdp.eval(
+                "({planChips: document.querySelectorAll('#relayPlanLane .tag-relay-chip').length,"
+                " sourceStillVisible: (document.querySelector('.tag-relay-zone-source')"
+                "?.getBoundingClientRect().height || 0) > 40})"
+            )
+            if not added["sourceStillVisible"]:
+                raise CheckFailed(f"Relay {mode} hid the source zone after adding: {added}")
+            # 复位，后面的断言仍按 8 块算
+            cdp.eval(
+                "(() => { const chips = document.querySelectorAll('#relayPlanLane .tag-relay-chip');"
+                " chips[chips.length - 1]?.querySelector('.tag-relay-chip-main')?.click();"
+                " document.querySelector('[data-block-tool=\"remove\"]')?.click(); return true; })()"
+            )
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-chip').length === 8",
+                f"relay {mode} restores fixture",
+            )
+            # 点芯片只选中（分区头出工具条），编辑要再点 ✎ —— 排序才是高频操作，
+            # 不该每动一次就被浮层糊屏。
+            cdp.eval("document.querySelector('#relayPlanLane .tag-relay-chip-main')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayBlockTools')?.hidden === false"
+                " && document.querySelector('#relayInspector')?.hidden === true",
+                f"relay {mode} select-only",
+            )
+            cdp.eval("document.querySelector('[data-block-tool=\"edit\"]')?.click()")
             wait_for(cdp, "document.querySelector('#relayInspector')?.hidden === false", f"relay {mode} inspector")
-            cdp.eval("(() => { const pane = document.querySelector('#tagRelayPaneCompose'); pane.scrollTop = pane.scrollHeight; return true; })()")
             settle(cdp, 120)
 
             compose = cdp.eval(r"""
@@ -689,7 +747,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const rail = document.querySelector('#tagRelayRail');
   const pane = document.querySelector('#tagRelayPaneCompose');
   const inspector = document.querySelector('#relayInspector');
-  const output = pane.querySelector('.tag-relay-output');
+  const output = rail.querySelector('.tag-relay-output');
   const actions = output.querySelector('.tag-relay-output-actions');
   const rr = rail.getBoundingClientRect();
   const pr = pane.getBoundingClientRect();
@@ -697,11 +755,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const or = output.getBoundingClientRect();
   const ar = actions.getBoundingClientRect();
   return {
-    composeSelected: document.querySelector('#tagRelayTabCompose')?.getAttribute('aria-selected'),
     inspectorPosition: getComputedStyle(inspector).position,
-    inspectorOutputGap: or.top - ir.bottom,
-    paneAtBottom: pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2,
-    actionsVisible: ar.top >= pr.top - 1 && ar.bottom <= pr.bottom + 1,
+    actionsVisible: ar.top >= rr.top - 1 && ar.bottom <= rr.bottom + 1,
+    planZoneStillVisible: pr.height > 20,
     panelOverflow: pane.scrollWidth - pane.clientWidth,
     inspectorWithinRail: ir.left >= rr.left - 1 && ir.right <= rr.right + 1,
     outputWithinRail: or.left >= rr.left - 1 && or.right <= rr.right + 1,
@@ -712,12 +768,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   };
 })()
 """)
-            if compose["composeSelected"] != "true":
-                raise CheckFailed(f"Relay {mode} compose tab selection was lost: {compose}")
-            if compose["inspectorPosition"] in ("absolute", "fixed") or compose["inspectorOutputGap"] < -1:
-                raise CheckFailed(f"Relay {mode} inspector overlaps the output: {compose}")
-            if not compose["paneAtBottom"] or not compose["actionsVisible"]:
-                raise CheckFailed(f"Relay {mode} output controls cannot be scrolled fully into view: {compose}")
+            # 编辑器现在**必须**是浮层：它是栏的直接子节点，static 会把两个分区和贴底成品一起顶开。
+            if compose["inspectorPosition"] not in ("absolute", "fixed"):
+                raise CheckFailed(f"Relay {mode} inspector must float, not push the zones: {compose}")
+            if not compose["actionsVisible"]:
+                raise CheckFailed(f"Relay {mode} copy buttons are not pinned inside the rail: {compose}")
+            if not compose["planZoneStillVisible"]:
+                raise CheckFailed(f"Relay {mode} plan zone vanished while editing: {compose}")
             if (
                 compose["panelOverflow"] > 1
                 or compose["documentOverflow"] > 1
@@ -727,15 +784,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} compose content overflows horizontally: {compose}")
 
             shots.append(screenshot(cdp, out_dir, f"tag-relay-{mode}"))
-            cdp.eval(
-                "document.querySelector('#relayInspectorClose')?.click();"
-                " document.querySelector('#tagRelayTabWarehouse')?.click(); true"
-            )
+            cdp.eval("document.querySelector('#relayInspectorClose')?.click(); true")
             wait_for(
                 cdp,
-                "document.querySelector('#relayInspector')?.hidden === true"
-                " && document.querySelector('#tagRelayTabWarehouse')?.getAttribute('aria-selected') === 'true'",
-                f"relay {mode} resets tabs",
+                "document.querySelector('#relayInspector')?.hidden === true",
+                f"relay {mode} closes inspector",
             )
             cdp.eval("document.querySelector('#tagRelayRailClose')?.click()")
             wait_for(

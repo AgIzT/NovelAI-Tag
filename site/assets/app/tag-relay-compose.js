@@ -113,7 +113,9 @@ function addManualBlock() {
 
 /* ---------------- 块 ---------------- */
 
-function selectBlock(itemId) {
+/* edit:false = 只选中（芯片高亮 + 分区头出工具条），不弹编辑器。
+   否则每排一次序都要被浮层糊一次屏——而排序恰恰是最高频的操作。 */
+function selectBlock(itemId, { edit = true } = {}) {
   const item = plan()?.items?.find(candidate => candidate.id === itemId);
   if (!item || itemLocked(item)) return;
   creatingBlock = false;
@@ -137,7 +139,7 @@ function selectBlock(itemId) {
   refs.blockRemove.textContent = '从方案移除';
   refs.blockSave.textContent = '保存修改';
   orphanedDraft = null;
-  refs.inspector.hidden = false;
+  refs.inspector.hidden = !edit;
   renderLane();
 }
 
@@ -255,107 +257,113 @@ async function toggleBlock(itemId) {
   announceLane(`${enabled ? '已启用' : '已停用'}：${itemLocked(item) ? '已锁定的成人内容' : item.title}`);
 }
 
+/* 编排芯片：与素材芯片同一套外形，靠 is-plan 区分。
+   ⚠ 不再显示 prompt 预览——它本来就被省略号截断、读不全，反而把块撑成满宽一行；
+   全文在编辑器里看。↑↓ / 停用 / 移除 移到分区头那条就地工具条上（选中才出现）。 */
 function planBlock(item, index, total) {
   const locked = itemLocked(item);
-  const block = document.createElement('article');
-  block.className = 'tag-relay-block';
-  block.classList.toggle('is-selected', selectedItemId === item.id);
-  block.classList.toggle('is-disabled', item.enabled === false);
-  block.draggable = !locked;
-  block.dataset.itemId = item.id;
+  const chip = document.createElement('div');
+  chip.className = 'tag-relay-chip is-plan';
+  chip.classList.toggle('is-selected', selectedItemId === item.id);
+  chip.classList.toggle('is-off', item.enabled === false);
+  chip.classList.toggle('is-locked', locked);
+  chip.draggable = !locked;
+  chip.dataset.itemId = item.id;
 
-  const handle = document.createElement('span');
-  handle.className = 'tag-relay-block-handle';
-  handle.textContent = '⠿';
-  handle.setAttribute('aria-hidden', 'true');
+  const main = document.createElement('button');
+  main.type = 'button';
+  main.className = 'tag-relay-chip-main';
+  main.disabled = locked;
+  const shownTitle = locked ? '已锁定的成人内容' : item.title;
+  main.title = locked ? '当前权限关闭，不参与输出' : shownTitle + '　·　' + blockPreview(item);
+  main.setAttribute('aria-label', (index + 1) + '. ' + shownTitle);
 
-  const number = document.createElement('span');
-  number.className = 'tag-relay-block-index';
-  number.textContent = String(index + 1).padStart(2, '0');
+  const seq = document.createElement('span');
+  seq.className = 'tag-relay-chip-seq';
+  seq.textContent = String(index + 1).padStart(2, '0');
+  const name = document.createElement('span');
+  name.className = 'tag-relay-chip-name';
+  name.textContent = shownTitle;
+  main.append(seq, name);
 
-  const copy = document.createElement('div');
-  copy.className = 'tag-relay-block-copy';
-  if (!locked) {
-    copy.setAttribute('role', 'button');
-    copy.tabIndex = 0;
-    copy.setAttribute('aria-label', `编辑块：${item.title}`);
-  }
-  const header = document.createElement('header');
-  const title = document.createElement('b');
-  title.textContent = locked ? '已锁定的成人内容' : item.title;
   const channel = itemChannel(item);
-  const chip = document.createElement('span');
-  chip.className = `tag-relay-channel ${channel.key}`;
-  chip.textContent = locked ? '锁定' : channel.label;
-  header.append(title, chip);
+  if (!locked && channel.key === 'negative') {
+    const flag = document.createElement('span');
+    flag.className = 'tag-relay-chip-flag';
+    flag.textContent = '负';
+    flag.title = '这块只进负向通道';
+    main.append(flag);
+  }
   if (!locked && itemHasCharacterNegative(item)) {
     const warn = document.createElement('span');
-    warn.className = 'tag-relay-channel warn';
-    warn.textContent = '角色负面未并入';
-    warn.title = '角色级负面在 NovelAI 里按角色分槽填，合并没有意义，不会进入负向输出';
-    header.append(warn);
+    warn.className = 'tag-relay-chip-flag';
+    warn.textContent = '⚠';
+    warn.title = '角色级负面在 NovelAI 里按角色分槽填，不会并入负向输出';
+    main.append(warn);
   }
-  const preview = document.createElement('p');
-  preview.textContent = locked ? '当前权限关闭，不参与输出' : blockPreview(item);
-  copy.append(header, preview);
-  copy.onclick = () => selectBlock(item.id);
-  copy.onkeydown = event => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    selectBlock(item.id);
-  };
+  if (!locked && Number(item.weight) !== 1) {
+    const weight = document.createElement('span');
+    weight.className = 'tag-relay-chip-wt';
+    weight.textContent = '×' + item.weight;
+    main.append(weight);
+  }
 
-  const tools = document.createElement('div');
-  tools.className = 'tag-relay-block-tools';
-  const tool = (label, titleText, action, disabled = false) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    button.title = titleText;
-    button.setAttribute('aria-label', `${titleText}：${locked ? '已锁定的成人内容' : item.title}`);
-    button.disabled = disabled;
-    button.onclick = action;
-    return button;
-  };
-  /* 触屏没有 HTML5 拖放，↑↓ 是那里唯一的排序手段，所以两套都留 */
-  tools.append(
-    tool('↑', '上移', () => moveBlock(item.id, -1), index === 0),
-    tool('↓', '下移', () => moveBlock(item.id, 1), index === total - 1),
-    tool(item.enabled === false ? '○' : '●', item.enabled === false ? '启用' : '停用', () => toggleBlock(item.id), locked),
-    tool('×', '移除', () => removeBlock(item.id)),
-  );
+  main.onclick = () => selectBlock(item.id, { edit: false });
+  main.ondblclick = () => selectBlock(item.id, { edit: true });
+  chip.append(main);
 
-  block.append(handle, number, copy, tools);
-
-  block.addEventListener('dragstart', event => {
+  chip.addEventListener('dragstart', event => {
     dragBlockId = item.id;
-    block.classList.add('is-dragging');
+    chip.classList.add('is-dragging');
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', item.id);
   });
-  block.addEventListener('dragend', () => {
+  chip.addEventListener('dragend', () => {
     dragBlockId = '';
-    block.classList.remove('is-dragging');
+    chip.classList.remove('is-dragging');
   });
-  block.addEventListener('dragover', event => {
+  chip.addEventListener('dragover', event => {
     if (!dragBlockId) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   });
-  block.addEventListener('drop', async event => {
+  chip.addEventListener('drop', async event => {
     if (!dragBlockId) return;
     event.preventDefault();
     event.stopPropagation();
     await commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, index), { changed: 'plan' });
     dragBlockId = '';
   });
-  return block;
+  return chip;
+}
+
+/* 选中块时才现的就地工具条：↑↓ 是触屏唯一的排序手段，不能藏进浮层。 */
+function renderBlockTools() {
+  const tools = refs.blockTools;
+  if (!tools) return;
+  const items = plan()?.items || [];
+  const index = items.findIndex(candidate => candidate.id === selectedItemId);
+  const item = index >= 0 ? items[index] : null;
+  tools.hidden = !item;
+  if (!item) return;
+  const locked = itemLocked(item);
+  const at = key => tools.querySelector('[data-block-tool="' + key + '"]');
+  const up = at('up'); if (up) up.disabled = index <= 0;
+  const down = at('down'); if (down) down.disabled = index >= items.length - 1;
+  const toggle = at('toggle');
+  if (toggle) {
+    toggle.disabled = locked;
+    toggle.textContent = item.enabled === false ? '○' : '●';
+    toggle.setAttribute('aria-label', item.enabled === false ? '启用这一块' : '停用这一块');
+  }
+  const edit = at('edit'); if (edit) edit.disabled = locked;
 }
 
 function renderLane() {
   const items = plan()?.items || [];
   refs.lane.replaceChildren(...items.map((item, index) => planBlock(item, index, items.length)));
   refs.lane.hidden = items.length === 0;
+  renderBlockTools();
   refs.empty.hidden = items.length !== 0;
 }
 
@@ -416,6 +424,15 @@ function renderOutput() {
   refs.copyPositive.disabled = !latest.positive;
   refs.copyNegative.disabled = !latest.negative;
   refs.copyAll.disabled = !latest.positive && !latest.negative;
+  /* 成品默认收起，只留一行摘要：两个只读框原先常驻 129px，而用户从不读它们、只按复制。 */
+  if (refs.outputSummary) {
+    const merged = (compiled.positiveMergedCount || 0) + (compiled.negativeMergedCount || 0);
+    const parts = [];
+    if (compiled.positiveCount) parts.push('正向 ' + compiled.positiveCount + ' 段 · ' + latest.positive.length + ' 字');
+    if (compiled.negativeCount) parts.push('负向 ' + compiled.negativeCount + ' 段');
+    if (merged) parts.push('已合并 ' + merged + ' 条重复');
+    refs.outputSummary.textContent = parts.length ? parts.join(' ｜ ') : '还没有内容';
+  }
   renderComposeCounters();
 }
 
@@ -864,6 +881,35 @@ function bindSegments() {
   bindSegmentGroup(refs.joinButtons, button => { joinMode = button.dataset.join; });
 }
 
+/* 分区头那条就地工具条：作用于当前选中的块。
+   ⚠ 用事件代理而不是逐按钮绑：工具条本身从不重建，重建的是芯片。 */
+function bindZoneTools() {
+  refs.blockTools?.addEventListener('click', event => {
+    const button = event.target.closest('[data-block-tool]');
+    if (!button || button.disabled || !selectedItemId) return;
+    const id = selectedItemId;
+    const action = button.dataset.blockTool;
+    if (action === 'up') moveBlock(id, -1);
+    else if (action === 'down') moveBlock(id, 1);
+    else if (action === 'toggle') toggleBlock(id);
+    else if (action === 'edit') selectBlock(id, { edit: true });
+    else if (action === 'remove') removeBlock(id);
+  });
+}
+
+/* 成品默认收起。展开状态不进 localStorage：它是一次性的「我想看一眼」，
+   记住它等于把 129px 永久还回去，而那正是这次要省下来的。 */
+function bindOutputToggle() {
+  const toggle = refs.outputToggle;
+  const boxes = refs.outputBoxes;
+  if (!toggle || !boxes) return;
+  toggle.addEventListener('click', () => {
+    const open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    boxes.hidden = open;
+  });
+}
+
 function bindLaneDrop() {
   for (const target of [refs.lane, refs.empty]) {
     target.addEventListener('dragover', event => {
@@ -913,7 +959,11 @@ function bindEscape(root) {
 
 export function setupRelayCompose(root) {
   if (!root) return { render: () => {} };
-  const q = selector => root.querySelector(selector);
+  /* ⚠ 作用域是**整条栏**而不是编排分区：一屏化之后，方案选择与「⋯」在栏头，
+     复制历史 / 块编辑器 / 成品分别是栏级浮层与贴底页脚，都已经不在 root 里面了。
+     不放宽就全是 null，renderCompose 第一行读 refs.inspector.hidden 就炸。 */
+  const scope = root.closest('.tag-relay-rail') || root;
+  const q = selector => scope.querySelector(selector);
   refs = {
     root,
     planSelect: q('#relayPlanSelect'),
@@ -935,6 +985,10 @@ export function setupRelayCompose(root) {
     /* 轨道自己不是活区了，播报走这个 sr-only 容器（见 announceLane） */
     laneStatus: q('#relayLaneStatus'),
     empty: q('#relayPlanEmpty'),
+    blockTools: q('#relayBlockTools'),
+    outputToggle: q('#relayOutputToggle'),
+    outputBoxes: q('#relayOutputBoxes'),
+    outputSummary: q('#relayOutputSummary'),
     inspector: q('#relayInspector'),
     inspectorTitle: q('#relayInspectorTitle'),
     inspectorClose: q('#relayInspectorClose'),
@@ -961,6 +1015,8 @@ export function setupRelayCompose(root) {
     bindInspector();
     bindSegments();
     bindLaneDrop();
+    bindZoneTools();
+    bindOutputToggle();
     bindEscape(root);
     refs.copyPositive.addEventListener('click', event => copyOutput('positive', event.currentTarget));
     refs.copyNegative.addEventListener('click', event => copyOutput('negative', event.currentTarget));

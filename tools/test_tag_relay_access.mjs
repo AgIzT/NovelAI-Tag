@@ -377,6 +377,12 @@ function fakeElement(tag = 'div') {
       node.listeners.set(type, [...(node.listeners.get(type) || []), listener]);
     },
     removeEventListener() {},
+    /* 一屏化之后 setupRelayCompose 会 root.closest('.tag-relay-rail')：方案选择在栏头、
+       编辑器与成品是栏级浮层，ref 的作用域得放宽到整条栏。这个假 DOM 是「按选择器惰性生成」
+       的单层结构，没有真的父链，所以直接把自己当成那条栏返回——本测试只关心能不能查到节点。 */
+    closest(selector) {
+      return String(selector).includes('tag-relay-rail') ? node : null;
+    },
     fire(type, event = {}) {
       for (const listener of node.listeners.get(type) || []) {
         listener({ type, target: node, currentTarget: node, preventDefault() {}, stopPropagation() {}, ...event });

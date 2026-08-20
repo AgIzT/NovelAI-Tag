@@ -38,80 +38,64 @@ let favoritesGeneration = 0;
 let favoritesReloadPending = false;
 let favoritesReloadQueued = false;
 
-function placeholder(title = '') {
-  const node = document.createElement('span');
-  node.className = 'tag-relay-quick-thumb is-placeholder';
-  node.textContent = String(title || 'T').trim().slice(0, 1).toUpperCase() || 'T';
-  return node;
+/* 栏级作用域：素材分区之外的节点（栏头菜单等）要从这里找。 */
+function relayScope() {
+  return warehouseRoot?.closest('.tag-relay-rail') || warehouseRoot || document;
 }
 
+/* 素材芯片：30px 高、宽随标题自适应，440px 的栏一行放得下 2~3 个。
+   原先一条占 100px（42px 缩略图 + 28px 常驻按钮行 + 边距），一屏只看得到 4 条，
+   而那行 tag 预览还是被省略号截断的——真正承载信息的只有中间 37px。
+   ⚠ 单击即加入正向：省掉一次决策，也省掉那条常驻按钮。「只加负向」与撤销都并进加入后的 toast。 */
 function sourceItem(entry, { removable = true } = {}) {
   const locked = snapshotLocked(entry);
   const visibleTitle = locked ? '已锁定的成人内容' : entry.title;
-  const item = document.createElement('article');
-  item.className = 'tag-relay-quick-item';
+  const hasNegative = !locked && Boolean(String(entry.negative || '').trim());
 
-  if (!locked && entry.image) {
-    const image = document.createElement('img');
-    image.className = 'tag-relay-quick-thumb';
-    image.src = entry.image;
-    image.alt = '';
-    image.loading = 'lazy';
-    image.onerror = () => image.replaceWith(placeholder(entry.title));
-    item.append(image);
-  } else {
-    item.append(placeholder(locked ? '锁' : entry.title));
+  const chip = document.createElement('div');
+  chip.className = locked ? 'tag-relay-chip is-locked' : 'tag-relay-chip';
+
+  const main = document.createElement('button');
+  main.type = 'button';
+  main.className = 'tag-relay-chip-main';
+  main.disabled = locked;
+  main.title = locked ? '重新开启对应内容权限后可继续使用' : visibleTitle + '　·　点一下加入方案';
+
+  /* 缩略图缩成 16px 圆点：它在这里只是视觉锚点，42px 的图在芯片里没有位置。 */
+  const dot = document.createElement('span');
+  dot.className = 'tag-relay-chip-dot';
+  if (!locked && entry.image) dot.style.backgroundImage = 'url("' + entry.image + '")';
+
+  const name = document.createElement('span');
+  name.className = 'tag-relay-chip-name';
+  name.textContent = visibleTitle;
+  main.append(dot, name);
+
+  if (hasNegative) {
+    const flag = document.createElement('span');
+    flag.className = 'tag-relay-chip-flag';
+    flag.textContent = '负';
+    flag.title = '这条带负向内容';
+    main.append(flag);
   }
+  if (!locked) main.onclick = () => addSourceToPlan(entry);
+  chip.append(main);
 
-  const copy = document.createElement('div');
-  copy.className = 'tag-relay-quick-copy';
-  const title = document.createElement('b');
-  title.textContent = locked ? '已锁定的成人内容' : entry.title;
-  const prompt = document.createElement('small');
-  prompt.textContent = locked
-    ? '重新开启对应内容权限后可继续使用'
-    : (entry.prompt || entry.negative || entry.path?.join?.(' › ') || entry.book || '暂存词条');
-  copy.append(title, prompt);
-
-  const actions = document.createElement('div');
-  actions.className = 'tag-relay-item-actions';
-  if (!locked) {
-    const add = document.createElement('button');
-    add.type = 'button';
-    add.className = 'tag-relay-item-add';
-    add.textContent = '加入方案';
-    /* 不切页签：连续浏览、连续收料时来回甩页正是侧栏化要消灭的打断感。
-       方案里加了几块由页签上的计数体现。 */
-    add.onclick = () => addSourceToPlan(entry);
-    actions.append(add);
-    if (String(entry.negative || '').trim()) {
-      const negOnly = document.createElement('button');
-      negOnly.type = 'button';
-      negOnly.className = 'tag-relay-item-add is-neg';
-      negOnly.textContent = '只加负向';
-      negOnly.title = '只把负向内容加入方案';
-      negOnly.onclick = () => addSourceToPlan(entry, { negativeOnly: true });
-      actions.append(negOnly);
-    }
-  }
-
-  let remove = null;
+  /* 收藏来源不给「移出」：那会让人以为是在取消收藏。 */
   if (removable) {
-    remove = document.createElement('button');
+    const remove = document.createElement('button');
     remove.type = 'button';
-    remove.className = 'tag-relay-quick-remove';
+    remove.className = 'tag-relay-chip-x';
     remove.textContent = '×';
-    remove.title = `移除${visibleTitle}`;
-    remove.setAttribute('aria-label', `从最近复制移除${visibleTitle}`);
+    remove.setAttribute('aria-label', '从最近复制移除' + visibleTitle);
     remove.onclick = async () => {
       const result = await commitRelay(next => removeInboxEntry(next, entry.key), { changed: 'inbox' });
       if (!result.ok) return;
-      toast(`已移出最近复制：${visibleTitle}`, '−');
+      toast('已移出最近复制：' + visibleTitle, '−');
     };
+    chip.append(remove);
   }
-  /* 收藏来源不给「移出」：那会让人以为是在取消收藏 */
-  item.append(copy, remove || document.createElement('span'), actions);
-  return item;
+  return chip;
 }
 
 /* ⚠ 独立工作台那版在这里往共享的 atlasState 里写 codexes / favs / media 来做引导——
@@ -215,17 +199,16 @@ function renderWarehouse() {
   list.replaceChildren(...items.map(entry => sourceItem(entry, { removable: !fav })));
   list.hidden = items.length === 0;
   empty.hidden = items.length !== 0 || (fav && favoritesLoading);
-  const emptyTitle = empty.querySelector('b');
-  const emptyHint = empty.querySelector('small');
-  if (emptyTitle && emptyHint) {
-    emptyTitle.textContent = fav ? '还没有收藏' : '还没有复制过词条';
-    emptyHint.textContent = fav ? '点卡片标题旁的星标收藏，词条会出现在这里。' : '点卡片复制，词条会自动收到这里。';
-  }
+  /* 空态一屏化后压成一行纯文本（原先是 b + small 两行，占地方）。 */
+  empty.textContent = fav
+    ? '还没有收藏。点卡片标题旁的星标，词条会出现在这里。'
+    : '还没有复制过词条。点卡片复制，它会自动落到这里。';
   if (status) {
     if (fav && favoritesLoading) status.textContent = '正在读取跨法典收藏…';
     else status.textContent = items.length ? `${items.length} 条` : '';
   }
-  const clear = warehouseRoot.querySelector('#tagRelayClear');
+  /* 「清空最近复制」已并进栏头的「⋯」菜单，不在素材分区里了。 */
+  const clear = relayScope().querySelector('#tagRelayClear');
   if (clear) {
     clear.hidden = fav;
     clear.disabled = relayInbox().length === 0;
@@ -276,7 +259,7 @@ function bindWarehouse() {
   subscribeFavoritesChanges('atlas', () => {
     invalidateFavorites();
   });
-  warehouseRoot.querySelector('#tagRelayClear')?.addEventListener('click', async event => {
+  relayScope().querySelector('#tagRelayClear')?.addEventListener('click', async event => {
     const count = relayInbox().length;
     if (!count) return;
     const accepted = await requestRelayAction({
