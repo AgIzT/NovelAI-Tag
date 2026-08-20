@@ -112,15 +112,21 @@ function hasAccessEvidence(source = {}) {
 function normalizeAccess(value, source = {}) {
   const access = isObject(value) ? value : {};
   const inferred = inferredAccess(source);
+  const r18g = access.r18g === true
+    || source.r18g === true
+    || source.sourceR18g === true
+    || inferred.r18g;
   return {
-    nsfw: access.nsfw === true
+    /* ⚠ r18g 必然也是成人内容，所以让它直接抬起 nsfw。否则「路径里写了重口、却没写
+       nsfw/r18」这类条目只有 r18g 一个标记，是否被锁全靠 ui.js 那条
+       `allowR18g = on && allowNsfw` 的隐式不变式兜着——跨文件、无断言，
+       哪天有人直接从 storage 恢复 allowR18g，这条就漏了。 */
+    nsfw: r18g
+      || access.nsfw === true
       || source.nsfw === true
       || source.sourceNsfw === true
       || inferred.nsfw,
-    r18g: access.r18g === true
-      || source.r18g === true
-      || source.sourceR18g === true
-      || inferred.r18g,
+    r18g,
   };
 }
 
@@ -143,9 +149,16 @@ export function stableEntryKey(entry, context = {}) {
   if (codexId && entryId) return `entry:${keyPart(codexId)}:${keyPart(entryId)}`;
 
   const signature = [
-    text(source.title),
+    /* \u26a0 title \u5fc5\u987b\u4e0e normalizeRelayEntry \u7528\u540c\u4e00\u5957\u515c\u5e95\uff1a\u5426\u5219\u65e0\u6807\u9898\u6761\u76ee\u7b2c\u4e00\u6b21
+       normalize \u8865\u51fa\u6807\u9898\u540e\uff0c\u7b2c\u4e8c\u6b21\u7b97\u7684 key \u5c31\u548c\u7b2c\u4e00\u6b21\u4e0d\u540c\uff0cinbox \u51ed\u7a7a\u591a\u4e00\u5f20\u91cd\u590d\u5361\u3002 */
+    text(source.title, entryId || '\u672a\u547d\u540d\u8bcd\u6761'),
     text(source.prompt ?? source.positive ?? source.tags),
     text(source.negative),
+    /* \u26a0 \u89d2\u8272\u8bcd\u4e5f\u8981\u8fdb\u7b7e\u540d\uff1a\u53ea\u5dee characterPrompts \u7684\u4e24\u6761\u672c\u5730\u8bcd\u6761\u5426\u5219\u4f1a\u786e\u5b9a\u6027\u649e key\u3001\u4e92\u76f8\u8986\u76d6\u3002
+       \u8d70\u5f52\u4e00\u5316\u540e\u7684\u5f62\u6001\uff0c\u624d\u80fd\u4fdd\u8bc1 normalize \u524d\u540e\u7b97\u51fa\u540c\u4e00\u4e2a hash\u3002 */
+    normalizeCharacterPrompts(source.characterPrompts)
+      .map(item => `${item.label}\u241e${item.prompt}\u241e${item.negative}`)
+      .join('\u241d'),
   ].join('\u241f').toLowerCase();
   return `entry:local:${hashText(signature)}`;
 }
@@ -173,15 +186,24 @@ export function normalizeRelayEntry(entry, context = {}) {
     image: text(source.image ?? source.imageUrl ?? source.thumb),
     access: normalizeAccess(source.access, source),
     /* 旧引用可能没有任何可核验分级字段。把证据是否存在一并保留，
-       snapshotLocked 才能对未知来源采取 fail-closed，而不误锁新的安全快照。 */
-    accessKnown: source.accessKnown === true || hasAccessEvidence(source),
+       snapshotLocked 才能对未知来源采取 fail-closed，而不误锁新的安全快照。
+       ⚠ 显式带了 accessKnown 就必须尊重它（哪怕是 false）：本函数恒写出
+       access:{nsfw,r18g}，若每次都重新推断，hasAccessEvidence 就会把自己的产物
+       当成分级证据，序列化一轮 false 便翻回 true，fail-closed 静默失效。 */
+    accessKnown: Object.hasOwn(source, 'accessKnown')
+      ? source.accessKnown === true
+      : hasAccessEvidence(source),
     addedAt: timestamp(source.addedAt, fallbackNow),
   };
 }
 
+/* ⚠ 区分「没传权重」和「传了非法值」：缺失/空串/不可解析 → 1（=不加权），
+   其余一律 clamp。旧版把 0、负数、Infinity 一并当成「没传」，于是 weight=0 悄悄变回 1，
+   而 0.01 却老实地 clamp 到 0.05 —— 同一根滑块两套语义。 */
 function normalizeWeight(value) {
+  if (value === undefined || value === null || value === '') return 1;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  if (Number.isNaN(parsed)) return 1;
   return Math.min(10, Math.max(0.05, parsed));
 }
 
@@ -212,9 +234,11 @@ function normalizePlanItem(item, context = {}) {
       access: kind === 'entry'
         ? normalizeAccess(source.access, entry.access)
         : normalizeAccess(source.access, source),
-      accessKnown: kind === 'entry'
-        ? source.accessKnown === true || entry.accessKnown === true
-        : true,
+      /* 同 normalizeRelayEntry：显式的 accessKnown 是最终答案，缺席才回落到推断。
+         自定义块的正文由用户自己写，默认视为已知分级。 */
+      accessKnown: Object.hasOwn(source, 'accessKnown')
+        ? source.accessKnown === true
+        : (kind === 'entry' ? entry.accessKnown === true : true),
     enabled: source.enabled !== false && source.on !== false,
     weight: normalizeWeight(source.weight),
     createdAt: timestamp(source.createdAt, fallbackNow),
@@ -246,23 +270,37 @@ function normalizePlan(plan, context = {}) {
   };
 }
 
+/* ⚠ 调用方明确写了 0 就是 0：旧写法 `parseInt(...) || split(...).length` 会把显式的 0
+   当成缺省再算一遍，于是「只复制负向」的记录被倒填出一个虚假的正向段数。 */
+function tokenCount(value, fallbackText) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : splitTopLevel(fallbackText).length;
+}
+
+/* history 上限的唯一权威名字是 `historyLimit`：`limit` 在 touchInboxEntry 里表示 inbox 上限，
+   而 load/save/serialize 会把同一个 options 对象一路透传，两处同名必然打架
+   （给 inbox 传 limit:2 会顺手把复制历史砍到 2 条）。recordCopyHistory 保留 `limit` 别名
+   只为兼容既有调用，`historyLimit` 优先。非法值统一按 clamp：0/-5 → 1，缺失/非数字 → 默认值。 */
+function resolveHistoryLimit(raw) {
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? Math.max(1, parsed) : TAG_RELAY_HISTORY_LIMIT;
+}
+
 function normalizeHistoryRecord(record, context = {}) {
   const source = isObject(record) ? record : {};
   const fallbackNow = nowIso(context);
   const rawItems = isObject(source.plan) ? source.plan.items : source.items;
   /* 旧版曾只留 entryKey 引用。normalizePlan 会把它伪装成空 entry，若据此标为
      完整快照就会把无法核验权限的 output 再次放行。新记录必须显式带标记；
-     兼容的历史记录也必须每一项都有可独立判断的正文与 access。 */
+     兼容的历史记录也必须每一项都带完整的 access 布尔。
+     ⚠ 判定的本意只有一条：这条记录能不能**独立核验权限**。别再要求「有正文」——
+     一个空正文的 entry 会让整条复制历史永久锁死（「再次复制」「恢复为方案」全消失、
+     开关全开也解不开），界面还会谎称是权限问题；而 kind:'block' 的空块本来就放行，
+     两套标准本身就自相矛盾。 */
   const hasVerifiedItemSnapshots = Array.isArray(rawItems) && rawItems.every(item => {
     if (!isObject(item)) return false;
     const access = isObject(item.access) ? item.access : null;
-    const accessComplete = access && typeof access.nsfw === 'boolean' && typeof access.r18g === 'boolean';
-    if (!accessComplete) return false;
-    if (item.kind === 'block') return true;
-    const prompt = text(item.prompt ?? item.positive ?? item.tags);
-    const negative = text(item.negative);
-    const characters = normalizeCharacterPrompts(item.characterPrompts);
-    return Boolean(prompt || negative || characters.length);
+    return Boolean(access) && typeof access.nsfw === 'boolean' && typeof access.r18g === 'boolean';
   });
   const planSource = isObject(source.plan)
     ? source.plan
@@ -286,8 +324,8 @@ function normalizeHistoryRecord(record, context = {}) {
     channel,
     positive,
     negative,
-    positiveCount: Math.max(0, Number.parseInt(source.positiveCount, 10) || splitTopLevel(positive).length),
-    negativeCount: Math.max(0, Number.parseInt(source.negativeCount, 10) || splitTopLevel(negative).length),
+    positiveCount: tokenCount(source.positiveCount, positive),
+    negativeCount: tokenCount(source.negativeCount, negative),
     plan,
     /* 早期半成品只记了输出字符串，没有可复核权限的方案快照。界面必须把它
        当未知来源锁住，不能因为没有 access 字段就重新展示或恢复明文。 */
@@ -322,10 +360,16 @@ export function normalizeRelayState(raw, options = {}) {
   const inbox = [];
   const inboxKeys = new Set();
   /* inbox 的规范顺序是**新的在前**（schema v2）。v1 存的是旧在前，这里一次性掉头，
-     否则老数据升上来会把最旧那条钉在「最近复制」顶上，直到它被挤掉。 */
-  const legacyInboxOrder = Number(raw.version) < 2;
+     否则老数据升上来会把最旧那条钉在「最近复制」顶上，直到它被挤掉。
+     ⚠ 版本号未知一律当旧数据：`Number(raw.version) < 2` 对缺失/'v1'/{} 得到 NaN<2=false，
+     反而把它们当成 v2 放行，而 null/false/'' 得到 0<2=true —— 正好判反。 */
+  const rawVersion = Number.parseInt(raw.version, 10);
+  const legacyInboxOrder = !Number.isFinite(rawVersion) || rawVersion < 2;
   const rawInbox = raw.inbox ?? raw.staged ?? raw.entries;
-  for (const item of Array.isArray(rawInbox) ? rawInbox : []) {
+  const rawInboxList = Array.isArray(rawInbox) ? rawInbox : [];
+  /* ⚠ 掉头必须在去重**之前**：先去重再 reverse 保留的是 v1 顺序下最旧的那份副本，
+     而且位置还被挤到列表底部——正好是这次迁移想避免的两件事。 */
+  for (const item of legacyInboxOrder ? [...rawInboxList].reverse() : rawInboxList) {
     if (!isObject(item)) continue;
     const entry = normalizeRelayEntry(item, { now });
     if (inboxKeys.has(entry.key)) continue;
@@ -333,7 +377,6 @@ export function normalizeRelayState(raw, options = {}) {
     inbox.push(entry);
   }
 
-  if (legacyInboxOrder) inbox.reverse();
   if (inbox.length > TAG_RELAY_INBOX_LIMIT) inbox.length = TAG_RELAY_INBOX_LIMIT;
 
   const plans = [];
@@ -355,7 +398,7 @@ export function normalizeRelayState(raw, options = {}) {
   const activePlanId = plans.some(plan => plan.id === requestedActive)
     ? requestedActive
     : plans[0].id;
-  const limit = Math.max(1, Number.parseInt(options.historyLimit, 10) || TAG_RELAY_HISTORY_LIMIT);
+  const limit = resolveHistoryLimit(options.historyLimit);
   const rawHistory = raw.history ?? raw.copyHistory;
   const history = (Array.isArray(rawHistory) ? rawHistory : [])
     .filter(isObject)
@@ -395,6 +438,23 @@ export function saveRelayState(state, storage = globalThis.localStorage, options
   } catch {
     return false;
   }
+}
+
+/* localStorage 配额约 5MiB，而每条复制历史都内嵌一整份 plan 快照——实测 150 项的方案
+   复制 8 次就能撞满。撞满时 setItem 抛异常、saveRelayState 静默返回 false，用户的整盘
+   编辑就此存不下去，所以写盘前先按字节预算把最旧的历史丢掉。
+   只动 history：inbox 和 plans 是用户手工攒的资产，宁可存不下也不能替他删。
+   ⚠ 历史丢光仍超标就如实返回丢弃数并停手，绝不能空转成死循环。 */
+export function trimStateToBudget(state, maxChars, options = {}) {
+  const budget = Number(maxChars);
+  if (!isObject(state) || !Number.isFinite(budget)) return { trimmed: 0, fits: true };
+  if (!Array.isArray(state.history)) state.history = [];
+  let trimmed = 0;
+  while (serializeRelayState(state, options).length > budget && state.history.length) {
+    state.history.pop();
+    trimmed += 1;
+  }
+  return { trimmed, fits: serializeRelayState(state, options).length <= budget };
 }
 
 /* 「复制即入库」的入口：与 addInboxEntry 的三点不同——命中已有条目时**移到最前**而不是原地不动，
@@ -533,11 +593,13 @@ export function updatePlanItem(state, planId, itemId, patch = {}, options = {}) 
   const plan = getPlan(state, planId);
   const item = plan?.items?.find(candidate => candidate.id === itemId);
   if (!item || !isObject(patch)) return null;
+  /* ⚠ 三个文本分支的语义必须一致：显式传空串才清空，传 undefined 视为没传。
+     少了兜底的话 `{prompt: undefined}` 会把正文抹掉，而同一个 patch 里的 title 却安然无恙。 */
   if (Object.hasOwn(patch, 'title')) item.title = text(patch.title, item.title);
   if (Object.hasOwn(patch, 'prompt') || Object.hasOwn(patch, 'positive')) {
-    item.prompt = text(patch.prompt ?? patch.positive);
+    item.prompt = text(patch.prompt ?? patch.positive, item.prompt);
   }
-  if (Object.hasOwn(patch, 'negative')) item.negative = text(patch.negative);
+  if (Object.hasOwn(patch, 'negative')) item.negative = text(patch.negative, item.negative);
   if (Object.hasOwn(patch, 'enabled') || Object.hasOwn(patch, 'on')) {
     item.enabled = patch.enabled !== false && patch.on !== false;
   }
@@ -553,7 +615,12 @@ export function movePlanItem(state, planId, itemId, toIndex, options = {}) {
   const plan = getPlan(state, planId);
   const fromIndex = plan?.items?.findIndex(item => item.id === itemId) ?? -1;
   if (fromIndex < 0 || plan.items.length < 2) return false;
-  const target = Math.min(plan.items.length - 1, Math.max(0, Number.parseInt(toIndex, 10) || 0));
+  /* ⚠ 非整数直接拒绝，不能像 `parseInt(...) || 0` 那样把 'abc'/undefined/NaN 悄悄
+     变成「移到队首」还回 true —— 拖拽出错时用户会看到条目莫名其妙跳到第一位。
+     toIndex=0 是合法意图，越界则按夹取处理（拖到列表外＝拖到头/尾）。 */
+  const parsed = typeof toIndex === 'number' ? toIndex : Number.parseInt(toIndex, 10);
+  if (!Number.isInteger(parsed)) return false;
+  const target = Math.min(plan.items.length - 1, Math.max(0, parsed));
   if (fromIndex === target) return false;
   const [item] = plan.items.splice(fromIndex, 1);
   plan.items.splice(target, 0, item);
@@ -570,8 +637,10 @@ export function removePlanItem(state, planId, itemId, options = {}) {
   return removed;
 }
 
+/* 头尾都要剥：只剥尾的话 compileRelayBlock(',a') 会写出 `1.2::,a::`，
+   那个前导逗号在 NAI 里是个空 tag。 */
 export function cleanPrompt(value) {
-  return text(value).replace(/[\s,，]+$/, '').trim();
+  return text(value).replace(/^[\s,，]+/, '').replace(/[\s,，]+$/, '').trim();
 }
 
 /** Split only real top-level commas; weighted NAI/SD groups stay intact. */
@@ -583,6 +652,7 @@ export function splitTopLevel(value) {
   let square = 0;
   let round = 0;
   let numeric = false;
+  let numericClosed = false;
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
     const pair = source.slice(index, index + 2);
@@ -595,10 +665,19 @@ export function splitTopLevel(value) {
       }
       if (part.trim().match(/^[+-]?\d+(?:\.\d+)?$/)) {
         numeric = true;
+        /* ⚠ 必须和 naiToSd 同一套判断：它先用 `([\s\S]*?)::` 找配对的收尾 ::，找得到就整段
+           算一个权重组（`0.6::x,y::` 里的逗号不是分隔符）；找不到才退回兜底分支
+           `([^,\n}\]]*)`，在逗号/换行/右括号处截断。少了这一步，未闭合的 `1.5::` 会让
+           后面所有顶层逗号都不再切分，两个模块对同一串的理解就分叉了：
+           输出台的「N 段」计数错报、该段尾部的重复标签也不再被合并。 */
+        numericClosed = source.indexOf('::', index + 2) >= 0;
         part += pair;
         index += 1;
         continue;
       }
+    }
+    if (numeric && !numericClosed && (char === ',' || char === '\n' || char === '}' || char === ']')) {
+      numeric = false;
     }
     if (!numeric) {
       if (char === '{') curly += 1;
@@ -625,6 +704,32 @@ function formatWeight(value) {
   return Number(normalizeWeight(value).toFixed(3)).toString();
 }
 
+/* 纯文本目标没有权重语法，core 只能把权重丢掉——但界面得知道自己丢了什么，
+   才能把权重滑块灰掉／提示「该目标不带权重」，而不是让用户对着无效滑块调半天。 */
+export function weightAppliesTo(target) {
+  return normalizeTarget(target) !== 'plain';
+}
+
+/* ⚠ 与 nai-sd.js 的 NAI_WEIGHT_BASE 同值，那边没导出，改动必须两处同步。 */
+const NAI_BRACKET_BASE = 1.05;
+/* 正文里已经存在的数字权重（含嵌在括号里的），出现一处就够触发歧义 */
+const INLINE_NAI_WEIGHT = /(?:^|[^\d.])[+-]?\d+(?:\.\d+)?::/;
+
+/* ⚠ 正文自带 `1.2::x::` 时再套一层块权重会写出 `1.4::…::::`，而 nai-sd.js 开头明说
+   数字权重自嵌套时 `::` 的就近闭合有歧义、不作递归解析——正常路径批量生产歧义串不可接受。
+   这里改用 NAI 的括号层数近似（`{}`≈×1.05、`[]`≈÷1.05）：语义无歧义，naiToSd 也能正确还原，
+   代价只是权重被量化到 1.05 的整数次幂（0.8 → 5 层 `[]` ≈ 0.784）。
+   选它而不是「导出标志让界面提示、块权重干脆不生效」，是因为滑块必须真的起作用：
+   静默失效比 2% 的量化误差更容易让人以为功能坏了。 */
+function nestNaiWeight(adapted, weight) {
+  const layers = Math.round(Math.log(weight) / Math.log(NAI_BRACKET_BASE));
+  if (!Number.isFinite(layers) || layers === 0) return adapted;
+  const depth = Math.abs(layers);
+  const open = (layers > 0 ? '{' : '[').repeat(depth);
+  const close = (layers > 0 ? '}' : ']').repeat(depth);
+  return `${open}${adapted}${close}`;
+}
+
 export function adaptRelayOutput(value, target = 'nai') {
   const source = cleanPrompt(value);
   return normalizeTarget(target) === 'sd' ? naiToSd(source) : source;
@@ -636,9 +741,14 @@ export function compileRelayBlock(value, options = {}) {
   const target = normalizeTarget(options.target);
   const weight = normalizeWeight(options.weight);
   const adapted = adaptRelayOutput(source, target);
-  if (target === 'plain' || weight === 1) return adapted;
-  if (target === 'sd') return `(${adapted}:${formatWeight(weight)})`;
-  return `${formatWeight(weight)}::${adapted}::`;
+  const label = formatWeight(weight);
+  /* ⚠ 看格式化后的字符串而不是原始数值：1.0001 会被四舍五入成 '1'，
+     再套壳就得到纯噪声的 `1::cat::`。 */
+  if (!weightAppliesTo(target) || label === '1') return adapted;
+  /* SD 目标靠括号嵌套本来就没有歧义，照旧直接套 */
+  if (target === 'sd') return `(${adapted}:${label})`;
+  if (INLINE_NAI_WEIGHT.test(adapted)) return nestNaiWeight(adapted, weight);
+  return `${label}::${adapted}::`;
 }
 
 /* 正向 = 词条正向 + 各角色词的**正向**（与 copy.js 的 entryPromptText 同一套规则）。
@@ -665,6 +775,10 @@ export function compilePlanChannel(plan, channel, options = {}) {
   let tokens = [];
   for (const item of plan.items || []) {
     if (item.enabled === false) continue;
+    /* ⚠ 负向通道**也**吃块权重，这是有意的：块权重表达的是「这一整块的存在感」，
+       拉低它意味着连同这块的负面约束一起放松，而不是只削弱正向。
+       看起来像 bug（用户想少一点某个概念，结果负面也被削弱），但拆成两个权重会
+       让界面多出一根谁也说不清语义的滑块。测试里有断言锁住现状，要改先改这条注释。 */
     const compiled = compileRelayBlock(itemPrompt(item, channel), {
       target: options.target,
       weight: item.weight,
@@ -676,7 +790,11 @@ export function compilePlanChannel(plan, channel, options = {}) {
     const seen = new Map();
     const kept = [];
     for (const token of tokens) {
-      const key = token.trim().toLowerCase();
+      /* 内部空白也要压平：`soft  light` 和 `soft light` 对 NAI 是同一个 tag，
+         不合并的话「已合并 N 条」会漏报。
+         ⚠ 只压空白和大小写：`(cat:1.2)` 与 `(CAT:1.2)` 该合，`1.2::cat::` 与 `cat` 不该合
+         （权重不同就是两个不同的意思），别把归一化做过头。 */
+      const key = token.trim().replace(/\s+/g, ' ').toLowerCase();
       const hit = seen.get(key);
       if (hit) {
         hit.dropped += 1;
@@ -752,8 +870,7 @@ export function recordCopyHistory(state, details = {}, options = {}) {
     createdAt: nowIso(options),
   }, options);
   state.history.unshift(record);
-  const limit = Math.max(1, Number.parseInt(options.limit, 10) || TAG_RELAY_HISTORY_LIMIT);
-  state.history.splice(limit);
+  state.history.splice(resolveHistoryLimit(options.historyLimit ?? options.limit));
   return record;
 }
 
@@ -767,6 +884,10 @@ export function clearCopyHistory(state) {
 export function restoreHistoryAsPlan(state, historyId, options = {}) {
   const record = state.history?.find(item => item.id === historyId);
   if (!record?.plan || record.snapshotComplete !== true) return null;
+  /* 分级把关不能只靠调用方自觉：任一项被判定为锁定就整条拒绝恢复，别把一半内容放进新方案。
+     ⚠ core 层不许 import state/access（它要能零 DOM 直测），所以谓词只能由调用方注入。 */
+  if (typeof options.isLocked === 'function'
+    && (record.plan.items || []).some(item => Boolean(options.isLocked(item)))) return null;
   if (!Array.isArray(state.plans)) state.plans = [];
   const now = nowIso(options);
   const plan = normalizePlan({
