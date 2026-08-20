@@ -11,7 +11,7 @@
 (function () {
   var CANONICAL_HOST = 'novelai.quicktagcloud.com';
   var CANONICAL_URL = 'https://' + CANONICAL_HOST + '/';
-  var EXPIRES = '2026-09-08';          // 内测截止日；改这一行即可延期
+  var EXPIRES = '2026-12-31';          // 内测截止日；改这一行即可延期
   var TEXT = '功能测试版 · 数据不保留 · 点此前往正式站';
 
   var host = location.hostname;

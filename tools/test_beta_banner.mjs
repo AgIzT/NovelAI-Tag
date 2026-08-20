@@ -84,15 +84,23 @@ function createPreviewEnvironment(initialTime) {
   };
 }
 
+/* 截止日是 beta-banner.js 里的一行常量，会被反复改（延期）。测试从源码里读它、再按它
+   推算前后一天，这样以后改日期不必连带改测试；读不出来就直接失败，免得推算悄悄落到
+   一个恒不过期的日子上，把两条断言变成永远为真。 */
+const EXPIRES = source.match(/var EXPIRES = '([0-9]{4}-[0-9]{2}-[0-9]{2})'/)?.[1];
+assert.ok(EXPIRES, '必须能从 beta-banner.js 读出 EXPIRES 常量');
+const cutoff = Date.parse(EXPIRES + 'T00:00:00Z');
+const DAY = 86_400_000;
+
 // A page opened before the cutoff must upgrade itself after the next UTC day
 // boundary, rather than relying on a manual refresh to install the gate.
 {
-  const env = createPreviewEnvironment(Date.UTC(2026, 8, 7, 23, 59, 0));
+  const env = createPreviewEnvironment(cutoff - DAY + (23 * 60 + 59) * 60_000);
   env.run();
   assert.ok(env.document.getElementById('betaBar'));
   assert.equal(env.timers.length, 1);
 
-  env.setTime(Date.UTC(2026, 8, 9, 0, 0, 1));
+  env.setTime(cutoff + DAY + 1_000);
   env.timers.shift().callback();
   assert.equal(env.document.getElementById('betaBar'), null);
   assert.ok(env.document.getElementById('betaGate'));
@@ -101,7 +109,7 @@ function createPreviewEnvironment(initialTime) {
 
 // A fresh request after expiry is gated immediately as before.
 {
-  const env = createPreviewEnvironment(Date.UTC(2026, 8, 9, 12, 0, 0));
+  const env = createPreviewEnvironment(cutoff + DAY + 12 * 3_600_000);
   env.run();
   assert.equal(env.document.getElementById('betaBar'), null);
   assert.ok(env.document.getElementById('betaGate'));
