@@ -276,10 +276,15 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </header>
     <nav class="tag-relay-rail-tabs" role="tablist" aria-label="中转站分区" aria-orientation="horizontal">
       <button id="tagRelayTabWarehouse" class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="warehouse" aria-selected="true" aria-controls="tagRelayPaneWarehouse" tabindex="0">素材</button>
-      <button id="tagRelayTabCompose" class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="compose" aria-selected="false" aria-controls="tagRelayPaneCompose" tabindex="-1">编排<span id="tagRelayComposeCount" class="tag-relay-tab-count"></span></button>
+      <!-- 角标初始必须 hidden：CSS 给它 min-width:16px + 圆角背景，空文本也会占位，首帧闪一个空胶囊 -->
+      <button id="tagRelayTabCompose" class="tag-relay-rail-tab" type="button" role="tab" data-rail-tab="compose" aria-selected="false" aria-controls="tagRelayPaneCompose" tabindex="-1">编排<span id="tagRelayComposeCount" class="tag-relay-tab-count" hidden></span></button>
     </nav>
 
-    <form id="relayInlineAction" class="tag-relay-inline-action" hidden aria-labelledby="relayInlineActionTitle">
+    <!-- 「清空最近复制 / 清空复制历史 / 删除方案」三条不可撤销操作都走这里。
+         没有 role 时读屏只念到「确认 按钮」，标题和后果说明一个字都不播；alertdialog 会在
+         它由 hidden 变可见时把 labelledby + describedby 一起念出来。
+         ⚠ 不加 aria-modal：它是嵌在栏内的确认条，不劫持焦点，也没有遮罩。 -->
+    <form id="relayInlineAction" class="tag-relay-inline-action" hidden role="alertdialog" aria-labelledby="relayInlineActionTitle" aria-describedby="relayInlineActionMessage">
       <div class="tag-relay-inline-action-copy">
         <b id="relayInlineActionTitle">确认操作</b>
         <p id="relayInlineActionMessage"></p>
@@ -296,14 +301,20 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
     <section id="tagRelayPaneWarehouse" class="tag-relay-rail-pane is-active" data-rail-pane="warehouse" role="tabpanel" aria-labelledby="tagRelayTabWarehouse">
       <div class="tag-relay-source-tabs" role="tablist" aria-label="素材来源" aria-orientation="horizontal">
-        <button id="relaySourceTabInbox" type="button" role="tab" data-relay-source="inbox" aria-selected="true" aria-controls="relaySourceList" tabindex="0">最近复制</button>
-        <button id="relaySourceTabFavorites" type="button" role="tab" data-relay-source="favorites" aria-selected="false" aria-controls="relaySourceList" tabindex="-1">收藏</button>
+        <button id="relaySourceTabInbox" type="button" role="tab" data-relay-source="inbox" aria-selected="true" aria-controls="relaySourcePanel" tabindex="0">最近复制</button>
+        <button id="relaySourceTabFavorites" type="button" role="tab" data-relay-source="favorites" aria-selected="false" aria-controls="relaySourcePanel" tabindex="-1">收藏</button>
       </div>
       <p id="relaySourceStatus" class="tag-relay-source-status" role="status" aria-live="polite"></p>
-      <div id="relaySourceList" class="tag-relay-source-list"></div>
-      <div id="relaySourceEmpty" class="tag-relay-source-empty">
-        <b>还没有复制过词条</b>
-        <small>点卡片复制，词条会自动收到这里。</small>
+      <!-- 两个来源页签共用这一块面板（内容整体换掉，不是两块面板轮流显示）。
+           列表和空态是互斥的兄弟节点，谁也不能单独当 tabpanel：列表为空时真正显示的是空态，
+           如果 role 只挂在列表上，读屏顺着页签走过去会落到一个 display:none 的元素上。
+           ⚠ 标签只能写死 aria-label：选中的页签在 tag-relay.js 里切，那个文件不归本次改动。 -->
+      <div id="relaySourcePanel" class="tag-relay-source-panel" role="tabpanel" aria-label="素材">
+        <div id="relaySourceList" class="tag-relay-source-list"></div>
+        <div id="relaySourceEmpty" class="tag-relay-source-empty">
+          <b>还没有复制过词条</b>
+          <small>点卡片复制，词条会自动收到这里。</small>
+        </div>
       </div>
       <footer class="tag-relay-rail-foot">
         <button id="tagRelayClear" class="tag-relay-secondary" type="button">清空最近复制</button>
@@ -338,7 +349,11 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div id="relayHistoryList" class="tag-relay-history-list"></div>
       </section>
 
-      <div id="relayPlanLane" class="tag-relay-plan-lane" aria-live="polite"></div>
+      <!-- ⚠ 轨道本身不能当活区：每次渲染都是整条 replaceChildren，读屏会把 N 个块从头念一遍，
+           加一块、删一块、上移一格、甚至只是点开某块都要重念全部。
+           结果改由下面那个 sr-only 的 role="status" 播一句短的（见 tag-relay-compose.js 的 announceLane）。 -->
+      <div id="relayPlanLane" class="tag-relay-plan-lane"></div>
+      <p id="relayLaneStatus" class="sr-only" role="status" aria-live="polite"></p>
       <div id="relayPlanEmpty" class="tag-relay-plan-empty">
         <b>把第一块放到这里</b>
         <small>去「素材」页签，点词条上的「加入方案」。</small>
@@ -367,25 +382,30 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <footer class="tag-relay-output">
         <div class="tag-relay-output-option">
           <span>格式</span>
-          <div id="relayFormatControl" class="tag-relay-segment" role="group" aria-label="输出格式">
-            <button type="button" data-format="nai" aria-pressed="true">NAI</button>
-            <button type="button" data-format="sd" aria-pressed="false">SD</button>
-            <button type="button" data-format="plain" aria-pressed="false">纯文本</button>
+          <!-- 三选一 / 二选一，不是三个各自能按下的开关：radiogroup + aria-checked 才是这个语义，
+               group + aria-pressed 会被读成「三个独立的切换按钮，其中一个是按下状态」。 -->
+          <div id="relayFormatControl" class="tag-relay-segment" role="radiogroup" aria-label="输出格式">
+            <button type="button" role="radio" data-format="nai" aria-checked="true">NAI</button>
+            <button type="button" role="radio" data-format="sd" aria-checked="false">SD</button>
+            <button type="button" role="radio" data-format="plain" aria-checked="false">纯文本</button>
           </div>
           <span>连接</span>
-          <div id="relayJoinControl" class="tag-relay-segment" role="group" aria-label="连接方式">
-            <button type="button" data-join="comma" aria-pressed="true">逗号</button>
-            <button type="button" data-join="newline" aria-pressed="false">逗号换行</button>
+          <div id="relayJoinControl" class="tag-relay-segment" role="radiogroup" aria-label="连接方式">
+            <button type="button" role="radio" data-join="comma" aria-checked="true">逗号</button>
+            <button type="button" role="radio" data-join="newline" aria-checked="false">逗号换行</button>
           </div>
         </div>
-        <label class="tag-relay-output-box">
-          <span><b>正向</b><small id="relayPositiveMeta">0 段</small></span>
+        <!-- ⚠ 外框不能是 <label>：applyMergedNote 会往 #relay*Meta 里塞一个「已合并 N 条重复」按钮，
+             label 里嵌交互元素是无效 HTML，点它还会先触发 label 的转发点击（原先靠 preventDefault 硬压）。
+             改成 div，另用一个真正的 <label for> 把标题和 textarea 关联起来。 -->
+        <div class="tag-relay-output-box">
+          <span><label for="relayPositiveOutput"><b>正向</b></label><small id="relayPositiveMeta">0 段</small></span>
           <textarea id="relayPositiveOutput" rows="3" readonly placeholder="正向输出会显示在这里"></textarea>
-        </label>
-        <label class="tag-relay-output-box">
-          <span><b>负向</b><small id="relayNegativeMeta">0 段</small></span>
+        </div>
+        <div class="tag-relay-output-box">
+          <span><label for="relayNegativeOutput"><b>负向</b></label><small id="relayNegativeMeta">0 段</small></span>
           <textarea id="relayNegativeOutput" rows="2" readonly placeholder="负向输出会显示在这里"></textarea>
-        </label>
+        </div>
         <div class="tag-relay-output-actions">
           <button id="relayCopyPositive" class="tag-relay-secondary" type="button">复制正向</button>
           <button id="relayCopyNegative" class="tag-relay-secondary" type="button">复制负向</button>

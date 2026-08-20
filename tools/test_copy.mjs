@@ -452,7 +452,10 @@ function execDocument(result) {
   /* 入库必须排在动效之前：芯片抛不抛向中转站取决于这次到底存没存进去 */
   assert.match(copySource, /const relaySnapshot = options\.entry \? prepareCopiedEntry\(options\.entry\) : null;[\s\S]*await writeClipboardText/);
   assert.match(copySource, /const accessSnapshot = relaySnapshot[\s\S]*options\.accessEntry \? prepareCopiedEntry\(options\.accessEntry\)[\s\S]*options\.accessSnapshot[\s\S]*snapshotLocked\(accessSnapshot\)/);
-  assert.match(copySource, /const intake = relaySnapshot \? recordPreparedCopiedEntry\(relaySnapshot\) : false;[\s\S]*playCopySample\(/);
+  /* ⚠ 只校验**顺序**，不钉死写法：这条断言原先把整行代码抄了一遍，于是 commitRelay
+     改成 async 这样一次纯重构就让它变红，而真把两者顺序调换却未必红。
+     要守的不变式只有一条——入库先于动效，芯片抛不抛向中转站取决于存没存进去。 */
+  assert.match(copySource, /recordPreparedCopiedEntry\([\s\S]*playCopySample\(/);
   assert.match(copySource, /onClick: \(\) => copyText\(followUp\.text[\s\S]*accessSnapshot/);
   /* opt-in：不传 entry 的复制不得入库 */
   assert.doesNotMatch(copySource, /recordPreparedCopiedEntry\(\s*\)/);
@@ -489,6 +492,162 @@ function execDocument(result) {
   for (const source of [masonrySource, lightboxSource]) {
     assert.match(source, /已复制\$\{combinedPromptLabel\(e\)\}/);
     assert.doesNotMatch(source, /已复制正向\+负面/);
+  }
+}
+
+/* copyText 的实时判定探针：入库快照建不出来时不得 fail-open。
+   prepareCopiedEntry 会吞掉异常返回 null，而守卫里 `accessSnapshot &&` 对 null 是
+   **整条跳过**的——语义会从「不知道」滑成「放行」。卡片复制（复制负面 / 全部）
+   唯一的分级守卫就是这份快照，一滑掉就是完全无守卫。 */
+{
+  const saved = {
+    window: globalThis.window,
+    document: globalThis.document,
+    localStorage: globalThis.localStorage,
+    warn: console.warn,
+  };
+  const storage = new Map();
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    // matches:true 让 playCopySample 直接早退：这一组测的是门控，不是动效
+    matchMedia: () => ({ matches: true, addEventListener() {} }),
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    innerWidth: 1200,
+    innerHeight: 800,
+    performance,
+  };
+  globalThis.document = {
+    activeElement: null,
+    body: null,
+    addEventListener() {},
+    removeEventListener() {},
+    // toast / 手动兜底面板都靠 querySelector 取节点，取不到就安静跳过
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getElementById: () => null,
+    createElement: () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {}, addEventListener() {}, append() {}, appendChild() {} }),
+  };
+  globalThis.localStorage = {
+    getItem: key => (storage.has(key) ? storage.get(key) : null),
+    setItem: (key, value) => { storage.set(key, String(value)); },
+    removeItem: key => { storage.delete(key); },
+  };
+  // prepareCopiedEntry 失败时会 console.warn，这几条是测试**故意**造出来的
+  console.warn = () => {};
+
+  try {
+    const { copyText } = await import('../site/assets/app/copy.js');
+    const { state } = await import('../site/assets/app/state.js');
+    const { relayInbox } = await import('../site/assets/app/tag-relay-store.js');
+
+    /* 让 snapshotEntry 里的 `{...entry}` 抛异常，而分级字段本身照常可读——
+       这正是「快照层内部出错、词条还在」的现场。 */
+    const withBrokenSnapshot = (entry, trapKey = 'trap') => {
+      const broken = { ...entry };
+      Object.defineProperty(broken, trapKey, {
+        enumerable: true,
+        get() { throw new Error('快照层内部错误'); },
+      });
+      return broken;
+    };
+    const spy = () => {
+      const record = { writes: [] };
+      record.clipboardOptions = {
+        navigatorApi: { clipboard: { writeText: async value => { record.writes.push(value); } } },
+        documentApi: { execCommand() { record.writes.push('execCommand'); return true; } },
+      };
+      return record;
+    };
+
+    const savedAccess = { nsfw: state.allowNsfw, r18g: state.allowR18g, codexes: state.codexes, codex: state.codex };
+    try {
+      state.allowNsfw = false;
+      state.allowR18g = false;
+      state.codexes = [];
+      state.codex = null;
+
+      // ① 受限词条 + 快照失败 → 必须按锁定处理
+      const restricted = spy();
+      const blocked = await copyText('adult-tag', '已复制', null, {
+        entry: withBrokenSnapshot({ id: 'r1', title: '成人词条', tags: 'adult-tag', rating: 'r18' }),
+        clipboardOptions: restricted.clipboardOptions,
+        manualFallback: false,
+      });
+      assert.deepEqual(blocked, { ok: false, blocked: true }, '快照失败不能变成放行：受限词条必须走实时探针拦下');
+      assert.deepEqual(restricted.writes, [], '判定为锁定时不许写剪贴板');
+      assert.equal(relayInbox().length, 0, '判定为锁定时不许入库');
+
+      // ② 连字段都读不出来 → 判不出来 → 一律算锁定
+      const opaque = spy();
+      const unknown = await copyText('mystery', '已复制', null, {
+        entry: withBrokenSnapshot({ id: 'r2', title: '读不出分级', tags: 'mystery' }, 'rating'),
+        clipboardOptions: opaque.clipboardOptions,
+        manualFallback: false,
+      });
+      assert.deepEqual(unknown, { ok: false, blocked: true }, '探针读字段都失败时必须 fail-closed');
+      assert.deepEqual(opaque.writes, []);
+      assert.equal(relayInbox().length, 0);
+
+      // ③ 词条自身没有 rating，但整本是 NSFW —— 探针要像快照那样回查 meta
+      state.codexes = [{ id: 'adult-book', nsfw: true }];
+      const bookLevel = spy();
+      const bookBlocked = await copyText('x', '已复制', null, {
+        entry: withBrokenSnapshot({ id: 'r3', title: '无 rating', tags: 'x', _srcCodexId: 'adult-book' }),
+        clipboardOptions: bookLevel.clipboardOptions,
+        manualFallback: false,
+      });
+      assert.deepEqual(bookBlocked, { ok: false, blocked: true }, '整本 NSFW 标记必须同样拦住');
+      assert.deepEqual(bookLevel.writes, []);
+
+      // ④ accessEntry（raw tag 那条路：不入库但归属于词条）走同一把锁
+      const rawTag = spy();
+      const rawBlocked = await copyText('adult-raw', '已复制', null, {
+        accessEntry: withBrokenSnapshot({ id: 'r4', title: '成人词条', tags: 'adult-raw', rating: 'r18g' }),
+        clipboardOptions: rawTag.clipboardOptions,
+        manualFallback: false,
+      });
+      assert.deepEqual(rawBlocked, { ok: false, blocked: true }, 'accessEntry 这条路同样不许 fail-open');
+      assert.deepEqual(rawTag.writes, []);
+
+      /* ⑤ 普通词条不许被连坐：快照失败只说明快照层出了内部错误，
+         判得出「不受限」就该照常复制——只是这次确实没能入库。 */
+      state.codexes = [];
+      const plain = spy();
+      const ok = await copyText('sunlight', '已复制', null, {
+        entry: withBrokenSnapshot({ id: 'r5', title: '普通词条', tags: 'sunlight', rating: 'safe' }),
+        clipboardOptions: plain.clipboardOptions,
+        manualFallback: false,
+      });
+      assert.equal(ok.ok, true, '快照层内部错误不该把普通词条一起锁掉');
+      assert.deepEqual(plain.writes, ['sunlight']);
+      assert.equal(relayInbox().length, 0, '快照没建出来 = 没入库，中转站不该凭空多一条');
+
+      // ⑥ 开关打开后，①里那条受限词条应当能正常复制（证明拦的是分级不是异常本身）
+      state.allowNsfw = true;
+      const unlocked = spy();
+      const unlockedResult = await copyText('adult-tag', '已复制', null, {
+        entry: withBrokenSnapshot({ id: 'r6', title: '成人词条', tags: 'adult-tag', rating: 'r18' }),
+        clipboardOptions: unlocked.clipboardOptions,
+        manualFallback: false,
+      });
+      assert.equal(unlockedResult.ok, true);
+      assert.deepEqual(unlocked.writes, ['adult-tag']);
+    } finally {
+      state.allowNsfw = savedAccess.nsfw;
+      state.allowR18g = savedAccess.r18g;
+      state.codexes = savedAccess.codexes;
+      state.codex = savedAccess.codex;
+    }
+  } finally {
+    console.warn = saved.warn;
+    for (const name of ['window', 'document', 'localStorage']) {
+      if (saved[name] === undefined) delete globalThis[name];
+      else globalThis[name] = saved[name];
+    }
   }
 }
 

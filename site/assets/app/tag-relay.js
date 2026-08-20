@@ -18,11 +18,11 @@ import {
   railPaneRoot,
   setRailPaneRenderers,
   setupTagRelayRail,
-  showRailTab,
 } from './tag-relay-rail.js';
 import {
   addSourceToPlan,
   renderCompose,
+  renderComposeCounters,
   refreshComposeAccess,
   setupRelayCompose,
 } from './tag-relay-compose.js';
@@ -103,8 +103,8 @@ function sourceItem(entry, { removable = true } = {}) {
     remove.textContent = '×';
     remove.title = `移除${visibleTitle}`;
     remove.setAttribute('aria-label', `从最近复制移除${visibleTitle}`);
-    remove.onclick = () => {
-      const result = commitRelay(next => removeInboxEntry(next, entry.key), { changed: 'inbox' });
+    remove.onclick = async () => {
+      const result = await commitRelay(next => removeInboxEntry(next, entry.key), { changed: 'inbox' });
       if (!result.ok) return;
       toast(`已移出最近复制：${visibleTitle}`, '−');
     };
@@ -188,8 +188,13 @@ function setSourceMode(next) {
     button.setAttribute('aria-selected', String(on));
     button.tabIndex = on ? 0 : -1;
   }
-  /* 每次切过来都重建：点星标走的是 favorites.js 的 saveFavs，同页内不发任何事件，
-     缓存着就会显示上一次的收藏。buildFavoritesCodex 用的是已缓存的法典，重建很便宜。 */
+  /* 面板只有一个，两个页签共用。aria-label 不跟着换的话，读屏进到面板里
+     永远听到同一个名字，分不清现在看的是「最近复制」还是「收藏」。 */
+  const panel = warehouseRoot?.querySelector('#relaySourcePanel');
+  const activeTab = warehouseRoot?.querySelector(`[data-relay-source="${next}"]`);
+  if (panel && activeTab) panel.setAttribute('aria-label', activeTab.textContent.trim());
+  /* 每次切过来都重建：favorites.js 的 emitFavoritesChanged 只覆盖得到订阅的场景，
+     缓存着仍可能显示上一次的收藏。buildFavoritesCodex 用的是已缓存的法典，重建很便宜。 */
   if (next === 'favorites') {
     favorites = null;
     favoritesGeneration += 1;
@@ -265,7 +270,8 @@ function bindWarehouse() {
     setSourceMode(tabs[next].dataset.relaySource);
     tabs[next].focus();
   });
-  /* 这个订阅只覆盖备份恢复与跨标签页（同页点星标不发事件，靠上面切页签时重建）。
+  /* 备份恢复、跨标签页，以及同页点星标（favorites.js 现在会发 emitFavoritesChanged）
+     都走这一条；切页签时的重建是兜底，两者都留着。
      ⚠ scope 只接受 atlas / community，传别的会静默返回空函数。 */
   subscribeFavoritesChanges('atlas', () => {
     invalidateFavorites();
@@ -281,7 +287,7 @@ function bindWarehouse() {
       trigger: event.currentTarget,
     });
     if (!accepted) return;
-    const result = commitRelay(next => clearInbox(next), { changed: 'inbox' });
+    const result = await commitRelay(next => clearInbox(next), { changed: 'inbox' });
     if (!result.ok) return;
     toast('已清空最近复制', '✓');
   });
@@ -306,13 +312,17 @@ export function setupTagRelay() {
     relayBound = true;
     bindWarehouse();
     /* 状态变了由 store 广播：角标永远更新（它是入库唯一的即时反馈），
-       列表只打脏标记，等侧栏开着或切过去才真画。 */
+       列表只打脏标记，等侧栏开着或切过去才真画。
+       ⚠ 编排页签上的块数同属「角标」：在素材页签点「加入方案」时 compose 不是当前
+       页签，flush() 会直接跳过，只有这里无条件跑才对得上「不切页签，计数体现在页签上」。 */
     subscribeRelay((_, meta) => {
       renderRelayChrome();
+      renderComposeCounters();
       markRailDirty(meta?.changed || 'all');
     });
   }
   relayState();
   renderRelayChrome();
+  renderComposeCounters();
   renderWarehouse();
 }

@@ -10,6 +10,7 @@
 
 import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistoryLayer } from './browser-history.js';
 import { trapFocus } from './modal.js';
+import { cancelRelayAction } from './tag-relay-action.js';
 
 const RAIL_STORAGE_KEY = 'fadian-tag-relay-rail';
 const RAIL_LAYER_ID = 'tag-relay-rail';
@@ -21,6 +22,8 @@ let backdrop = null;
 let bound = false;
 let activeTab = 'warehouse';
 let lastTrigger = null;
+/* 只在「灯箱压在栏上面」的那一次 Esc 同步派发期间为 true，见 bindRail 里的捕获监听 */
+let escYieldsToTopLayer = false;
 const renderers = new Map();
 const dirty = new Set();
 
@@ -31,8 +34,11 @@ export function isRelayRailOpen() {
 }
 
 /* 只有浮层形态才算「模态」。ui.js 的 Esc 链与 overlayOpen() 都问这个函数，
-   停靠态返回 false —— 否则桌面默认状态下 ? / g / / 三个快捷键会被永久吃掉。 */
+   停靠态返回 false —— 否则桌面默认状态下 ? / g / / 三个快捷键会被永久吃掉。
+   ⚠ escYieldsToTopLayer 只在灯箱压在栏上面的那一次 Esc 派发里为 true，
+   让 ui.js 那条「命中就关栏」的分支自己落空，别把灯箱和抽屉一次关两层。 */
 export function isRelayRailModal() {
+  if (escYieldsToTopLayer) return false;
   return overlayQuery.matches && !isClosed();
 }
 
@@ -63,22 +69,40 @@ function flush() {
 
 function setOpenDirect(open, trigger = null) {
   if (!rail) return;
+  /* ⚠ inert 会立刻把焦点踢到 <body>，所以「关栏前焦点在不在栏里」必须先算好 */
+  const heldFocus = !open && rail.contains(document.activeElement);
   rail.classList.toggle('closed', !open);
   /* 收起不能只是视觉隐藏：不加 inert，Tab 仍会走进看不见的按钮和输入框 */
   rail.inert = !open;
   rail.setAttribute('aria-hidden', String(!open));
-  try { localStorage.setItem(RAIL_STORAGE_KEY, open ? 'open' : 'closed'); } catch { /* 隐私模式写不了就算了 */ }
+  /* ⚠ 这条偏好只描述「桌面停靠态要不要常驻」（读取处也带着 !overlayQuery.matches）。
+     浮层态的开合是一次性动作，跟着写就会让手机上开一次再关，把桌面端的常驻偏好冲掉。 */
+  if (!overlayQuery.matches) {
+    try { localStorage.setItem(RAIL_STORAGE_KEY, open ? 'open' : 'closed'); } catch { /* 隐私模式写不了就算了 */ }
+  }
   syncChrome();
   if (open) {
     dirty.add(activeTab);
     flush();
+    /* 触发者一律记下来（停靠态也记）：停靠态收栏后同样要有地方还焦点，
+       否则 Tab 进栏、按 × 收起，焦点掉回 <body>，下一次 Tab 从文档最开头重来。 */
+    const fallback = document.activeElement;
+    lastTrigger = trigger instanceof HTMLElement
+      ? trigger
+      : (fallback instanceof HTMLElement && fallback !== document.body ? fallback : null);
     /* 浮层态是模态语义：焦点必须进去，否则读屏与键盘用户还停在页面底下 */
     if (overlayQuery.matches) {
-      lastTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
       (rail.querySelector('[data-rail-tab][aria-selected="true"]') || rail).focus?.();
     }
-  } else if (lastTrigger?.isConnected) {
-    lastTrigger.focus?.();
+  } else {
+    /* 没走完的确认 / 命名条不能留到下一次打开——「清空最近复制」「删除方案」
+       这类 danger 条尤其危险：用户以为已经放弃，回来随手一点就真执行了。 */
+    cancelRelayAction();
+    /* 焦点原本不在栏里就别抢回来；栏是用户主动 Tab 进去的才需要还 */
+    if (heldFocus) {
+      const back = lastTrigger?.isConnected ? lastTrigger : document.querySelector('#tagRelayBtn');
+      back?.focus?.({ preventScroll: true });
+    }
     lastTrigger = null;
   }
 }
@@ -104,6 +128,9 @@ export function toggleRelayRail(trigger = null) {
 export function showRailTab(name) {
   /* 只要有对应的面板就切；渲染器还没注册（分区尚未接上）时切过去是空面板，不是死按钮 */
   if (!rail || !rail.querySelector(`[data-rail-pane="${name}"]`)) return;
+  /* 确认 / 命名条是三个页签的公共兄弟节点，不跟着页签走；换页签就得收掉它，
+     否则「删除「方案 1」？」会原样飘到素材页签上等一次误触。 */
+  if (activeTab !== name) cancelRelayAction();
   activeTab = name;
   for (const pane of rail.querySelectorAll('[data-rail-pane]')) {
     const on = pane.dataset.railPane === name;
@@ -186,6 +213,24 @@ function bindRail() {
     closeRelayRail();
   });
 
+  /* ⚠ Esc 一次只该关一层。ui.js 的 window keydown 命中 isRelayRailModal() 后只有
+     `closeRelayRail(); return;`，既没有 preventDefault 也没有 stopImmediatePropagation，
+     而 lightbox.js 那个监听同样挂在 window 上、照样会跑：1240px 以下开着抽屉再开灯箱，
+     一次 Esc 把灯箱和抽屉一起关掉。
+     灯箱（z-index 80）本就压在栏（68）上面，这一下应当只关灯箱。捕获阶段必然早于
+     window 上的冒泡监听，所以在这里给本轮 Esc 打一个「让给上层」的标记，
+     让 ui.js 那条分支自己落空。标记只活在这一次同步派发里：keydown 的所有监听同属
+     一个任务，微任务必然排在它们之后。 */
+  window.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    escYieldsToTopLayer = false;
+    if (!overlayQuery.matches || isClosed()) return;
+    const lightbox = document.querySelector('#lightbox');
+    if (!lightbox || lightbox.hidden) return;
+    escYieldsToTopLayer = true;
+    queueMicrotask(() => { escYieldsToTopLayer = false; });
+  }, true);
+
   registerHistoryLayer(RAIL_LAYER_ID, {
     isOpen: () => isRelayRailModal(),
     open: () => setOpenDirect(true),
@@ -203,7 +248,12 @@ function bindRail() {
         (rail.querySelector('[data-rail-tab][aria-selected="true"]') || rail).focus?.();
       }
     } else {
-      forgetHistoryLayer(RAIL_LAYER_ID);
+      /* 浮层 → 停靠：开栏时 openHistoryLayer 是 push 出来的一条真记录，
+         ⚠ 只 forget（replaceState 清空 layers）不会让那条记录消失，用户按返回键
+         第一下「没反应」，来回拖窗口跨断点还会一直攒。closeHistoryLayer 在它确实是
+         栈顶时真退一格（此时 isRelayRailModal() 已为 false，回退不会顺手把栏关掉），
+         不是栈顶才退化成 forget。 */
+      closeHistoryLayer(RAIL_LAYER_ID);
     }
     syncChrome();
   });

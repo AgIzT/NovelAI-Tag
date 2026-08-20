@@ -59,6 +59,11 @@ export function snapshotLocked(snapshot) {
   const sourceMeta = findCodexMeta(snapshot?.codexId);
   const sourceNsfw = sourceMeta?.nsfw === true;
   /* 旧的 entry 只留引用、又没有任何分级证据时，未知来源必须锁定。
+     accessKnown 的语义是「显式带了就尊重，没带才由 hasAccessEvidence 推断」，
+     normalizeRelayEntry / normalizePlanItem 出来的对象一定带布尔值，所以这里
+     `=== false` 已经覆盖全部经过 store 的数据。
+     ⚠ 不收紧成 `!== true`：snapshotLocked 也被侧栏拿去判 action 结果、编辑器草稿这类
+     临时对象，那些不一定跑过 normalize，收紧会把普通词条误锁。
      新建自定义块在 normalizePlanItem 中显式标记 accessKnown=true，不受此规则影响。 */
   if (snapshot?.accessKnown === false && snapshot?.kind !== 'block') return true;
   if ((snapshot?.access?.nsfw || sourceNsfw || isEntryNsfw(snapshot)) && !state.allowNsfw) return true;

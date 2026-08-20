@@ -20,6 +20,17 @@ function finish(value, { restoreFocus = true } = {}) {
   if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
 
+/* 收栏 / 切页签时把没走完的确认条收掉。这条 form 是三个页签的公共兄弟节点，
+   既不随页签隐藏也不随收栏销毁，留着就会在下一次打开时原样浮现。
+   ⚠ 危险的是「清空最近复制」「清空复制历史」「删除方案」这三条 danger 操作：
+   用户以为自己已经放弃了，回来随手点一下「确认」就真执行。
+   一律按「取消」收尾（resolve(null)），调用方的 `if (!accepted) return` 会照常生效，
+   不会留下悬空的 promise；焦点不还，因为要还回去的那个按钮马上就要被 inert / hidden。 */
+export function cancelRelayAction() {
+  if (!pending) return;
+  finish(null, { restoreFocus: false });
+}
+
 export function setupRelayAction(root = document) {
   if (refs) return;
   const q = selector => root.querySelector(selector);

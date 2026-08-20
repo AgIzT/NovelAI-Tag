@@ -627,7 +627,13 @@ export function bindUI() {
       return;
     }
     if (event.key === NSFW_STORAGE_KEY) {
-      setNsfwAccess(event.newValue === '1', { persist: false });
+      const on = event.newValue === '1';
+      setNsfwAccess(on, { persist: false });
+      /* setNsfwAccess 只认 NSFW 这一个键：开启时它不会去补读 R18G，于是对端只写了
+         NSFW 键（「先开 R18G → 关 NSFW → 再开 NSFW」就走这条）时，本页 R18G 会停在
+         false 而对端是 true。方向是 fail-closed 不算漏，但两页状态不一致，这里补一次
+         读盘对齐。关闭方向不用补：setNsfwAccess(false) 内部已强制关掉 R18G。 */
+      if (on) setR18gAccess(localStorage.getItem(R18G_STORAGE_KEY) === '1', { persist: false });
       return;
     }
     if (event.key === R18G_STORAGE_KEY) {

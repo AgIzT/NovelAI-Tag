@@ -1,8 +1,10 @@
 /* Tag 中转站：沿用法典图鉴的 token、圆角卡片和玻璃浮层，只补功能层。 */
 
+/* 只给读屏的文本容器。全站没有第二条规则去争这些属性，!important 是白加的；
+   admin.css:25 有一份同名定义，但那份只被 review.html 用、和本文件永不同页，不冲突。 */
 .sr-only{
-  position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;
-  overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
 }
 
 /* 中转站成为浮动组的基准按钮；其它按钮在它上方排队。 */
@@ -51,7 +53,10 @@
   display:flex;flex-direction:column;
   background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);
-  transition:flex-basis .26s cubic-bezier(.22,1,.36,1),width .26s cubic-bezier(.22,1,.36,1);
+  /* top/height 跟着 --topbar-h 走：智能顶栏收起时（body.tb-hidden）左边的 .sidebar 有
+     top .3s / height .3s，这根镜像栏没有就会一个滑一个跳。时长与缓动照抄 .sidebar。 */
+  transition:flex-basis .26s cubic-bezier(.22,1,.36,1),width .26s cubic-bezier(.22,1,.36,1),
+    top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1);
 }
 .tag-relay-rail.closed{flex-basis:0;width:0;padding:0;border-color:transparent;box-shadow:none}
 .tag-relay-rail-backdrop{display:none}
@@ -102,7 +107,9 @@
 .tag-relay-rail-foot{flex:none;display:flex;align-items:center;gap:8px;margin:0 16px;padding:12px 0 14px;border-top:1px solid var(--line)}
 .tag-relay-rail-foot .tag-relay-secondary{flex:1}
 
-/* 侧栏常驻时右下浮动按钮会压在栏上，整组左移让位 */
+/* 侧栏常驻时右下浮动按钮会压在栏上，整组左移让位。
+   ⚠ 必须给 right 补过渡：侧栏是 .26s 滑进来的，浮动按钮组不跟着走就会在开栏的瞬间瞬移一次。 */
+.float-actions{transition:right .26s cubic-bezier(.22,1,.36,1)}
 body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 
 /* 补：新增控件与角色负面提示 */
@@ -124,9 +131,14 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   color:var(--muted);font-size:10.5px;line-height:1.55;
 }
 .tag-relay-inspector-note[hidden]{display:none}
-/* 素材列表必须自己能滚：父面板 overflow:hidden，不给滚动容器就会被裁掉 */
+/* 两个来源页签共用的面板：列表与空态互斥显示，role="tabpanel" 挂在它们的共同父节点上。
+   ⚠ 它是新插进来的一层，必须自己接住 flex:1 + min-height:0，否则列表撑不满、也滚不动。 */
+.tag-relay-rail .tag-relay-source-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+/* 素材列表必须自己能滚：父面板 overflow:hidden，不给滚动容器就会被裁掉。
+   overscroll-behavior:contain 是站内既有约定（见 styles.css 的 .tree）：抽屉/sheet 态滚到底
+   若不拦住，滚动会串到后面的瀑布流上，整页跟着动。 */
 .tag-relay-rail .tag-relay-source-list{
-  flex:1;min-height:0;overflow-y:auto;padding:0 12px 10px;margin:0;
+  flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 12px 10px;margin:0;
   display:flex;flex-direction:column;gap:7px;
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
@@ -138,18 +150,23 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 
 @media (max-width:1240px){
   /* 挤不动了就改成盖：再挤下去瀑布流只剩一列，浏览就废了 */
+  /* ⚠ z-index 必须低于灯箱(#lightbox=80)：.layout 是普通 flex、不建层叠上下文，这里是全局比大小。
+     原来的 83/82 会让「1440px 停靠着开栏 → 打开灯箱 → 拖窄到 1100px」变成抽屉和遮罩盖住灯箱。
+     68/67 仍高于要压住的一切：瀑布流(.masonry 无 z-index)、.float-actions(40)、左目录栏(25/24)、
+     移动搜索条(55)；而设置类浮层(.settings-mask=70)、飞图(.lb-fly=90)、toast(1400) 继续在它之上。 */
   .tag-relay-rail{
-    position:fixed;z-index:83;top:var(--topbar-h);right:8px;left:auto;
+    position:fixed;z-index:68;top:var(--topbar-h);right:8px;left:auto;
     width:min(440px,calc(100vw - 16px));flex-basis:auto;
     height:calc(100vh - var(--topbar-h) - 8px);box-shadow:var(--shadow-hover);
-    transition:transform .26s cubic-bezier(.22,1,.36,1);
+    transition:transform .26s cubic-bezier(.22,1,.36,1),
+      top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1);
   }
   .tag-relay-rail.closed{
     transform:translateX(calc(100% + 16px));width:min(440px,calc(100vw - 16px));
     flex-basis:auto;border-color:var(--line);box-shadow:none;
   }
   .tag-relay-rail:not(.closed)+.tag-relay-rail-backdrop{
-    display:block;position:fixed;inset:0;z-index:82;border:0;padding:0;
+    display:block;position:fixed;inset:0;z-index:67;border:0;padding:0;
     background:rgba(15,18,30,.3);touch-action:none;overscroll-behavior:contain;
   }
   body.rail-docked .float-actions{right:26px}
@@ -185,7 +202,9 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   border:0;border-radius:999px;background:transparent;color:var(--muted);padding:7px 8px;font-size:11px;font-weight:800;white-space:nowrap;
 }
 .tag-relay-source-tabs button:hover,.tag-relay-segment button:hover{color:var(--text);background:var(--card)}
-.tag-relay-source-tabs button[aria-selected="true"],.tag-relay-segment button[aria-pressed="true"]{background:var(--card);color:var(--accent);box-shadow:var(--shadow)}
+/* ⚠ 分段控件是 role="radiogroup"，选中态属性是 aria-checked（不是 aria-pressed）；
+   改属性名的同时必须同步这里，否则选中的那一格没有底色。 */
+.tag-relay-source-tabs button[aria-selected="true"],.tag-relay-segment button[aria-checked="true"]{background:var(--card);color:var(--accent);box-shadow:var(--shadow)}
 .tag-relay-source-status{margin:0;padding:9px 14px;color:var(--muted);font-size:10.5px;line-height:1.45}
 .tag-relay-source-list{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:0 12px 14px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .tag-relay-source-card{
@@ -209,12 +228,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-source-actions .source-remove:hover{border-color:var(--new);color:var(--new)}
 .tag-relay-source-empty{display:grid;place-items:center;align-content:center;min-height:180px;padding:24px;text-align:center;color:var(--muted);font-size:11px;line-height:1.6}
 .tag-relay-source-empty b{color:var(--text);font-size:13px}
-.tag-relay-history-card{display:flex;flex-direction:column;gap:7px;border:1px solid var(--line);border-radius:13px;background:var(--card);padding:10px;box-shadow:var(--shadow)}
-.tag-relay-history-card header{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.tag-relay-history-card b{font-size:12.5px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag-relay-history-card time{color:var(--muted);font-size:9px;white-space:nowrap}
-.tag-relay-history-card p{margin:0;color:var(--muted);font:500 9.5px/1.45 var(--font-prompt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.tag-relay-history-card button{align-self:flex-start;border:1px solid var(--accent);border-radius:999px;background:var(--accent-soft);color:var(--accent);padding:5px 10px;font-size:10.5px;font-weight:800}
+/* ⚠ .tag-relay-history-card 的定义整体挪到下面「侧栏内：编排分区」的复制历史一节，
+   与原先覆盖它的那份合并成一条——历史面板只在侧栏里出现，样式没有理由分居两处。 */
 
 /* ---------- 编排台 ---------- */
 .tag-relay-manual{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:8px;margin:10px 14px 0;padding:11px;border:1px solid var(--line);border-radius:13px;background:var(--card);box-shadow:var(--shadow)}
@@ -242,7 +257,9 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-block:hover{border-color:color-mix(in srgb,var(--accent) 38%,var(--line));box-shadow:var(--shadow-hover)}
 .tag-relay-block.is-selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),var(--shadow)}
 .tag-relay-block.is-dragging{opacity:.42;transform:scale(.985)}
-.tag-relay-block-handle{height:40px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);font-size:16px;cursor:grab;touch-action:none}
+/* ⚠ 别再给手柄加 touch-action:none：拖拽发起者是 .tag-relay-block 自己的 draggable，
+   手柄只是个视觉抓点。禁掉触摸手势的结果只是手指落在手柄上时划不动轨道。 */
+.tag-relay-block-handle{height:40px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);font-size:16px;cursor:grab}
 .tag-relay-block-handle:active{cursor:grabbing}
 .tag-relay-block-index{width:27px;height:27px;display:grid;place-items:center;border-radius:9px;background:var(--tagbg);color:var(--muted);font:800 10px/1 var(--font-prompt)}
 .tag-relay-block-copy{min-width:0;cursor:pointer}
@@ -259,12 +276,9 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-plan-empty b{margin-top:14px;color:var(--text);font-size:14px}
 
 .tag-relay-inspector{position:absolute;left:14px;right:14px;bottom:14px;z-index:5;padding:12px;border:1px solid var(--popover-line);border-radius:15px;background:var(--popover-glass);box-shadow:var(--popover-shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
-.tag-relay-inspector-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.tag-relay-inspector-head b{font-size:12px}
-.tag-relay-inspector-head button{width:27px;height:27px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:18px}
-.tag-relay-inspector-head button:hover{background:var(--tagbg);color:var(--text)}
-.tag-relay-inspector-grid{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:8px}
-.tag-relay-inspector-actions{display:flex;justify-content:space-between;gap:8px;margin-top:9px}
+/* ⚠ .tag-relay-inspector-head / -head b / -head button(:hover) / -grid / -actions 这六条原本在这里
+   还有一份独立页版本，被下面「侧栏内：编排分区」那份逐条覆盖，改一处不生效、改两处才生效。
+   已删掉这里的死份；下面三条不是重复项（下面没有同名规则），留在原位以免打乱层叠顺序。 */
 .tag-relay-inspector-actions button{min-height:32px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);padding:5px 12px;font-size:10.5px;font-weight:800}
 .tag-relay-inspector-actions .is-danger:hover{border-color:var(--new);color:var(--new)}
 .tag-relay-inspector-actions .tag-relay-primary{margin-left:auto;color:#fff;background:var(--accent);border-color:var(--accent)}
@@ -298,11 +312,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-copy-note{margin:7px 16px 0;color:var(--muted);font-size:9.5px;line-height:1.45}
 
 .tag-relay-mobile-tabs{display:none}
-.tag-relay-toast{
-  position:fixed;left:50%;bottom:26px;z-index:120;transform:translateX(-50%);max-width:min(420px,calc(100vw - 30px));
-  border:1px solid var(--popover-line);border-radius:999px;background:var(--popover-glass);color:var(--text);
-  padding:9px 14px;box-shadow:var(--popover-shadow);backdrop-filter:blur(16px);font-size:11.5px;font-weight:700;
-}
+/* 这里原有一条 .tag-relay-toast：独立页时期自带的提示条，全站没有任何 JS 会创建这个类名
+   （中转站的提示统一走 styles.css 的 #toast），已删。 */
 
 
 /* ---------- 侧栏内：素材条目的动作 ---------- */
@@ -365,10 +376,18 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-history>header button:hover:not(:disabled){background:var(--tagbg);color:var(--accent)}
 .tag-relay-history>header button:disabled{opacity:.42;cursor:not-allowed}
 .tag-relay-history>header #relayHistoryClose{font-size:17px;line-height:1}
-.tag-relay-history-list{display:flex;flex-direction:column;gap:7px;max-height:228px;overflow-y:auto;padding:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+/* overscroll-behavior:contain 同 .tree：抽屉/sheet 态里滚到底不该把后面的瀑布流顶走 */
+.tag-relay-history-list{display:flex;flex-direction:column;gap:7px;max-height:228px;overflow-y:auto;overscroll-behavior:contain;padding:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .tag-relay-history-empty{margin:8px;color:var(--muted);font-size:11px;line-height:1.6;text-align:center}
-.tag-relay-history-card{gap:6px;border-radius:10px;padding:8px;box-shadow:none}
-.tag-relay-history-card p{font-size:9.5px}
+/* 合并自上方原「素材架」一节的重复定义：那份的 gap/border-radius/padding/box-shadow 本来就被这份盖掉。
+   ⚠ .tag-relay-history-card button 必须排在下面的 .tag-relay-history-actions button 之前——
+   两者特异度相同，靠先后顺序决定圆角与内边距归谁。 */
+.tag-relay-history-card{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px;box-shadow:none}
+.tag-relay-history-card header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tag-relay-history-card b{font-size:12.5px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-relay-history-card time{color:var(--muted);font-size:9px;white-space:nowrap}
+.tag-relay-history-card p{margin:0;color:var(--muted);font:500 9.5px/1.45 var(--font-prompt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tag-relay-history-card button{align-self:flex-start;border:1px solid var(--accent);border-radius:999px;background:var(--accent-soft);color:var(--accent);padding:5px 10px;font-size:10.5px;font-weight:800}
 .tag-relay-history-actions{display:flex;align-items:center;gap:6px}
 .tag-relay-history-actions button{border-radius:8px;padding:5px 8px}
 .tag-relay-history-locked{color:var(--muted);font-size:10.5px;font-weight:800}
@@ -428,35 +447,25 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-output-actions{display:flex;gap:7px}
 .tag-relay-output-actions>*{flex:1;min-height:34px;font-size:12px;padding:6px 8px}
 
+/* ⚠ 统计行不能按视口宽度藏：侧栏恒宽 440px，1100px 的抽屉里没有、1300px 的停靠里有，
+   同样宽的一根栏两种表现，纯属把独立页的响应式当成了侧栏的响应式。
+   真正会挤的是底部 sheet 形态（高度只有 min(82dvh,720px)），所以按形态藏在这一档里。
+   块数本身在「编排」页签的角标上还有一份，藏掉不丢信息。 */
 @media (max-width:600px){
-  .tag-relay-rail .tag-relay-planbar,.tag-relay-plan-stats{padding-left:14px;padding-right:14px}
+  .tag-relay-rail .tag-relay-planbar{padding-left:14px;padding-right:14px}
+  .tag-relay-rail .tag-relay-plan-stats{display:none}
   .tag-relay-rail .tag-relay-output{padding:10px 14px 14px}
 }
 
-@media (max-width:1120px){
-  .tag-relay-plan-stats{display:none}
-}
-
-@media (max-width:920px){
-  .tag-relay-top-title{display:block;min-width:0;flex:1}
-  .tag-relay-top-title b{display:block;color:var(--accent);font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
-  .tag-relay-planbar{min-height:54px;overflow-x:auto;padding:7px 8px;border-radius:14px;scrollbar-width:none}
-  .tag-relay-planbar::-webkit-scrollbar{display:none}
-  .tag-relay-plan-title .tag-relay-eyebrow{display:none}
-  .tag-relay-plan-title select{min-width:150px;max-width:180px;height:34px}
-  .tag-relay-plan-actions{flex:none}
-  .tag-relay-plan-actions button{min-height:32px;padding:5px 10px}
-  .tag-relay-source-card{grid-template-columns:50px minmax(0,1fr);padding:9px}
-  .tag-relay-source-thumb{width:50px;height:50px}
-  .tag-relay-source-main b{font-size:13px}
-  .tag-relay-source-actions button{min-height:34px}
-  .tag-relay-plan-lane{padding:11px 10px 100px}
-  .tag-relay-block{grid-template-columns:22px 26px minmax(0,1fr) auto;padding:8px 7px;gap:6px}
-  .tag-relay-inspector{left:8px;right:8px;bottom:8px}
-  .tag-relay-output{overflow:auto}
-  .tag-relay-copy-primary{margin-top:16px}
-
-}
+/* 这里原有一整块 @media (max-width:920px)：独立工作台页的遗留，已删。
+   逐个核过里面的类名——.tag-relay-top-title / -plan-title / -plan-actions / -copy-primary /
+   -source-card / -source-thumb / -source-main / -source-actions 在 index.html 和全部 JS 里
+   零引用（侧栏用的是 .tag-relay-quick-item）；剩下的 -planbar / -plan-lane / -block /
+   -inspector / -output 确实在用，但每一条属性都被下面 .tag-relay-rail 开头的规则逐条盖住了。
+   ⚠ 唯一盖不住、也正是要删它的原因：.tag-relay-planbar{overflow-x:auto}。
+   按规范 overflow-x:auto 会把 overflow-y 从 visible 提成 auto，于是绝对定位、
+   top:calc(100% + 6px) 的 .tag-relay-plan-menu 落在滚动容器之外被裁，
+   900px 下「⋯」菜单只能在条子内部滚动才看得见。 */
 
 @media (max-width:600px){
   .float-actions .random-btn{transform:translateY(-92px)}
@@ -468,5 +477,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 }
 
 @media (prefers-reduced-motion:reduce){
-  .tag-relay-rail,.tag-relay-source-card,.tag-relay-block,.tag-relay-primary,.tag-relay-copy-primary{transition:none!important}
+  /* .float-actions 也进来：它的 right 过渡是跟着侧栏滑动补的，减少动效时同样该断掉 */
+  .tag-relay-rail,.tag-relay-source-card,.tag-relay-block,.tag-relay-primary,.tag-relay-copy-primary,
+  .float-actions{transition:none!important}
 }

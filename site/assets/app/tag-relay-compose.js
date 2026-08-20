@@ -25,6 +25,7 @@ import {
   restoreHistoryAsPlan,
   setActivePlan,
   updatePlanItem,
+  weightAppliesTo,
 } from './tag-relay-core.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { commitRelay, relayState } from './tag-relay-store.js';
@@ -70,7 +71,7 @@ const blockPreview = item => promptParts(item, 'positive').join(', ')
 
 /* 素材页签把词条送进方案时走这里。素材与编排是互斥页签，所以来源条目
    明确用按钮加入；拖拽只留给编排轨道内的重新排序。 */
-export function addSourceToPlan(entry, { negativeOnly = false } = {}) {
+export async function addSourceToPlan(entry, { negativeOnly = false } = {}) {
   if (itemLocked(entry)) {
     toast('该词条当前处于访问锁定状态', '!');
     return;
@@ -79,7 +80,7 @@ export function addSourceToPlan(entry, { negativeOnly = false } = {}) {
   const source = negativeOnly
     ? { ...entry, prompt: '', negative: promptParts(entry, 'negative').join(',\n'), characterPrompts: [] }
     : entry;
-  const action = commitRelay(
+  const action = await commitRelay(
     next => appendEntryToPlan(next, next.activePlanId, source, { allowDuplicate: true }),
     { changed: 'plan' },
   );
@@ -217,24 +218,41 @@ export function closeInspector() {
   for (const node of refs?.lane.querySelectorAll('.is-selected') || []) node.classList.remove('is-selected');
 }
 
-function moveBlock(itemId, delta) {
-  const index = plan()?.items?.findIndex(item => item.id === itemId) ?? -1;
-  if (index < 0) return;
-  commitRelay(next => movePlanItem(next, next.activePlanId, itemId, index + delta), { changed: 'plan' });
+/* 轨道自己不再当活区（每次全量重建会让读屏把 N 个块重念一遍），
+   结果改由这个 sr-only 的 role="status" 播一句短的。 */
+function announceLane(message) {
+  if (!refs?.laneStatus) return;
+  /* 连点两次「上移」的文案可能一模一样，活区不会重播；先清空强制它认成新内容 */
+  refs.laneStatus.textContent = '';
+  refs.laneStatus.textContent = String(message || '');
 }
 
-function removeBlock(itemId) {
-  const action = commitRelay(next => removePlanItem(next, next.activePlanId, itemId), { changed: 'plan' });
+async function moveBlock(itemId, delta) {
+  const index = plan()?.items?.findIndex(item => item.id === itemId) ?? -1;
+  if (index < 0) return;
+  await commitRelay(next => movePlanItem(next, next.activePlanId, itemId, index + delta), { changed: 'plan' });
+  const items = plan()?.items || [];
+  const moved = items.findIndex(item => item.id === itemId);
+  if (moved < 0) return;
+  /* ↑↓ 在触屏上是唯一的排序手段，却没有任何非视觉反馈；toast 留给增删，这里只播位置 */
+  announceLane(`已${delta < 0 ? '上移' : '下移'}到第 ${moved + 1} 位 · 共 ${items.length} 块`);
+}
+
+async function removeBlock(itemId) {
+  const action = await commitRelay(next => removePlanItem(next, next.activePlanId, itemId), { changed: 'plan' });
   if (!action.ok || !action.result) return;
   if (selectedItemId === itemId) closeInspector();
   const title = itemLocked(action.result) ? '已锁定的成人内容' : action.result.title;
   toast(`已移除：${title}`, '−');
 }
 
-function toggleBlock(itemId) {
+async function toggleBlock(itemId) {
   const item = plan()?.items?.find(candidate => candidate.id === itemId);
   if (!item) return;
-  commitRelay(next => updatePlanItem(next, next.activePlanId, itemId, { enabled: item.enabled === false }), { changed: 'plan' });
+  const enabled = item.enabled === false;
+  await commitRelay(next => updatePlanItem(next, next.activePlanId, itemId, { enabled }), { changed: 'plan' });
+  /* 停用 / 启用没有 toast，视觉上只是块变淡，读屏用户什么都听不到 */
+  announceLane(`${enabled ? '已启用' : '已停用'}：${itemLocked(item) ? '已锁定的成人内容' : item.title}`);
 }
 
 function planBlock(item, index, total) {
@@ -324,11 +342,11 @@ function planBlock(item, index, total) {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   });
-  block.addEventListener('drop', event => {
+  block.addEventListener('drop', async event => {
     if (!dragBlockId) return;
     event.preventDefault();
     event.stopPropagation();
-    commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, index), { changed: 'plan' });
+    await commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, index), { changed: 'plan' });
     dragBlockId = '';
   });
   return block;
@@ -361,12 +379,30 @@ function applyMergedNote(meta, base, merged) {
   note.className = 'tag-relay-merged';
   note.textContent = ` · 已合并 ${total} 条重复`;
   note.title = `重复的 tag 只保留第一次：${detail}`;
+  /* 外框已从 <label> 换成 <div>（label 内嵌按钮是无效 HTML），不再需要 preventDefault
+     去压 label 的转发点击；stopPropagation 留着，免得将来给输出框加整块点击时被顺带触发。 */
   note.addEventListener('click', event => {
-    event.preventDefault();
     event.stopPropagation();
     toast(`已合并重复：${detail}`);
   });
   meta.appendChild(note);
+}
+
+/* 角标与「N 个块」必须独立于 renderOutput：在「素材」页签加块时 compose 不是当前分区，
+   flush() 会整个跳过 renderCompose，角标就停在旧数字上——而页签上那个数字正是
+   「刚加进去了」的唯一反馈。所以这一小段拆出来，由 subscribeRelay 无条件跑。 */
+export function renderComposeCounters() {
+  const current = plan();
+  const total = current?.items?.length || 0;
+  const tabCount = document.querySelector('#tagRelayComposeCount');
+  if (tabCount) {
+    tabCount.textContent = total ? String(total) : '';
+    tabCount.hidden = !total;
+  }
+  /* refs 要等 setupRelayCompose 才填，订阅可能先到 */
+  if (!refs.planStats) return;
+  const lockedCount = current?.items?.filter(itemLocked).length || 0;
+  refs.planStats.textContent = `${total} 个块${lockedCount ? ` · ${lockedCount} 个锁定` : ''}`;
 }
 
 function renderOutput() {
@@ -380,14 +416,7 @@ function renderOutput() {
   refs.copyPositive.disabled = !latest.positive;
   refs.copyNegative.disabled = !latest.negative;
   refs.copyAll.disabled = !latest.positive && !latest.negative;
-  const tabCount = document.querySelector('#tagRelayComposeCount');
-  if (tabCount) {
-    const n = current?.items?.length || 0;
-    tabCount.textContent = n ? String(n) : '';
-    tabCount.hidden = !n;
-  }
-  const lockedCount = current?.items?.filter(itemLocked).length || 0;
-  refs.planStats.textContent = `${current?.items?.length || 0} 个块${lockedCount ? ` · ${lockedCount} 个锁定` : ''}`;
+  renderComposeCounters();
 }
 
 function renderPlanControls() {
@@ -402,13 +431,20 @@ function renderPlanControls() {
   refs.deletePlan.disabled = state.plans.length <= 1;
 }
 
-function historyRecordLocked(record) {
-  /* 没有完整方案快照的早期记录无法证明输出来自哪些权限范围，宁可锁住，
-     也不能把孤立的旧 output 字符串重新放进页面或剪贴板。 */
-  if (record?.snapshotComplete !== true) return true;
+/* 历史记录不可用有两种成因，界面必须分开说：
+   - 'stale'：早期版本留下的记录没有完整方案快照，无法证明输出来自哪些权限范围。
+     这是数据本身的缺陷，⚠ 用户把分级开关全打开也解不开，说成「权限变化」是在骗他去试。
+   - 'locked'：快照完整，但里面有条目被当前分级开关关掉了，开回来就能继续用。
+   返回空字符串表示可用。 */
+function historyLockReason(record) {
+  if (record?.snapshotComplete !== true) return 'stale';
   const items = Array.isArray(record.plan?.items) ? record.plan.items : [];
-  if (!items.length && (record.positive || record.negative)) return true;
-  return items.some(itemLocked);
+  if (!items.length && (record.positive || record.negative)) return 'stale';
+  return items.some(itemLocked) ? 'locked' : '';
+}
+
+function historyRecordLocked(record) {
+  return historyLockReason(record) !== '';
 }
 
 function historyOutput(record, channel = record?.channel) {
@@ -427,7 +463,12 @@ function historyTime(value) {
 }
 
 async function copyHistoryRecord(record, channel, trigger) {
-  if (historyRecordLocked(record)) {
+  const reason = historyLockReason(record);
+  if (reason === 'stale') {
+    toast('这条复制历史是旧版本留下的，缺少方案快照，不能再复制', '!');
+    return;
+  }
+  if (reason) {
     toast('这条复制历史包含当前锁定内容，暂不可使用', '!');
     return;
   }
@@ -445,12 +486,20 @@ async function copyHistoryRecord(record, channel, trigger) {
   });
 }
 
-function restoreHistoryRecord(record) {
-  if (historyRecordLocked(record)) {
+async function restoreHistoryRecord(record) {
+  const reason = historyLockReason(record);
+  if (reason === 'stale') {
+    toast('这条复制历史是旧版本留下的，缺少方案快照，不能恢复', '!');
+    return;
+  }
+  if (reason) {
     toast('这条复制历史包含当前锁定内容，暂不可恢复', '!');
     return;
   }
-  const action = commitRelay(next => restoreHistoryAsPlan(next, record.id), { changed: 'plan' });
+  /* 分级把关下沉到 core：视图层这一处判断只是提前给提示，真正的不变式由 isLocked 谓词
+     在 restoreHistoryAsPlan 内部兜住——任一条目命中就整条拒绝、返回 null。
+     ⚠ core 不许 import 分级状态（要能零 DOM 直测），所以谓词必须由这里注入。 */
+  const action = await commitRelay(next => restoreHistoryAsPlan(next, record.id, { isLocked: itemLocked }), { changed: 'plan' });
   if (!action.ok || !action.result) return;
   historyOpen = false;
   toast(`已恢复方案：${action.result.name}`, '+');
@@ -473,27 +522,34 @@ function renderHistory() {
     return;
   }
   for (const record of records) {
-    const locked = historyRecordLocked(record);
+    const reason = historyLockReason(record);
+    const stale = reason === 'stale';
+    const locked = reason !== '';
     const card = document.createElement('article');
     card.className = 'tag-relay-history-card';
     const head = document.createElement('header');
     const title = document.createElement('b');
-    title.textContent = locked ? '已锁定的复制历史' : (record.label || record.planName || '复制历史');
+    title.textContent = stale
+      ? '缺少快照的旧记录'
+      : (locked ? '已锁定的复制历史' : (record.label || record.planName || '复制历史'));
     const time = document.createElement('time');
     time.dateTime = record.createdAt || '';
-    time.textContent = locked ? '当前权限已关闭' : historyTime(record.createdAt);
+    time.textContent = stale ? '旧版本记录' : (locked ? '当前权限已关闭' : historyTime(record.createdAt));
     head.append(title, time);
     const preview = document.createElement('p');
-    preview.textContent = locked
-      ? '这条记录含有当前不可用的内容，重新开启对应权限后可继续使用。'
-      : historyOutput(record).slice(0, 180);
+    /* 两句话必须不一样：「开开关就能解锁」只对 locked 成立，对 stale 是死路。 */
+    preview.textContent = stale
+      ? '这条记录来自旧版本，没有留下方案快照，无法再复制或恢复，可以直接清掉。'
+      : (locked
+        ? '这条记录含有当前不可用的内容，重新开启对应权限后可继续使用。'
+        : historyOutput(record).slice(0, 180));
     card.append(head, preview);
     const actions = document.createElement('div');
     actions.className = 'tag-relay-history-actions';
     if (locked) {
       const lockedNote = document.createElement('span');
       lockedNote.className = 'tag-relay-history-locked';
-      lockedNote.textContent = '已锁定';
+      lockedNote.textContent = stale ? '缺少快照' : '已锁定';
       actions.append(lockedNote);
     } else {
       const copy = document.createElement('button');
@@ -567,7 +623,7 @@ async function copyOutput(channel, trigger) {
     onAccessBlocked: () => toast('方案中有内容已因权限变化锁定', '!'),
   });
   if (!result?.ok || !historyPlan) return;
-  commitRelay(next => recordCopyHistory(next, {
+  await commitRelay(next => recordCopyHistory(next, {
     label: `${historyPlan.name} · ${label}`,
     planId: historyPlan.id,
     plan: historyPlan,
@@ -581,8 +637,8 @@ async function copyOutput(channel, trigger) {
 /* ---------------- 绑定 ---------------- */
 
 function bindPlanBar() {
-  refs.planSelect.addEventListener('change', () => {
-    commitRelay(next => setActivePlan(next, refs.planSelect.value), { changed: 'plan' });
+  refs.planSelect.addEventListener('change', async () => {
+    await commitRelay(next => setActivePlan(next, refs.planSelect.value), { changed: 'plan' });
   });
   const menu = refs.planMenu;
   const menuItems = () => [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
@@ -654,20 +710,20 @@ function bindPlanBar() {
       trigger: event.currentTarget,
     });
     if (!accepted) return;
-    const action = commitRelay(next => clearCopyHistory(next), { changed: 'history' });
+    const action = await commitRelay(next => clearCopyHistory(next), { changed: 'history' });
     if (action.ok) toast('已清空复制历史', '−');
   });
 
-  refs.newPlan.addEventListener('click', () => {
+  refs.newPlan.addEventListener('click', async () => {
     closeMenu();
-    const action = commitRelay(next => createPlan(next), { changed: 'plan' });
+    const action = await commitRelay(next => createPlan(next), { changed: 'plan' });
     if (action.ok) toast('已新建方案', '+');
   });
-  refs.duplicatePlan.addEventListener('click', () => {
+  refs.duplicatePlan.addEventListener('click', async () => {
     closeMenu();
     const source = plan();
     if (!source) return;
-    const action = commitRelay(next => {
+    const action = await commitRelay(next => {
       const created = createPlan(next, `${source.name} 副本`);
       for (const item of source.items) {
         /* ⚠ 按原本的 kind 复制。以前一律走 appendEntryToPlan，手写块会被悄悄转成
@@ -691,7 +747,7 @@ function bindPlanBar() {
       trigger: refs.planMenuBtn,
     });
     if (!name) return;
-    const action = commitRelay(next => renamePlan(next, current.id, name), { changed: 'plan' });
+    const action = await commitRelay(next => renamePlan(next, current.id, name), { changed: 'plan' });
     if (action.ok && action.result) toast('已重命名方案', '✓');
   });
   refs.deletePlan.addEventListener('click', async () => {
@@ -706,7 +762,7 @@ function bindPlanBar() {
       trigger: refs.planMenuBtn,
     });
     if (!accepted) return;
-    const action = commitRelay(next => deletePlan(next, current.id), { changed: 'plan' });
+    const action = await commitRelay(next => deletePlan(next, current.id), { changed: 'plan' });
     if (action.ok && action.result && !orphanedDraft) closeInspector();
   });
 }
@@ -734,12 +790,12 @@ function bindInspector() {
     if (creatingBlock) closeInspector();
     else if (selectedItemId) removeBlock(selectedItemId);
   });
-  refs.blockSave.addEventListener('click', () => {
+  refs.blockSave.addEventListener('click', async () => {
     const weight = editorWeight();
     if (weight === null) return;
     if (creatingBlock || orphanedDraft) {
       const draft = orphanedDraft;
-      const action = commitRelay(next => appendBlockToPlan(next, next.activePlanId, {
+      const action = await commitRelay(next => appendBlockToPlan(next, next.activePlanId, {
         title: refs.blockTitle.value || draft?.title || '自定义块',
         weight,
         prompt: refs.blockText.value,
@@ -760,7 +816,7 @@ function bindInspector() {
       toast('该词条当前处于访问锁定状态', '!');
       return;
     }
-    const action = commitRelay(next => updatePlanItem(next, next.activePlanId, selectedItemId, {
+    const action = await commitRelay(next => updatePlanItem(next, next.activePlanId, selectedItemId, {
       title: refs.blockTitle.value,
       weight,
       prompt: refs.blockText.value,
@@ -772,17 +828,40 @@ function bindInspector() {
   });
 }
 
+/* role="radiogroup" 的键盘契约：整组只有**一个**能 Tab 到的按钮（当前选中那个），
+   方向键在组内移动并顺带选中——这正是 radio 与 tab 的分别（tab 只移动、不激活）。
+   ⚠ 只把 role 换成 radiogroup 却不接方向键，读屏会念「单选按钮」但按键没反应，
+   比原来的 role="group" + aria-pressed 更糟。要换就得连键盘一起换。 */
+function bindSegmentGroup(buttons, apply) {
+  const select = button => {
+    for (const other of buttons) {
+      const on = other === button;
+      other.setAttribute('aria-checked', String(on));
+      other.tabIndex = on ? 0 : -1;
+    }
+    apply(button);
+    renderOutput();
+  };
+  buttons.forEach((button, index) => {
+    button.tabIndex = button.getAttribute('aria-checked') === 'true' ? 0 : -1;
+    button.addEventListener('click', () => select(button));
+    button.addEventListener('keydown', event => {
+      const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+      let target = null;
+      if (step) target = buttons[(index + step + buttons.length) % buttons.length];
+      else if (event.key === 'Home') target = buttons[0];
+      else if (event.key === 'End') target = buttons[buttons.length - 1];
+      if (!target) return;
+      event.preventDefault();
+      select(target);
+      target.focus();
+    });
+  });
+}
+
 function bindSegments() {
-  refs.formatButtons.forEach(button => button.addEventListener('click', () => {
-    outputFormat = button.dataset.format;
-    refs.formatButtons.forEach(other => other.setAttribute('aria-pressed', String(other === button)));
-    renderOutput();
-  }));
-  refs.joinButtons.forEach(button => button.addEventListener('click', () => {
-    joinMode = button.dataset.join;
-    refs.joinButtons.forEach(other => other.setAttribute('aria-pressed', String(other === button)));
-    renderOutput();
-  }));
+  bindSegmentGroup(refs.formatButtons, button => { outputFormat = button.dataset.format; });
+  bindSegmentGroup(refs.joinButtons, button => { joinMode = button.dataset.join; });
 }
 
 function bindLaneDrop() {
@@ -793,14 +872,14 @@ function bindLaneDrop() {
       target.classList.add('is-drop-target');
     });
     target.addEventListener('dragleave', () => target.classList.remove('is-drop-target'));
-    target.addEventListener('drop', event => {
+    target.addEventListener('drop', async event => {
       target.classList.remove('is-drop-target');
       if (!dragBlockId) return;
       event.preventDefault();
       /* 已有块拖到轨道空白处 = 移到末尾。以前这里直接 return，只有拖到另一块上才生效，
          轨道下方那片空白看着像落点却没反应。 */
       const items = plan()?.items || [];
-      commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, items.length - 1), { changed: 'plan' });
+      await commitRelay(next => movePlanItem(next, next.activePlanId, dragBlockId, items.length - 1), { changed: 'plan' });
       dragBlockId = '';
     });
   }
@@ -853,6 +932,8 @@ export function setupRelayCompose(root) {
     planStats: q('#relayPlanStats'),
     addBlock: q('#relayAddBlock'),
     lane: q('#relayPlanLane'),
+    /* 轨道自己不是活区了，播报走这个 sr-only 容器（见 announceLane） */
+    laneStatus: q('#relayLaneStatus'),
     empty: q('#relayPlanEmpty'),
     inspector: q('#relayInspector'),
     inspectorTitle: q('#relayInspectorTitle'),

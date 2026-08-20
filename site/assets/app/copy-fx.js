@@ -19,6 +19,7 @@ const SCRAMBLE_FRAMES = 4;
 const SCRAMBLE_MS = 30;
 const COMBO_MS = 600;
 const EXIT_MS = 180;
+const TOSS_MS = 340;
 const EXIT_CLEANUP_GRACE_MS = 80;
 
 let chipEl = null;
@@ -194,7 +195,7 @@ export function playCopySample(node, text, label = '已复制正面', options = 
           { translate: '0 -8px', scale: '1', opacity: 1, offset: 0 },
           { translate: `${Math.round(dx * 0.5)}px ${Math.round(dy * 0.5 - 42)}px`, scale: '.82', opacity: 1, offset: 0.55 },
           { translate: `${dx}px ${dy}px`, scale: '.36', opacity: 0, offset: 1 },
-        ], { duration: 340, easing: 'cubic-bezier(0.3,0,0.2,1)' });
+        ], { duration: TOSS_MS, easing: 'cubic-bezier(0.3,0,0.2,1)' });
         exitAnimation = toss;
         const done = () => {
           if (gen !== chipGen || exitAnimation !== toss) return;
@@ -208,6 +209,9 @@ export function playCopySample(node, text, label = '已复制正面', options = 
           );
         };
         toss.finished.then(done, done);
+        /* 和下面正常退场那支同一个理由：后台标签页会冻结 WAAPI 时间线却继续推进
+           setTimeout，只等 finished 的话芯片会停在飞行途中，直到标签页重新获得前台。 */
+        chipTimers.push(window.setTimeout(done, TOSS_MS + EXIT_CLEANUP_GRACE_MS));
       }, combo ? 90 : riseMs));
       return;
     }
