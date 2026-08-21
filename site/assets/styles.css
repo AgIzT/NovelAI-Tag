@@ -692,20 +692,11 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
   font-family:var(--font-prompt);font-size:11px;line-height:1.4;
   box-shadow:0 6px 18px var(--accent-glow);
 }
-.copy-seed-chip.is-relay-toss{
-  z-index:95;padding:7px 14px;border-color:color-mix(in srgb,#fff 34%,var(--accent));
-  background:color-mix(in srgb,var(--accent) 88%,var(--panel));color:#fff;
-  font-family:var(--font-ui);font-size:12px;font-weight:850;letter-spacing:.1px;
-  box-shadow:0 12px 34px var(--accent-glow),0 0 0 4px color-mix(in srgb,var(--accent) 18%,transparent);
-}
-.copy-seed-chip.is-relay-toss::after{
-  content:"";position:absolute;inset:-5px;border:1px solid color-mix(in srgb,var(--accent) 58%,transparent);
-  border-radius:inherit;animation:copyRelayBeacon .48s ease-out infinite;
-}
-@keyframes copyRelayBeacon{
-  from{opacity:.8;scale:.86}
-  to{opacity:0;scale:1.24}
-}
+/* 抛向中转站时只提层级，外观沿用上面那只白色玻璃芯片。
+   曾经改成实心底 + 信标环，同时把文案换成「已存入中转站」——那样既盖掉了
+   「已复制 N tags」这条本来就有的信息，视觉也过重，反馈反而变弱，已回退。
+   ⚠ z-index 不能去掉：侧栏停靠态是 68，飞向它的最后一段没有 95 会钻到栏底下。 */
+.copy-seed-chip.is-relay-toss{z-index:95}
 .copy-seed-chip[hidden]{display:none}
 .card-img-wrap{
   position:relative;line-height:0;background:var(--tagbg);overflow:hidden;

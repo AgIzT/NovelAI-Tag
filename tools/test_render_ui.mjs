@@ -935,8 +935,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(relayCss, /@media \(max-width:600px\)\{[\s\S]*\.float-actions \.tag-relay-float-btn\{transform:translateY\(-92px\)\}[\s\S]*\.float-actions\.has-backtop \.tag-relay-float-btn\{transform:translateY\(-138px\)\}/);
   assert.doesNotMatch(relayCss, /\.tag-relay-float-btn\{[^}]*\b(?:color|background|border-color):/);
   assert.match(railSource, /return rail\.querySelector\('#relaySourceTabInbox'\)[\s\S]*#tagRelayPaneWarehouse/);
-  assert.match(copyFxSource, /const TOSS_MS = 500;[\s\S]*已存入中转站[\s\S]*opacity: \.94/);
-  assert.match(stylesSource, /\.copy-seed-chip\.is-relay-toss\{[^}]*z-index:95[^}]*font-size:12px/);
+  assert.match(copyFxSource, /const TOSS_MS = 500;[\s\S]*opacity: \.94/);
+  /* 抛入芯片只提层级、不改外观；z-index 必须高过侧栏(68)，否则最后一段会钻到栏底下。 */
+  assert.match(stylesSource, /\.copy-seed-chip\.is-relay-toss\{[^}]*z-index:95/);
+  assert.doesNotMatch(stylesSource, /copyRelayBeacon/, '实心底+信标环那版已回退，别再长回来');
   // 方案选择不再暴露系统 select；可见按钮 + listbox 与来源滑块都必须在 DOM 中。
   assert.match(indexSource, /id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"/);
   assert.match(indexSource, /id="relayPlanPickerBtn"[\s\S]*aria-haspopup="listbox"[\s\S]*aria-controls="relayPlanList"/);

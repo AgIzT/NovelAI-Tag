@@ -313,6 +313,9 @@ function execDocument(result) {
     style: {},
     textContent: '',
     setAttribute() {},
+    /* 芯片自身的盒子：copy-fx 靠它换算落点（见那边关于 -50%/-100% 会被 scale 一起缩小的注释）。
+       这里给一个与锚点明显不同的值，好让下面的断言能区分「真的量过」和「照锚点猜」。 */
+    getBoundingClientRect: () => ({ left: 200, top: 300, width: 160, height: 32 }),
     getAnimations() { return this.animations.slice(); },
     animate(keyframes, options) {
       const animation = new FakeAnimation(this, keyframes, options);
@@ -442,7 +445,9 @@ function execDocument(result) {
     };
     playCopySample(null, 'relay,entry', '已复制正面', { flyTo: flyTarget });
     assert.equal(chip.className, 'copy-seed-chip is-relay-toss');
-    assert.equal(chip.textContent, '✓ 已存入中转站 · 2 tags');
+    /* 收入中转站也沿用同一句「已复制…」：抛入这件事由轨迹和落点脉冲表达，
+       不必再占掉文案，否则用户反而看不到这次复制了几个 tag。 */
+    assert.equal(chip.textContent, '✓ 已复制正面 · 2 tags');
     const tossRise = createdAnimations.at(-1);
     tossRise.finish();
     runTimeout(60);
@@ -450,6 +455,24 @@ function execDocument(result) {
     assert.equal(toss.options.duration, 500);
     assert.equal(toss.keyframes.length, 5, '收入轨迹需要足够的中间帧形成清晰弧线');
     assert.equal(toss.keyframes.at(-2).opacity, .94, '抵达前必须保持可见，不能半路淡没');
+
+    /* 落点必须按芯片「末帧缩放后的真实中心」算，不能拿锚点凑：
+       芯片靠 transform:translate(-50%,-100%) 定心，而 translate/scale 排在 transform 之前，
+       末帧 scale(.32) 会把那对百分比一起缩到 32%，中心右移约 54px——中转浮钮才 42px 宽，
+       肉眼就是「落在按钮旁边」。假盒子中心 (280,316)，目标中心 (1028,136)。 */
+    assert.equal(
+      toss.keyframes.at(-1).translate,
+      '748px -180px',
+      '末帧位移必须由实测中心推出，落点才会正好压在按钮上',
+    );
+
+    /* 接收脉冲要盖住抛入的最后一段。等 toss 整段跑完再动，用户看到的是
+       「芯片先没了、按钮过一会儿才抖一下」，两件本是同一件事的动作被切成两段。 */
+    assert.equal(targetPulse, null, '抛入刚起步时不该已经脉冲');
+    runTimeout(Math.round(500 * 0.78));
+    assert.ok(targetPulse, '接收脉冲必须在抛入结束前就起跳');
+    assert.equal(chip.hidden, false, '脉冲起跳时芯片仍在飞，两个动作必须重叠');
+
     toss.finish();
     assert.equal(chip.hidden, true);
     assert.equal(targetPulse?.options.duration, 320, '落点需要明确的接收脉冲');

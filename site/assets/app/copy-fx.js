@@ -23,6 +23,11 @@ const TOSS_MS = 500;
 const TOSS_DELAY_MS = 140;
 const TOSS_COMBO_DELAY_MS = 60;
 const TARGET_PULSE_MS = 320;
+/* 末帧缩放单独抽出来：落点换算要用同一个值，写死两处迟早会飘。 */
+const TOSS_END_SCALE = 0.32;
+/* 接收脉冲提前到抛入的 78%：等 toss 整段跑完再动，用户看到的是
+   「芯片先没了、按钮过一会儿才抖一下」，两件本来是同一件事的动作被切成两段。 */
+const TARGET_PULSE_LEAD = 0.78;
 const EXIT_CLEANUP_GRACE_MS = 80;
 
 let chipEl = null;
@@ -146,9 +151,7 @@ export function playCopySample(node, text, label = '已复制正面', options = 
   clearChipTimers();
   resetChipAnimations(chip);
   setChipClearState(chip, false);
-  const target = hasFlyTarget
-    ? `✓ 已存入中转站 · ${countTags(text)} tags`
-    : `✓ ${label} · ${countTags(text)} tags`;
+  const target = `✓ ${label} · ${countTags(text)} tags`;
   const { x, y } = anchorFor(node);
   chip.style.left = `${Math.round(x)}px`;
   chip.style.top = `${Math.round(y - 14)}px`;
@@ -190,8 +193,23 @@ export function playCopySample(node, text, label = '已复制正面', options = 
      弧线中点抬高一截（照 docs/动效方案演示.html 检字台那版），末端缩小并淡出，
      落点自己弹一下表示收到。只在真入库时走这条，分享链接之类不会飞。 */
   if (hasFlyTarget) {
-    const dx = Math.round(flyBox.left + flyBox.width / 2 - x);
-    const dy = Math.round(flyBox.top + flyBox.height / 2 - (y - 14));
+    /* ⚠ 落点不能拿锚点直接算。芯片靠 .copy-seed-chip 的 transform:translate(-50%,-100%) 定心，
+       而 CSS 的 translate / scale 是独立属性、排在 transform **之前**：末帧 scale(.32) 会把那对
+       百分比偏移一并缩到 32%，芯片中心因此比预期右移约 53px——中转浮钮才 42px 宽，
+       于是肉眼看到的就是「落在按钮旁边」，而不是落在按钮上。
+       这里先把芯片摆成「末帧缩放、位移为 0」量一次真实中心，再据此求位移，
+       落点便与 transform 链和缩放比例都无关。量不到尺寸的环境（测试桩）自动退回锚点。 */
+    const keepTranslate = chip.style.translate;
+    const keepScale = chip.style.scale;
+    chip.style.translate = '0px 0px';
+    chip.style.scale = String(TOSS_END_SCALE);
+    const landed = chip.getBoundingClientRect?.() || null;
+    chip.style.translate = keepTranslate;
+    chip.style.scale = keepScale;
+    const landedCx = landed && landed.width ? landed.left + landed.width / 2 : x;
+    const landedCy = landed && landed.height ? landed.top + landed.height / 2 : y - 14;
+    const dx = Math.round(flyBox.left + flyBox.width / 2 - landedCx);
+    const dy = Math.round(flyBox.top + flyBox.height / 2 - landedCy);
     const arcLift = Math.min(110, Math.max(56, Math.round(Math.hypot(dx, dy) * 0.14)));
     chipTimers.push(window.setTimeout(() => {
       if (gen !== chipGen) return;
@@ -203,15 +221,13 @@ export function playCopySample(node, text, label = '已复制正面', options = 
         { translate: `${Math.round(dx * 0.16)}px ${Math.round(dy * 0.12 - 26)}px`, scale: '1.08', opacity: 1, offset: .22 },
         { translate: `${Math.round(dx * 0.68)}px ${Math.round(dy * 0.64 - arcLift)}px`, scale: '.8', opacity: 1, offset: .68 },
         { translate: `${Math.round(dx * 0.94)}px ${Math.round(dy * 0.93 - 8)}px`, scale: '.54', opacity: .94, offset: .92 },
-        { translate: `${dx}px ${dy}px`, scale: '.32', opacity: 0, offset: 1 },
+        { translate: `${dx}px ${dy}px`, scale: String(TOSS_END_SCALE), opacity: 0, offset: 1 },
       ], { duration: TOSS_MS, easing: 'cubic-bezier(.2,.7,.22,1)' });
       exitAnimation = toss;
-      const done = () => {
-        if (gen !== chipGen || exitAnimation !== toss) return;
-        chip.hidden = true;
-        exitAnimation = null;
-        cancelAnimation(toss);
-        setChipClearState(chip, true);
+      let pulsed = false;
+      const pulseTarget = () => {
+        if (pulsed || gen !== chipGen) return;
+        pulsed = true;
         flyTo.animate?.(
           [
             { scale: '1', filter: 'brightness(1)', offset: 0 },
@@ -221,6 +237,18 @@ export function playCopySample(node, text, label = '已复制正面', options = 
           ],
           { duration: TARGET_PULSE_MS, easing: 'cubic-bezier(.16,1,.3,1)' },
         );
+      };
+      /* 让接收脉冲盖住抛入的最后一段：芯片还在缩、按钮已经开始迎上来，
+         两个动作叠在一起才读成「被接住了」而不是「掉下去之后按钮才反应」。 */
+      chipTimers.push(window.setTimeout(pulseTarget, Math.round(TOSS_MS * TARGET_PULSE_LEAD)));
+      const done = () => {
+        if (gen !== chipGen || exitAnimation !== toss) return;
+        chip.hidden = true;
+        exitAnimation = null;
+        cancelAnimation(toss);
+        setChipClearState(chip, true);
+        /* 兜底：真跑到这里还没脉冲过（后台标签页冻结时间线）就补一次。 */
+        pulseTarget();
       };
       toss.finished.then(done, done);
       /* 和下面正常退场那支同一个理由：后台标签页会冻结 WAAPI 时间线却继续推进
