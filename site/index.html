@@ -61,7 +61,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/tag-relay-rail.js">
 <link rel="modulepreload" href="assets/app/tag-relay-compose.js">
 <link rel="modulepreload" href="assets/app/tag-relay.js">
-<!-- 内测预览横幅：合并回 main 前连同 assets/beta-banner.js 一起删 -->
+<!-- 内测预览横幅：**保留**（2026-08-20 改判）。正式域命中第一个 return，线上永不显示。
+     ⚠ 日后真要撤，手删三处、别用 git revert：整个 assets/beta-banner.js + 本页这 2 行 + _headers 里那条 no-store。
+     理由见 docs/decisions/预览分支内测发布.md。 -->
 <script defer src="assets/beta-banner.js"></script>
 </head>
 <body>

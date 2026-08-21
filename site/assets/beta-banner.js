@@ -1,4 +1,9 @@
-/* 内测预览横幅 —— 只属于 feat/tag-relay-codex 这类预览分支，合并回 main 前删掉整个文件与三处 script 引用。
+/* 内测预览横幅 —— 原本只属于预览分支，2026-08-20 维护者改判为**随 main 一起保留**：
+ * 正式域命中下面第一个 return，线上永远不会出现它；发预览链接时有个提醒就够了。
+ *
+ * ⚠ 日后真要撤，**手删三处、别用 `git revert`**（revert 那个提交会冲突并把已删除的
+ *   site/tag-relay.html 放回工作树）：本文件 + index.html / strings.html 各 2 行 + site/_headers 里那条 no-store。
+ *   注意是「2 处 script + 1 处 _headers」，不是三处 script。
  *
  * 为什么需要它：预览部署跑在 *.pages.dev 的独立 origin 上，收藏（fadian-favs）与中转站
  * （fadian-tag-relay-v1）都存在按 origin 隔离的 localStorage 里，回不到正式域；而且分支一旦
