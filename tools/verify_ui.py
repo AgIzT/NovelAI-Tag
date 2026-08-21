@@ -1297,32 +1297,45 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "app before announcements")
         cdp.eval("document.querySelector('#announcementsBtn')?.click()")
-        wait_for(cdp, "!document.querySelector('#announcementsPanel')?.hidden && document.querySelectorAll('.announcement-item').length >= 4", "announcements panel", timeout=12)
+        wait_for(cdp, "!document.querySelector('#announcementsPanel')?.hidden && document.querySelectorAll('.announcement-item').length >= 2", "announcements panel", timeout=12)
         settle(cdp, 280)
         data = cdp.eval("""
 (() => {
   const panel = document.querySelector('#announcementsPanel .announcements-panel');
   const items = [...document.querySelectorAll('.announcement-item')];
+  const probe = items.map(item => ({
+    title: item.querySelector('h3')?.textContent.trim() || '',
+    lead: item.querySelector('.announcement-lead strong')?.textContent.trim() || '',
+    icon: item.querySelector('.announcement-icon')?.dataset.icon || '',
+    iconSvg: Boolean(item.querySelector('.announcement-icon svg')),
+    bodyLen: (item.querySelector('.announcement-body')?.textContent || '').trim().length,
+  }));
   return {
     count: items.length,
-    titles: items.slice(0, 2).map(item => item.querySelector('h3')?.textContent.trim() || ''),
-    leads: items.slice(0, 2).map(item => item.querySelector('.announcement-lead strong')?.textContent.trim() || ''),
-    icons: items.slice(0, 2).map(item => item.querySelector('.announcement-icon')?.dataset.icon || ''),
-    iconSvgs: items.slice(0, 2).filter(item => item.querySelector('.announcement-icon svg')).length,
-    firstBody: items[0]?.querySelector('.announcement-body')?.textContent || '',
-    secondBody: items[1]?.querySelector('.announcement-body')?.textContent || '',
+    titled: probe.filter(item => item.title).length,
+    leaded: probe.filter(item => item.lead).length,
+    iconed: probe.filter(item => item.icon && item.iconSvg).length,
+    bodied: probe.filter(item => item.bodyLen > 0).length,
+    longestBody: probe.reduce((max, item) => Math.max(max, item.bodyLen), 0),
+    icons: probe.map(item => item.icon),
     horizontalOverflow: panel ? panel.scrollWidth > panel.clientWidth + 1 : true,
   };
 })()
 """)
-        if data["titles"] != ["关于反馈", "关于共享与合作"]:
-            raise CheckFailed(f"New announcements are missing or out of order: {data}")
-        if data["leads"] != ["每一条反馈我们都会看。", "如果你手里有自己的法典 / 图包 / tag 收集，欢迎共享。"]:
-            raise CheckFailed(f"Announcement leads did not retain emphasis: {data}")
-        if data["icons"] != ["feedback", "collaboration"] or data["iconSvgs"] != 2:
-            raise CheckFailed(f"Announcement icons did not render: {data}")
-        if "附上出问题的页面和你当时的操作" not in data["firstBody"] or "不会将其用于任何商业用途" not in data["secondBody"]:
-            raise CheckFailed(f"Announcement body text is incomplete: {data}")
+        # ⚠ 不要再断言具体公告的标题 / 顺序 / 正文原句。公告是维护者随时会改的**数据**，
+        #   把文案写死意味着每编辑一次公告这条检查就红一次（2026-08 新增一条公告后就红了），
+        #   而它真正要守的是**渲染契约**：每条都得渲染出标题、图标 svg 与正文，
+        #   强调 lead 的 <strong> 通路还在，面板不横向溢出。
+        if data["count"] < 2:
+            raise CheckFailed(f"Announcements panel rendered too few items: {data}")
+        if data["titled"] != data["count"] or data["bodied"] != data["count"]:
+            raise CheckFailed(f"Some announcements rendered without a title or body: {data}")
+        if data["iconed"] != data["count"]:
+            raise CheckFailed(f"Announcement icons did not render as svg: {data}")
+        if data["leaded"] < 1:
+            raise CheckFailed(f"No announcement kept its <strong> lead emphasis: {data}")
+        if data["longestBody"] < 40:
+            raise CheckFailed(f"Announcement body text looks truncated: {data}")
         if data["horizontalOverflow"]:
             raise CheckFailed("Announcements panel has horizontal overflow")
         shot = screenshot(cdp, out_dir, "announcements-feedback-collaboration")
