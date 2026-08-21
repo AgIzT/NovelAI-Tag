@@ -7,19 +7,15 @@
   overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
 }
 
-/* 中转站成为浮动组的基准按钮；其它按钮在它上方排队。 */
-.tag-relay-float-btn{z-index:4;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 32%,var(--line));background:var(--panel)}
-.tag-relay-float-btn:hover{color:#fff;background:var(--accent)}
-.tag-relay-float-btn svg{width:21px;height:21px}
+/* 中转站完整继承 .float-btn 的中性圆钮样式，只负责排在快捷操作最上方。
+   保留原按钮的颜色、边框、hover 和 20px 线性图标，避免同组里凭空出现一颗常驻主题色按钮。 */
+.tag-relay-float-btn{transform:translateY(-52px)}
+.float-actions.has-backtop .tag-relay-float-btn{transform:translateY(-104px)}
 .tag-relay-count{
   position:absolute;right:-5px;top:-6px;min-width:19px;height:19px;padding:0 5px;display:grid;place-items:center;
   border:2px solid var(--panel);border-radius:999px;background:var(--new);color:#fff;
   font:800 10px/1 var(--font-ui);box-shadow:0 4px 10px rgba(28,32,58,.2);
 }
-.float-actions .random-btn{transform:translateY(-52px)}
-.float-actions.has-backtop .random-btn{transform:translateY(-104px)}
-.float-actions .back-top.show{transform:translateY(-52px)}
-
 /* ---------- 浏览页：中转站条目卡（侧栏列表复用） ---------- */
 .tag-relay-eyebrow{display:block;color:var(--accent);font-size:10px;font-weight:900;letter-spacing:1.35px;text-transform:uppercase}
 .tag-relay-primary,.tag-relay-secondary{
@@ -128,7 +124,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   /* ⚠ z-index 必须低于灯箱(#lightbox=80)：.layout 是普通 flex、不建层叠上下文，这里是全局比大小。
      原来的 83/82 会让「1440px 停靠着开栏 → 打开灯箱 → 拖窄到 1100px」变成抽屉和遮罩盖住灯箱。
      68/67 仍高于要压住的一切：瀑布流(.masonry 无 z-index)、.float-actions(40)、左目录栏(25/24)、
-     移动搜索条(55)；而设置类浮层(.settings-mask=70)、飞图(.lb-fly=90)、toast(1400) 继续在它之上。 */
+     移动搜索条(55)；而设置类浮层(.settings-mask=70)、飞图(.lb-fly=90)、收入芯片(95)、toast(1400) 继续在它之上。 */
   .tag-relay-rail{
     position:fixed;z-index:68;top:var(--topbar-h);right:8px;left:auto;
     width:min(440px,calc(100vw - 16px));flex-basis:auto;
@@ -391,11 +387,9 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
    900px 下「⋯」菜单只能在条子内部滚动才看得见。 */
 
 @media (max-width:600px){
-  .float-actions .random-btn{transform:translateY(-92px)}
-  .float-actions .density-quick-btn{transform:translateY(-46px)}
-  .float-actions.has-backtop .back-top.show{transform:translateY(-92px)}
-  .float-actions.has-backtop .random-btn{transform:translateY(-138px)}
-  .float-actions.has-backtop .density-quick-btn{transform:translateY(-46px)}
+  /* 手机原本已有随机 / 密度 / 回顶三层；中转按钮只追加到最上方，不改它们原有顺序。 */
+  .float-actions .tag-relay-float-btn{transform:translateY(-92px)}
+  .float-actions.has-backtop .tag-relay-float-btn{transform:translateY(-138px)}
 
 }
 

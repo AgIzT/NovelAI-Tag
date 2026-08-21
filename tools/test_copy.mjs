@@ -429,6 +429,31 @@ function execDocument(result) {
     assert.equal(chip.hidden, true);
     assert.equal(chip.style.filter, 'none');
     assert.equal(chip.getAnimations().length, 0);
+
+    // 真正收入中转站时必须切到更醒目的专用芯片，并在短暂停留后走完整抛物线；
+    // 末段不能过早淡掉，否则用户只看到起点，不知道素材最终去了哪里。
+    let targetPulse = null;
+    const flyTarget = {
+      getBoundingClientRect: () => ({ left: 980, top: 120, width: 96, height: 32 }),
+      animate(keyframes, options) {
+        targetPulse = { keyframes, options };
+        return null;
+      },
+    };
+    playCopySample(null, 'relay,entry', '已复制正面', { flyTo: flyTarget });
+    assert.equal(chip.className, 'copy-seed-chip is-relay-toss');
+    assert.equal(chip.textContent, '✓ 已存入中转站 · 2 tags');
+    const tossRise = createdAnimations.at(-1);
+    tossRise.finish();
+    runTimeout(60);
+    const toss = createdAnimations.at(-1);
+    assert.equal(toss.options.duration, 500);
+    assert.equal(toss.keyframes.length, 5, '收入轨迹需要足够的中间帧形成清晰弧线');
+    assert.equal(toss.keyframes.at(-2).opacity, .94, '抵达前必须保持可见，不能半路淡没');
+    toss.finish();
+    assert.equal(chip.hidden, true);
+    assert.equal(targetPulse?.options.duration, 320, '落点需要明确的接收脉冲');
+    assert.equal(targetPulse?.keyframes[1].scale, '1.16');
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;

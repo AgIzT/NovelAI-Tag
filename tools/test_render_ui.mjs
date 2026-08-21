@@ -831,12 +831,14 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 //    是互斥页签，拖到一半目标页签根本不在屏上；现在两个分区同屏，拖拽是可完成的，
 //    反而成了必须保证的入口（用户实测反馈：素材不能拖、方案块能拖却什么也不会发生）。
 {
-  const [relaySource, composeSource, railSource, actionSource, relayCss, indexSource] = await Promise.all([
+  const [relaySource, composeSource, railSource, actionSource, copyFxSource, relayCss, stylesSource, indexSource] = await Promise.all([
     '../site/assets/app/tag-relay.js',
     '../site/assets/app/tag-relay-compose.js',
     '../site/assets/app/tag-relay-rail.js',
     '../site/assets/app/tag-relay-action.js',
+    '../site/assets/app/copy-fx.js',
     '../site/assets/tag-relay.css',
+    '../site/assets/styles.css',
     '../site/index.html',
   ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
   assert.doesNotMatch(`${relaySource}\n${composeSource}`, /window\.(?:prompt|confirm)\s*\(/);
@@ -889,6 +891,15 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(actionSource, /export function requestRelayAction/);
   assert.match(indexSource, /id="relayInlineAction"/);
   assert.match(indexSource, /rel="modulepreload" href="assets\/app\/tag-relay-action\.js"/);
+  // 浮动入口沿用全局圆钮材质并排在最上方；收入反馈在开栏时必须落向「最近复制」。
+  assert.ok(indexSource.indexOf('id="tagRelayBtn"') < indexSource.indexOf('id="randomBtn"'));
+  assert.match(relayCss, /\.tag-relay-float-btn\{transform:translateY\(-52px\)\}/);
+  assert.match(relayCss, /\.float-actions\.has-backtop \.tag-relay-float-btn\{transform:translateY\(-104px\)\}/);
+  assert.match(relayCss, /@media \(max-width:600px\)\{[\s\S]*\.float-actions \.tag-relay-float-btn\{transform:translateY\(-92px\)\}[\s\S]*\.float-actions\.has-backtop \.tag-relay-float-btn\{transform:translateY\(-138px\)\}/);
+  assert.doesNotMatch(relayCss, /\.tag-relay-float-btn\{[^}]*\b(?:color|background|border-color):/);
+  assert.match(railSource, /return rail\.querySelector\('#relaySourceTabInbox'\)[\s\S]*#tagRelayPaneWarehouse/);
+  assert.match(copyFxSource, /const TOSS_MS = 500;[\s\S]*已存入中转站[\s\S]*opacity: \.94/);
+  assert.match(stylesSource, /\.copy-seed-chip\.is-relay-toss\{[^}]*z-index:95[^}]*font-size:12px/);
   // 方案选择不再暴露系统 select；可见按钮 + listbox 与来源滑块都必须在 DOM 中。
   assert.match(indexSource, /id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"/);
   assert.match(indexSource, /id="relayPlanPickerBtn"[\s\S]*aria-haspopup="listbox"[\s\S]*aria-controls="relayPlanList"/);

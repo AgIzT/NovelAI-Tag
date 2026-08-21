@@ -139,12 +139,14 @@ export function showRailTab(name) {
   pane.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
 }
 
-/* 抛入动效的落点：栏关着就飞浮钮，开着就飞栏头那个计数——两者都是「条数」的所在，
-   用户的视线本来就会追过去。 */
+/* 抛入动效的落点：栏关着就飞最上方的中转浮钮；栏开着则飞「最近复制」页签，
+   因为新素材实际落在这里。不要再飞栏头总计数——那会把“收入仓库”误画成“加入方案”。 */
 export function relayTossTarget() {
   const button = document.querySelector('#tagRelayBtn');
   if (!rail || isClosed()) return button;
-  return rail.querySelector('#tagRelayRailCount') || button;
+  return rail.querySelector('#relaySourceTabInbox')
+    || rail.querySelector('#tagRelayPaneWarehouse')
+    || button;
 }
 
 export function railPaneRoot(name) {

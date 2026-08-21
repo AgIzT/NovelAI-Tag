@@ -715,6 +715,18 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const planSelectRect = planSelect?.getBoundingClientRect();
   const sourceListRect = sourceList.getBoundingClientRect();
   const firstSourceRect = firstSourceChip?.getBoundingClientRect();
+  const relayFloat = document.querySelector('#tagRelayBtn');
+  const randomFloat = document.querySelector('#randomBtn');
+  const relayFloatRect = relayFloat?.getBoundingClientRect();
+  const visibleFloatRects = [...document.querySelectorAll('.float-actions .float-btn')]
+    .filter(button => button !== relayFloat)
+    .filter(button => {
+      const style = getComputedStyle(button);
+      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .01;
+    })
+    .map(button => button.getBoundingClientRect());
+  const relayFloatStyle = relayFloat ? getComputedStyle(relayFloat) : null;
+  const randomFloatStyle = randomFloat ? getComputedStyle(randomFloat) : null;
   return {
     position: getComputedStyle(rail).position,
     rail: {left: rr.left, top: rr.top, right: rr.right, bottom: rr.bottom, width: rr.width},
@@ -756,6 +768,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     ),
     planListInitiallyHidden: planList?.hidden === true
       && getComputedStyle(planList).display === 'none',
+    relayFloatTopmost: Boolean(relayFloatRect)
+      && visibleFloatRects.every(rect => relayFloatRect.bottom <= rect.top + 1),
+    relayFloatMatchesGroup: Boolean(relayFloatStyle && randomFloatStyle)
+      && relayFloatStyle.width === randomFloatStyle.width
+      && relayFloatStyle.height === randomFloatStyle.height
+      && relayFloatStyle.borderRadius === randomFloatStyle.borderRadius
+      && relayFloatStyle.borderColor === randomFloatStyle.borderColor
+      && relayFloatStyle.backgroundColor === randomFloatStyle.backgroundColor
+      && relayFloatStyle.color === randomFloatStyle.color,
     documentOverflow: document.scrollingElement.scrollWidth - clientWidth,
     clientWidth,
     /* html uses scrollbar-gutter:stable. Fixed drawers are therefore positioned
@@ -783,6 +804,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} plan picker did not replace the legacy select cleanly: {shell}")
             if shell["sourceSliderWidth"] <= 8:
                 raise CheckFailed(f"Relay {mode} source slider has no usable geometry: {shell}")
+            if not shell["relayFloatTopmost"] or not shell["relayFloatMatchesGroup"]:
+                raise CheckFailed(f"Relay {mode} floating entry is not the topmost matching quick action: {shell}")
             if shell["documentOverflow"] > 1:
                 raise CheckFailed(f"Relay {mode} causes horizontal page overflow: {shell}")
 
