@@ -6,6 +6,7 @@ import {
   atlasFavoriteStorageKeys,
   createCodexLookup,
 } from './favorites-backup-core.js';
+import { emitFavoritesChanged } from './favorites-backup.js';
 
 const favoriteActions = { applyFilter: () => {}, refreshFavoritesView: () => {} };
 let codexLookupSource = null;
@@ -89,6 +90,7 @@ export function toggleFav(e, btn, options = {}) {
   if (isFav(e)) keys.forEach(key => state.favs.delete(key));
   else state.favs.add(k);
   saveFavs();
+  emitFavoritesChanged(['atlas'], 'toggle');
   const on = isFav(e);
   setFavoriteButtonState(btn, on);
   syncRenderedFavoriteButtons(e, on);

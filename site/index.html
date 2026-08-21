@@ -45,6 +45,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/tokens.css">
 <link rel="stylesheet" href="assets/styles.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
+<link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/app/state.js">
 <link rel="modulepreload" href="assets/app/utils.js">
@@ -73,6 +74,17 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/resume-prompt.js">
 <link rel="modulepreload" href="assets/app/favorites-transfer.js">
 <link rel="modulepreload" href="assets/app/ui.js">
+<link rel="modulepreload" href="assets/app/tag-relay-core.js">
+<link rel="modulepreload" href="assets/app/tag-relay-snapshot.js">
+<link rel="modulepreload" href="assets/app/tag-relay-store.js">
+<link rel="modulepreload" href="assets/app/tag-relay-action.js">
+<link rel="modulepreload" href="assets/app/tag-relay-rail.js">
+<link rel="modulepreload" href="assets/app/tag-relay-compose.js">
+<link rel="modulepreload" href="assets/app/tag-relay.js">
+<!-- 内测预览横幅：**保留**（2026-08-20 改判）。正式域命中第一个 return，线上永不显示。
+     ⚠ 日后真要撤，手删三处、别用 git revert：整个 assets/beta-banner.js + 本页这 2 行 + _headers 里那条 no-store。
+     理由见 docs/decisions/预览分支内测发布.md。 -->
+<script defer src="assets/beta-banner.js"></script>
 </head>
 <body>
 <script>/* 主题早应用：正式主题在 bindUI（等完网络请求后）才挂，这里先按本地偏好上类，消除深色/换肤用户的首帧闪色 */
@@ -181,6 +193,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
           <span><b>浏览共创广场</b><small>查看图片与提示词作品</small></span>
         </a>
+        <button id="tagRelayMenuLink" class="more-item" type="button" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
+          <span><b>Tag 中转站</b><small>打开组合工作台</small></span>
+        </button>
         <a class="more-item" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
           <span><b>GitHub 仓库</b><small>查看项目源码</small></span>
@@ -265,9 +281,181 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div id="sentinel" class="sentinel"></div>
     <div id="empty" class="empty" hidden></div>
   </main>
+  <!-- Tag 中转站侧栏：素材与编排**同屏**，不再分页签。
+       原先是「复制 → 切素材 → 点加入 → 切编排」四步两切换，用户在切过去之前对方案里有什么毫无预期。
+       现在编排在上、素材在下，方案名提到栏头，全程可见；点素材芯片即加入。 -->
+  <aside id="tagRelayRail" class="tag-relay-rail closed" aria-label="Tag 中转站">
+    <header class="tag-relay-rail-head">
+      <h2 id="tagRelayRailTitle">中转站</h2>
+      <div class="tag-relay-plan-picker">
+        <!-- 原生 select 只保留为状态值桥；可见交互由下方自定义 listbox 承担，避免系统下拉样式割裂。 -->
+        <select id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"></select>
+        <button id="relayPlanPickerBtn" class="tag-relay-plan-pick" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="relayPlanList">
+          <span id="relayPlanPickerLabel">当前方案</span>
+          <svg class="tag-relay-plan-pick-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+        </button>
+        <div id="relayPlanList" class="tag-relay-plan-list" role="listbox" aria-label="选择方案" hidden></div>
+      </div>
+      <div class="tag-relay-plan-menu-wrap">
+        <button id="relayPlanMenuBtn" class="tag-relay-plan-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="方案操作">⋯</button>
+        <div id="relayPlanMenu" class="tag-relay-plan-menu" role="menu" hidden>
+          <button id="relayNewPlan" type="button" role="menuitem">新建方案</button>
+          <button id="relayDuplicatePlan" type="button" role="menuitem">复制为副本</button>
+          <button id="relayRenamePlan" type="button" role="menuitem">重命名</button>
+          <button id="relayDeletePlan" type="button" role="menuitem">删除方案</button>
+          <button id="tagRelayClear" type="button" role="menuitem">清空最近复制</button>
+        </div>
+      </div>
+      <span id="tagRelayRailCount" class="tag-relay-rail-count"></span>
+      <button id="tagRelayRailClose" class="tag-relay-rail-close" type="button" aria-label="收起中转站">×</button>
+    </header>
+
+    <!-- 「清空最近复制 / 清空复制历史 / 删除方案」三条不可撤销操作都走这里。
+         没有 role 时读屏只念到「确认 按钮」，标题和后果说明一个字都不播；alertdialog 会在
+         它由 hidden 变可见时把 labelledby + describedby 一起念出来。
+         ⚠ 不加 aria-modal：它是嵌在栏内的确认条，不劫持焦点，也没有遮罩。 -->
+    <form id="relayInlineAction" class="tag-relay-inline-action" hidden role="alertdialog" aria-labelledby="relayInlineActionTitle" aria-describedby="relayInlineActionMessage">
+      <div class="tag-relay-inline-action-copy">
+        <b id="relayInlineActionTitle">确认操作</b>
+        <p id="relayInlineActionMessage"></p>
+      </div>
+      <label id="relayInlineActionInputWrap" hidden>
+        <span id="relayInlineActionInputLabel">名称</span>
+        <input id="relayInlineActionInput" type="text" maxlength="60" autocomplete="off">
+      </label>
+      <div class="tag-relay-inline-action-buttons">
+        <button id="relayInlineActionCancel" class="tag-relay-secondary" type="button">取消</button>
+        <button id="relayInlineActionConfirm" class="tag-relay-primary" type="submit">确认</button>
+      </div>
+    </form>
+
+    <section id="tagRelayPaneCompose" class="tag-relay-zone tag-relay-zone-plan" data-rail-pane="compose" aria-label="编排">
+      <div class="tag-relay-zone-head">
+        <p id="relayPlanStats" class="tag-relay-zone-title" aria-live="polite"></p>
+        <!-- 选中某块时才出现。↑↓ 是触屏上唯一的排序手段，收进浮层就成了「开浮层→点一下→关浮层」，
+             所以就地放在分区头右半：不占额外行，也不遮挡轨道。 -->
+        <div id="relayBlockTools" class="tag-relay-lane-tools" hidden role="group" aria-label="选中块操作">
+          <button type="button" data-block-tool="up" aria-label="上移">↑</button>
+          <button type="button" data-block-tool="down" aria-label="下移">↓</button>
+          <button type="button" data-block-tool="toggle" aria-label="停用或启用">●</button>
+          <button type="button" data-block-tool="edit" aria-label="编辑">✎</button>
+        </div>
+        <button id="relayAddBlock" class="tag-relay-add-block" type="button" title="加一个手写的小方块">＋ 块</button>
+        <button id="relayHistoryToggle" class="tag-relay-history-toggle" type="button" aria-expanded="false" aria-controls="relayCopyHistory">历史<span id="relayHistoryStatus" class="tag-relay-history-count"></span></button>
+      </div>
+      <!-- ⚠ 轨道本身不能当活区：每次渲染都是整条 replaceChildren，读屏会把 N 个块从头念一遍。
+           结果改由下面那个 sr-only 的 role="status" 播一句短的（见 tag-relay-compose.js 的 announceLane）。 -->
+      <div id="relayPlanLane" class="tag-relay-plan-lane"></div>
+      <p id="relayPlanEmpty" class="tag-relay-zone-empty">点下面的素材，块会拼到这里。</p>
+      <p id="relayLaneStatus" class="sr-only" role="status" aria-live="polite"></p>
+    </section>
+
+    <!-- 成品紧挨着编排区：复制的是这个方案，两者中间不该再隔着素材货架。 -->
+    <footer class="tag-relay-output">
+      <div class="tag-relay-output-option">
+        <div class="tag-relay-output-option-group">
+          <span>格式</span>
+          <!-- 三选一 / 二选一，不是三个各自能按下的开关：radiogroup + aria-checked 才是这个语义。 -->
+          <div id="relayFormatControl" class="tag-relay-segment" role="radiogroup" aria-label="输出格式">
+            <span class="tag-relay-segment-slider" aria-hidden="true"></span>
+            <button type="button" role="radio" data-format="nai" aria-checked="true">NAI</button>
+            <button type="button" role="radio" data-format="sd" aria-checked="false">SD</button>
+            <button type="button" role="radio" data-format="plain" aria-checked="false">纯文本</button>
+          </div>
+        </div>
+        <div class="tag-relay-output-option-group">
+          <span>连接</span>
+          <div id="relayJoinControl" class="tag-relay-segment" role="radiogroup" aria-label="连接方式">
+            <span class="tag-relay-segment-slider" aria-hidden="true"></span>
+            <button type="button" role="radio" data-join="comma" aria-checked="true">逗号</button>
+            <button type="button" role="radio" data-join="newline" aria-checked="false">逗号换行</button>
+          </div>
+        </div>
+      </div>
+      <!-- 成品默认收成一行摘要：两个只读文本框原先吃掉 129px，而用户从不读它们、只按下面的复制键。 -->
+      <button id="relayOutputToggle" class="tag-relay-output-summary" type="button" aria-expanded="false" aria-controls="relayOutputBoxes">
+        <span id="relayOutputSummary">还没有内容</span>
+        <span class="tag-relay-output-caret" aria-hidden="true">⌄</span>
+      </button>
+      <div id="relayOutputBoxes" class="tag-relay-output-boxes" hidden>
+        <!-- ⚠ 外框不能是 label：applyMergedNote 会往 #relay*Meta 里塞一个「已合并 N 条重复」按钮，
+             label 里嵌交互元素是无效 HTML。改成 div，另用真正的 label for 关联标题与 textarea。 -->
+        <div class="tag-relay-output-box">
+          <span><label for="relayPositiveOutput"><b>正向</b></label><small id="relayPositiveMeta">0 段</small></span>
+          <textarea id="relayPositiveOutput" rows="3" readonly placeholder="正向输出会显示在这里"></textarea>
+        </div>
+        <div class="tag-relay-output-box">
+          <span><label for="relayNegativeOutput"><b>负向</b></label><small id="relayNegativeMeta">0 段</small></span>
+          <textarea id="relayNegativeOutput" rows="2" readonly placeholder="负向输出会显示在这里"></textarea>
+        </div>
+      </div>
+      <div class="tag-relay-output-actions">
+        <button id="relayCopyPositive" class="tag-relay-secondary" type="button">复制正向</button>
+        <button id="relayCopyNegative" class="tag-relay-secondary" type="button">复制负向</button>
+        <button id="relayCopyAll" class="tag-relay-primary" type="button">复制完整方案</button>
+      </div>
+    </footer>
+
+    <div class="tag-relay-zone-split" role="separator" aria-orientation="horizontal"></div>
+
+    <section id="tagRelayPaneWarehouse" class="tag-relay-zone tag-relay-zone-source" data-rail-pane="warehouse" aria-label="素材">
+      <div class="tag-relay-zone-head">
+        <div class="tag-relay-source-tabs" role="tablist" aria-label="素材来源" aria-orientation="horizontal">
+          <span class="tag-relay-source-slider" aria-hidden="true"></span>
+          <button id="relaySourceTabInbox" type="button" role="tab" data-relay-source="inbox" aria-selected="true" aria-controls="relaySourcePanel" tabindex="0">最近复制</button>
+          <button id="relaySourceTabFavorites" type="button" role="tab" data-relay-source="favorites" aria-selected="false" aria-controls="relaySourcePanel" tabindex="-1">收藏</button>
+        </div>
+        <p id="relaySourceStatus" class="tag-relay-source-status" role="status" aria-live="polite"></p>
+      </div>
+      <!-- 两个来源页签共用这一块面板。列表和空态是互斥的兄弟节点，谁也不能单独当 tabpanel：
+           列表为空时真正显示的是空态，role 只挂列表上会让读屏落到一个 display:none 的元素上。 -->
+      <div id="relaySourcePanel" class="tag-relay-source-panel" role="tabpanel" aria-label="素材">
+        <div id="relaySourceList" class="tag-relay-source-list"></div>
+        <p id="relaySourceEmpty" class="tag-relay-zone-empty">复制任意词条，它会自动落到这里。</p>
+      </div>
+    </section>
+
+    <!-- 复制历史与块编辑器都是**浮层**，不占常驻高度：一屏化之后每一像素都要用在两个分区上。 -->
+    <section id="relayCopyHistory" class="tag-relay-history" aria-label="复制历史" hidden>
+      <header>
+        <b>复制历史</b>
+        <div>
+          <button id="relayHistoryClear" type="button">清空</button>
+          <button id="relayHistoryClose" type="button" aria-label="关闭复制历史">×</button>
+        </div>
+      </header>
+      <div id="relayHistoryList" class="tag-relay-history-list"></div>
+    </section>
+
+    <aside id="relayInspector" class="tag-relay-inspector" hidden aria-labelledby="relayInspectorTitle">
+      <div class="tag-relay-inspector-head">
+        <b id="relayInspectorTitle">编辑块</b>
+        <button id="relayInspectorClose" type="button" aria-label="关闭编辑">×</button>
+      </div>
+      <div class="tag-relay-inspector-grid">
+        <label>标题<input id="relayBlockTitle" type="text" maxlength="60"></label>
+        <label>权重
+          <input id="relayBlockWeight" type="number" min="0.05" max="10" step="0.05" inputmode="decimal" value="1">
+        </label>
+      </div>
+      <p id="relayBlockChars" class="tag-relay-inspector-note" hidden></p>
+      <label class="tag-relay-inspector-field">正向 Prompt<textarea id="relayBlockText" rows="3" spellcheck="false"></textarea></label>
+      <label class="tag-relay-inspector-field">负向 Prompt<textarea id="relayBlockNegative" rows="2" spellcheck="false"></textarea></label>
+      <div class="tag-relay-inspector-actions">
+        <button id="relayBlockRemove" class="tag-relay-secondary" type="button">从方案移除</button>
+        <button id="relayBlockSave" class="tag-relay-primary" type="button">保存修改</button>
+      </div>
+    </aside>
+
+  </aside>
+  <button id="tagRelayRailBackdrop" class="tag-relay-rail-backdrop" type="button" tabindex="-1" aria-label="收起中转站"></button>
 </div>
 
 <div class="float-actions" aria-label="快捷操作">
+  <button id="tagRelayBtn" class="float-btn tag-relay-float-btn" type="button" title="打开 Tag 中转站" aria-label="打开 Tag 中转站" aria-expanded="false" aria-controls="tagRelayRail">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
+    <span id="tagRelayCount" class="tag-relay-count" hidden>0</span>
+  </button>
   <button id="randomBtn" class="float-btn random-btn" type="button" title="随机探索当前结果" aria-label="随机探索当前结果">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <rect x="4" y="4" width="16" height="16" rx="4"/>
@@ -283,6 +471,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 14 7-7 7 7"/></svg>
   </button>
 </div>
+
 
 <div id="settings" class="settings-mask" hidden>
   <div class="settings-panel" role="dialog" aria-modal="true" aria-label="设置">

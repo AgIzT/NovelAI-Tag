@@ -161,6 +161,19 @@ function scheduleToastHide(element, delay) {
   toastTimer = setTimeout(() => hideToast(element), delay);
 }
 
+export function dismissToast({ clear = false } = {}) {
+  const element = $('#toast');
+  if (!element) return false;
+  hideToast(element);
+  if (clear) {
+    element.replaceChildren();
+    element.classList.remove('has-action');
+    element.onpointerenter = null;
+    element.onpointerleave = null;
+  }
+  return true;
+}
+
 export function toast(msg, icon = '✓', action = null) {
   const t = $('#toast');
   if (!t) return;

@@ -16,6 +16,22 @@ assert.equal(isDefaultResumeRoute({ codex: 'safe' }), false);
 assert.equal(isDefaultResumeRoute({ entry: 'x' }), false);
 assert.equal(isDefaultResumeRoute({ path: ['构图'] }), false);
 assert.equal(shouldOfferResume({ snapshot, route: {}, now, sessionStorage: memory(), localStorage: memory() }), true);
+assert.equal(
+  shouldOfferResume({
+    snapshot: { ...snapshot, access: { nsfw: true, r18g: false } },
+    route: {}, now, sessionStorage: memory(), localStorage: memory(),
+  }),
+  false,
+  '关闭 NSFW 后首页继续浏览提示不能泄露限制级法典标题或路径',
+);
+assert.equal(
+  shouldOfferResume({
+    snapshot: { ...snapshot, access: { nsfw: true, r18g: true } },
+    route: {}, now, sessionStorage: memory(), localStorage: memory(),
+  }),
+  false,
+  'R18G 快照同样不能重新出现',
+);
 assert.equal(shouldOfferResume({ snapshot, route: { q: 'x' }, now, sessionStorage: memory(), localStorage: memory() }), false);
 assert.equal(shouldOfferResume({ snapshot, route: {}, now: now + 8 * 24 * 60 * 60 * 1000, sessionStorage: memory(), localStorage: memory() }), false);
 assert.equal(shouldOfferResume({ snapshot, route: {}, now, onboardingShown: true, sessionStorage: memory(), localStorage: memory() }), false);

@@ -60,6 +60,11 @@ function lightboxEntrySourceId(entry) {
   return entrySourceCodexId(entry);
 }
 
+function isLightboxEntryAccessBlocked(entry) {
+  const source = findCodexMeta(lightboxEntrySourceId(entry));
+  return isEntryAccessBlocked(entry) || (source?.nsfw === true && !state.allowNsfw);
+}
+
 function sameLightboxEntry(a, b) {
   return Boolean(a && b && a.id === b.id && lightboxEntrySourceId(a) === lightboxEntrySourceId(b));
 }
@@ -253,7 +258,7 @@ export function flyIn(sourceEl) {
 export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   const parentScrollY = Math.max(0, window.scrollY || 0);
   if (isR18gBlocked(entry)) { showR18gLockedHint(); return; }  // 深链/最近记录等绕过路径的兜底拦截
-  if (isEntryAccessBlocked(entry)) { showNsfwLockedHint(); return; }
+  if (isLightboxEntryAccessBlocked(entry)) { showNsfwLockedHint(); return; }
   const sourceImages = entryImages(entry);
   const images = sourceImages.length
     ? sourceImages
@@ -297,6 +302,14 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   lbFocusReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   window.setTimeout(() => $('#lightboxClose')?.focus(), 0);
   if (lbSourceImg && lbSourceImg.naturalWidth && !prefersReducedMotion()) flyIn(lbSourceImg);
+}
+
+/* 权限开关改的是共享内存 state；已打开的灯箱不会自动重渲染，因此由 ui.js 在
+   开关变化时调用这里，立刻撤掉明文、图片和复制入口。 */
+export function refreshLightboxAccess(entry = state.lightbox?.entry) {
+  if (!entry || !isLightboxEntryAccessBlocked(entry)) return true;
+  if (state.lightbox?.entry) closeLightbox({ historyMode: 'none', immediate: true });
+  return false;
 }
 
 export function closeLightbox(options = {}) {
@@ -488,7 +501,9 @@ export function renderCharacterPrompts(entry) {
     copy.textContent = `复制 ${labelText}`;
     copy.onclick = ev => {
       ev.stopPropagation();
-      copyText(prompt, `${message}：${entry.title}`, copy);
+      if (!refreshLightboxAccess(entry)) return;
+      /* 分块复制的是某一个角色词，但入库存的是整条词条——库里的单位就是词条 */
+      copyText(prompt, `${message}：${entry.title}`, copy, { entry });
     };
     head.append(label, copy);
     const content = document.createElement('pre');
@@ -573,6 +588,10 @@ export function renderLightbox() {
   const e = lb.entry;
   const item = lb.images[lb.index];
   if (!e || !item) return;
+  if (isLightboxEntryAccessBlocked(e)) {
+    refreshLightboxAccess(e);
+    return;
+  }
   const emptyImage = item._editPlaceholder === true;
   const seq = ++lbSeq;
   clearTimeout(lbOriginalStatusTimer);
@@ -701,7 +720,9 @@ export function renderLightbox() {
   $('#copyPositive').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyPositive').onclick = ev => {
     ev.stopPropagation();
+    if (!refreshLightboxAccess(e)) return;
     copyText(e.tags, `已复制正向：${e.title}`, ev.currentTarget, {
+      entry: e,
       followUp: String(e.negative || '').trim() ? {
         label: '再复制负面',
         text: e.negative,
@@ -713,19 +734,25 @@ export function renderLightbox() {
   $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyNegative').onclick = ev => {
     ev.stopPropagation();
+    if (!refreshLightboxAccess(e)) return;
     copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget, {
+      entry: e,
       sampleLabel: '已复制负面',
     });
   };
   $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
   $('#copyAll').onclick = ev => {
     ev.stopPropagation();
-    copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, ev.currentTarget);
+    if (!refreshLightboxAccess(e)) return;
+    copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, ev.currentTarget, { entry: e });
   };
   $('#copyRawTag').hidden = !item.rawTag;
   $('#copyRawTag').onclick = ev => {
     ev.stopPropagation();
-    copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`, ev.currentTarget);
+    if (!refreshLightboxAccess(e)) return;
+    /* raw tag 不能回流到最近复制，但仍属于当前词条，必须把权限快照交给
+       copyText，以覆盖剪贴板请求期间发生的撤权。 */
+    copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`, ev.currentTarget, { accessEntry: e });
   };
   const favoriteBtn = $('#favoriteLightbox');
   if (favoriteBtn) {
@@ -745,6 +772,7 @@ export function renderLightbox() {
     originalBtn.title = action.title;
     originalBtn.onclick = action.disabled ? null : ev => {
       ev.stopPropagation();
+      if (!refreshLightboxAccess(e)) return;
       const opened = window.open(origSrc, '_blank', 'noopener');
       if (opened) opened.opener = null;
     };

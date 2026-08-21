@@ -22,6 +22,12 @@
 /assets/community.css
   Cache-Control: no-cache
 
+/assets/tag-relay.css
+  Cache-Control: no-store
+
+/assets/beta-banner.js
+  Cache-Control: no-store
+
 /assets/favorites-backup.css
   Cache-Control: no-cache
 

@@ -692,6 +692,20 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
   font-family:var(--font-prompt);font-size:11px;line-height:1.4;
   box-shadow:0 6px 18px var(--accent-glow);
 }
+.copy-seed-chip.is-relay-toss{
+  z-index:95;padding:7px 14px;border-color:color-mix(in srgb,#fff 34%,var(--accent));
+  background:color-mix(in srgb,var(--accent) 88%,var(--panel));color:#fff;
+  font-family:var(--font-ui);font-size:12px;font-weight:850;letter-spacing:.1px;
+  box-shadow:0 12px 34px var(--accent-glow),0 0 0 4px color-mix(in srgb,var(--accent) 18%,transparent);
+}
+.copy-seed-chip.is-relay-toss::after{
+  content:"";position:absolute;inset:-5px;border:1px solid color-mix(in srgb,var(--accent) 58%,transparent);
+  border-radius:inherit;animation:copyRelayBeacon .48s ease-out infinite;
+}
+@keyframes copyRelayBeacon{
+  from{opacity:.8;scale:.86}
+  to{opacity:0;scale:1.24}
+}
 .copy-seed-chip[hidden]{display:none}
 .card-img-wrap{
   position:relative;line-height:0;background:var(--tagbg);overflow:hidden;
@@ -1541,16 +1555,19 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
 /* ---------- toast ---------- */
 .toast{
   position:fixed;left:50%;bottom:40px;transform:translateX(-50%) translateY(20px);
+  box-sizing:border-box;width:max-content;max-width:min(360px,calc(100vw - 24px));text-align:center;
   background:var(--accent);color:#fff;padding:10px 20px;border-radius:999px;font-weight:600;font-size:14px;
   box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;
   transition:opacity .2s,transform .34s cubic-bezier(.34,1.56,.64,1);z-index:1400;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.has-action{
-  display:flex;align-items:center;gap:10px;padding:7px 8px 7px 16px;pointer-events:auto;
+  display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 6px 4px 14px;pointer-events:auto;
 }
+.toast-message{display:block;min-width:0;overflow-wrap:anywhere}
+.toast.has-action .toast-message{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .toast-action{
-  min-height:44px;border:1px solid rgba(255,255,255,.58);border-radius:999px;padding:7px 12px;
+  flex:none;min-height:36px;border:1px solid rgba(255,255,255,.58);border-radius:999px;padding:5px 10px;
   background:rgba(255,255,255,.14);color:#fff;font:inherit;font-size:12px;font-weight:850;white-space:nowrap;
 }
 .toast-action:hover,.toast-action:focus-visible{background:#fff;color:var(--accent);outline:none}

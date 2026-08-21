@@ -857,6 +857,108 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   for (const selector of ['.badge-char{', '.badge-char-chip{', 'body.dark .badge-char{', 'body.dark .badge-char-chip{']) {
     assert.ok(stylesSource.includes(selector), `styles.css 缺少 ${selector}`);
   }
+  // 带动作的 toast 会承载中转站撤销；长标题也不得把胶囊撑出视口或撑成 58px 高的大框。
+  assert.match(stylesSource, /\.toast\{[\s\S]*max-width:min\(360px,calc\(100vw - 24px\)\)/);
+  assert.match(stylesSource, /\.toast\.has-action\{[\s\S]*min-height:44px[\s\S]*padding:4px 6px 4px 14px/);
+  assert.match(stylesSource, /\.toast\.has-action \.toast-message\{[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/);
+}
+
+// 中转站侧栏契约：窄桌面不再硬停靠；所有确认留在侧栏内。
+// ⚠ 2026-08-20 一屏化后，「素材拖拽」这条禁令作废并反转：当初禁它是因为素材与编排
+//    是互斥页签，拖到一半目标页签根本不在屏上；现在两个分区同屏，拖拽是可完成的，
+//    反而成了必须保证的入口（用户实测反馈：素材不能拖、方案块能拖却什么也不会发生）。
+{
+  const [relaySource, composeSource, railSource, actionSource, copyFxSource, relayCss, stylesSource, indexSource] = await Promise.all([
+    '../site/assets/app/tag-relay.js',
+    '../site/assets/app/tag-relay-compose.js',
+    '../site/assets/app/tag-relay-rail.js',
+    '../site/assets/app/tag-relay-action.js',
+    '../site/assets/app/copy-fx.js',
+    '../site/assets/tag-relay.css',
+    '../site/assets/styles.css',
+    '../site/index.html',
+  ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
+  assert.doesNotMatch(`${relaySource}\n${composeSource}`, /window\.(?:prompt|confirm)\s*\(/);
+  // 页签已经不存在了：存在任何一个 role=tab 指向分区，就说明一屏化被改回去了。
+  assert.doesNotMatch(indexSource, /data-rail-tab/);
+  // 素材必须可拖，且载荷是带类型的快照（收藏来源不在 relayInbox 里，按 key 回查会落空）。
+  assert.match(relaySource, /chip\.draggable = !locked/);
+  assert.match(relaySource, /setData\(RELAY_SOURCE_MIME, JSON\.stringify\(entry\)\)/);
+  // 同一词条在一个方案里只占一个槽位；完整 / 仅负向先冻结同一身份，重复分支不能给撤销。
+  const addSourceBody = composeSource.slice(
+    composeSource.indexOf('export async function addSourceToPlan'),
+    composeSource.indexOf('/* 手写块：'),
+  );
+  assert.match(addSourceBody, /const relayKey = stableEntryKey\(entry\)/);
+  assert.doesNotMatch(addSourceBody, /allowDuplicate/);
+  assert.match(addSourceBody, /action\.result\.added === false[\s\S]*已在当前方案中/);
+  assert.match(addSourceBody, /toast\(negativeOnly \? '已仅加入负向' : '已加入方案', '\+', \{/);
+  // main 同时承载拖拽与选择，删除是真实同级按钮；外壳不能 draggable，否则从 × 起拖时
+  // 部分浏览器会把祖先卡片当拖拽源，反过来又让直接删除变成误操作入口。
+  assert.match(composeSource, /main\.draggable = !locked/);
+  assert.doesNotMatch(composeSource, /card\.draggable = !locked/);
+  assert.match(composeSource, /card\.setAttribute\('role', 'group'\)/);
+  assert.match(composeSource, /main\.className = 'tag-relay-plan-card-main'[\s\S]*main\.setAttribute\('role', 'button'\)/);
+  assert.match(composeSource, /remove\.className = 'tag-relay-plan-card-remove'[\s\S]*removeBlock\(item\.id, \{ planId: cardPlanId \}\)/);
+  assert.doesNotMatch(indexSource, /data-block-tool="remove"/);
+  assert.doesNotMatch(composeSource, /main\.className = 'tag-relay-chip-main'/);
+  // footer 是 compose 的兄弟：格式/连接必须从整条 rail 取；行为差异另由 access 测试驱动。
+  assert.match(composeSource, /formatButtons:\s*\[\.\.\.scope\.querySelectorAll\('\[data-format\]'\)\]/);
+  assert.match(composeSource, /joinButtons:\s*\[\.\.\.scope\.querySelectorAll\('\[data-join\]'\)\]/);
+  // drop 进入 Web Lock 前必须把 ID 抄到局部变量，事务闭包不能再读取会被 dragend 清空的全局值。
+  assert.match(composeSource, /const draggedId = event\.dataTransfer\?\.getData\(RELAY_PLAN_MIME\) \|\| dragBlockId;[\s\S]*movePlanItem\(next, targetPlanId, draggedId, targetIndex\)/);
+  // 方案头只留「N 个块」一份计数；格式/连接各自成组，窄屏换行也不会拆散标签与控件。
+  assert.doesNotMatch(indexSource, /tagRelayComposeCount/);
+  assert.equal((indexSource.match(/class="tag-relay-output-option-group"/g) || []).length, 2);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-plan-lane\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(relayCss, /\.tag-relay-plan-card-body\{[\s\S]*display:flex;align-items:center/);
+  assert.match(composeSource, /event\.clientY < rect\.top \+ rect\.height \/ 2/);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{[^}]*min-height:88px/);
+  assert.match(relayCss, /\.tag-relay-primary:disabled,\.tag-relay-secondary:disabled/);
+  assert.match(relaySource, /tag-relay-chip-negative/);
+  // 素材区、法典正文与抽屉遮罩都接收显式方案 drop；载荷固定来源方案，取消拖拽不删除。
+  assert.match(composeSource, /setData\(RELAY_PLAN_CONTEXT_MIME/);
+  assert.match(relaySource, /document\.querySelector\('#main'\)/);
+  assert.match(relaySource, /document\.querySelector\('#tagRelayRailBackdrop'\)/);
+  // 移出目标只接收 drop，不给万卡主区切 class / 画提示框，以免 dragover 重绘拖慢松手提交。
+  assert.doesNotMatch(relaySource, /is-relay-remove-target/);
+  assert.doesNotMatch(relayCss, /is-relay-remove-target|松手移出方案/);
+  assert.match(railSource, /matchMedia\('\(max-width:1240px\)'\)/);
+  assert.match(relayCss, /@media \(max-width:1240px\)/);
+  assert.match(actionSource, /export function requestRelayAction/);
+  assert.match(indexSource, /id="relayInlineAction"/);
+  assert.match(indexSource, /rel="modulepreload" href="assets\/app\/tag-relay-action\.js"/);
+  // 浮动入口沿用全局圆钮材质并排在最上方；收入反馈在开栏时必须落向「最近复制」。
+  assert.ok(indexSource.indexOf('id="tagRelayBtn"') < indexSource.indexOf('id="randomBtn"'));
+  assert.match(relayCss, /\.tag-relay-float-btn\{transform:translateY\(-52px\)\}/);
+  assert.match(relayCss, /\.float-actions\.has-backtop \.tag-relay-float-btn\{transform:translateY\(-104px\)\}/);
+  assert.match(relayCss, /@media \(max-width:600px\)\{[\s\S]*\.float-actions \.tag-relay-float-btn\{transform:translateY\(-92px\)\}[\s\S]*\.float-actions\.has-backtop \.tag-relay-float-btn\{transform:translateY\(-138px\)\}/);
+  assert.doesNotMatch(relayCss, /\.tag-relay-float-btn\{[^}]*\b(?:color|background|border-color):/);
+  assert.match(railSource, /return rail\.querySelector\('#relaySourceTabInbox'\)[\s\S]*#tagRelayPaneWarehouse/);
+  assert.match(copyFxSource, /const TOSS_MS = 500;[\s\S]*已存入中转站[\s\S]*opacity: \.94/);
+  assert.match(stylesSource, /\.copy-seed-chip\.is-relay-toss\{[^}]*z-index:95[^}]*font-size:12px/);
+  // 方案选择不再暴露系统 select；可见按钮 + listbox 与来源滑块都必须在 DOM 中。
+  assert.match(indexSource, /id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"/);
+  assert.match(indexSource, /id="relayPlanPickerBtn"[\s\S]*aria-haspopup="listbox"[\s\S]*aria-controls="relayPlanList"/);
+  assert.match(indexSource, /id="relayPlanList" class="tag-relay-plan-list" role="listbox"/);
+  assert.match(indexSource, /class="tag-relay-source-slider" aria-hidden="true"/);
+  assert.match(composeSource, /\[role="option"\][\s\S]*ArrowDown[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/);
+  assert.match(railSource, /querySelector\('#relayPlanPickerBtn'\)/);
+  assert.match(railSource, /const hasOpenInnerLayer = \(\) => \[[\s\S]*#relayCopyHistory[\s\S]*#relayInspector[\s\S]*cancelRelayAction\(\);[\s\S]*if \(hasOpenInnerLayer\(\)\) return/);
+  // 与格式 / 连接同源的滑块语言，以及各披露面板统一的入退场与减弱动效兜底。
+  assert.match(relayCss, /@supports selector\(:has\(\*\)\)[\s\S]*tag-relay-source-slider[\s\S]*transition:translate \.24s/);
+  assert.match(relayCss, /tag-relay-plan-list[\s\S]*tag-relay-output-boxes[\s\S]*display \.18s allow-discrete/);
+  assert.match(relayCss, /tag-relay-plan-list\[hidden\],[^\{]+\{\s*display:none/);
+  assert.match(relayCss, /tag-relay-output-boxes\[hidden\],[^\{]+\{\s*display:none/);
+  assert.match(relayCss, /tag-relay-history\[hidden\],[^\{]+tag-relay-inspector\[hidden\]\{\s*display:none/);
+  assert.match(relayCss, /@starting-style[\s\S]*tag-relay-plan-list:not\(\[hidden\]\)[\s\S]*tag-relay-inspector:not\(\[hidden\]\)/);
+  assert.match(relayCss, /@media \(prefers-reduced-motion:reduce\)[\s\S]*tag-relay-source-slider[\s\S]*transition:none!important/);
+  /* 方案被另一标签页切走或删掉时，正在编辑的内容必须转成可另存的草稿，不能由
+     下一次 render 直接 closeInspector 后静默消失。 */
+  assert.match(
+    composeSource,
+    /function draftFromInspector\(\)[\s\S]*return \{[\s\S]*function preserveOrphanedDraft\(\)[\s\S]*orphanedDraft = draft;[\s\S]*function renderCompose\(\)[\s\S]*if \(editorTargetGone\) \{[\s\S]*preserveOrphanedDraft\(\);[\s\S]*renderOrphanedDraft\(\);/,
+  );
 }
 
 console.log('render UI regressions: PASS');

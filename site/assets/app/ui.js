@@ -1,18 +1,22 @@
 import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
-import { toast } from './feedback.js';
+import { dismissToast, toast } from './feedback.js';
 import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, updateCodexPickerState } from './codex-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
-import { bindLightboxControls } from './lightbox.js';
+import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
+import { scrubClipboardFallback } from './clipboard-fallback.js';
 import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
 import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
+import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
+import { refreshRelayAccess } from './tag-relay.js';
 import { setupHomeShortcutGuide } from './home-shortcut.js';
+import { dismissResumePrompt } from './resume-prompt.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -443,13 +447,21 @@ export function bindUI() {
   const feedbackMask = $('#feedbackPanel');
   const onboardingMask = $('#onboarding');
   const nsfwToggle = $('#nsfwToggle');
-  const setNsfwAccess = (on, { announce = false } = {}) => {
+  const scrubRestrictedSurfaces = () => {
+    /* 不能只让之后的点击被 guard 拦住：已经写进 DOM 的标题、缩略图和 prompt
+       也属于撤权范围，跨标签页关闭权限时尤其容易残留。 */
+    renderHistoryPanel();
+    dismissResumePrompt();
+    scrubClipboardFallback();
+    dismissToast({ clear: true });
+  };
+  const setNsfwAccess = (on, { announce = false, persist = true } = {}) => {
     state.allowNsfw = Boolean(on);
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
-    localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
-    if (state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
+    if (persist) localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
+    if (persist && state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     if (nsfwToggle) nsfwToggle.checked = state.allowNsfw;
-    if (!state.allowNsfw) setR18gAccess(false);  // R18G 依赖 NSFW，关掉 NSFW 一并强制关闭 R18G
+    if (!state.allowNsfw) setR18gAccess(false, { persist, scrub: false });  // R18G 依赖 NSFW，关掉 NSFW 一并强制关闭 R18G
     if (!state.allowNsfw && (state.activePath || []).some(isNsfwPathSegment)) state.activePath = [];
     updateR18gToggleState();
     updateCodexPickerState();
@@ -465,6 +477,9 @@ export function bindUI() {
       renderCodexHeader();
       uiActions.applyFilter({ resetScroll: true });
     }
+    refreshRelayAccess();   // 侧栏只订阅自己的 store，分级是内存 state，必须显式通知，否则锁后仍有可选中的残留文本
+    refreshLightboxAccess();
+    if (!state.allowNsfw) scrubRestrictedSurfaces();
     if (announce) toast(state.allowNsfw ? 'NSFW 法典已解锁' : 'NSFW 法典已锁定');
   };
   const cancelNsfwConfirm = () => {
@@ -525,10 +540,12 @@ export function bindUI() {
   };
   const openR18gConfirm = () => { r18gStep = 0; renderR18gStep(); openMask(r18gMask, r18gToggle); };
   const cancelR18gConfirm = () => { if (r18gToggle) r18gToggle.checked = false; closeMask(r18gMask); };
-  const setR18gAccess = (on, { announce = false } = {}) => {
+  const setR18gAccess = (on, { announce = false, persist = true, scrub = true } = {}) => {
     state.allowR18g = Boolean(on) && state.allowNsfw;
+    refreshRelayAccess();
+    refreshLightboxAccess();
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
-    localStorage.setItem(R18G_STORAGE_KEY, state.allowR18g ? '1' : '0');
+    if (persist) localStorage.setItem(R18G_STORAGE_KEY, state.allowR18g ? '1' : '0');
     if (r18gToggle) r18gToggle.checked = state.allowR18g;
     if (!state.allowR18g && (state.activePath || []).some(isR18gName)) state.activePath = [];  // 关闭时若停在 r18g 分类则退回全部
     if (state.codex) {
@@ -536,6 +553,7 @@ export function bindUI() {
       renderCodexHeader();
       uiActions.applyFilter({ resetScroll: true });
     }
+    if (!state.allowR18g && scrub) scrubRestrictedSurfaces();
     if (announce) toast(state.allowR18g ? '已开启 R18G / 重口' : 'R18G / 重口内容已隐藏');
   };
   const updateR18gToggleState = () => {
@@ -571,6 +589,31 @@ export function bindUI() {
     r18gMask.onkeydown = ev => trapFocus(ev, r18gMask);
   }
   updateR18gToggleState();
+  /* 两个开关是同源持久化偏好，不应在多标签页里各自保留一套权限状态。
+     storage 事件不回发当前页，所以本地确认流程仍只走上面的 setter。 */
+  window.addEventListener('storage', event => {
+    if (event.storageArea && event.storageArea !== localStorage) return;
+    if (event.key === null) {
+      setNsfwAccess(false, { persist: false });
+      return;
+    }
+    if (event.key === NSFW_STORAGE_KEY) {
+      const on = event.newValue === '1';
+      setNsfwAccess(on, { persist: false });
+      /* setNsfwAccess 只认 NSFW 这一个键：开启时它不会去补读 R18G，于是对端只写了
+         NSFW 键（「先开 R18G → 关 NSFW → 再开 NSFW」就走这条）时，本页 R18G 会停在
+         false 而对端是 true。方向是 fail-closed 不算漏，但两页状态不一致，这里补一次
+         读盘对齐。关闭方向不用补：setNsfwAccess(false) 内部已强制关掉 R18G。 */
+      if (on) setR18gAccess(localStorage.getItem(R18G_STORAGE_KEY) === '1', { persist: false });
+      return;
+    }
+    if (event.key === R18G_STORAGE_KEY) {
+      if (event.newValue === '1' && !state.allowNsfw && localStorage.getItem(NSFW_STORAGE_KEY) === '1') {
+        setNsfwAccess(true, { persist: false });
+      }
+      setR18gAccess(event.newValue === '1', { persist: false });
+    }
+  });
   const openFromMore = (mask, trigger = moreBtn) => {
     const topLayer = topHistoryLayerId();
     const replaceLayer = topLayer === 'more-menu' || topLayer === 'banner-about';
@@ -662,6 +705,8 @@ export function bindUI() {
     if (announcementsMask && !announcementsMask.hidden) { closeMask(announcementsMask); return; }
     if (feedbackMask && !feedbackMask.hidden) { closeMask(feedbackMask); return; }
     if (onboardingMask && !onboardingMask.hidden) { closeMask(onboardingMask); return; }
+    /* 只有浮层形态的中转站栏才吃 Esc；停靠态是页面家具（同左侧目录栏），不该抢 */
+    if (isRelayRailModal()) { closeRelayRail(); return; }
     closeBannerAbout({ historyMode: 'back' });
   });
   bindLightboxControls({ mobileQuery });
@@ -719,7 +764,8 @@ export function bindUI() {
     !archiveMask.hidden ||
     (announcementsMask && !announcementsMask.hidden) ||
     (feedbackMask && !feedbackMask.hidden) ||
-    (onboardingMask && !onboardingMask.hidden);
+    (onboardingMask && !onboardingMask.hidden) ||
+    isRelayRailModal();
   window.addEventListener('keydown', ev => {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || typingTarget()) return;
     if (ev.key === '?' && !overlayOpen()) {

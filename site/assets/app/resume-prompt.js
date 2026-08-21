@@ -1,9 +1,21 @@
 import { state } from './state.js';
-import { browseDesc, isHiddenR18gHistoryItem, resumeLastBrowse } from './history.js';
+import { browseDesc, isHistoryItemLocked, resumeLastBrowse } from './history.js';
 
 const SESSION_KEY = 'fadian-resume-prompt-shown-v1';
 const DISMISS_KEY = 'fadian-resume-prompt-dismissed-v1';
 const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+
+let activePrompt = null;
+let activePromptTimer = 0;
+
+export function dismissResumePrompt() {
+  window.clearTimeout?.(activePromptTimer);
+  activePromptTimer = 0;
+  if (!activePrompt) return false;
+  activePrompt.remove();
+  activePrompt = null;
+  return true;
+}
 
 function storageGet(storage, key) {
   try { return storage?.getItem(key) || ''; } catch { return ''; }
@@ -36,7 +48,7 @@ export function shouldOfferResume({
   migrationVisible = false,
 } = {}) {
   if (!snapshot || onboardingShown || migrationVisible || !isDefaultResumeRoute(route)) return false;
-  if (isHiddenR18gHistoryItem(snapshot)) return false;
+  if (isHistoryItemLocked(snapshot)) return false;
   const age = now - Number(snapshot.at || 0);
   if (age < 0 || age > MAX_AGE) return false;
   if (storageGet(sessionStorage, SESSION_KEY) || storageGet(localStorage, DISMISS_KEY)) return false;
@@ -58,21 +70,25 @@ export function setupResumePrompt({ route = {}, onboardingShown = false } = {}) 
     <button class="resume-prompt-close" type="button" aria-label="本次关闭">×</button>`;
   chip.querySelector('b').textContent = browseDesc(state.lastBrowse);
   document.body.appendChild(chip);
+  activePrompt = chip;
   requestAnimationFrame(() => chip.classList.add('show'));
 
-  let timer = 0;
   const hide = () => {
-    window.clearTimeout(timer);
+    window.clearTimeout(activePromptTimer);
+    activePromptTimer = 0;
     chip.classList.remove('show');
-    window.setTimeout(() => chip.remove(), 240);
+    window.setTimeout(() => {
+      chip.remove();
+      if (activePrompt === chip) activePrompt = null;
+    }, 240);
   };
   const arm = () => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(hide, 10_000);
+    window.clearTimeout(activePromptTimer);
+    activePromptTimer = window.setTimeout(hide, 10_000);
   };
-  chip.addEventListener('pointerenter', () => window.clearTimeout(timer));
+  chip.addEventListener('pointerenter', () => window.clearTimeout(activePromptTimer));
   chip.addEventListener('pointerleave', arm);
-  chip.addEventListener('focusin', () => window.clearTimeout(timer));
+  chip.addEventListener('focusin', () => window.clearTimeout(activePromptTimer));
   chip.addEventListener('focusout', event => {
     if (!chip.contains(event.relatedTarget)) arm();
   });

@@ -19,6 +19,10 @@ const SCRAMBLE_FRAMES = 4;
 const SCRAMBLE_MS = 30;
 const COMBO_MS = 600;
 const EXIT_MS = 180;
+const TOSS_MS = 500;
+const TOSS_DELAY_MS = 140;
+const TOSS_COMBO_DELAY_MS = 60;
+const TARGET_PULSE_MS = 320;
 const EXIT_CLEANUP_GRACE_MS = 80;
 
 let chipEl = null;
@@ -105,8 +109,11 @@ function anchorFor(node) {
  * @param {HTMLElement|null} node  触发复制的节点（卡片或卡片内的按钮）
  * @param {string} text            实际写进剪贴板的文本，用来数 tag 数
  * @param {string} label           芯片主文案，区分正面 / 负面
+ * @param {object} [options]
+ * @param {Element|null} [options.flyTo] 给了就把芯片抛向它（复制即入库时指向中转站），
+ *                                       芯片不再原地悬停淡出——「这条被收走了」比「复制成功了」信息量大
  */
-export function playCopySample(node, text, label = '已复制正面') {
+export function playCopySample(node, text, label = '已复制正面', options = {}) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const now = performance.now();
   const combo = lastAt > 0 && now - lastAt < COMBO_MS; // 首次点击不能因页面刚加载而误判成连点
@@ -132,10 +139,16 @@ export function playCopySample(node, text, label = '已复制正面') {
 
   // ③ 种子芯片
   const chip = ensureChip();
+  const flyTo = options.flyTo;
+  const flyBox = flyTo?.getBoundingClientRect?.() || null;
+  const hasFlyTarget = Boolean(flyBox && (flyBox.width || flyBox.height));
+  chip.className = `copy-seed-chip${hasFlyTarget ? ' is-relay-toss' : ''}`;
   clearChipTimers();
   resetChipAnimations(chip);
   setChipClearState(chip, false);
-  const target = `✓ ${label} · ${countTags(text)} tags`;
+  const target = hasFlyTarget
+    ? `✓ 已存入中转站 · ${countTags(text)} tags`
+    : `✓ ${label} · ${countTags(text)} tags`;
   const { x, y } = anchorFor(node);
   chip.style.left = `${Math.round(x)}px`;
   chip.style.top = `${Math.round(y - 14)}px`;
@@ -172,6 +185,50 @@ export function playCopySample(node, text, label = '已复制正面') {
     },
     () => { if (riseAnimation === rise) riseAnimation = null; },
   );
+
+  /* 抛入中转站：起点是芯片当下的位置，终点是中转站的落点。
+     弧线中点抬高一截（照 docs/动效方案演示.html 检字台那版），末端缩小并淡出，
+     落点自己弹一下表示收到。只在真入库时走这条，分享链接之类不会飞。 */
+  if (hasFlyTarget) {
+    const dx = Math.round(flyBox.left + flyBox.width / 2 - x);
+    const dy = Math.round(flyBox.top + flyBox.height / 2 - (y - 14));
+    const arcLift = Math.min(110, Math.max(56, Math.round(Math.hypot(dx, dy) * 0.14)));
+    chipTimers.push(window.setTimeout(() => {
+      if (gen !== chipGen) return;
+      cancelAnimation(riseAnimation);
+      riseAnimation = null;
+      setChipClearState(chip, false);
+      const toss = chip.animate([
+        { translate: '0 -8px', scale: '1.06', opacity: .96, offset: 0 },
+        { translate: `${Math.round(dx * 0.16)}px ${Math.round(dy * 0.12 - 26)}px`, scale: '1.08', opacity: 1, offset: .22 },
+        { translate: `${Math.round(dx * 0.68)}px ${Math.round(dy * 0.64 - arcLift)}px`, scale: '.8', opacity: 1, offset: .68 },
+        { translate: `${Math.round(dx * 0.94)}px ${Math.round(dy * 0.93 - 8)}px`, scale: '.54', opacity: .94, offset: .92 },
+        { translate: `${dx}px ${dy}px`, scale: '.32', opacity: 0, offset: 1 },
+      ], { duration: TOSS_MS, easing: 'cubic-bezier(.2,.7,.22,1)' });
+      exitAnimation = toss;
+      const done = () => {
+        if (gen !== chipGen || exitAnimation !== toss) return;
+        chip.hidden = true;
+        exitAnimation = null;
+        cancelAnimation(toss);
+        setChipClearState(chip, true);
+        flyTo.animate?.(
+          [
+            { scale: '1', filter: 'brightness(1)', offset: 0 },
+            { scale: '1.16', filter: 'brightness(1.22)', offset: .42 },
+            { scale: '1.04', filter: 'brightness(1.08)', offset: .72 },
+            { scale: '1', filter: 'brightness(1)', offset: 1 },
+          ],
+          { duration: TARGET_PULSE_MS, easing: 'cubic-bezier(.16,1,.3,1)' },
+        );
+      };
+      toss.finished.then(done, done);
+      /* 和下面正常退场那支同一个理由：后台标签页会冻结 WAAPI 时间线却继续推进
+         setTimeout，只等 finished 的话芯片会停在飞行途中，直到标签页重新获得前台。 */
+      chipTimers.push(window.setTimeout(done, TOSS_MS + EXIT_CLEANUP_GRACE_MS));
+    }, combo ? TOSS_COMBO_DELAY_MS : TOSS_DELAY_MS));
+    return;
+  }
 
   const holdMs = combo ? 700 : 1000;
   chipTimers.push(window.setTimeout(() => {

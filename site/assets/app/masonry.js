@@ -461,6 +461,7 @@ export function makeCard(placement) {
     negBtn.onclick = ev => {
       ev.stopPropagation();
       copyText(e.negative, `已复制负面：${e.title}`, node, {
+        entry: e,
         sampleLabel: '已复制负面',
       });
     };
@@ -470,7 +471,7 @@ export function makeCard(placement) {
     allBtn.hidden = !e.negative && !charPrompts.length;
     allBtn.onclick = ev => {
       ev.stopPropagation();
-      copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, node);
+      copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, node, { entry: e });
     };
   }
 

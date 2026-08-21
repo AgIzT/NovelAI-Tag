@@ -1,2 +1,6 @@
 # Keep the public rescue URL on the old origin instead of Pages' automatic .html -> extensionless 308.
 /_favorites-migration-202607.html /_favorites-migration-202607 200
+
+# 中转站已并入主站右侧栏，旧的独立页地址可能已被人收藏或转发
+/tag-relay.html / 301
+/tag-relay / 301

@@ -39,6 +39,7 @@ publish.log
 # 临时转换/对比目录
 output/
 chrome-profile-*/
+.playwright-cli/
 
 # 本地 AI 交接说明（不公开；供新会话 / 其它 AI 快速接手）
 # 拆分结构：AGENTS.md(共用规则) ← CLAUDE.md(@导入+Claude专用) / docs/(按需架构与决策) / HANDOFF.md(进度)

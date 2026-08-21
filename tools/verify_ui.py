@@ -540,6 +540,757 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         shot = screenshot(cdp, out_dir, "desktop-home")
         return {**info, "screenshot": shot}
 
+    def tag_relay_responsive():
+        """Exercise the relay as dock, drawer, and bottom sheet with real geometry."""
+        fixture = {
+            "version": 2,
+            # 一屏化之后素材区必须一起验：它和编排区共用同一列高度，
+            # 空着的话「两个分区同屏」这条断言等于只验了一半。
+            "inbox": [{
+                "key": f"entry:qa:{index}",
+                "codexId": "qa",
+                "entryId": f"qa-{index}",
+                "title": title,
+                "prompt": f"style sample {index}, soft lighting",
+                "negative": "lowres" if index % 2 == 0 else "",
+                "book": "UI 回归法典",
+                "path": ["各种风格"],
+                "image": "",
+                "access": {"nsfw": False, "r18g": False},
+                "accessKnown": True,
+                "addedAt": "2026-08-19T00:00:00.000Z",
+            } for index, title in enumerate([
+                "厚涂 · 油画质感", "赛博霓虹", "水彩淡彩",
+                "胶片颗粒", "日系动画风", "逆光剪影",
+            ], start=1)],
+            "plans": [{
+                "id": "qa-plan",
+                "name": "UI 回归方案",
+                "items": [{
+                    "id": f"qa-block-{index}",
+                    "kind": "block",
+                    "title": f"测试块 {index}",
+                    "prompt": f"portrait test segment {index}, detailed lighting, balanced composition",
+                    "negative": f"artifact {index}, low quality",
+                    "weight": 1,
+                    "enabled": True,
+                } for index in range(1, 9)],
+                "createdAt": "2026-08-19T00:00:00.000Z",
+                "updatedAt": "2026-08-19T00:00:00.000Z",
+            }, {
+                "id": "qa-plan-alt",
+                "name": "UI 空方案",
+                "items": [],
+                "createdAt": "2026-08-19T00:00:00.000Z",
+                "updatedAt": "2026-08-19T00:00:00.000Z",
+            }],
+            "activePlanId": "qa-plan",
+            "history": [],
+        }
+
+        # Establish the origin before writing localStorage, then reload so the
+        # store module reads the fixture rather than retaining its first load.
+        cdp.command("Emulation.setDeviceMetricsOverride", {
+            "width": 1440, "height": 820, "deviceScaleFactor": 1, "mobile": False,
+        })
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "relay fixture app")
+        cdp.eval(
+            "localStorage.setItem('fadian-tag-relay-v1', "
+            + js_string(json.dumps(fixture, ensure_ascii=False))
+            + "); localStorage.setItem('fadian-tag-relay-rail', 'closed');"
+            + " localStorage.setItem('fadian-onboarding-v1-done', '1'); true"
+        )
+        cdp.command("Page.reload", {})
+        wait_for(
+            cdp,
+            "document.querySelectorAll('.card').length >= 1"
+            " && document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+            " && document.querySelector('#tagRelayRail')?.inert === true",
+            "relay fixture reload",
+            timeout=15,
+        )
+
+        def relay_plan_ids() -> list[str]:
+            return cdp.eval(
+                "[...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                ".map(card => card.dataset.itemId)"
+            )
+
+        def wait_for_relay_plan_order(expected: list[str], label: str) -> None:
+            expected_json = js_string(json.dumps(expected, ensure_ascii=False, separators=(",", ":")))
+            wait_for(
+                cdp,
+                "JSON.stringify([...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".map(card => card.dataset.itemId)) === {expected_json}",
+                label,
+            )
+
+        def assert_relay_undo_toast(label: str, expected_message: str = "已移出方案") -> dict:
+            wait_for(
+                cdp,
+                "document.querySelector('#toast')?.classList.contains('show')"
+                " && document.querySelector('#toast')?.classList.contains('has-action')"
+                " && document.querySelector('#toast .toast-action')?.textContent.trim() === '撤销'",
+                label,
+            )
+            data = cdp.eval(r"""
+(() => {
+  const toast = document.querySelector('#toast');
+  const message = toast?.querySelector('.toast-message');
+  const action = toast?.querySelector('.toast-action');
+  const rect = toast?.getBoundingClientRect();
+  const actionRect = action?.getBoundingClientRect();
+  return {
+    message: message?.textContent.trim() || '',
+    action: action?.textContent.trim() || '',
+    width: rect?.width || 0,
+    height: rect?.height || 0,
+    left: rect?.left ?? -1,
+    right: rect?.right ?? -1,
+    top: rect?.top ?? -1,
+    bottom: rect?.bottom ?? -1,
+    viewportWidth: innerWidth,
+    viewportHeight: innerHeight,
+    actionWidth: actionRect?.width || 0,
+    actionHeight: actionRect?.height || 0,
+    actionInside: Boolean(
+      rect && actionRect
+      && actionRect.left >= rect.left - 1
+      && actionRect.right <= rect.right + 1
+      && actionRect.top >= rect.top - 1
+      && actionRect.bottom <= rect.bottom + 1
+    ),
+  };
+})()
+""")
+            max_compact_width = min(280, data["viewportWidth"] - 24)
+            if (
+                expected_message not in data["message"]
+                or data["action"] != "撤销"
+                or data["width"] <= 0
+                or data["width"] > max_compact_width + 1
+                or data["height"] < 36
+                or data["height"] > 56
+                or data["left"] < 11
+                or data["right"] > data["viewportWidth"] - 11
+                or data["top"] < 8
+                or data["bottom"] > data["viewportHeight"] - 8
+                or data["actionWidth"] < 36
+                or data["actionHeight"] < 36
+                or not data["actionInside"]
+            ):
+                raise CheckFailed(f"{label} is oversized or outside the viewport: {data}")
+            return data
+
+        cases = [
+            ("dock", 1440, 820, False, "dock"),
+            # 1240px 以下必须转抽屉；继续停靠会把 440px 侧栏与 248px 目录
+            # 同时压进页面，让主瀑布流退化成单列。
+            ("edge-drawer", 1220, 720, False, "drawer"),
+            ("drawer", 900, 620, False, "drawer"),
+            ("sheet-boundary", 600, 760, False, "sheet"),
+            ("sheet", 390, 640, True, "sheet"),
+            ("sheet-short", 390, 600, True, "sheet"),
+        ]
+        details = {}
+        shots = []
+
+        for mode, width, height, mobile, shape in cases:
+            clear_errors(cdp)
+            cdp.command("Emulation.setDeviceMetricsOverride", {
+                "width": width,
+                "height": height,
+                "deviceScaleFactor": 1,
+                "mobile": mobile,
+            })
+            wait_for(cdp, f"innerWidth === {width} && innerHeight === {height}", f"relay {mode} viewport")
+            settle(cdp, 120)
+
+            cdp.eval("document.querySelector('#tagRelayBtn')?.click()")
+            wait_for(
+                cdp,
+                "!document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+                " && document.querySelector('#tagRelayBtn')?.getAttribute('aria-expanded') === 'true'"
+                " && document.querySelector('#tagRelayRail')?.inert === false",
+                f"relay {mode} opens",
+            )
+            settle(cdp, 160)
+
+            shell = cdp.eval(r"""
+(() => {
+  const rail = document.querySelector('#tagRelayRail');
+  const main = document.querySelector('#main');
+  const backdrop = document.querySelector('#tagRelayRailBackdrop');
+  const sourceTabs = document.querySelector('.tag-relay-source-tabs');
+  const sourceList = document.querySelector('#relaySourceList');
+  const firstSourceChip = sourceList.querySelector('.tag-relay-chip');
+  const sourceButtons = [...sourceTabs.querySelectorAll('[role="tab"]')];
+  const sourceSlider = sourceTabs.querySelector('.tag-relay-source-slider');
+  const planPicker = document.querySelector('#relayPlanPickerBtn');
+  const planSelect = document.querySelector('#relayPlanSelect');
+  const planList = document.querySelector('#relayPlanList');
+  const rr = rail.getBoundingClientRect();
+  const mr = main.getBoundingClientRect();
+  const sr = sourceTabs.getBoundingClientRect();
+  const clientWidth = document.documentElement.clientWidth;
+  const first = sourceButtons[0]?.getBoundingClientRect();
+  const last = sourceButtons.at(-1)?.getBoundingClientRect();
+  const sourceSliderRect = sourceSlider?.getBoundingClientRect();
+  const planPickerRect = planPicker?.getBoundingClientRect();
+  const planSelectRect = planSelect?.getBoundingClientRect();
+  const sourceListRect = sourceList.getBoundingClientRect();
+  const firstSourceRect = firstSourceChip?.getBoundingClientRect();
+  const relayFloat = document.querySelector('#tagRelayBtn');
+  const randomFloat = document.querySelector('#randomBtn');
+  const relayFloatRect = relayFloat?.getBoundingClientRect();
+  const visibleFloatRects = [...document.querySelectorAll('.float-actions .float-btn')]
+    .filter(button => button !== relayFloat)
+    .filter(button => {
+      const style = getComputedStyle(button);
+      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .01;
+    })
+    .map(button => button.getBoundingClientRect());
+  const relayFloatStyle = relayFloat ? getComputedStyle(relayFloat) : null;
+  const randomFloatStyle = randomFloat ? getComputedStyle(randomFloat) : null;
+  return {
+    position: getComputedStyle(rail).position,
+    rail: {left: rr.left, top: rr.top, right: rr.right, bottom: rr.bottom, width: rr.width},
+    main: {left: mr.left, right: mr.right, width: mr.width},
+    backdropDisplay: getComputedStyle(backdrop).display,
+    role: rail.getAttribute('role'),
+    ariaModal: rail.getAttribute('aria-modal'),
+    docked: document.body.classList.contains('rail-docked'),
+    planZoneH: document.querySelector('.tag-relay-zone-plan')?.getBoundingClientRect().height || 0,
+    sourceZoneH: document.querySelector('.tag-relay-zone-source')?.getBoundingClientRect().height || 0,
+    planChips: document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length,
+    sourceChips: document.querySelectorAll('#relaySourceList .tag-relay-chip').length,
+    sourceListH: sourceListRect.height,
+    firstSourceFullyVisible: !!firstSourceRect
+      && firstSourceRect.height >= 29
+      && firstSourceRect.top >= sourceListRect.top - 1
+      && firstSourceRect.bottom <= Math.min(sourceListRect.bottom, innerHeight) + 1,
+    outputCollapsed: document.querySelector('#relayOutputBoxes')?.hidden === true
+      && getComputedStyle(document.querySelector('#relayOutputBoxes')).display === 'none',
+    sourceTabCount: sourceButtons.length,
+    sourceTabWidthDelta: first && last ? Math.abs(first.width - last.width) : 999,
+    sourceRightGap: last ? Math.abs(sr.right - last.right) : 999,
+    sourceSliderLeft: sourceSliderRect?.left ?? -1,
+    sourceSliderWidth: sourceSliderRect?.width || 0,
+    planPickerVisible: Boolean(
+      planPickerRect
+      && planPickerRect.width > 20
+      && planPickerRect.height > 20
+      && getComputedStyle(planPicker).display !== 'none'
+      && getComputedStyle(planPicker).visibility !== 'hidden'
+    ),
+    planSelectHidden: Boolean(
+      planSelect
+      && planSelect.getAttribute('aria-hidden') === 'true'
+      && planSelect.tabIndex === -1
+      && planSelectRect
+      && planSelectRect.width <= 2
+      && planSelectRect.height <= 2
+    ),
+    planListInitiallyHidden: planList?.hidden === true
+      && getComputedStyle(planList).display === 'none',
+    relayFloatTopmost: Boolean(relayFloatRect)
+      && visibleFloatRects.every(rect => relayFloatRect.bottom <= rect.top + 1),
+    relayFloatMatchesGroup: Boolean(relayFloatStyle && randomFloatStyle)
+      && relayFloatStyle.width === randomFloatStyle.width
+      && relayFloatStyle.height === randomFloatStyle.height
+      && relayFloatStyle.borderRadius === randomFloatStyle.borderRadius
+      && relayFloatStyle.borderColor === randomFloatStyle.borderColor
+      && relayFloatStyle.backgroundColor === randomFloatStyle.backgroundColor
+      && relayFloatStyle.color === randomFloatStyle.color,
+    documentOverflow: document.scrollingElement.scrollWidth - clientWidth,
+    clientWidth,
+    /* html uses scrollbar-gutter:stable. Fixed drawers are therefore positioned
+       against its scrollport, which is narrower than window.innerWidth on desktop. */
+    viewportRight: document.documentElement.getBoundingClientRect().right,
+  };
+})()
+""")
+            # 一屏化的核心不变式：素材与编排必须同时可见，不再有「当前页签」。
+            if shell["planZoneH"] < 40 or shell["sourceZoneH"] < 40:
+                raise CheckFailed(f"Relay {mode} does not show both zones at once: {shell}")
+            if shell["planChips"] < 1 or shell["sourceChips"] < 1:
+                raise CheckFailed(f"Relay {mode} did not render chips in both zones: {shell}")
+            if shell["sourceListH"] < 30 or not shell["firstSourceFullyVisible"]:
+                raise CheckFailed(f"Relay {mode} does not leave one complete clickable source row: {shell}")
+            if not shell["outputCollapsed"]:
+                raise CheckFailed(f"Relay {mode} output should start collapsed: {shell}")
+            if shell["sourceTabCount"] != 2 or shell["sourceTabWidthDelta"] > 2 or shell["sourceRightGap"] > 8:
+                raise CheckFailed(f"Relay {mode} source tabs do not fill two equal segments: {shell}")
+            if (
+                not shell["planPickerVisible"]
+                or not shell["planSelectHidden"]
+                or not shell["planListInitiallyHidden"]
+            ):
+                raise CheckFailed(f"Relay {mode} plan picker did not replace the legacy select cleanly: {shell}")
+            if shell["sourceSliderWidth"] <= 8:
+                raise CheckFailed(f"Relay {mode} source slider has no usable geometry: {shell}")
+            if not shell["relayFloatTopmost"] or not shell["relayFloatMatchesGroup"]:
+                raise CheckFailed(f"Relay {mode} floating entry is not the topmost matching quick action: {shell}")
+            if shell["documentOverflow"] > 1:
+                raise CheckFailed(f"Relay {mode} causes horizontal page overflow: {shell}")
+
+            if shape == "dock":
+                if (
+                    shell["position"] != "sticky"
+                    or not 430 <= shell["rail"]["width"] <= 450
+                    or shell["main"]["right"] > shell["rail"]["left"] + 2
+                    or shell["backdropDisplay"] != "none"
+                    or shell["role"] is not None
+                    or shell["ariaModal"] is not None
+                    or not shell["docked"]
+                ):
+                    raise CheckFailed(f"Relay desktop dock shape is wrong: {shell}")
+            elif shape == "drawer":
+                if (
+                   shell["position"] != "fixed"
+                   or not 430 <= shell["rail"]["width"] <= 450
+                    or abs(shell["rail"]["right"] - (shell["viewportRight"] - 8)) > 2
+                   or shell["backdropDisplay"] == "none"
+                   or shell["role"] != "dialog"
+                    or shell["ariaModal"] != "true"
+                    or shell["docked"]
+                ):
+                    raise CheckFailed(f"Relay tablet drawer shape is wrong: {shell}")
+            else:
+                if (
+                   shell["position"] != "fixed"
+                   or abs(shell["rail"]["left"]) > 2
+                    or abs(shell["rail"]["right"] - shell["viewportRight"]) > 2
+                   or abs(shell["rail"]["bottom"] - height) > 2
+                   or shell["rail"]["top"] < 36
+                    or shell["backdropDisplay"] == "none"
+                    or shell["role"] != "dialog"
+                    or shell["ariaModal"] != "true"
+                    or shell["docked"]
+                ):
+                    raise CheckFailed(f"Relay mobile sheet shape is wrong: {shell}")
+
+            # Motion is disabled for deterministic screenshots, so this checks the
+            # picker's accessible/open and selected/closed end states, not timing.
+            cdp.eval("document.querySelector('#relayPlanPickerBtn')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'true'"
+                " && document.querySelector('#relayPlanList')?.hidden === false"
+                " && document.querySelector('#relayPlanList')?.getBoundingClientRect().width > 20"
+                " && document.querySelector('#relayPlanList')?.getBoundingClientRect().height > 20",
+                f"relay {mode} opens plan picker",
+            )
+            picker_open = cdp.eval(
+                "({optionCount: document.querySelectorAll('#relayPlanList [role=\"option\"]').length,"
+                " selected: document.querySelector('#relayPlanList [aria-selected=\"true\"]')?.dataset.planId || ''})"
+            )
+            if picker_open["optionCount"] != 2 or picker_open["selected"] != "qa-plan":
+                raise CheckFailed(f"Relay {mode} plan picker options are wrong: {picker_open}")
+            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan-alt\"]')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanSelect')?.value === 'qa-plan-alt'"
+                " && document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 0"
+                " && document.querySelector('#relayPlanEmpty')?.hidden === false"
+                " && document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'false'"
+                " && document.querySelector('#relayPlanList')?.hidden === true"
+                " && getComputedStyle(document.querySelector('#relayPlanList')).display === 'none'",
+                f"relay {mode} selects empty plan",
+            )
+            cdp.eval("document.querySelector('#relayPlanPickerBtn')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'true'"
+                " && document.querySelector('#relayPlanList')?.hidden === false",
+                f"relay {mode} reopens plan picker",
+            )
+            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan\"]')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanSelect')?.value === 'qa-plan'"
+                " && document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8"
+                " && document.querySelector('#relayPlanPickerBtn')?.getAttribute('aria-expanded') === 'false'"
+                " && document.querySelector('#relayPlanList')?.hidden === true"
+                " && getComputedStyle(document.querySelector('#relayPlanList')).display === 'none'",
+                f"relay {mode} restores populated plan",
+            )
+            shell["planPickerOptionCount"] = picker_open["optionCount"]
+            shell["planPickerRoundTrip"] = True
+
+            # 确认条通常自己截住 Escape；但焦点若被用户点到栏内别处，事件会直接到 rail。
+            # 外壳仍应取消确认而不是把整栏关掉或因“内层可见”把按键吞成 no-op。
+            cdp.eval("document.querySelector('#relayPlanMenuBtn')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayPlanMenu')?.hidden === false",
+                f"relay {mode} opens plan actions",
+            )
+            cdp.eval("document.querySelector('#relayDeletePlan')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayInlineAction')?.hidden === false",
+                f"relay {mode} opens inline confirmation",
+            )
+            cdp.eval(r"""
+(() => {
+  const outside = document.querySelector('#relayPlanPickerBtn');
+  outside?.focus();
+  outside?.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
+  return true;
+})()
+""")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayInlineAction')?.hidden === true"
+                " && !document.querySelector('#tagRelayRail')?.classList.contains('closed')",
+                f"relay {mode} Escape cancels inline confirmation only",
+            )
+            shell["inlineActionEscapeStayedOpen"] = True
+
+            # The source rail uses the same sliding selection language as the
+            # format controls. With motion off, assert only the two final positions.
+            source_slider_start = shell["sourceSliderLeft"]
+            cdp.eval("document.querySelector('#relaySourceTabFavorites')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relaySourceTabFavorites')?.getAttribute('aria-selected') === 'true'"
+                " && (() => { const slider = document.querySelector('.tag-relay-source-slider');"
+                f" const rect = slider?.getBoundingClientRect(); return !!rect && Math.abs(rect.left - {source_slider_start!r}) > Math.max(4, rect.width * .5); }})()",
+                f"relay {mode} moves source slider to favorites",
+            )
+            source_slider_favorites = cdp.eval(
+                "document.querySelector('.tag-relay-source-slider')?.getBoundingClientRect().left"
+            )
+            cdp.eval("document.querySelector('#relaySourceTabInbox')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relaySourceTabInbox')?.getAttribute('aria-selected') === 'true'"
+                " && (() => { const left = document.querySelector('.tag-relay-source-slider')"
+                f"?.getBoundingClientRect().left; return Number.isFinite(left) && Math.abs(left - {source_slider_start!r}) <= 2; }})()",
+                f"relay {mode} restores source slider to inbox",
+            )
+            shell["sourceSliderFavoritesLeft"] = source_slider_favorites
+            shell["sourceSliderRoundTrip"] = True
+
+            # 真正派发 HTML DragEvent，而不是只看 draggable 属性。drop 回调会异步等 Web Lock；
+            # 载荷 ID 若仍从会被 dragend 清空的模块变量读取，这里就不会发生换位。
+            dragged_id = cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card')?.dataset.itemId")
+            cdp.eval(r"""
+(() => {
+  const cards = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
+  if (cards.length < 2) return false;
+  const source = cards[0];
+  const sourceMain = source.querySelector('.tag-relay-plan-card-main');
+  const target = cards[1];
+  if (!sourceMain) return false;
+  const rect = target.getBoundingClientRect();
+  const dataTransfer = new DataTransfer();
+  const init = {bubbles:true, cancelable:true, dataTransfer, clientX:rect.left + rect.width / 2, clientY:rect.bottom - 2};
+  sourceMain.dispatchEvent(new DragEvent('dragstart', init));
+  target.dispatchEvent(new DragEvent('dragover', init));
+  target.dispatchEvent(new DragEvent('drop', init));
+  sourceMain.dispatchEvent(new DragEvent('dragend', {bubbles:true, dataTransfer}));
+  return true;
+})()
+""")
+            wait_for(
+                cdp,
+                f"document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')[1]?.dataset.itemId === {json.dumps(dragged_id)}",
+                f"relay {mode} native drag reorder",
+            )
+
+            # 一屏化最核心的那步：点素材芯片，块直接落进上方编排区。
+            # 旧流程是「复制 → 切素材 → 点加入 → 切编排」四步两切换，这里必须验到零切换。
+            cdp.eval("document.querySelector('#relaySourceList .tag-relay-chip-main')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 9",
+                f"relay {mode} source chip adds to plan without switching panes",
+            )
+            added = cdp.eval(
+                "({planChips: document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length,"
+                " sourceStillVisible: (document.querySelector('.tag-relay-zone-source')"
+                "?.getBoundingClientRect().height || 0) > 40})"
+            )
+            if not added["sourceStillVisible"]:
+                raise CheckFailed(f"Relay {mode} hid the source zone after adding: {added}")
+            added["undoToast"] = assert_relay_undo_toast(
+                f"relay {mode} source add undo toast",
+                "已加入方案",
+            )
+            cdp.eval("document.querySelector('#relaySourceList .tag-relay-chip-main')?.click()")
+            settle(cdp, 220)
+            duplicate = cdp.eval(r"""
+(() => {
+  const state = JSON.parse(localStorage.getItem('fadian-tag-relay-v1') || '{}');
+  const active = (state.plans || []).find(item => item.id === state.activePlanId);
+  return {
+    planChips: document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length,
+    storedItems: active?.items?.length ?? -1,
+  };
+})()
+""")
+            if duplicate["planChips"] != 9 or duplicate["storedItems"] != 9:
+                raise CheckFailed(f"Relay {mode} allowed the same source into one plan twice: {duplicate}")
+            added["duplicateStayedAtNine"] = True
+            # 复位也必须走卡内常驻删除键：顶部工具条已经不再承担删除入口。
+            cdp.eval("""
+(() => {
+  const cards = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
+  cards.at(-1)?.querySelector('.tag-relay-plan-card-remove')?.click();
+  return true;
+})()
+""")
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 8",
+                f"relay {mode} restores fixture",
+            )
+
+            # 卡内删除必须立即生效，并给出紧凑、完全落在视口内的撤销 toast；
+            # 撤销不仅恢复数量，还要把原块插回原来的相邻关系，不能悄悄挪到队尾。
+            baseline_ids = relay_plan_ids()
+            if len(baseline_ids) != 8:
+                raise CheckFailed(f"Relay {mode} did not establish an eight-block removal baseline: {baseline_ids}")
+            direct_removed_id = baseline_ids[3]
+            direct_removed_literal = json.dumps(direct_removed_id)
+            cdp.eval(
+                "(() => { const card = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".find(node => node.dataset.itemId === {direct_removed_literal});"
+                " card?.querySelector('.tag-relay-plan-card-remove')?.click(); return Boolean(card); })()"
+            )
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 7"
+                " && ![...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".some(card => card.dataset.itemId === {direct_removed_literal})",
+                f"relay {mode} direct card remove",
+            )
+            direct_toast = assert_relay_undo_toast(f"relay {mode} direct remove undo toast")
+            cdp.eval("document.querySelector('#toast.show .toast-action')?.click()")
+            wait_for_relay_plan_order(baseline_ids, f"relay {mode} direct remove undo restores order")
+
+            # 停靠形态的法典正文是可见落点；抽屉 / sheet 中法典被遮罩覆盖，实际能接到
+            # 指针的是 backdrop。dragover 后不等待任何绘制便立即 drop，并且不得生成提示框 class。
+            drop_target_selector = "#main" if shape == "dock" else "#tagRelayRailBackdrop"
+            drop_source_id = baseline_ids[0]
+            drop_script = r"""
+(() => {
+  const sourceId = __SOURCE_ID__;
+  const targetSelector = __TARGET_SELECTOR__;
+  const source = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]
+    .find(card => card.dataset.itemId === sourceId);
+  const target = document.querySelector(targetSelector);
+  if (!source || !target) return {dispatched:false, sourceId, targetSelector};
+  const sourceMain = source.querySelector('.tag-relay-plan-card-main');
+  if (!sourceMain) return {dispatched:false, sourceId, targetSelector, reason:'missing-main'};
+  const sourceRect = source.getBoundingClientRect();
+  const rect = target.getBoundingClientRect();
+  const dataTransfer = new DataTransfer();
+  sourceMain.dispatchEvent(new DragEvent('dragstart', {
+    bubbles:true,
+    cancelable:true,
+    dataTransfer,
+    clientX:sourceRect.left + Math.max(1, sourceRect.width / 2),
+    clientY:sourceRect.top + Math.max(1, sourceRect.height / 2),
+  }));
+  const init = {
+    bubbles:true,
+    cancelable:true,
+    dataTransfer,
+    clientX:rect.left + Math.max(1, rect.width / 2),
+    clientY:rect.top + Math.max(1, rect.height / 2),
+  };
+  const overPrevented = !target.dispatchEvent(new DragEvent('dragover', init));
+  const visualClassOnDragover = target.classList.contains('is-relay-remove-target');
+  const dropPrevented = !target.dispatchEvent(new DragEvent('drop', init));
+  sourceMain.dispatchEvent(new DragEvent('dragend', {bubbles:true, cancelable:false, dataTransfer}));
+  return {
+    dispatched:true,
+    sourceId,
+    targetSelector,
+    overPrevented,
+    visualClassOnDragover,
+    dropPrevented,
+    hasPlanContext:dataTransfer.types.includes('application/x-relay-plan-context'),
+    visualClassAfterDrop:target.classList.contains('is-relay-remove-target'),
+  };
+})()
+"""
+            drop_result = cdp.eval(
+                drop_script
+                .replace("__SOURCE_ID__", json.dumps(drop_source_id))
+                .replace("__TARGET_SELECTOR__", json.dumps(drop_target_selector))
+            )
+            if (
+                not drop_result.get("dispatched")
+                or not drop_result.get("overPrevented")
+                or not drop_result.get("dropPrevented")
+                or not drop_result.get("hasPlanContext")
+                or drop_result.get("visualClassOnDragover")
+                or drop_result.get("visualClassAfterDrop")
+            ):
+                raise CheckFailed(f"Relay {mode} did not accept its outside removal drop: {drop_result}")
+            drop_source_literal = json.dumps(drop_source_id)
+            wait_for(
+                cdp,
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card').length === 7"
+                " && ![...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')]"
+                f".some(card => card.dataset.itemId === {drop_source_literal})",
+                f"relay {mode} outside drop removes block",
+            )
+            drop_toast = assert_relay_undo_toast(f"relay {mode} outside drop undo toast")
+            cdp.eval("document.querySelector('#toast.show .toast-action')?.click()")
+            wait_for_relay_plan_order(baseline_ids, f"relay {mode} outside drop undo restores order")
+            removal_checks = {
+                "baselineIds": baseline_ids,
+                "directRemovedId": direct_removed_id,
+                "directUndoToast": direct_toast,
+                "dropRemovedId": drop_source_id,
+                "dropTarget": drop_target_selector,
+                "dropDispatch": drop_result,
+                "dropUndoToast": drop_toast,
+            }
+
+            # 点芯片只选中（分区头出工具条），编辑要再点 ✎ —— 排序才是高频操作，
+            # 不该每动一次就被浮层糊屏。
+            cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayBlockTools')?.hidden === false"
+                " && document.querySelector('#relayInspector')?.hidden === true",
+                f"relay {mode} select-only",
+            )
+            cdp.eval("document.querySelector('[data-block-tool=\"edit\"]')?.click()")
+            wait_for(cdp, "document.querySelector('#relayInspector')?.hidden === false", f"relay {mode} inspector")
+            settle(cdp, 120)
+
+            compose = cdp.eval(r"""
+(() => {
+  const rail = document.querySelector('#tagRelayRail');
+  const pane = document.querySelector('#tagRelayPaneCompose');
+  const inspector = document.querySelector('#relayInspector');
+  const output = rail.querySelector('.tag-relay-output');
+  const actions = output.querySelector('.tag-relay-output-actions');
+  const rr = rail.getBoundingClientRect();
+  const pr = pane.getBoundingClientRect();
+  const ir = inspector.getBoundingClientRect();
+  const or = output.getBoundingClientRect();
+  const ar = actions.getBoundingClientRect();
+  return {
+    inspectorPosition: getComputedStyle(inspector).position,
+    actionsVisible: ar.top >= rr.top - 1 && ar.bottom <= rr.bottom + 1,
+    /* 复制的是这个方案：成品必须紧挨编排区，中间不能再隔着素材货架。 */
+    outputAbovePlanShelf: or.top < (rail.querySelector('.tag-relay-zone-source')?.getBoundingClientRect().top ?? Infinity),
+    planZoneStillVisible: pr.height > 20,
+    /* 滑块是 CSS 变量驱动的绝对定位条：量不到宽度就说明它从没被定位过。 */
+    segmentSliderSized: (() => {
+      const slider = rail.querySelector('#relayFormatControl .tag-relay-segment-slider');
+      return Boolean(slider && slider.getBoundingClientRect().width > 8);
+    })(),
+    planCardsDraggable: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(card => (
+      card.draggable === false && card.querySelector('.tag-relay-plan-card-main')?.draggable === true
+    )),
+    directRemoveCount: rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card-remove').length,
+    directRemoveTargetsSized: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card-remove')].every(button => {
+      const rect = button.getBoundingClientRect();
+      return rect.width >= 30 && rect.height >= 30;
+    }),
+    planCardMainsSemantic: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(card => {
+      const main = card.querySelector('.tag-relay-plan-card-main');
+      const remove = card.querySelector('.tag-relay-plan-card-remove');
+      return main?.getAttribute('role') === 'button'
+        && remove?.tagName === 'BUTTON'
+        && remove?.type === 'button';
+    }),
+    planCardsSingleColumn: (() => {
+      const cards = [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
+      if (cards.length < 2) return false;
+      const first = cards[0].getBoundingClientRect();
+      const second = cards[1].getBoundingClientRect();
+      return Math.abs(first.left - second.left) < 2
+        && second.top >= first.bottom - 1
+        && first.width >= rail.querySelector('#relayPlanLane').clientWidth * .9;
+    })(),
+    sourceChipsDraggable: [...rail.querySelectorAll('#relaySourceList .tag-relay-chip')].every(el => el.draggable),
+    panelOverflow: pane.scrollWidth - pane.clientWidth,
+    inspectorWithinRail: ir.left >= rr.left - 1 && ir.right <= rr.right + 1,
+    outputWithinRail: or.left >= rr.left - 1 && or.right <= rr.right + 1,
+    documentOverflow: document.scrollingElement.scrollWidth - document.documentElement.clientWidth,
+    scrollTop: pane.scrollTop,
+    scrollHeight: pane.scrollHeight,
+    clientHeight: pane.clientHeight,
+  };
+})()
+""")
+            # 编辑器现在**必须**是浮层：它是栏的直接子节点，static 会把两个分区和贴底成品一起顶开。
+            if compose["inspectorPosition"] not in ("absolute", "fixed"):
+                raise CheckFailed(f"Relay {mode} inspector must float, not push the zones: {compose}")
+            if not compose["outputAbovePlanShelf"]:
+                raise CheckFailed(f"Relay {mode} output must sit right under the plan, not below the shelf: {compose}")
+            if not compose["actionsVisible"]:
+                raise CheckFailed(f"Relay {mode} copy buttons are not pinned inside the rail: {compose}")
+            if not compose["segmentSliderSized"]:
+                raise CheckFailed(f"Relay {mode} segment slider was never positioned: {compose}")
+            if not compose["planCardsDraggable"] or not compose["sourceChipsDraggable"]:
+                raise CheckFailed(f"Relay {mode} drag entry points are missing: {compose}")
+            if (
+                compose["directRemoveCount"] != 8
+                or not compose["directRemoveTargetsSized"]
+                or not compose["planCardMainsSemantic"]
+            ):
+                raise CheckFailed(f"Relay {mode} direct card remove controls are incomplete: {compose}")
+            if not compose["planCardsSingleColumn"]:
+                raise CheckFailed(f"Relay {mode} plan cards are not full-width single-column bars: {compose}")
+            if not compose["planZoneStillVisible"]:
+                raise CheckFailed(f"Relay {mode} plan zone vanished while editing: {compose}")
+            if (
+                compose["panelOverflow"] > 1
+                or compose["documentOverflow"] > 1
+                or not compose["inspectorWithinRail"]
+                or not compose["outputWithinRail"]
+            ):
+                raise CheckFailed(f"Relay {mode} compose content overflows horizontally: {compose}")
+
+            shots.append(screenshot(cdp, out_dir, f"tag-relay-{mode}"))
+            # Inspector / history 与 rail 外壳的 Escape 监听都挂在 rail；注册顺序若处理错，
+            # stopPropagation 挡不住同节点的早监听，浮层态会一次把编辑器和整栏都关掉。
+            cdp.eval(r"""
+(() => {
+  const target = document.querySelector('#relayInspectorClose');
+  target?.focus();
+  target?.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
+  return true;
+})()
+""")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayInspector')?.hidden === true"
+                " && !document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+                " && document.querySelector('#tagRelayRail')?.getAttribute('aria-hidden') === 'false'",
+                f"relay {mode} Escape closes only inspector",
+            )
+            cdp.eval("document.querySelector('#tagRelayRailClose')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#tagRelayRail')?.classList.contains('closed')"
+                " && document.querySelector('#tagRelayRail')?.inert === true"
+                " && document.querySelector('#tagRelayRail')?.getAttribute('aria-hidden') === 'true'"
+                " && getComputedStyle(document.querySelector('#tagRelayRailBackdrop')).display === 'none'",
+                f"relay {mode} closes inert",
+            )
+            check_no_errors(cdp)
+            details[mode] = {
+                "shell": shell,
+                "compose": compose,
+                "sourceAdd": added,
+                "removal": removal_checks,
+            }
+
+        return {"viewports": details, "screenshots": shots}
+
     def announcements_panel():
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
@@ -1877,6 +2628,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
     checks = [
         ("desktop home renders", desktop_load),
+        ("Tag relay responsive layout", tag_relay_responsive),
         ("announcements render", announcements_panel),
         ("feedback panel responsive", feedback_panel_responsive),
         ("NEW update filter", new_update_filter),

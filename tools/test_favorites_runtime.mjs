@@ -10,12 +10,17 @@ const state = {
 };
 const lookupSources = [];
 const lookupArguments = [];
-globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments };
+const emittedChanges = [];
+globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments, emittedChanges };
 
 const coreImport = /import \{\s*ATLAS_FAVORITES_STORAGE_KEY,\s*atlasFavoriteStorageKeys,\s*createCodexLookup,\s*\} from '\.\/favorites-backup-core\.js';/;
 const favoritesSource = (await readFile(favoritesUrl, 'utf8'))
   .replace("import { state } from './state.js';", 'const state = globalThis.__favoritesRuntimeTest.state;')
   .replace("import { toast } from './feedback.js';", 'const toast = () => {};')
+  .replace(
+    "import { emitFavoritesChanged } from './favorites-backup.js';",
+    'const emitFavoritesChanged = (scopes, reason) => globalThis.__favoritesRuntimeTest.emittedChanges.push({ scopes, reason });',
+  )
   .replace(
     "import { findCodexMeta } from './data.js';",
     'const findCodexMeta = id => state.codexes.find(codex => codex.id === id || (codex.aliases || []).includes(id));',
@@ -78,6 +83,7 @@ assert.equal(lookupArguments.at(-1).source, reloadedCodexes);
   globalThis.localStorage = { setItem() {} };
 
   favorites.toggleFav(entry, lightboxButton, { deferViewRefresh: true });
+  assert.deepEqual(emittedChanges.pop(), { scopes: ['atlas'], reason: 'toggle' });
   assert.equal(favorites.isFav(entry), false);
   assert.equal(refreshes, 0);
   assert.equal(lightboxButton.getAttribute('aria-pressed'), 'false');
