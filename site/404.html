@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>页面走丢了 · 法典图鉴</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<meta name="theme-color" content="#6f5cf2">
+<script>
+/* 主题早应用：与法典图鉴共用 fadian-dark / fadian-theme 两个键。
+   类挂在 <html> 而不是 <body>，这段在 body 存在之前就跑得完，不会闪一下白底。
+   ⚠ 这张页会被投递到任意深度的路径（/a/b/c/nope 也走它），所以页内所有引用
+   必须是绝对路径；写成相对路径会再打空一次、再被换回这张页——正是它要终结的那种空转。 */
+(function(){try{
+  var d=localStorage.getItem('fadian-dark')==='1';
+  var t=localStorage.getItem('fadian-theme');
+  var c=[];
+  if(d)c.push('dark');
+  if(t==='teal'||t==='sakura'||t==='amber')c.push('theme-'+t);
+  document.documentElement.style.colorScheme=d?'dark':'light';
+  if(c.length)document.documentElement.className=c.join(' ');
+}catch(e){}})();
+</script>
+<style>
+/* 自带一份最小 token，不外链 tokens.css：兜底页得在别的东西都坏掉时还能自己站住。
+   取值与 assets/tokens.css 同源，只留这张页真正用到的几个。 */
+:root{
+  --bg:#eef0f6;--panel:#ffffff;--text:#232a3c;--muted:#878da3;--line:#e2e5f0;
+  --accent:#6f5cf2;--accent-soft:#ece9fe;--tagbg:#f3f4fa;
+  --shadow:0 1px 3px rgba(28,32,58,.08),0 6px 18px rgba(28,32,58,.05);
+  --font:"Outfit","PingFang SC","Microsoft YaHei",-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono","PingFang SC","Microsoft YaHei",Menlo,Consolas,monospace;
+}
+.dark{
+  --bg:#0b0d13;--panel:#12141d;--text:#e8eaf3;--muted:#8a91a6;--line:#242a3a;
+  --accent:#8b7cf8;--accent-soft:#262050;--tagbg:#1b202e;
+  --shadow:0 1px 3px rgba(0,0,0,.45);
+}
+.theme-teal{--accent:#0fa173;--accent-soft:#dff4ea}
+.theme-teal.dark{--accent:#2ecb86;--accent-soft:#14352a}
+.theme-sakura{--accent:#e0577f;--accent-soft:#fce8ee}
+.theme-sakura.dark{--accent:#f08fb0;--accent-soft:#3d2230}
+.theme-amber{--accent:#a87f2f;--accent-soft:#f1e7cd}
+.theme-amber.dark{--accent:#d2a651;--accent-soft:#332a1a}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;display:flex;align-items:center;justify-content:center;padding:24px;
+  background:var(--bg);color:var(--text);font-family:var(--font);
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{width:100%;max-width:440px;text-align:center}
+.mark{
+  font-size:clamp(76px,20vw,116px);font-weight:800;line-height:1;letter-spacing:-.04em;
+  color:var(--accent);opacity:.16;user-select:none;
+}
+h1{margin:-.36em 0 0;font-size:23px;font-weight:700;letter-spacing:-.01em}
+p{margin:12px 0 0;font-size:14.5px;line-height:1.75;color:var(--muted)}
+.path{
+  margin:20px 0 0;padding:11px 14px;border:1px solid var(--line);border-radius:11px;
+  background:var(--panel);box-shadow:var(--shadow);
+  font-family:var(--mono);font-size:12.5px;color:var(--muted);
+  word-break:break-all;text-align:left;
+}
+.acts{margin:26px 0 0;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+a.btn{
+  display:inline-flex;align-items:center;gap:7px;padding:10px 20px;border-radius:11px;
+  font-size:14.5px;font-weight:600;text-decoration:none;border:1px solid transparent;
+  transition:transform .16s ease,box-shadow .16s ease,background .16s ease;
+}
+a.primary{background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+a.ghost{background:var(--tagbg);color:var(--text);border-color:var(--line)}
+a.btn:hover{transform:translateY(-1px)}
+a.primary:hover{box-shadow:0 6px 18px var(--accent-soft)}
+a.ghost:hover{background:var(--accent-soft)}
+a.btn:active{transform:translateY(0)}
+@media (prefers-reduced-motion:reduce){a.btn{transition:none}a.btn:hover{transform:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mark">404</div>
+  <h1>这一页走丢了</h1>
+  <p>地址可能拼错了，或者这个页面已经搬去了别处。<br>法典的内容都在首页里，从那儿找得回来。</p>
+  <div class="path" id="p"></div>
+  <div class="acts">
+    <a class="btn primary" href="/">回法典图鉴</a>
+    <a class="btn ghost" href="/strings">去词条串</a>
+  </div>
+</div>
+<script>
+/* 用 textContent 落字，不碰 innerHTML：路径是用户可控输入 */
+(function(){try{
+  document.getElementById('p').textContent=location.pathname+location.search;
+}catch(e){}})();
+</script>
+</body>
+</html>
