@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Serve a local, resumable two-candidate review UI for a NAI batch.
+"""Serve a local, resumable candidate review UI for a NAI batch.
 
 The server binds to ``127.0.0.1`` by default.  It reads ``plan.json`` and the
 generation ``manifest.json`` from a staging batch, serves candidate images, and
 atomically saves choices to ``selections.json``.  Every entry defaults to image
-1; reviewing an entry records whether the default was accepted or image 2 was
-chosen.  This tool never changes formal codex data or image directories.
+1 and may contain between one and eight candidates.  This tool never changes
+formal codex data or image directories.
 """
 
 from __future__ import annotations
@@ -77,26 +77,58 @@ class ReviewState:
             raise ValueError("plan contains duplicate entry IDs")
         if int(self.plan.get("entryCount", -1)) != len(self.entries):
             raise ValueError("plan entryCount does not match entries")
-        if int(self.plan.get("nSamples", 0)) != 2:
-            raise ValueError("review UI requires exactly two candidates per entry")
+        self.candidate_count = int(self.plan.get("nSamples", 0))
+        if not 1 <= self.candidate_count <= 8:
+            raise ValueError("review UI requires between one and eight candidates")
+        self.candidate_count_by_id = {}
+        for entry in self.entries:
+            entry_id = str(entry["id"])
+            count = int(entry.get("candidateCount") or self.candidate_count)
+            if not 1 <= count <= self.candidate_count:
+                raise ValueError(f"invalid candidate count for {entry_id}: {count}")
+            self.candidate_count_by_id[entry_id] = count
         self._initialize_selections()
 
     def _selection_header(self) -> dict[str, Any]:
-        return {
+        header = {
             "templateSha256": self.plan.get("templateSha256"),
             "codexSha256": self.plan.get("codexSha256"),
             "entryCount": len(self.entries),
         }
+        if self.plan.get("templates"):
+            header["templateImages"] = [
+                template.get("imageSha256")
+                for template in self.plan.get("templates") or []
+            ]
+            header["nSamples"] = self.candidate_count
+        return header
 
     def _initialize_selections(self) -> None:
         with WRITE_LOCK:
+            changed = False
             if self.selections_path.exists():
                 document = load_json(self.selections_path)
                 expected_header = self._selection_header()
                 if document.get("plan") != expected_header:
-                    raise ValueError(
-                        "selections.json belongs to a different batch plan"
+                    saved_header = document.get("plan") or {}
+                    saved_templates = saved_header.get("templateImages") or []
+                    expected_templates = expected_header.get("templateImages") or []
+                    is_style_extension = (
+                        saved_header.get("codexSha256")
+                        == expected_header.get("codexSha256")
+                        and saved_header.get("entryCount")
+                        == expected_header.get("entryCount")
+                        and bool(saved_templates)
+                        and expected_templates[: len(saved_templates)] == saved_templates
+                        and int(saved_header.get("nSamples") or 0)
+                        <= int(expected_header.get("nSamples") or 0)
                     )
+                    if not is_style_extension:
+                        raise ValueError(
+                            "selections.json belongs to a different batch plan"
+                        )
+                    document["plan"] = expected_header
+                    changed = True
                 selections = document.setdefault("selections", {})
             else:
                 stamp = now_iso()
@@ -109,20 +141,22 @@ class ReviewState:
                 }
                 selections = document["selections"]
 
-            changed = False
             for entry_id in self.entry_by_id:
                 if entry_id not in selections:
                     selections[entry_id] = {
                         "choice": 1,
                         "reviewed": False,
+                        "rerun": False,
                         "updatedAt": None,
                     }
                     changed = True
                     continue
                 selection = selections[entry_id]
-                if selection.get("choice") not in {1, 2}:
+                candidate_count = self.candidate_count_by_id[entry_id]
+                if selection.get("choice") not in range(1, candidate_count + 1):
                     raise ValueError(f"invalid saved choice for {entry_id}")
                 selection["reviewed"] = bool(selection.get("reviewed", False))
+                selection["rerun"] = bool(selection.get("rerun", False))
             unknown = set(selections) - set(self.entry_by_id)
             if unknown:
                 raise ValueError(
@@ -163,16 +197,19 @@ class ReviewState:
         review_status = 0
         failed = 0
         reviewed = 0
-        choice_two = 0
+        rerun = 0
+        choice_counts = [0] * self.candidate_count
 
         for entry in self.entries:
             entry_id = str(entry["id"])
+            candidate_count = self.candidate_count_by_id[entry_id]
             result = self._result_for(entry_id, manifest)
             status = str((result or {}).get("status") or "pending")
             raw_images = list((result or {}).get("images") or [])
             images: list[dict[str, Any]] = []
             entry_dir = self.batch_dir / "entries" / entry_id
-            for index, raw_image in enumerate(raw_images, 1):
+            for fallback_index, raw_image in enumerate(raw_images, 1):
+                index = int(raw_image.get("styleIndex") or fallback_index)
                 filename = Path(str(raw_image.get("file", ""))).name
                 path = entry_dir / filename
                 if not filename or not path.is_file():
@@ -187,11 +224,15 @@ class ReviewState:
                         "bytes": raw_image.get("bytes"),
                         "sha256": raw_image.get("sha256"),
                         "issues": raw_image.get("issues") or [],
+                        "styleName": raw_image.get("styleName"),
                     }
                 )
+            images.sort(key=lambda image: image["index"])
             ready = (
                 status in {"verified", "review"}
-                and len(images) == int(self.plan["nSamples"])
+                and len(images) == candidate_count
+                and {image["index"] for image in images}
+                == set(range(1, candidate_count + 1))
             )
             if ready:
                 generated_entries += 1
@@ -205,10 +246,13 @@ class ReviewState:
 
             selection = selections[entry_id]
             is_reviewed = bool(selection.get("reviewed")) and ready
+            is_rerun = bool(selection.get("rerun")) and ready
             if is_reviewed:
                 reviewed += 1
-            if int(selection.get("choice", 1)) == 2:
-                choice_two += 1
+            if is_rerun:
+                rerun += 1
+            choice = int(selection.get("choice", 1))
+            choice_counts[choice - 1] += 1
             records.append(
                 {
                     "id": entry_id,
@@ -217,6 +261,7 @@ class ReviewState:
                     "tags": entry.get("tags") or "",
                     "status": status,
                     "ready": ready,
+                    "candidateCount": candidate_count,
                     "seed": (result or {}).get("seed"),
                     "attempts": len((result or {}).get("attempts") or []),
                     "error": (result or {}).get("error"),
@@ -224,6 +269,7 @@ class ReviewState:
                     "selection": {
                         "choice": int(selection.get("choice", 1)),
                         "reviewed": is_reviewed,
+                        "rerun": is_rerun,
                         "updatedAt": selection.get("updatedAt"),
                     },
                 }
@@ -236,11 +282,15 @@ class ReviewState:
                 "createdAt": self.plan.get("createdAt"),
                 "templateSource": self.plan.get("templateSource"),
                 "nSamples": self.plan.get("nSamples"),
+                "minimumCandidates": min(self.candidate_count_by_id.values()),
+                "maximumCandidates": max(self.candidate_count_by_id.values()),
             },
             "counts": {
                 "total": total,
                 "candidateImages": int(
-                    self.plan.get("candidateImageCount", total * 2)
+                    self.plan.get(
+                        "candidateImageCount", total * self.candidate_count
+                    )
                 ),
                 "generatedEntries": generated_entries,
                 "generatedImages": generated_images,
@@ -249,9 +299,11 @@ class ReviewState:
                 "failed": failed,
                 "pending": total - generated_entries - failed,
                 "reviewed": reviewed,
+                "rerun": rerun,
                 "remainingReview": max(0, generated_entries - reviewed),
-                "choiceOne": total - choice_two,
-                "choiceTwo": choice_two,
+                "choiceOne": choice_counts[0],
+                "choiceTwo": choice_counts[1] if self.candidate_count >= 2 else 0,
+                "choiceCounts": choice_counts,
             },
             "selectionUpdatedAt": selection_document.get("updatedAt"),
             "entries": records,
@@ -260,15 +312,18 @@ class ReviewState:
     def select(self, entry_id: str, choice: int) -> dict[str, Any]:
         if entry_id not in self.entry_by_id:
             raise ValueError(f"unknown entry: {entry_id}")
-        if choice not in {1, 2}:
-            raise ValueError("choice must be 1 or 2")
+        candidate_count = self.candidate_count_by_id[entry_id]
+        if choice not in range(1, candidate_count + 1):
+            raise ValueError(f"choice must be between 1 and {candidate_count}")
         manifest = self._manifest()
         result = self._result_for(entry_id, manifest)
         if not result or result.get("status") not in {"verified", "review"}:
             raise ValueError("entry has no reviewable generation result")
         images = result.get("images") or []
-        if len(images) != 2:
-            raise ValueError("entry does not have exactly two candidate images")
+        if len(images) != candidate_count:
+            raise ValueError(
+                f"entry does not have exactly {candidate_count} candidate images"
+            )
 
         with WRITE_LOCK:
             document = self._selections()
@@ -276,6 +331,8 @@ class ReviewState:
             document["selections"][entry_id] = {
                 "choice": choice,
                 "reviewed": True,
+                "rerun": False,
+                "decision": "select",
                 "updatedAt": stamp,
             }
             document["updatedAt"] = stamp
@@ -284,6 +341,42 @@ class ReviewState:
             "id": entry_id,
             "choice": choice,
             "reviewed": True,
+            "rerun": False,
+            "updatedAt": stamp,
+        }
+
+    def reject_all(self, entry_id: str) -> dict[str, Any]:
+        if entry_id not in self.entry_by_id:
+            raise ValueError(f"unknown entry: {entry_id}")
+        manifest = self._manifest()
+        result = self._result_for(entry_id, manifest)
+        if not result or result.get("status") not in {"verified", "review"}:
+            raise ValueError("entry has no reviewable generation result")
+        images = result.get("images") or []
+        candidate_count = self.candidate_count_by_id[entry_id]
+        if len(images) != candidate_count:
+            raise ValueError(
+                f"entry does not have exactly {candidate_count} candidate images"
+            )
+
+        with WRITE_LOCK:
+            document = self._selections()
+            stamp = now_iso()
+            previous = document["selections"][entry_id]
+            document["selections"][entry_id] = {
+                "choice": int(previous.get("choice", 1)),
+                "reviewed": True,
+                "rerun": True,
+                "decision": "rerun",
+                "updatedAt": stamp,
+            }
+            document["updatedAt"] = stamp
+            write_json_atomic(self.selections_path, document)
+        return {
+            "id": entry_id,
+            "choice": int(previous.get("choice", 1)),
+            "reviewed": True,
+            "rerun": True,
             "updatedAt": stamp,
         }
 
@@ -390,7 +483,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path != "/api/select":
+        if path not in {"/api/select", "/api/reject"}:
             self._error(HTTPStatus.NOT_FOUND, "not found")
             return
         try:
@@ -400,8 +493,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 raise ValueError("invalid request size")
             body = json.loads(self.rfile.read(length))
             entry_id = str(body.get("id", ""))
-            choice = int(body.get("choice", 0))
-            selection = self.server.review_state.select(entry_id, choice)
+            if path == "/api/select":
+                choice = int(body.get("choice", 0))
+                selection = self.server.review_state.select(entry_id, choice)
+            else:
+                selection = self.server.review_state.reject_all(entry_id)
             self._send_json({"selection": selection})
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
@@ -592,10 +688,13 @@ REVIEW_HTML = r"""<!doctype html>
       padding: 6px 9px; border-radius: 9px; background: rgba(10,12,18,.78);
       backdrop-filter: blur(8px); font-weight: 700; font-size: 12px;
     }
+    .candidate-badge {
+      max-width: 78%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .chosen { display: none; color: var(--accent-2); }
     .selected .chosen { display: block; }
     .image-frame {
-      display: grid; place-items: center; min-height: 360px;
+      position: relative; display: block; overflow: hidden; min-height: 360px;
       height: min(66vh, 720px); background:
         linear-gradient(45deg, #171b26 25%, transparent 25%) 0 0/22px 22px,
         linear-gradient(-45deg, #171b26 25%, transparent 25%) 0 11px/22px 22px,
@@ -603,7 +702,14 @@ REVIEW_HTML = r"""<!doctype html>
         linear-gradient(-45deg, transparent 75%, #171b26 75%) -11px 0/22px 22px,
         #131722;
     }
-    .image-frame img { width: 100%; height: 100%; object-fit: contain; }
+    .image-frame img {
+      position: absolute; inset: 0; display: block;
+      width: 100%; height: 100%; min-width: 0; min-height: 0;
+      max-width: 100%; max-height: 100%; object-fit: contain;
+    }
+    .image-frame > .placeholder {
+      position: absolute; inset: 0; display: grid; place-content: center;
+    }
     .placeholder { color: var(--muted); text-align: center; padding: 30px; }
     .placeholder b { display: block; color: var(--text); margin-bottom: 5px; }
     .candidate-foot {
@@ -626,6 +732,7 @@ REVIEW_HTML = r"""<!doctype html>
     }
     .btn:hover:not(:disabled) { border-color: #5e6882; }
     .btn.primary { border-color: transparent; background: linear-gradient(135deg, var(--accent), #6658d7); }
+    .btn.danger { color: #ffd7dd; border-color: rgba(255,114,133,.45); background: rgba(255,114,133,.1); }
     .btn:disabled { opacity: .42; cursor: not-allowed; }
     details {
       max-width: 1320px; margin: 15px auto 0;
@@ -695,6 +802,7 @@ REVIEW_HTML = r"""<!doctype html>
         <div class="filters">
           <button class="filter active" data-filter="unreviewed">未复核</button>
           <button class="filter" data-filter="all">全部</button>
+          <button class="filter" data-filter="rerun">已舍弃</button>
           <button class="filter" data-filter="problem">未出图</button>
         </div>
         <div class="entry-list" id="entryList"></div>
@@ -718,6 +826,7 @@ REVIEW_HTML = r"""<!doctype html>
             <button class="btn" id="next">下一条 →</button>
           </div>
           <div class="controls-group">
+            <button class="btn danger" id="reject">全部舍弃，稍后处理 <span class="kbd">X</span></button>
             <button class="btn primary" id="accept">保留当前并下一条 <span class="kbd">Enter</span></button>
           </div>
         </div>
@@ -757,6 +866,7 @@ REVIEW_HTML = r"""<!doctype html>
       return state.entries.filter((entry) => {
         if (filter === "unreviewed" && (!entry.ready || entry.selection.reviewed)) return false;
         if (filter === "problem" && entry.ready) return false;
+        if (filter === "rerun" && !entry.selection.rerun) return false;
         if (!needle) return true;
         return [
           entry.id, entry.title, (entry.path || []).join(" / "), entry.tags
@@ -781,16 +891,27 @@ REVIEW_HTML = r"""<!doctype html>
       const counts = state.counts;
       const denominator = counts.generatedEntries || counts.total;
       const percent = denominator ? Math.min(100, counts.reviewed / denominator * 100) : 0;
+      const candidateTotal = Number(state.batch.nSamples) || 2;
+      document.title = `所长法典 · ${candidateTotal} 图审核`;
+      document.querySelector(".brand-mark").textContent = candidateTotal === 4 ? "四" : candidateTotal === 6 ? "六" : "选";
+      const minimum = Number(state.batch.minimumCandidates) || candidateTotal;
+      document.querySelector(".brand p").textContent = minimum === candidateTotal
+        ? `每条 ${candidateTotal} 张，每种画风一张`
+        : `已完成旧条 ${minimum} 张，其余 ${candidateTotal} 张`;
       $("#reviewProgress").textContent = `${counts.reviewed} / ${counts.generatedEntries}`;
       $("#generateProgress").textContent = `已出图 ${counts.generatedEntries} / ${counts.total}`;
       $("#progressBar").style.width = `${percent}%`;
       $("#candidateCount").textContent = `${counts.generatedImages}/${counts.candidateImages}`;
-      $("#choiceTwoCount").textContent = counts.choiceTwo;
-      $("#failedCount").textContent = counts.failed;
+      $("#choiceTwoCount").textContent = (counts.choiceCounts || [counts.choiceOne, counts.choiceTwo])
+        .map((count, index) => `${index + 1}:${count}`).join(" · ");
+      $("#choiceTwoCount").nextElementSibling.textContent = "选择分布";
+      $("#failedCount").textContent = `${counts.failed}/${counts.rerun || 0}`;
+      $("#failedCount").nextElementSibling.textContent = "失败/舍弃";
     }
 
     function rowState(entry) {
       if (entry.status === "failed") return "failed";
+      if (entry.selection.rerun) return "failed";
       if (entry.selection.reviewed) return "reviewed";
       if (entry.ready) return "ready";
       return "";
@@ -818,6 +939,7 @@ REVIEW_HTML = r"""<!doctype html>
     }
 
     function statusInfo(entry) {
+      if (entry.ready && entry.selection.rerun) return ["已全部舍弃", "bad"];
       if (entry.ready && entry.selection.reviewed) return ["已复核", "good"];
       if (entry.ready) return ["待选择", "good"];
       if (entry.status === "failed") return ["生成失败", "bad"];
@@ -826,16 +948,17 @@ REVIEW_HTML = r"""<!doctype html>
     }
 
     function imageCard(entry, index) {
-      const image = entry.images[index - 1];
+      const image = entry.images.find((candidate) => candidate.index === index);
       const selected = entry.selection.choice === index;
       const classes = ["candidate", selected ? "selected" : "", entry.selection.reviewed ? "reviewed" : ""].join(" ");
+      const styleLabel = image?.styleName ? ` · ${image.styleName}` : "";
       const content = image
         ? `<img src="${esc(image.url)}" alt="${esc(entry.title)} 候选图 ${index}">`
         : `<div class="placeholder"><b>候选图 ${index} 尚未生成</b>页面会自动刷新生成进度。</div>`;
       const issueText = image?.issues?.length ? `${image.issues.length} 项元数据问题` : "元数据通过";
       return `<article class="${classes}" data-choice="${index}">
         <div class="candidate-top">
-          <span class="candidate-badge">候选图 ${index}</span>
+          <span class="candidate-badge" title="${esc(image?.styleName || "")}">图 ${index}${esc(styleLabel)}</span>
           <span class="chosen">当前选择 ✓</span>
         </div>
         <div class="image-frame">${content}</div>
@@ -856,11 +979,16 @@ REVIEW_HTML = r"""<!doctype html>
       const [statusText, statusClass] = statusInfo(entry);
       $("#statusPill").textContent = statusText;
       $("#statusPill").className = `pill ${statusClass}`;
-      $("#compare").innerHTML = imageCard(entry, 1) + imageCard(entry, 2);
+      const candidateTotal = Number(entry.candidateCount) || Number(state.batch.nSamples) || 2;
+      $("#compare").innerHTML = Array.from(
+        {length: candidateTotal},
+        (_, index) => imageCard(entry, index + 1)
+      ).join("");
       document.querySelectorAll(".candidate").forEach((card) => {
         card.addEventListener("click", () => choose(Number(card.dataset.choice)));
       });
       $("#accept").disabled = !entry.ready;
+      $("#reject").disabled = !entry.ready;
       $("#previous").disabled = state.entries.indexOf(entry) === 0;
       $("#next").disabled = state.entries.indexOf(entry) === state.entries.length - 1;
     }
@@ -880,10 +1008,11 @@ REVIEW_HTML = r"""<!doctype html>
         state = await response.json();
         ensureCurrent();
         render();
-        if (state.counts.generatedEntries < state.counts.total && !refreshTimer) {
+        const terminalEntries = state.counts.generatedEntries + state.counts.failed;
+        if (terminalEntries < state.counts.total && !refreshTimer) {
           refreshTimer = setInterval(() => fetchState(true), 5000);
         }
-        if (state.counts.generatedEntries >= state.counts.total && refreshTimer) {
+        if (terminalEntries >= state.counts.total && refreshTimer) {
           clearInterval(refreshTimer);
           refreshTimer = null;
         }
@@ -920,7 +1049,7 @@ REVIEW_HTML = r"""<!doctype html>
     async function choose(choice) {
       const entry = currentEntry();
       if (!entry?.ready) {
-        notify("这个词条还没有两张可选图片", true);
+        notify(`这个词条还没有 ${entry?.candidateCount || state.batch.nSamples} 张可选图片`, true);
         return;
       }
       try {
@@ -940,12 +1069,36 @@ REVIEW_HTML = r"""<!doctype html>
       }
     }
 
+    async function rejectAll() {
+      const entry = currentEntry();
+      if (!entry?.ready) {
+        notify(`这个词条还没有 ${entry?.candidateCount || state.batch.nSamples} 张可选图片`, true);
+        return;
+      }
+      try {
+        const response = await fetch("/api/reject", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({id: entry.id})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        entry.selection = data.selection;
+        notify(`已全部舍弃：${entry.title}`);
+        moveToNextUnreviewed(entry.id);
+        render();
+      } catch (error) {
+        notify(`保存失败：${error.message}`, true);
+      }
+    }
+
     $("#previous").addEventListener("click", () => move(-1));
     $("#next").addEventListener("click", () => move(1));
     $("#accept").addEventListener("click", () => {
       const entry = currentEntry();
       if (entry) choose(entry.selection.choice || 1);
     });
+    $("#reject").addEventListener("click", rejectAll);
     $("#search").addEventListener("input", (event) => {
       query = event.target.value;
       renderList();
@@ -959,7 +1112,13 @@ REVIEW_HTML = r"""<!doctype html>
     });
     document.addEventListener("keydown", (event) => {
       if (event.target.matches("input, textarea")) return;
-      if (event.key === "1" || event.key === "2") choose(Number(event.key));
+      const numericChoice = Number(event.key);
+      if (Number.isInteger(numericChoice)
+          && numericChoice >= 1
+          && numericChoice <= Number(currentEntry()?.candidateCount || state?.batch?.nSamples || 2)) {
+        choose(numericChoice);
+      }
+      if (event.key.toLowerCase() === "x") rejectAll();
       if (event.key === "Enter") {
         const entry = currentEntry();
         if (entry) choose(entry.selection.choice || 1);

@@ -18,23 +18,47 @@
   .progress{margin-left:auto;font-weight:700}.progress b{color:var(--accent)}
   .bar{height:6px;border-radius:6px;background:var(--line);width:160px;overflow:hidden}
   .bar>i{display:block;height:100%;background:var(--accent);width:0}
-  main{max-width:920px;margin:0 auto;padding:18px}
+  main{max-width:1040px;margin:0 auto;padding:18px}
   .hint{color:var(--muted);margin:0 0 14px}
-  .row{display:flex;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;align-items:flex-start}
+  .row{display:grid;grid-template-columns:140px minmax(0,1fr);gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;align-items:stretch}
   .row.done{border-color:var(--accent);background:var(--accent2)}
-  .zone{flex:none;width:124px;height:158px;border-radius:10px;border:2px dashed var(--line);background:var(--zone);
+  .zone{width:140px;height:176px;border-radius:10px;border:2px dashed var(--line);background:var(--zone);
     display:grid;place-items:center;text-align:center;color:var(--muted);font-size:12px;cursor:pointer;overflow:hidden;position:relative;transition:.12s}
   .zone:hover{border-color:var(--accent);color:var(--accent)}
   .zone.drag{border-color:var(--accent);background:var(--accent2)}
   .zone img{width:100%;height:100%;object-fit:cover}
   .zone .badge{position:absolute;top:6px;right:6px;background:var(--accent);color:#fff;border-radius:6px;font-size:11px;padding:1px 6px;font-weight:700}
-  .meta{min-width:0;flex:1}
-  .meta h3{margin:2px 0 4px;font-size:15px}
+  .meta{min-width:0;display:flex;flex-direction:column;gap:8px}
+  .meta-head{display:flex;align-items:center;gap:12px;min-width:0}
+  .meta h3{min-width:0;flex:1;margin:2px 0;font-size:15px}
   .eid{color:var(--muted);font-size:11px;font-weight:400;margin-left:6px}
-  .tags{color:var(--muted);font-size:12px;background:var(--zone);border-radius:8px;padding:8px 10px;max-height:6.4em;overflow:hidden;white-space:pre-wrap;word-break:break-word}
-  .path{color:var(--muted);font-size:11px;margin-top:6px}
+  .copy-tag{flex:none;border:0;border-radius:9px;background:var(--accent);color:#fff;padding:8px 13px;font-family:inherit;font-size:12px;font-weight:700;line-height:1.2;cursor:pointer;transition:.12s;box-shadow:0 2px 8px rgba(21,160,106,.18)}
+  .copy-tag:hover{filter:brightness(.94);transform:translateY(-1px)}
+  .copy-tag:active{transform:translateY(0)}
+  .copy-tag:focus-visible,.tags:focus-visible{outline:3px solid rgba(21,160,106,.28);outline-offset:2px}
+  .copy-tag[disabled]{background:var(--line);color:var(--muted);box-shadow:none;cursor:not-allowed;transform:none}
+  .tags{width:100%;min-height:88px;flex:1;border:1px solid transparent;color:#586170;font-family:inherit;font-size:12px;line-height:1.6;background:var(--zone);border-radius:9px;padding:10px 12px;max-height:8.4em;overflow:auto;text-align:left;white-space:pre-wrap;word-break:break-word;cursor:pointer;transition:.12s}
+  .tags:hover{border-color:var(--accent);background:#eef9f4;color:var(--text)}
+  .tags.copied{border-color:var(--accent);background:var(--accent2);color:var(--accent)}
+  .tags[disabled]{cursor:default;color:var(--muted)}
+  .tags[disabled]:hover{border-color:transparent;background:var(--zone);color:var(--muted)}
+  .path{color:var(--muted);font-size:11px}
   .empty{color:var(--muted);text-align:center;padding:50px}
   .uploading{position:absolute;inset:0;background:rgba(255,255,255,.7);display:grid;place-items:center;color:var(--accent);font-weight:700}
+  .toast{position:fixed;left:50%;bottom:24px;z-index:10;translate:-50% 12px;padding:9px 14px;border-radius:999px;background:#1f2329;color:#fff;font-size:12px;font-weight:700;opacity:0;pointer-events:none;transition:.18s}
+  .toast.show{opacity:1;translate:-50% 0}
+  @media (max-width:640px){
+    header{padding:10px 12px;gap:9px}
+    input[type=search]{order:4;width:100%}
+    .progress{margin-left:0}.bar{width:120px}
+    main{padding:12px 9px}
+    .row{grid-template-columns:104px minmax(0,1fr);gap:9px;padding:9px}
+    .zone{width:104px;height:132px}
+    .meta-head{align-items:stretch;flex-direction:column;gap:6px}
+    .copy-tag{width:100%;padding:8px}
+    .tags{min-height:76px;max-height:9.6em}
+    .eid{display:block;margin:2px 0 0}
+  }
 </style>
 </head>
 <body>
@@ -48,11 +72,12 @@
   </div>
 </header>
 <main>
-  <p class="hint">把图片<b>拖到左侧方块</b>或点击选择。系统会自动压缩并命名入库，画廊刷新即生效。一次一张，可连续配。</p>
+  <p class="hint">左侧拖图或点击上传，右侧点击 <b>一键复制 Tag</b>。系统会自动压缩并命名入库，画廊刷新即生效。</p>
   <div id="list"></div>
   <div id="sentinel" style="height:1px"></div>
   <div id="empty" class="empty" hidden>这个范围里没有待配图的词条 🎉</div>
 </main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
 const $=(s,r=document)=>r.querySelector(s);
@@ -125,10 +150,46 @@ function makeRow(e){
     const f=[...ev.dataTransfer.files].find(f=>f.type.startsWith('image/')); if(f) upload(e,row,zone,f);};
   zone.appendChild(input);
   const meta=document.createElement('div'); meta.className='meta';
-  meta.innerHTML=`<h3>${esc(e.title)}<span class="eid">${e.id}</span></h3>`+
-    `<div class="tags">${esc(e.tags||'')}</div><div class="path">${esc((e.path||[]).join(' › '))}</div>`;
+  const head=document.createElement('div'); head.className='meta-head';
+  head.innerHTML=`<h3>${esc(e.title)}<span class="eid">${esc(e.id)}</span></h3>`;
+  const tagText=String(e.tags||'').trim();
+  const copyBtn=document.createElement('button'); copyBtn.type='button'; copyBtn.className='copy-tag';
+  copyBtn.textContent=tagText?'一键复制 Tag':'暂无 Tag'; copyBtn.disabled=!tagText;
+  const tags=document.createElement('button'); tags.type='button'; tags.className='tags';
+  tags.textContent=tagText||'（此词条暂无 Tag）'; tags.disabled=!tagText;
+  tags.title=tagText?'点击复制完整 Tag':'';
+  const copy=()=>copyTags(tagText,copyBtn,tags);
+  copyBtn.onclick=copy; tags.onclick=copy;
+  const path=document.createElement('div'); path.className='path';
+  path.textContent=(e.path||[]).join(' › ');
+  head.appendChild(copyBtn);
+  meta.append(head,tags,path);
   row.append(zone,meta);
   return row;
+}
+async function copyTags(value,button,tags){
+  const text=String(value||'').trim();
+  if(!text) return;
+  try{
+    if(navigator.clipboard&&window.isSecureContext) await navigator.clipboard.writeText(text);
+    else fallbackCopy(text);
+    clearTimeout(button._copyTimer);
+    button.textContent='已复制 ✓'; tags.classList.add('copied'); showToast('Tag 已复制');
+    button._copyTimer=setTimeout(()=>{button.textContent='一键复制 Tag';tags.classList.remove('copied');},1200);
+  }catch(err){
+    showToast('复制失败，请手动选择 Tag');
+  }
+}
+function fallbackCopy(text){
+  const area=document.createElement('textarea');
+  area.value=text; area.readOnly=true; area.style.position='fixed'; area.style.opacity='0';
+  document.body.appendChild(area); area.select();
+  const ok=document.execCommand('copy'); area.remove();
+  if(!ok) throw new Error('copy failed');
+}
+function showToast(message){
+  const toast=$('#toast'); toast.textContent=message; toast.classList.add('show');
+  clearTimeout(toast._timer); toast._timer=setTimeout(()=>toast.classList.remove('show'),1400);
 }
 function upload(e,row,zone,file){
   const busy=document.createElement('div'); busy.className='uploading'; busy.textContent='上传中…'; zone.appendChild(busy);

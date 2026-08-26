@@ -9,10 +9,12 @@ this tool never modifies formal codex JSON or image directories.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.client
 import io
 import json
 import os
+import re
 import secrets
 import socket
 import sys
@@ -30,6 +32,18 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CODEX = ROOT / "site" / "data" / "suozhang.json"
 MAX_RESPONSE_BYTES = 80 * 1024 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
+CHARACTER_HEADING_RE = re.compile(
+    r"^[ \t]*char(?:acter)?[ _-]*[1-6][ \t]*[:：][ \t]*",
+    re.IGNORECASE | re.MULTILINE,
+)
+CHARACTER_POSITION_LAYOUTS = {
+    1: ("C3",),
+    2: ("B2", "D2"),
+    3: ("A2", "C2", "E2"),
+    4: ("B2", "D2", "B4", "D4"),
+    5: ("A2", "C2", "E2", "B4", "D4"),
+    6: ("A2", "C2", "E2", "A4", "C4", "E4"),
+}
 
 
 class GenerateError(RuntimeError):
@@ -71,6 +85,57 @@ def load_template(path: Path) -> dict[str, Any]:
     return comment
 
 
+def position_to_center(position: str) -> dict[str, float]:
+    if (
+        len(position) != 2
+        or position[0] not in "ABCDE"
+        or position[1] not in "12345"
+    ):
+        raise GenerateError(f"invalid character position: {position!r}")
+    return {
+        "x": round(0.5 + 0.2 * (ord(position[0]) - ord("C")), 1),
+        "y": round(0.5 + 0.2 * (ord(position[1]) - ord("3")), 1),
+    }
+
+
+def normalize_character_prompts(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Freeze the codex's structured character prompts into NAI positions."""
+
+    raw = entry.get("characterPrompts") or []
+    if not isinstance(raw, list):
+        raise GenerateError(f"{entry.get('id')}: characterPrompts is not a list")
+    if len(raw) > 6:
+        raise GenerateError(f"{entry.get('id')}: more than 6 character prompts")
+    if not raw and CHARACTER_HEADING_RE.search(str(entry.get("tags") or "")):
+        raise GenerateError(
+            f"{entry.get('id')}: charN markers exist but structured "
+            "characterPrompts is absent"
+        )
+    positions = CHARACTER_POSITION_LAYOUTS.get(len(raw), ())
+    normalized = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise GenerateError(
+                f"{entry.get('id')}: character prompt {index + 1} is not an object"
+            )
+        prompt = str(item.get("prompt") or "").strip()
+        if not prompt:
+            raise GenerateError(
+                f"{entry.get('id')}: character prompt {index + 1} is empty"
+            )
+        position = positions[index]
+        normalized.append(
+            {
+                "label": str(item.get("label") or f"char{index + 1}"),
+                "prompt": prompt,
+                "uc": str(item.get("uc") or "").strip(),
+                "position": position,
+                "center": position_to_center(position),
+            }
+        )
+    return normalized
+
+
 def compose_prompt(template_prompt: str, entry_tags: str) -> str:
     blocks = [block.strip() for block in template_prompt.split("\n\n") if block.strip()]
     if not blocks:
@@ -93,6 +158,7 @@ def build_payload(
     *,
     n_samples: int,
     seed: int,
+    character_prompts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     negative = str(template["uc"]).strip()
     template_prompt = str(template["prompt"]).strip()
@@ -105,11 +171,63 @@ def build_payload(
         template_prompt.endswith(suffix) for suffix in quality_suffixes
     )
     template_v4_prompt = template.get("v4_prompt") or {}
-    # Coordinates only apply to character prompts.  This workflow deliberately
-    # sends none, and the compatible API rejects use_coords=true in that case
-    # even when the source PNG metadata contains it.
-    use_coords = False
-    use_order = bool(template_v4_prompt.get("use_order", True))
+    characters = []
+    for index, character in enumerate(character_prompts or [], 1):
+        character_prompt = str(character.get("prompt") or "").strip()
+        if not character_prompt:
+            raise GenerateError(f"character prompt {index} is empty")
+        center = character.get("center")
+        if not isinstance(center, dict):
+            center = position_to_center(str(character.get("position") or "C3"))
+        try:
+            normalized_center = {
+                "x": float(center["x"]),
+                "y": float(center["y"]),
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GenerateError(
+                f"character prompt {index} has invalid coordinates"
+            ) from exc
+        if not all(0.0 <= value <= 1.0 for value in normalized_center.values()):
+            raise GenerateError(
+                f"character prompt {index} coordinates are outside 0-1"
+            )
+        characters.append(
+            {
+                "prompt": character_prompt,
+                "uc": str(character.get("uc") or "").strip(),
+                "center": normalized_center,
+            }
+        )
+    # NovelAI exposes manual positioning only for two or more character boxes.
+    use_coords = len(characters) >= 2
+    use_order = (
+        True
+        if characters
+        else bool(template_v4_prompt.get("use_order", True))
+    )
+    external_characters = [
+        {
+            "center": dict(character["center"]),
+            "prompt": character["prompt"],
+            "uc": character["uc"],
+        }
+        for character in characters
+    ]
+    positive_char_captions = [
+        {
+            "centers": [dict(character["center"])],
+            "char_caption": character["prompt"],
+        }
+        for character in characters
+    ]
+    negative_char_captions = [
+        {
+            "centers": [dict(character["center"])],
+            "char_caption": character["uc"],
+        }
+        for character in characters
+    ]
     parameters = {
         "params_version": 3,
         "width": int(template["width"]),
@@ -133,14 +251,20 @@ def build_payload(
         "legacy_uc": False,
         "normalize_reference_strength_multiple": True,
         "seed": seed,
-        "characterPrompts": [],
+        "characterPrompts": external_characters,
         "v4_prompt": {
-            "caption": {"base_caption": prompt, "char_captions": []},
+            "caption": {
+                "base_caption": prompt,
+                "char_captions": positive_char_captions,
+            },
             "use_coords": use_coords,
             "use_order": use_order,
         },
         "v4_negative_prompt": {
-            "caption": {"base_caption": negative, "char_captions": []},
+            "caption": {
+                "base_caption": negative,
+                "char_captions": negative_char_captions,
+            },
             "legacy_uc": False,
         },
         "negative_prompt": negative,
@@ -155,6 +279,32 @@ def build_payload(
         "model": "nai-diffusion-4-5-full",
         "action": "generate",
         "parameters": parameters,
+    }
+
+
+def _caption_digest(value: Any) -> dict[str, Any]:
+    text = str(value or "")
+    return {
+        "length": len(text),
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+
+
+def v4_condition_signature(condition: Any) -> dict[str, Any]:
+    value = condition if isinstance(condition, dict) else {}
+    caption = value.get("caption") or {}
+    char_captions = [
+        {
+            "caption": _caption_digest(character.get("char_caption")),
+            "centers": character.get("centers") or [],
+        }
+        for character in caption.get("char_captions") or []
+    ]
+    return {
+        "baseCaption": _caption_digest(caption.get("base_caption")),
+        "charCaptions": char_captions,
+        "useCoords": bool(value.get("use_coords", False)),
+        "useOrder": bool(value.get("use_order", False)),
     }
 
 
@@ -238,6 +388,12 @@ def inspect_image(blob: bytes) -> dict[str, Any]:
             result["sampler"] = comment.get("sampler")
             result["seed"] = comment.get("seed")
             result["signedHash"] = bool(comment.get("signed_hash"))
+            result["v4PromptSignature"] = v4_condition_signature(
+                comment.get("v4_prompt")
+            )
+            result["v4NegativePromptSignature"] = v4_condition_signature(
+                comment.get("v4_negative_prompt")
+            )
     else:
         result["commentJson"] = False
     return result
@@ -293,6 +449,14 @@ def verify_generated(
     for key in ("steps", "scale", "sampler"):
         if info.get(key) != parameters[key]:
             issues.append(f"embedded {key} does not match request")
+    if info.get("v4PromptSignature") != v4_condition_signature(
+        parameters.get("v4_prompt")
+    ):
+        issues.append("embedded V4 prompt structure does not match request")
+    if info.get("v4NegativePromptSignature") != v4_condition_signature(
+        parameters.get("v4_negative_prompt")
+    ):
+        issues.append("embedded V4 negative prompt structure does not match request")
     if not info.get("signedHash"):
         issues.append("signed_hash is absent")
     return issues
@@ -343,12 +507,14 @@ def main() -> int:
         entry_dir = output_dir / entry_id
         entry_dir.mkdir()
         prompt = compose_prompt(str(template["prompt"]), str(entry.get("tags", "")))
+        character_prompts = normalize_character_prompts(entry)
         seed = random_seed()
         payload = build_payload(
             template,
             prompt,
             n_samples=args.n_samples,
             seed=seed,
+            character_prompts=character_prompts,
         )
         request_manifest = {
             "entry": {
@@ -356,6 +522,7 @@ def main() -> int:
                 "title": entry.get("title"),
                 "path": entry.get("path"),
                 "tags": entry.get("tags"),
+                "characterPrompts": character_prompts,
             },
             "payload": payload,
         }
