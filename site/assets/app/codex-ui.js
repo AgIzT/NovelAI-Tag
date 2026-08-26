@@ -45,6 +45,38 @@ const typeIconOf = c => (CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_T
 const codexImagedPct = c => (c?.entryCount ? Math.round(Number(c.imagedCount || 0) / Number(c.entryCount) * 100) : 0);
 /* 外部数据源：书与图都托管在别人站上（只用来打「外部源」小标） */
 const isExternalCodex = c => /^https?:/i.test(String(c?.dataUrl || ''));
+const N5_LAUNCH_CODEX_IDS = new Set(['artist_nai5_personal', 'nai5_community_pack']);
+const N5_LAUNCH_END_AT = Date.parse('2026-09-17T00:00:00+08:00');
+const N5_LAUNCH_NOTICE_KEY = 'nai5-launch-notice:2026-08';
+
+export const isN5LaunchCodex = c => N5_LAUNCH_CODEX_IDS.has(c?.id || '');
+
+function n5LaunchMode() {
+  try {
+    const mode = new URLSearchParams(window.location.search).get('n5Launch');
+    if (mode === 'off') return { active: false, forceNotice: false };
+    if (mode === 'preview') return { active: true, forceNotice: true };
+  } catch {
+    // URL 参数不可读时仍按正式上线窗口判断。
+  }
+  return { active: Date.now() < N5_LAUNCH_END_AT, forceNotice: false };
+}
+
+/* 书卡状态签固定按决策优先级输出：原图能力必显 → NSFW → 其他来源状态 → 更新日期最后。
+   NSFW 解锁/未解锁两枚签同时留在 DOM，由 .locked 类切换，避免刷新整张书卡。 */
+export function renderCodexChips(c = {}) {
+  const hasOriginal = c.hasOriginal === true;
+  const chips = [
+    `<span class="ci-chip orig ${hasOriginal ? 'has-orig' : 'no-orig'}">${hasOriginal ? '含原图' : '无原图'}</span>`,
+  ];
+  if (c.nsfw) {
+    chips.push(`<span class="ci-chip nsfw">NSFW</span><span class="ci-chip lock">${LOCK_ICON}NSFW</span>`);
+  }
+  if (isExternalCodex(c)) chips.push('<span class="ci-chip ext">外部源</span>');
+  const updateLabel = updateFilterDefinitions(c).find(filter => filter.latest)?.label || '';
+  if (updateLabel) chips.push(`<span class="ci-chip new">${esc(updateLabel)}</span>`);
+  return chips.join('');
+}
 
 /* 选择器封面：codexes.json 的 `cover` 字段（本站书＝该书图片目录下的缩略图文件名，
    外部源书＝对方站上的相对路径，两者都由 thumbUrl 按该书的 assetPathMode 解析）。
@@ -53,6 +85,19 @@ function codexCoverUrl(c) {
   if (!c?.cover) return '';
   // coverCodexId：封面借用别本的图片前缀时才需要写（如合并册沿用的历史资源目录）
   return thumbUrl({ image: c.cover, assetRev: c.coverRev || '', assetCodexId: c.coverCodexId || '' }, c);
+}
+
+/* 详情横幅与法典选择器必须服从同一份 cover 元数据；只有未配置封面时，
+   才回退到首条有图词条，供收藏总览等虚拟法典继续正常显示。 */
+export function codexBannerCoverEntry(c = {}) {
+  if (c.cover) {
+    return {
+      image: c.cover,
+      assetRev: c.coverRev || '',
+      assetCodexId: c.coverCodexId || '',
+    };
+  }
+  return (Array.isArray(c.entries) ? c.entries : []).find(hasEntryImage) || null;
 }
 const pickerActiveCodex = () => (state.favoritesView || state.siteSearchView) ? state.browseCodex : state.codex;
 const pickerActiveCodexId = () => pickerActiveCodex()?.id || '';
@@ -86,16 +131,22 @@ export function setupCodexPicker() {
   if (!btn || !menu) return;
 
   let activeType = null;  // 级联模式下当前选中的类型
+  let n5PickerRevealPlayed = false;
+  let dismissN5LaunchNotice = () => {};
+  const n5Launch = n5LaunchMode();
+  const n5LaunchActive = n5Launch.active && state.codexes.some(isN5LaunchCodex);
+  document.body.classList.toggle('n5-launch-active', n5LaunchActive);
 
-  const focusableItems = () => [...menu.querySelectorAll('.codex-type, .codex-item, .codex-door')];
+  const focusableItems = () => [...menu.querySelectorAll('.n5-launch-book, .codex-type, .codex-item, .codex-door')];
   const focusItem = index => {
     const list = focusableItems();
     if (!list.length) return;
     list[(index + list.length) % list.length].focus();
   };
   const focusPreferredItem = () => {
-    const target = menu.querySelector('.codex-item.active') || menu.querySelector('.codex-type.active') || focusableItems()[0];
-    target?.focus();
+    const target = (n5LaunchActive && menu.querySelector('.n5-launch-panel')) ||
+      menu.querySelector('.codex-item.active') || menu.querySelector('.codex-type.active') || focusableItems()[0];
+    target?.focus({ preventScroll: n5LaunchActive });
   };
   const isMobile = () => window.matchMedia('(max-width: 600px)').matches;
   const openDirect = ({ focus = false } = {}) => {
@@ -134,6 +185,7 @@ export function setupCodexPicker() {
   const chooseCodex = c => {
     if (!c) return;
     if (isCodexLocked(c)) { showNsfwLockedHint(); return; }
+    dismissN5LaunchNotice();
     const changed = state.favoritesView || state.siteSearchView || sel.value !== c.id;
     if (!changed) {
       close({ focusButton: true });
@@ -166,20 +218,10 @@ export function setupCodexPicker() {
     else img.onload = reveal;   // 失败时保持透明，露出下面的占位块
   };
 
-  /* 书上的小标：本次更新 / R18（解锁与未解锁两枚，靠 .locked 类切换显示）/ 外部源 / 含原图 */
-  const codexChips = c => {
-    let html = '';
-    const updateLabel = updateFilterDefinitions(c).find(filter => filter.latest)?.label || '';
-    if (updateLabel) html += `<span class="ci-chip new">${esc(updateLabel)}</span>`;
-    if (c.nsfw) html += `<span class="ci-chip r18">R18</span><span class="ci-chip lock">${LOCK_ICON}R18</span>`;
-    if (isExternalCodex(c)) html += '<span class="ci-chip ext">外部源</span>';
-    if (c.hasOriginal) html += '<span class="ci-chip orig">含原图</span>';
-    return html;
-  };
-
   const makeRealItem = c => {
     const locked = isCodexLocked(c);
     const active = pickerActiveCodexId() === c.id;
+    const n5Featured = n5LaunchActive && isN5LaunchCodex(c);
     const pct = codexImagedPct(c);
     const count = Number(c.entryCount || 0);
     const cover = codexCoverUrl(c);
@@ -187,21 +229,22 @@ export function setupCodexPicker() {
     const version = c.version === '外部源' ? '' : c.version;
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = `codex-item${locked ? ' locked' : ''}${active ? ' active' : ''}`;
+    item.className = `codex-item${locked ? ' locked' : ''}${active ? ' active' : ''}${n5Featured ? ' n5-highlight' : ''}`;
     item.dataset.id = c.id;
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
     /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
     item.setAttribute('aria-label',
-      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%`);
+      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，N5 新上线' : ''}`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
     item.innerHTML =
       coverSlot(typeIconOf(c), cover) +
       `<span class="ci-main">` +
       `<span class="ci-head"><span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
-      (active ? '<span class="ci-now">当前</span>' : '') + `</span>` +
+      (active ? '<span class="ci-now">当前</span>' : '') +
+      (n5Featured ? '<span class="ci-n5-chip">NEW</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
-      `<span class="ci-foot"><span class="ci-tags">${codexChips(c)}</span>` +
+      `<span class="ci-foot"><span class="ci-tags">${renderCodexChips(c)}</span>` +
       `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>` +
       `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>` +
       `</span></span>`;
@@ -231,6 +274,34 @@ export function setupCodexPicker() {
     b.className = 'codex-soon-banner';
     b.innerHTML = `${TYPE_ICONS.clock}<span><b>${esc(t.name)}</b> 即将上线 —— 下面是预览，一切内容均为占位，非实际内容。</span>`;
     return b;
+  };
+
+  const makeN5LaunchPanel = () => {
+    if (!n5LaunchActive) return null;
+    const featured = state.codexes.filter(isN5LaunchCodex);
+    if (!featured.length) return null;
+    const entries = featured.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+    const panel = document.createElement('section');
+    panel.className = `n5-launch-panel${n5PickerRevealPlayed ? '' : ' reveal'}`;
+    panel.tabIndex = -1;
+    panel.setAttribute('aria-label', 'NovelAI 5 新模型法典');
+    panel.innerHTML =
+      `<div class="n5-launch-copy">` +
+      `<span class="n5-launch-kicker"><i></i>NEW · NOVELAI 5</span>` +
+      `<strong>新模型法典已上线</strong>` +
+      `<small>${featured.length} 本新法典 · ${entries.toLocaleString()} 条词条</small>` +
+      `</div>` +
+      `<div class="n5-launch-books">${featured.map(c => {
+        const shortTitle = c.id === 'artist_nai5_personal' ? '画师词典' : '社区精选图包';
+        return `<button type="button" class="n5-launch-book" data-id="${esc(c.id)}">` +
+          `<span>${esc(shortTitle)}</span><b>${Number(c.entryCount || 0).toLocaleString()} 条</b>` +
+          `</button>`;
+      }).join('')}</div>`;
+    panel.querySelectorAll('.n5-launch-book').forEach(book => {
+      book.onclick = () => chooseCodex(featured.find(c => c.id === book.dataset.id));
+    });
+    n5PickerRevealPlayed = true;
+    return panel;
   };
 
   /* 社区投稿门：置底一扇明确标记的「门」（虚线卡+加号），点击离站前往社区共建站（走跨页 View Transition）。
@@ -342,11 +413,76 @@ export function setupCodexPicker() {
   const renderMenu = () => {
     if (isMobile()) renderGrouped(buildTypes());
     else renderCascade(buildTypes());
+    const launchPanel = makeN5LaunchPanel();
+    if (launchPanel) menu.prepend(launchPanel);
     menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
+  };
+
+  const setupN5LaunchNotice = () => {
+    if (!n5LaunchActive) return;
+    if (!n5Launch.forceNotice) {
+      try {
+        if (window.localStorage.getItem(N5_LAUNCH_NOTICE_KEY) === 'seen') return;
+      } catch {
+        // 隐私模式或禁用存储时，保留本次会话内的提示行为。
+      }
+    }
+    let notice = null;
+    let acknowledged = false;
+    const remove = () => {
+      if (!notice) return;
+      const current = notice;
+      notice = null;
+      current.classList.remove('show');
+      window.setTimeout(() => current.remove(), 220);
+    };
+    const acknowledge = () => {
+      acknowledged = true;
+      if (!n5Launch.forceNotice) {
+        try {
+          window.localStorage.setItem(N5_LAUNCH_NOTICE_KEY, 'seen');
+        } catch {
+          // 存储不可用时只关闭当前页面内的提示。
+        }
+      }
+      remove();
+    };
+    dismissN5LaunchNotice = acknowledge;
+    const show = () => {
+      if (acknowledged || notice || document.querySelector('.n5-launch-notice')) return;
+      const featured = state.codexes.filter(isN5LaunchCodex);
+      const entries = featured.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+      notice = document.createElement('aside');
+      notice.className = 'n5-launch-notice';
+      notice.setAttribute('aria-label', 'NovelAI 5 上线提示');
+      notice.innerHTML =
+        `<span class="n5-notice-orb" aria-hidden="true">N5</span>` +
+        `<div class="n5-notice-copy"><span>NEW · NOVELAI 5</span>` +
+        `<strong>新模型法典已上线</strong>` +
+        `<p>${featured.length} 本新法典 · ${entries.toLocaleString()} 条词条</p></div>` +
+        `<button class="n5-notice-close" type="button" aria-label="关闭 N5 上线提示">×</button>` +
+        `<button class="n5-notice-open" type="button">看看 N5 <span aria-hidden="true">→</span></button>`;
+      notice.querySelector('.n5-notice-close').onclick = ev => {
+        ev.stopPropagation();
+        acknowledge();
+      };
+      notice.querySelector('.n5-notice-open').onclick = ev => {
+        ev.stopPropagation();
+        acknowledge();
+        open({ focus: false });
+        requestAnimationFrame(() => menu.querySelector('.n5-launch-panel')?.focus({ preventScroll: true }));
+      };
+      document.body.appendChild(notice);
+      requestAnimationFrame(() => notice?.classList.add('show'));
+    };
+    const reveal = () => window.setTimeout(show, 260);
+    if (document.documentElement.classList.contains('intro-done')) reveal();
+    else document.addEventListener('intro:settle', reveal, { once: true });
   };
 
   btn.onclick = ev => {
     ev.stopPropagation();
+    dismissN5LaunchNotice();
     if (menu.hidden) open({ focus: true });
     else close();
   };
@@ -399,6 +535,7 @@ export function setupCodexPicker() {
     cancelAnimationFrame(resizeRaf);
     resizeRaf = requestAnimationFrame(renderMenu);
   });
+  setupN5LaunchNotice();
 }
 
 /* 解锁状态变了就地更新，不重建菜单（重建会让封面图重新淡入、也会丢掉滚动位置）。
@@ -605,12 +742,6 @@ function accessViewSnapshot() {
   return accessViewMemo;
 }
 
-function nsfwLockStart(entry, path) {
-  if (state.allowNsfw || !isEntryNsfw(entry)) return -1;
-  const nsfwIndex = path.findIndex(isNsfwPathSegment);
-  return nsfwIndex >= 0 ? nsfwIndex : 0;
-}
-
 function buildAccessView(entries, emptyPaths) {
   const root = new Map();
   let hiddenCount = 0;
@@ -618,13 +749,15 @@ function buildAccessView(entries, emptyPaths) {
     if (isEntryAccessBlocked(entry)) hiddenCount += 1;
     if (!state.allowR18g && isR18gEntry(entry)) continue;
     const path = Array.isArray(entry.path) ? entry.path : [];
-    const lockFrom = nsfwLockStart(entry, path);
+    const entryNsfw = isEntryNsfw(entry);
+    const explicitNsfwFrom = path.findIndex(isNsfwPathSegment);
     let node = root;
     path.forEach((name, index) => {
-      if (!node.has(name)) node.set(name, { name, count: 0, locked: false, children: new Map() });
+      if (!node.has(name)) node.set(name, { name, count: 0, nsfwCount: 0, explicitNsfw: false, children: new Map() });
       const cur = node.get(name);
       cur.count += 1;
-      if (lockFrom >= 0 && index >= lockFrom) cur.locked = true;
+      if (entryNsfw) cur.nsfwCount += 1;
+      if (explicitNsfwFrom >= 0 && index >= explicitNsfwFrom) cur.explicitNsfw = true;
       node = cur.children;
     });
   }
@@ -634,14 +767,15 @@ function buildAccessView(entries, emptyPaths) {
     if (!Array.isArray(path) || !path.length) continue;
     let node = root;
     for (const name of path) {
-      if (!node.has(name)) node.set(name, { name, count: 0, locked: false, children: new Map() });
+      if (!node.has(name)) node.set(name, { name, count: 0, nsfwCount: 0, explicitNsfw: false, children: new Map() });
       node = node.get(name).children;
     }
   }
   const toList = map => [...map.values()].map(n => ({
     name: n.name,
     count: n.count,
-    locked: Boolean(n.locked),
+    /* 混合目录保持可进入；只有纯 NSFW 分支或显式名为 NSFW 的分支才锁。 */
+    locked: Boolean(n.explicitNsfw || (n.count > 0 && n.nsfwCount === n.count)),
     children: toList(n.children),
   }));
   return { tree: toList(root), hiddenCount };
@@ -1007,14 +1141,14 @@ export function renderCodexHeader() {
   if (!banner) return;
   closeBannerAbout();
   document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
-  const cover = c.entries.find(hasEntryImage);
+  const cover = codexBannerCoverEntry(c);
   const pct = c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0;
   const metaText = [c.author, c.version].filter(Boolean).join(' · ');
   const virtualView = state.favoritesView || state.siteSearchView;
   const originalPill = virtualView ? '' :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   banner.innerHTML =
-    `<div class="banner-cover">${cover ? `<img src="${esc(thumbUrl(cover))}" alt="">` : ''}</div>` +
+    `<div class="banner-cover">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt="">` : ''}</div>` +
     `<div class="banner-info">` +
     `<div class="banner-title">${esc(c.title)}</div>` +
     `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}</div>` +

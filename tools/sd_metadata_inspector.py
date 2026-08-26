@@ -187,6 +187,54 @@ def metadata_from_png_chunks(path: Path, chunks: list[dict[str, str]]) -> Metada
     )
 
 
+def decode_exif_user_comment(value: bytes | str) -> str:
+    """Decode EXIF UserComment payloads used by WebUI and NovelAI exports."""
+    if isinstance(value, str):
+        return value.strip("\x00")
+    payload = value
+    if payload.startswith(b"ASCII\x00\x00\x00"):
+        return decode_text(payload[8:]).strip("\x00")
+    if payload.startswith(b"UNICODE\x00"):
+        payload = payload[8:]
+        for encoding in ("utf-16", "utf-16-be", "utf-16-le"):
+            try:
+                return payload.decode(encoding).strip("\x00")
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+    return decode_text(payload.replace(b"\x00", b"")).strip()
+
+
+def metadata_from_exif_user_comment(path: Path, value: bytes | str) -> Metadata:
+    text = decode_exif_user_comment(value)
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = None
+    if isinstance(payload, dict) and any(
+        key in payload for key in ("Description", "Comment", "Software", "Source", "v4_prompt")
+    ):
+        chunks = [
+            {"type": "EXIF", "keyword": str(key), "text": _json_text(item)}
+            for key, item in payload.items()
+        ]
+        meta = metadata_from_png_chunks(path, chunks)
+        meta.fields["UserComment"] = text
+        meta.fields["ExifJson"] = payload
+        if str(payload.get("Title") or "").startswith("NovelAI generated image"):
+            meta.source_type = "NovelAI-EXIF"
+        return meta
+
+    prompt, negative, other = split_webui_parameters(text)
+    return Metadata(
+        path=path,
+        source_type="SD-WEBUI",
+        prompt=prompt,
+        negative=negative,
+        fields={"UserComment": text, "parameters_other": other},
+        chunks=[],
+    )
+
+
 def _read_lsb_byte(bit_iter) -> int:
     value = 0
     for i in range(8):
@@ -277,16 +325,8 @@ def extract_image_metadata(path: Path) -> Metadata:
             with Image.open(path) as im:
                 exif = im.getexif()
                 user_comment = exif.get(0x9286)
-                if isinstance(user_comment, bytes):
-                    text = user_comment.replace(b"\x00", b"")
-                    if text.startswith(b"UNICODE"):
-                        text = text[7:]
-                    elif text.startswith(b"ASCII"):
-                        text = text[5:]
-                    prompt, negative, other = split_webui_parameters(decode_text(text))
-                    fields["UserComment"] = decode_text(text)
-                    fields["parameters_other"] = other
-                    source_type = "SD-WEBUI"
+                if isinstance(user_comment, (bytes, str)):
+                    return metadata_from_exif_user_comment(path, user_comment)
         except Exception:
             pass
         if not prompt:

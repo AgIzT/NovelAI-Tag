@@ -115,9 +115,12 @@ const {
 } = await import('../site/assets/app/data.js');
 const {
   accessHiddenCount,
+  codexBannerCoverEntry,
   invalidateAccessViewMemo,
+  isN5LaunchCodex,
   lockedCodexCount,
   railRevealDelta,
+  renderCodexChips,
   syncCodexPickerCounts,
   visibleEntryCount,
   visibleTree,
@@ -127,6 +130,22 @@ const { buildFeedbackContext, feedbackTimeoutSignal, setupReport } = await impor
 const { safeHttpUrl } = await import('../site/assets/app/utils.js');
 const { atlasUrlForRoute, readUrlState } = await import('../site/assets/app/router.js');
 const { loadAnnouncements } = await import('../site/assets/app/announcements.js');
+
+// 法典选择器与详情横幅共用 cover 元数据；首条词条只作为无封面时的兜底。
+{
+  const firstEntry = { id: 'first', image: 'first.jpg', assetRev: 'first-rev' };
+  assert.deepEqual(
+    codexBannerCoverEntry({
+      cover: 'chosen.jpg',
+      coverRev: 'chosen-rev',
+      coverCodexId: 'shared-assets',
+      entries: [firstEntry],
+    }),
+    { image: 'chosen.jpg', assetRev: 'chosen-rev', assetCodexId: 'shared-assets' },
+  );
+  assert.equal(codexBannerCoverEntry({ entries: [firstEntry] }), firstEntry);
+  assert.equal(codexBannerCoverEntry({ entries: [] }), null);
+}
 
 // 同一批多卡校准：按列累计 delta，每个受影响节点只更新一次，容器高度只同步一次。
 {
@@ -502,6 +521,16 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(accessHiddenCount(), 2);
   assert.equal(visibleEntryCount(), 1);
 
+  state.codex.entries = [
+    { id: 'mixed-safe', path: ['Mixed', 'Safe'], rating: 'safe' },
+    { id: 'mixed-adult', path: ['Mixed', 'Adult'], rating: 'r18' },
+  ];
+  invalidateAccessViewMemo();
+  const mixedTree = visibleTree();
+  assert.equal(mixedTree[0].locked, false, '含安全条目的混合父目录不能被 NSFW 子目录连坐锁定');
+  assert.equal(mixedTree[0].children.find(node => node.name === 'Safe').locked, false);
+  assert.equal(mixedTree[0].children.find(node => node.name === 'Adult').locked, true);
+
   state.codex.entries = entries.map(entry => entry.id === 'safe' ? { ...entry, path: ['Edited'] } : { ...entry });
   const editedTree = visibleTree();
   assert.notEqual(editedTree, tree, '同长度的新 entries 数组必须让 memo 失效');
@@ -589,6 +618,43 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.deepEqual(updateFilterDefinitions({ version: '2026.8.14', newFilterLabel: '本次8.14更新' }), [
     { id: '2026.8.14', label: '8.14更新', latest: true },
   ]);
+}
+
+// 法典书卡状态签顺序：原图能力必显，NSFW 第二，更新日期最后；旧 R18 文案不得回流。
+{
+  assert.equal(isN5LaunchCodex({ id: 'artist_nai5_personal' }), true);
+  assert.equal(isN5LaunchCodex({ id: 'nai5_community_pack' }), true);
+  assert.equal(isN5LaunchCodex({ id: 'artist_nai45_personal' }), false);
+
+  const full = renderCodexChips({
+    hasOriginal: true,
+    nsfw: true,
+    dataUrl: 'https://example.com/codex.json',
+    version: '2026.8.26',
+    newFilterLabel: '本次8.26更新',
+  });
+  const originalAt = full.indexOf('含原图');
+  const nsfwAt = full.indexOf('NSFW');
+  const externalAt = full.indexOf('外部源');
+  const updateAt = full.indexOf('8.26更新');
+  assert.ok(originalAt >= 0 && originalAt < nsfwAt, '含原图必须是第一枚状态签');
+  assert.ok(nsfwAt < externalAt && externalAt < updateAt, 'NSFW 后接其他状态，更新日期必须最后');
+  assert.match(full, /orig has-orig/);
+  assert.doesNotMatch(full, />R18</);
+
+  const withoutOriginal = renderCodexChips({ hasOriginal: false, version: '2026.8.26' });
+  assert.match(withoutOriginal, /orig no-orig[^>]*>无原图</);
+  assert.doesNotMatch(withoutOriginal, /NSFW/);
+
+  const chipStyles = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
+  assert.match(chipStyles, /\.ci-chip\.orig\.has-orig\{color:#356b64;background:#e4efec;border-color:#a9c9c2\}/);
+  assert.match(chipStyles, /\.ci-chip\.orig\.no-orig\{color:var\(--muted\);background:var\(--tagbg\)/);
+  assert.match(chipStyles, /body\.dark \.ci-chip\.orig\.has-orig\{color:#a7d8cf;background:#173a35;border-color:#376c64\}/);
+  assert.doesNotMatch(chipStyles, /\.ci-chip\.orig\{display:none\}/, '窄屏也必须保留原图状态签');
+
+  const settingsSource = await readFile(new URL('../site/index.html', import.meta.url), 'utf8');
+  assert.match(settingsSource, /显示 NSFW 内容/);
+  assert.doesNotMatch(settingsSource, /允许 NSFW 法典展示/);
 }
 
 // 编辑器把当前书计数同步回选择器索引；零值也不能被旧计数吞掉。

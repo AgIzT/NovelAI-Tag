@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from backfill_pack_character_prompts import reconcile_prompt_field
 from sd_metadata_inspector import (
+    metadata_from_exif_user_comment,
     metadata_from_png_chunks,
     nai_v4_character_prompts,
 )
@@ -62,6 +63,22 @@ class CharacterPromptMetadataTests(unittest.TestCase):
         self.assertEqual(meta.prompt, "base prompt")
         self.assertEqual(meta.negative, "base negative")
         self.assertEqual(len(meta.character_prompts), 2)
+
+    def test_novelai_json_wrapped_in_exif_user_comment(self) -> None:
+        wrapped = {
+            "Title": "NovelAI generated image",
+            "Software": "NovelAI",
+            "Source": "NovelAI Diffusion V5 Full",
+            "Description": "legacy description",
+            "Comment": json.dumps(self.payload),
+        }
+        value = b"ASCII\x00\x00\x00" + json.dumps(wrapped).encode("utf-8")
+        meta = metadata_from_exif_user_comment(Path("sample.webp"), value)
+        self.assertEqual(meta.source_type, "NovelAI-EXIF")
+        self.assertEqual(meta.prompt, "base prompt")
+        self.assertEqual(meta.negative, "base negative")
+        self.assertEqual([item["label"] for item in meta.character_prompts], ["char1", "char3"])
+        self.assertEqual(meta.fields["Source"], "NovelAI Diffusion V5 Full")
 
     def test_backfill_separates_old_flattened_text_with_blank_lines(self) -> None:
         entry = {"tags": "base prompt\n\nfirst character"}

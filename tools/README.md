@@ -30,30 +30,35 @@
 | `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器（:8769）：主站"编辑模式"的写后端，词条/分类/图片编辑，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
 | `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:8767）。⚠ 别和法典编辑器同时开 | 页面操作才写 |
 | `strings_server.py` + `strings_editor.html` | 画师串编辑器（:8768） | 页面操作才写 |
+| `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
 | `build_local_edition.py` | `单项工具/打包本地版.bat` / 总控台菜单 7 的内核：按白名单生成独立本地发行包 + zip（见 docs/decisions/独立本地发行版.md） | 不改仓库数据；默认写 `output/local-edition/` |
 | `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 仓库内不单独运行 |
 | `backfill_pack_character_prompts.py` | 从原图幂等回填两本图包的 NAI V4 角色提示词 | 默认预演；`--apply` 才写 |
 | `migrate_suozhang_char_prompts.py` | 把所长两本 `tags` 里内联的 `char1：xxx` 拆进 `characterPrompts`。**幂等，是所长法典更新链路的固定收尾**——每次 `convert.py` / `suozhang_r18_merge_match.py --apply` 之后都要再跑一次，否则角色词回到正面串（详见 `docs/经验/Word法典增量更新.md`） | 默认预演；`--apply` 才写（先自动备份） |
 
-## 现役 · NAI API 批量例图补全套件
+## 现役 · NAI API 基础兼容工具
 
-用法与门禁见 `docs/经验/NAI兼容API批量例图补全.md`；密钥不落盘，发往第三方前必须用户明确授权。
+完整的多画风批量生成、审核、舍弃重跑、入库和复验套件已迁至仓库外
+`D:\program\NOVEL\工具箱\NAI法典批量配图\`；先读其 `AGENTS.md` 和 `使用说明和事项.md`。
+项目内只保留同时服务其它维护流程的基础工具。密钥不落盘，发往第三方前必须用户明确授权。
 
 | 文件 | 用途 |
 | --- | --- |
-| `nai_api_test_generate.py` | 小规模试跑（只生成审阅用测试批） |
+| `nai_api_test_generate.py` | 小规模试跑与 V4 角色框请求/元数据验证（只生成审阅用测试批） |
 | `nai_api_batch_generate.py` | 正式批量双候选生成（断点续跑） |
-| `nai_api_review_server.py` | 人工二选一审核页（⚠ 也用 :8767，别和配图工具同开） |
+| `nai_api_review_server.py` | 1–8 候选人工审核页，四画风显示模板名（默认 :8767；四画风入口用 :8768） |
 | `nai_api_verify_batch.py` | 独立复验暂存批次（重开每张图核对真实 PNG 元数据） |
 | `nai_api_apply_selections.py` | 把人工选择正式导入法典（默认 dry-run；`--apply` 才写） |
 | `nai_api_verify_applied.py` | 正式导入后的独立复验 |
 
-## ⚠ 条件 · 来源专用图包导入器（改动前先读统一图包类导入规范）
+## ⚠ 条件 · 来源专用图片导入器（图包改动前先读统一图包类导入规范）
 
 | 文件 | 状态说明 |
 | --- | --- |
 | `import_mengshen_pack.py` | 梦神图包历史来源适配器。**画风章节已迁出，重放 `--apply` 会被工具主动中止**——别绕过它 |
 | `import_community_ai_misc.py` | 社区AI杂图。`--apply` 仅限首次导入；现役安全模式只有 `--validate`（验证现状）和 `--sync-manual-classification-overrides`（幂等同步具名人工分级纠正） |
+| `import_nai5_artist_dictionary.py` | N5 四份来源 → `artist_nai5_personal`。默认只审计；`--apply` 仅限首次导入且现状已存在会拒绝覆盖，日常跑 `--validate`。具名 PDF 标签纠错用 `--correct-existing` 预演、再加 `--apply` 幂等落地，只改登记 ID 的 `title/tags`；见 `docs/decisions/NovelAI5画师词典.md` |
+| `import_nai5_community_pack.py` | 梦神 / 所长 N5 图包 → `nai5_community_pack`。默认只审计；`--apply` 仅限首次导入且拒绝覆盖，日常跑 `--validate`。所长直接子文件夹按套图保组；见 `docs/decisions/NovelAI5社区精选图包.md` |
 
 ## 🔒 已用完 · 一次性历史导入（禁止直接重跑）
 
@@ -69,7 +74,7 @@
 
 ## 🧪 测试
 
-`test_import_docx_codex.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_suozhang_char_prompts.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py` · `test_python_tool_safety.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_backend_low_risk.mjs` · `test_community_frontend.mjs` · `test_community_frontend_low_risk.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_history_storage.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_r2_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_search_data.mjs` · `test_render_ui.mjs` · `test_copy.mjs` · `test_favorites_backup.mjs` · `test_favorites_runtime.mjs` · `test_favorites_origin_migration.mjs` · `test_beta_banner.mjs` · `test_community_router_url.mjs` · `test_favorites_transfer.mjs` · `test_home_shortcut.mjs` · `test_local_ownership.mjs` · `test_resume_prompt.mjs` · `test_tag_relay_access.mjs` · `test_tag_relay_core.mjs` · `test_tag_relay_store.mjs`（Node）。
+`test_import_docx_codex.py` · `test_import_nai5_artist_dictionary.py` · `test_import_nai5_community_pack.py` · `test_pack_import_core.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_suozhang_char_prompts.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py` · `test_python_tool_safety.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_backend_low_risk.mjs` · `test_community_frontend.mjs` · `test_community_frontend_low_risk.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_history_storage.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_r2_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_search_data.mjs` · `test_render_ui.mjs` · `test_copy.mjs` · `test_favorites_backup.mjs` · `test_favorites_runtime.mjs` · `test_favorites_origin_migration.mjs` · `test_beta_banner.mjs` · `test_community_router_url.mjs` · `test_favorites_transfer.mjs` · `test_home_shortcut.mjs` · `test_local_ownership.mjs` · `test_resume_prompt.mjs` · `test_tag_relay_access.mjs` · `test_tag_relay_core.mjs` · `test_tag_relay_store.mjs` · `test_404_page.mjs`（Node）。
 
 `__pycache__/` 是 Python 缓存，忽略。
 
