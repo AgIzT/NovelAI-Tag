@@ -647,11 +647,15 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.doesNotMatch(withoutOriginal, /NSFW/);
 
   const chipStyles = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
-  // 2026-08-27 起状态签中性化：只剩三档，颜色一律走主题自己的 --text/--muted/--line，
-  // 红/绿/琥珀三套写死色值不允许回潮（回潮＝又冒出第二、第三个强调色）。
-  assert.match(chipStyles, /\.ci-chip\{border:1px solid var\(--line\);background:transparent;color:var\(--muted\)\}/);
+  // 2026-08-27 起状态签中性化：四档靠形态区分，红/绿/琥珀写死色值不允许回潮。
+  assert.match(chipStyles, /\.ci-chip\{[^}]*border:1px solid var\(--line\);background:transparent;color:var\(--muted\)/);
   assert.match(chipStyles, /\.ci-chip\.nsfw,\.ci-chip\.lock\{border-color:var\(--text\);color:var\(--text\)\}/);
   assert.doesNotMatch(chipStyles, /\.ci-chip\.(?:orig\.has-orig|nsfw)\{color:#/, '状态签不得再写死配色');
+  // ⚠ 含原图必须实底、无原图必须描边——两枚同色是 2026-08-27 修过一次的回归。
+  assert.match(chipStyles, /\.ci-chip\.has-orig\{border-color:transparent;background:rgba\(29,29,31,\.07\);color:var\(--text\)\}/);
+  assert.match(chipStyles, /body\.dark \.ci-chip\.has-orig\{background:rgba\(255,255,255,\.1\)\}/);
+  assert.match(chipStyles, /\.data-pill\.has-orig\{color:var\(--text\);background:rgba\(29,29,31,\.07\)/, '横幅原图签要跟书卡同一套');
+  assert.doesNotMatch(chipStyles, /\.data-pill\.has-orig\{color:#356b64/, '横幅原图签不得回到绿底');
   assert.doesNotMatch(chipStyles, /\.ci-chip\.orig\{display:none\}/, '窄屏也必须保留原图状态签');
 
   // V5 上线版面的美术契约：唯一强调色只给 eyebrow，版面内禁止渐变/玻璃，书卡靠纯黑药丸而非发光底。

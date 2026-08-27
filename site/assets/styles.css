@@ -267,13 +267,24 @@ body.dark .ci-n5-chip{background:#f5f5f7;color:#1d1d1f}
 .codex-item.active .ci-ring i{background:var(--accent-soft)}
 .codex-item.locked .ci-ring{background:conic-gradient(var(--muted) calc(var(--p) * 1%),var(--line) 0);opacity:.55}
 .codex-item.locked .ci-ring i{background:var(--tagbg)}
-.ci-chip{display:inline-flex;align-items:center;gap:3px;flex:none;font-size:10px;font-weight:900;line-height:1.5;border-radius:999px;padding:1.5px 7px;white-space:nowrap}
+/* 状态签四档（2026-08-27 二次调整）：不引第二个强调色，改让**形态**携带语义——
+     墨底白字 ＝ 版本标识（.ci-n5-chip，见上）
+     墨色描边 ＝ 需要留神的门（NSFW / 未解锁）
+     浅色实底 ＝ 该能力「在」（含原图）
+     细灰描边 ＝ 中性事实（无原图 / 外部源 / 本次更新）
+   ⚠ **含原图 / 无原图 必须一实一虚**：中性化第一版把两枚都做成细灰描边，只有文字差一个字，
+   等于作废了 2026-08-09 书卡决策里「二者不能共用同一套淡色」那条。填充用中性 rgba 而不是
+   var(--tagbg)：后者在深色下与卡面只差 5 个灰阶，填充读不出来。 */
+.ci-chip{
+  display:inline-flex;align-items:center;gap:3px;flex:none;
+  border:1px solid var(--line);background:transparent;color:var(--muted);
+  border-radius:999px;padding:2.5px 8px;
+  font-size:10.5px;font-weight:900;line-height:1.4;letter-spacing:.02em;white-space:nowrap;
+}
 .ci-chip svg{width:10px;height:10px}
-/* 状态签中性化（2026-08-27）：书卡不再用红/绿/琥珀各表一色，只留三档——
-   纯黑药丸＝版本标识（.ci-n5-chip）· 墨色描边＝需要留神的门（NSFW）· 细边灰药丸＝其余状态。
-   颜色取各主题自己的 --text/--muted/--line，所以四套皮肤下都成立。 */
-.ci-chip{border:1px solid var(--line);background:transparent;color:var(--muted)}
+.ci-chip.has-orig{border-color:transparent;background:rgba(29,29,31,.07);color:var(--text)}
 .ci-chip.nsfw,.ci-chip.lock{border-color:var(--text);color:var(--text)}
+body.dark .ci-chip.has-orig{background:rgba(255,255,255,.1)}
 /* NSFW 小标解锁/未解锁二选一：updateCodexPickerState 只改 .locked 类，显隐交给 CSS */
 .codex-item .ci-chip.lock{display:none}
 .codex-item.locked .ci-chip.nsfw{display:none}
@@ -637,9 +648,11 @@ body.dark .banner-pop{border-color:rgba(255,255,255,.12)}
 body.dark .data-pill.local{color:#8fd3a6;background:rgba(74,156,103,.18)}
 body.dark .data-pill.remote{color:#9bbcff;background:rgba(72,121,210,.18)}
 body.dark .data-pill.warn{color:#f0c46f;background:rgba(222,156,45,.18)}
-.data-pill.has-orig{color:#356b64;background:#e4efec;border-color:#a9c9c2}
-.data-pill.no-orig{color:var(--muted);background:var(--tagbg);border-color:var(--line)}
-body.dark .data-pill.has-orig{color:#a7d8cf;background:#173a35;border-color:#376c64}
+/* 横幅上的原图能力跟书卡同一套语言：实底＝在，描边＝不在（原来这里是绿底，
+   书卡却是灰药丸，同一个事实两种画法） */
+.data-pill.has-orig{color:var(--text);background:rgba(29,29,31,.07);border-color:transparent}
+.data-pill.no-orig{color:var(--muted);background:transparent;border-color:var(--line)}
+body.dark .data-pill.has-orig{background:rgba(255,255,255,.1)}
 .banner-progress{display:flex;align-items:center;gap:10px;margin-top:8px}
 .bp-track{flex:1;height:6px;border-radius:999px;background:var(--tagbg);overflow:hidden;max-width:420px}
 .bp-fill{height:100%;border-radius:999px;background:var(--accent)}
