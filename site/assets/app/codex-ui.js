@@ -45,11 +45,32 @@ const typeIconOf = c => (CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_T
 const codexImagedPct = c => (c?.entryCount ? Math.round(Number(c.imagedCount || 0) / Number(c.entryCount) * 100) : 0);
 /* 外部数据源：书与图都托管在别人站上（只用来打「外部源」小标） */
 const isExternalCodex = c => /^https?:/i.test(String(c?.dataUrl || ''));
+/* NovelAI 官方标记，由官方图描成的单色矢量：深底那版的锚点与手柄本就是从笔尖里挖掉的，
+   所以填 currentColor 后浅底深底都成立，不需要两套图。 */
+const V5_MARK = '<svg viewBox="0 0 64 64" focusable="false" aria-hidden="true"><path fill-rule="evenodd" fill="currentColor" d="M27.05,0.03 26.39,0.35 25.92,0.92 19.14,15.67 13.01,27.79 9.43,34.04 6.04,39.02 5.78,39.68 5.77,40.34 6.1,41.22 8.97,43.42 10.63,44.96 12.55,47.17 14.71,50.25 14.93,50.32 25.36,39.9 24.77,37.26 24.84,35.77 25.2,34.39 25.7,33.29 26.45,32.19 27.71,31 29.03,30.16 29.08,1.58 28.93,0.92 28.37,0.29 27.71,0.01ZM36.3,0 35.64,0.27 35.22,0.7 34.92,1.58 34.93,29.99 34.99,30.21 36.08,30.83 37.56,32.19 38.5,33.61 38.8,34.39 39.21,36.16 39.23,37.26 38.64,39.9 49.07,50.31 49.29,50.25 51.45,47.17 53.38,44.96 55.68,42.9 57.88,41.24 58.23,40.34 58.21,39.68 57.96,39.02 55.78,35.93 52.96,31.31 48.58,23.16 43.08,11.93 38.07,0.92 37.4,0.19ZM28.81,43.32 17.23,54.87 19.15,59.94 20.18,63.24 20.66,63.73 21.54,64 42.46,64 43.34,63.7 43.94,63.02 45.08,59.28 46.77,54.87 41.36,49.45 41.14,49.44 36.8,53.77 36.67,53.99 36.79,55.98 36.47,57.08 35.69,58.4 34.53,59.36 33.87,59.75 32.99,60 31.01,59.99 29.69,59.52 28.81,58.91 28.15,58.17 27.45,56.86 27.18,55.32 27.42,53.77 28.28,52.23 29.25,51.34 30.79,50.61 32.11,50.45 33.21,50.58 37.62,46.21 37.77,45.85 35.19,43.32 33.65,43.88 32.11,44.01 30.35,43.87Z"/></svg>';
 const N5_LAUNCH_CODEX_IDS = new Set(['artist_nai5_personal', 'nai5_community_pack']);
 const N5_LAUNCH_END_AT = Date.parse('2026-09-17T00:00:00+08:00');
 const N5_LAUNCH_NOTICE_KEY = 'nai5-launch-notice:2026-08';
 
 export const isN5LaunchCodex = c => N5_LAUNCH_CODEX_IDS.has(c?.id || '');
+
+/* 版面右下角的日期戳：取上线两本里较新的版本日期，统一补零成 2026.08.26 – ver 5.0。
+   版本号形如 2026.8.26，按字符串排会把 12 月排到 8 月前面，所以拆成数字比。 */
+const parseCodexVersion = value => {
+  const m = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(String(value || '').trim());
+  return m ? { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) } : null;
+};
+function n5LaunchStamp(list) {
+  const latest = list.map(c => parseCodexVersion(c?.version))
+    .filter(Boolean)
+    .sort((a, b) => (a.y - b.y) || (a.m - b.m) || (a.d - b.d))
+    .pop();
+  const pad = n => String(n).padStart(2, '0');
+  return latest ? `${latest.y}.${pad(latest.m)}.${pad(latest.d)} – ver 5.0` : 'ver 5.0';
+}
+
+/* 两本时写「两本」更像人话，将来多一本会自动退回「3 本」 */
+const n5BooksLabel = count => (count === 2 ? '两本' : `${count} 本`);
 
 function n5LaunchMode() {
   try {
@@ -131,7 +152,6 @@ export function setupCodexPicker() {
   if (!btn || !menu) return;
 
   let activeType = null;  // 级联模式下当前选中的类型
-  let n5PickerRevealPlayed = false;
   let dismissN5LaunchNotice = () => {};
   const n5Launch = n5LaunchMode();
   const n5LaunchActive = n5Launch.active && state.codexes.some(isN5LaunchCodex);
@@ -234,7 +254,7 @@ export function setupCodexPicker() {
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
     /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
     item.setAttribute('aria-label',
-      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，N5 新上线' : ''}`);
+      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
     item.innerHTML =
@@ -242,7 +262,7 @@ export function setupCodexPicker() {
       `<span class="ci-main">` +
       `<span class="ci-head"><span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
       (active ? '<span class="ci-now">当前</span>' : '') +
-      (n5Featured ? '<span class="ci-n5-chip">NEW</span>' : '') + `</span>` +
+      (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
       `<span class="ci-foot"><span class="ci-tags">${renderCodexChips(c)}</span>` +
       `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>` +
@@ -281,26 +301,42 @@ export function setupCodexPicker() {
     const featured = state.codexes.filter(isN5LaunchCodex);
     if (!featured.length) return null;
     const entries = featured.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+    const stamp = n5LaunchStamp(featured);
     const panel = document.createElement('section');
-    panel.className = `n5-launch-panel${n5PickerRevealPlayed ? '' : ' reveal'}`;
+    panel.className = 'n5-launch-panel';
     panel.tabIndex = -1;
-    panel.setAttribute('aria-label', 'NovelAI 5 新模型法典');
+    panel.setAttribute('aria-label', 'NovelAI V5 新模型法典');
+    /* 左栏标题、右栏书目，中间靠 1px 竖线分栏；日期戳窄屏时换到整块右下角（.n5-stamp-foot）。 */
     panel.innerHTML =
-      `<div class="n5-launch-copy">` +
-      `<span class="n5-launch-kicker"><i></i>NEW · NOVELAI 5</span>` +
-      `<strong>新模型法典已上线</strong>` +
-      `<small>${featured.length} 本新法典 · ${entries.toLocaleString()} 条词条</small>` +
+      `<div class="n5-launch-head">` +
+      `<span class="n5-brand">${V5_MARK}</span>` +
+      `<span class="n5-eyebrow">NEW · NOVELAI V5</span>` +
+      `<strong>新模型法典</strong>` +
+      `<small>${n5BooksLabel(featured.length)} · ${entries.toLocaleString()} 条词条</small>` +
+      `<span class="n5-stamp">${esc(stamp)}</span>` +
       `</div>` +
       `<div class="n5-launch-books">${featured.map(c => {
         const shortTitle = c.id === 'artist_nai5_personal' ? '画师词典' : '社区精选图包';
-        return `<button type="button" class="n5-launch-book" data-id="${esc(c.id)}">` +
-          `<span>${esc(shortTitle)}</span><b>${Number(c.entryCount || 0).toLocaleString()} 条</b>` +
+        const count = Number(c.entryCount || 0);
+        const cover = codexCoverUrl(c);
+        return `<button type="button" class="n5-launch-book" data-id="${esc(c.id)}" ` +
+          `aria-label="${esc(shortTitle)}，${count} 条词条">` +
+          `<span class="n5b-cover">` +
+          (cover ? `<img src="${esc(cover)}" alt="" loading="lazy" decoding="async">` : '') +
+          `</span>` +
+          `<span class="n5b-main">` +
+          `<span class="n5b-name">${esc(shortTitle)}</span>` +
+          `<span class="n5b-sub">${esc(c.author || '未知作者')}</span>` +
+          `</span>` +
+          `<span class="n5b-n">${count.toLocaleString()}<i>条</i></span>` +
+          `<span class="n5-tag">V5</span>` +
           `</button>`;
-      }).join('')}</div>`;
+      }).join('')}</div>` +
+      `<span class="n5-stamp n5-stamp-foot">${esc(stamp)}</span>` +
+      `<span class="n5-wm" aria-hidden="true">V5</span>`;
     panel.querySelectorAll('.n5-launch-book').forEach(book => {
       book.onclick = () => chooseCodex(featured.find(c => c.id === book.dataset.id));
     });
-    n5PickerRevealPlayed = true;
     return panel;
   };
 
@@ -452,17 +488,28 @@ export function setupCodexPicker() {
       if (acknowledged || notice || document.querySelector('.n5-launch-notice')) return;
       const featured = state.codexes.filter(isN5LaunchCodex);
       const entries = featured.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+      const allImaged = featured.every(c => Number(c.imagedCount || 0) >= Number(c.entryCount || 0));
       notice = document.createElement('aside');
       notice.className = 'n5-launch-notice';
-      notice.setAttribute('aria-label', 'NovelAI 5 上线提示');
+      notice.setAttribute('aria-label', 'NovelAI V5 上线提示');
       notice.innerHTML =
-        `<span class="n5-notice-orb" aria-hidden="true">N5</span>` +
-        `<div class="n5-notice-copy"><span>NEW · NOVELAI 5</span>` +
-        `<strong>新模型法典已上线</strong>` +
-        `<p>${featured.length} 本新法典 · ${entries.toLocaleString()} 条词条</p></div>` +
-        `<button class="n5-notice-close" type="button" aria-label="关闭 N5 上线提示">×</button>` +
-        `<button class="n5-notice-open" type="button">看看 N5 <span aria-hidden="true">→</span></button>`;
+        `<button class="n5-notice-close" type="button" aria-label="关闭 V5 上线提示">×</button>` +
+        `<span class="n5-brand">${V5_MARK}</span>` +
+        `<span class="n5-eyebrow">NEW · NOVELAI V5</span>` +
+        `<strong class="n5-notice-title">新模型法典上线</strong>` +
+        `<p class="n5-notice-sub">${n5BooksLabel(featured.length)}新法典 · ` +
+        `<b>${entries.toLocaleString()}</b> 条词条${allImaged ? ' · 全部配图' : ''}</p>` +
+        `<div class="n5-notice-actions">` +
+        `<button class="n5-btn solid n5-notice-open" type="button">看看新法典</button>` +
+        `<button class="n5-btn ghost n5-notice-later" type="button">以后再说</button>` +
+        `</div>` +
+        `<span class="n5-stamp">${esc(n5LaunchStamp(featured))}</span>` +
+        `<span class="n5-wm" aria-hidden="true">V5</span>`;
       notice.querySelector('.n5-notice-close').onclick = ev => {
+        ev.stopPropagation();
+        acknowledge();
+      };
+      notice.querySelector('.n5-notice-later').onclick = ev => {
         ev.stopPropagation();
         acknowledge();
       };

@@ -117,8 +117,8 @@ body.dark .codex-btn{background:rgba(255,255,255,.06);border-color:transparent}
 body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
 .codex-menu{
   position:absolute;left:0;top:calc(100% + 8px);z-index:40;width:min(660px,calc(100vw - 28px));max-width:660px;
-  background:var(--popover-glass);
-  backdrop-filter:blur(18px) saturate(1.12);-webkit-backdrop-filter:blur(18px) saturate(1.12);
+  /* 实心面板：玻璃拟态与 V5 版面的排版语言冲突，顺带省掉一层合成 */
+  background:var(--panel);
   border:1px solid var(--popover-line);border-radius:14px;box-shadow:var(--popover-shadow);
   padding:9px;animation:settingsIn .16s ease;
 }
@@ -126,65 +126,95 @@ body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
 .codex-menu.cascade{display:grid;grid-template-columns:172px minmax(0,1fr);gap:9px}
 .codex-menu.grouped{display:flex;flex-direction:column;gap:6px;max-height:min(72vh,460px);overflow:auto}
 body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
-/* N5 限时上线提示：上线窗口内启用；?n5Launch=preview 强制预览，?n5Launch=off 可关闭。专区承担一次性仪式感，书卡保持低亮静态。 */
-.n5-launch-panel{
-  grid-column:1/-1;position:relative;isolation:isolate;overflow:hidden;display:flex;flex:none;align-items:center;gap:16px;min-width:0;
-  padding:11px 13px;border:1px solid rgba(83,162,156,.38);border-radius:12px;
-  background:radial-gradient(circle at 8% 20%,rgba(104,207,197,.18),transparent 34%),linear-gradient(135deg,rgba(235,248,246,.96),rgba(244,241,251,.96));
-  box-shadow:0 10px 28px rgba(53,90,101,.12),inset 0 1px rgba(255,255,255,.72);
+/* ── V5 限时上线版面 ────────────────────────────────────────────────────────
+   上线窗口内启用；?n5Launch=preview 强制预览，?n5Launch=off 关闭（类名 n5-* 是内部代号，
+   对外一律叫 V5）。这块**刻意不跟四套主题色走**——它是一次性活动版面，自带固定美术方向：
+   瑞士国际主义排版 + Apple 产品页 ＝ 单一强调色 #FF2D78（只给 eyebrow，面积 <5%）、
+   字重只有 900/400、圆角只有 8/16/22、分栏靠 1px 细线、装饰只有一枚极低对比度的大字水印。 */
+.n5-launch-panel,.n5-launch-notice{
+  --n5-line:#e5e5e7;--n5-ink:#1d1d1f;--n5-dim:#86868b;--n5-accent:#ff2d78;
+  --n5-wash:#f0f0f2;--n5-stamp:#b9b9bf;--n5-card:#fff;
+  color:var(--n5-ink);
+  font-family:"Outfit","Alibaba PuHuiTi 3.0","Alibaba PuHuiTi 2.0","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
 }
-.n5-launch-panel>*{position:relative;z-index:1}
-.n5-launch-panel:focus-visible{outline:2px solid rgba(93,177,169,.62);outline-offset:2px}
-.n5-launch-panel::before{content:"";position:absolute;inset:-70% 38% -80% -8%;background:radial-gradient(circle,rgba(118,210,201,.22),transparent 68%);filter:blur(10px);pointer-events:none}
-.n5-launch-panel.reveal::after{
-  content:"";position:absolute;z-index:2;inset:-45% auto -45% -30%;width:28%;transform:skewX(-18deg);
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.72),transparent);filter:blur(2px);pointer-events:none;
-  animation:n5LaunchSweep 1.05s cubic-bezier(.2,.72,.25,1) .16s both;
+body.dark .n5-launch-panel,body.dark .n5-launch-notice{
+  --n5-line:#2f2f31;--n5-ink:#f5f5f7;--n5-wash:#252527;--n5-stamp:#5b5b60;--n5-card:#1d1d1f;
 }
-@keyframes n5LaunchSweep{from{left:-34%;opacity:0}18%{opacity:.8}to{left:112%;opacity:0}}
-.n5-launch-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.n5-launch-kicker{display:flex;align-items:center;gap:6px;color:#447c78;font-size:9px;font-weight:900;letter-spacing:.14em}
-.n5-launch-kicker i{width:6px;height:6px;border-radius:50%;background:#63bcb4;box-shadow:0 0 0 4px rgba(99,188,180,.12)}
-.n5-launch-copy strong{color:var(--text);font-size:15px;line-height:1.35;letter-spacing:.01em}
-.n5-launch-copy small{color:var(--muted);font-size:10.5px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.n5-launch-books{flex:none;display:flex;align-items:stretch;gap:7px}
-.n5-launch-book{
-  min-width:112px;display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:7px 9px;
-  border:1px solid rgba(92,163,158,.25);border-radius:9px;background:rgba(255,255,255,.58);color:var(--text);cursor:pointer;text-align:left;
-  transition:translate .16s,border-color .16s,background .16s,box-shadow .16s;
-}
-.n5-launch-book span{font-size:11.5px;font-weight:800;white-space:nowrap}
-.n5-launch-book b{font-size:9.5px;color:#5b8884;font-variant-numeric:tabular-nums}
-.n5-launch-book:hover,.n5-launch-book:focus-visible{translate:0 -1px;border-color:#72aaa5;background:rgba(255,255,255,.9);box-shadow:0 5px 14px rgba(62,106,112,.12);outline:none}
-body.dark .n5-launch-panel{border-color:rgba(112,196,188,.28);background:radial-gradient(circle at 8% 20%,rgba(73,170,161,.2),transparent 36%),linear-gradient(135deg,rgba(25,47,48,.96),rgba(39,35,57,.96));box-shadow:0 12px 30px rgba(0,0,0,.2),inset 0 1px rgba(255,255,255,.06)}
-body.dark .n5-launch-kicker{color:#94d2cb}
-body.dark .n5-launch-book{border-color:rgba(126,201,194,.18);background:rgba(255,255,255,.055)}
-body.dark .n5-launch-book b{color:#91c4be}
-body.dark .n5-launch-book:hover,body.dark .n5-launch-book:focus-visible{border-color:rgba(137,210,203,.5);background:rgba(255,255,255,.09)}
+/* 焦点环走墨色，不借主题强调色——这块版面只允许一个强调色，且已给了 eyebrow */
+.n5-launch-panel :focus-visible,.n5-launch-notice :focus-visible{outline:2px solid var(--n5-ink);outline-offset:2px}
+.n5-eyebrow{display:block;color:var(--n5-accent);font-size:13px;font-weight:900;letter-spacing:.02em;line-height:1}
+.n5-brand{display:block;width:26px;height:26px;margin-bottom:18px;color:var(--n5-ink)}
+.n5-brand svg{display:block;width:100%;height:100%;fill:currentColor}
+/* 水印沉到 z-index:-1：两个容器都 isolation:isolate，只会落在自身底色之上、内容之下，
+   不需要再把所有子元素强制 position:relative（那会连关闭键的 absolute 一起改掉） */
+.n5-wm{position:absolute;z-index:-1;color:var(--n5-wash);font-weight:900;line-height:.74;pointer-events:none;user-select:none}
+.n5-tag{flex:none;border-radius:999px;padding:3px 10px;background:var(--n5-ink);color:var(--n5-card);
+  font-size:11px;font-weight:900;letter-spacing:.02em;line-height:1.45}
+.n5-stamp{display:block;font-size:10px;font-weight:400;letter-spacing:.02em;color:var(--n5-stamp)}
 
+/* 选择器顶部满幅版面：负 margin 吃掉菜单的 9px padding，上两角贴合菜单内圆角（14-1） */
+.n5-launch-panel{
+  /* flex:none 是给窄屏的 .codex-menu.grouped 用的：那是个会滚动的 flex 列，
+     不写就会被当成可压缩项压扁成一条（PC 的 grid 布局下这条无副作用）。 */
+  grid-column:1/-1;flex:none;position:relative;isolation:isolate;overflow:hidden;
+  margin:-9px -9px 0;padding:26px 24px 16px;border-radius:13px 13px 0 0;
+  border-bottom:1px solid var(--n5-line);
+  display:grid;grid-template-columns:minmax(0,196px) minmax(0,1fr);gap:0 28px;
+}
+.n5-launch-panel:focus-visible{outline-offset:-4px}
+.n5-launch-panel .n5-wm{left:14px;bottom:-38px;font-size:150px}
+.n5-launch-head{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
+.n5-launch-head .n5-brand{width:24px;height:24px;margin-bottom:16px}
+.n5-launch-head strong{margin-top:16px;font-size:28px;font-weight:900;line-height:1.18;letter-spacing:-.015em}
+.n5-launch-head small{margin-top:10px;font-size:12.5px;font-weight:400;color:var(--n5-dim)}
+.n5-launch-head .n5-stamp{margin-top:auto;padding-top:18px}
+.n5-launch-books{min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--n5-line);padding-left:28px}
+.n5-launch-book{
+  display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;align-items:center;gap:16px;
+  width:100%;padding:11px 10px;border:0;border-radius:8px;background:transparent;color:var(--n5-ink);
+  font-family:inherit;text-align:left;cursor:pointer;transition:background .15s;
+}
+.n5-launch-book + .n5-launch-book{border-top:1px solid var(--n5-line)}
+.n5-launch-book:hover{background:var(--n5-wash)}
+.n5-launch-book:focus-visible{background:var(--n5-wash);outline-offset:-2px}
+.n5b-cover{width:56px;height:56px;border-radius:22px;overflow:hidden;background:var(--n5-wash)}
+.n5b-cover img{display:block;width:100%;height:100%;object-fit:cover}
+.n5b-main{min-width:0;display:flex;flex-direction:column;gap:3px}
+.n5b-name{font-size:15px;font-weight:900;letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n5b-sub{font-size:11.5px;font-weight:400;color:var(--n5-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n5b-n{flex:none;font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+.n5b-n i{margin-left:3px;font-size:11px;font-weight:400;font-style:normal;color:var(--n5-dim)}
+.n5-stamp-foot{display:none}
+/* 版面吃掉菜单顶部约 200px，列表同步收一档，矮屏下拉才不会顶出视口。
+   396 ＝ 顶栏落点 + 版面 + 内外边距的实测和；纯 vh 比例挡不住 700px 高的笔记本。 */
+body.n5-launch-active .codex-list{max-height:min(calc(100vh - 396px),360px)}
+
+/* 首次公告推送：右下角悬浮，进场仍是原来的淡入上移 */
 .n5-launch-notice{
-  position:fixed;right:82px;bottom:28px;z-index:65;box-sizing:border-box;width:min(370px,calc(100vw - 112px));
-  display:grid;grid-template-columns:46px minmax(0,1fr) 26px;grid-template-areas:"orb copy close" "orb action action";align-items:center;column-gap:11px;row-gap:8px;
-  padding:13px 13px 12px;border:1px solid rgba(83,162,156,.38);border-radius:17px;
-  background:radial-gradient(circle at 2% 5%,rgba(104,207,197,.17),transparent 36%),rgba(251,253,255,.94);
-  backdrop-filter:blur(18px) saturate(1.08);-webkit-backdrop-filter:blur(18px) saturate(1.08);
-  box-shadow:0 18px 48px rgba(27,45,57,.2),inset 0 1px rgba(255,255,255,.8);
+  position:fixed;right:82px;bottom:28px;z-index:65;box-sizing:border-box;
+  width:min(392px,calc(100vw - 112px));
+  isolation:isolate;overflow:hidden;padding:30px 30px 20px;
+  background:var(--n5-card);border:1px solid var(--n5-line);border-radius:16px;
+  box-shadow:0 10px 34px rgba(0,0,0,.1);
   opacity:0;translate:0 14px;scale:.98;pointer-events:none;
   transition:opacity .2s,translate .32s cubic-bezier(.22,1,.36,1),scale .32s cubic-bezier(.22,1,.36,1);
 }
+body.dark .n5-launch-notice{box-shadow:0 10px 34px rgba(0,0,0,.55)}
 .n5-launch-notice.show{opacity:1;translate:0;scale:1;pointer-events:auto}
-.n5-notice-orb{grid-area:orb;width:44px;height:44px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(145deg,#5faea7,#8279b8);color:#fff;font-size:13px;font-weight:950;letter-spacing:.04em;box-shadow:0 8px 18px rgba(89,120,147,.25)}
-.n5-notice-copy{grid-area:copy;min-width:0;display:flex;flex-direction:column}
-.n5-notice-copy>span{color:#4b817d;font-size:8.5px;font-weight:950;letter-spacing:.13em}
-.n5-notice-copy strong{margin-top:1px;color:var(--text);font-size:14px;line-height:1.3}
-.n5-notice-copy p{margin:2px 0 0;color:var(--muted);font-size:10.5px}
-.n5-notice-close{grid-area:close;align-self:start;width:26px;height:26px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:19px;line-height:1;cursor:pointer}
-.n5-notice-close:hover,.n5-notice-close:focus-visible{background:var(--tagbg);color:var(--text);outline:none}
-.n5-notice-open{grid-area:action;justify-self:start;border:0;border-radius:999px;padding:5px 10px;background:rgba(89,163,157,.13);color:#3f736f;font-size:10.5px;font-weight:900;cursor:pointer}
-.n5-notice-open:hover,.n5-notice-open:focus-visible{background:rgba(89,163,157,.22);outline:none}
-body.dark .n5-launch-notice{border-color:rgba(112,196,188,.3);background:radial-gradient(circle at 2% 5%,rgba(73,170,161,.18),transparent 38%),rgba(19,24,34,.94);box-shadow:0 22px 54px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.06)}
-body.dark .n5-notice-copy>span{color:#98d4cd}
-body.dark .n5-notice-open{color:#a8d7d1;background:rgba(102,190,181,.14)}
+.n5-launch-notice .n5-wm{right:-14px;bottom:-54px;font-size:186px}
+.n5-notice-title{display:block;margin-top:20px;font-size:34px;font-weight:900;line-height:1.2;letter-spacing:-.015em}
+.n5-notice-sub{margin:16px 0 0;font-size:13px;font-weight:400;color:var(--n5-dim)}
+.n5-notice-sub b{font-weight:400;color:var(--n5-ink)}
+.n5-notice-actions{display:flex;align-items:center;gap:22px;margin-top:26px;padding-top:22px;border-top:1px solid var(--n5-line)}
+.n5-btn{border:0;border-radius:999px;font-family:inherit;font-size:13px;cursor:pointer;transition:opacity .15s,color .15s}
+.n5-btn.solid{padding:11px 24px;background:var(--n5-ink);color:var(--n5-card);font-weight:900}
+.n5-btn.solid:hover{opacity:.82}
+.n5-btn.ghost{padding:11px 2px;background:transparent;color:var(--n5-dim);font-weight:400}
+.n5-btn.ghost:hover{color:var(--n5-ink)}
+.n5-notice-close{position:absolute;top:14px;right:14px;width:30px;height:30px;border:0;border-radius:8px;
+  background:transparent;color:var(--n5-dim);font-size:19px;font-weight:400;line-height:1;cursor:pointer}
+.n5-notice-close:hover{background:var(--n5-wash);color:var(--n5-ink)}
+.n5-launch-notice .n5-stamp{margin-top:20px;text-align:right}
 
 /* ── 书卡：一行一本平放的书。封面给画风、右下角给规模，配图率降级成小圆环 ── */
 .codex-item{
@@ -198,13 +228,11 @@ body.dark .n5-notice-open{color:#a8d7d1;background:rgba(102,190,181,.14)}
 .codex-item.locked,.codex-item.soon{background:var(--tagbg);box-shadow:none;cursor:not-allowed}
 .codex-item.locked:hover,.codex-item.locked:focus-visible,
 .codex-item.soon:hover,.codex-item.soon:focus-visible{transform:none;box-shadow:none;border-color:var(--line)}
-.codex-item.n5-highlight:not(.active){border-color:rgba(88,166,159,.42);background:linear-gradient(112deg,rgba(91,188,178,.075),rgba(137,126,191,.055)),var(--card);box-shadow:0 7px 20px rgba(56,94,104,.1)}
-.codex-item.n5-highlight.active{box-shadow:0 0 0 3px var(--accent-glow),0 9px 26px rgba(78,121,139,.14)}
-.codex-item.n5-highlight:hover,.codex-item.n5-highlight:focus-visible{border-color:#72aaa5;box-shadow:0 10px 27px rgba(59,105,116,.16)}
-.ci-n5-chip{flex:none;border:1px solid rgba(84,160,154,.28);border-radius:999px;padding:1px 6px;color:#477b77;background:rgba(94,175,167,.1);font-size:8.5px;font-weight:950;letter-spacing:.08em}
-body.dark .codex-item.n5-highlight:not(.active){border-color:rgba(112,196,188,.27);background:linear-gradient(112deg,rgba(71,164,155,.11),rgba(129,116,184,.08)),var(--card);box-shadow:0 8px 22px rgba(0,0,0,.16)}
-body.dark .ci-n5-chip{color:#9bd1cb;border-color:rgba(121,203,195,.25);background:rgba(96,183,174,.11)}
-.ci-cover{position:relative;flex:none;width:116px;aspect-ratio:3/2;border-radius:9px;overflow:hidden;background:var(--tagbg)}
+/* 新书不再靠底色发光突出（渐变已废）：一枚纯黑 V5 药丸就够，书卡本体保持静态 */
+.ci-n5-chip{flex:none;border-radius:999px;padding:2px 8px;background:#1d1d1f;color:#fff;
+  font-size:10px;font-weight:900;letter-spacing:.02em;line-height:1.5}
+body.dark .ci-n5-chip{background:#f5f5f7;color:#1d1d1f}
+.ci-cover{position:relative;flex:none;width:116px;aspect-ratio:3/2;border-radius:8px;overflow:hidden;background:var(--tagbg)}
 .ci-ph{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent-soft),var(--tagbg));color:var(--accent)}
 .ci-ph svg{width:26px;height:26px;opacity:.45}
 .ci-cover img{
@@ -241,15 +269,11 @@ body.dark .ci-n5-chip{color:#9bd1cb;border-color:rgba(121,203,195,.25);backgroun
 .codex-item.locked .ci-ring i{background:var(--tagbg)}
 .ci-chip{display:inline-flex;align-items:center;gap:3px;flex:none;font-size:10px;font-weight:900;line-height:1.5;border-radius:999px;padding:1.5px 7px;white-space:nowrap}
 .ci-chip svg{width:10px;height:10px}
-.ci-chip.new{color:#fff;background:var(--new)}
-.ci-chip.nsfw{color:#fff;background:#d3455f}
-.ci-chip.ext{color:#b0823a;background:rgba(202,154,62,.16)}
-body.dark .ci-chip.ext{color:#e3b463}
-.ci-chip.orig{border:1px solid transparent}
-.ci-chip.orig.has-orig{color:#356b64;background:#e4efec;border-color:#a9c9c2}
-.ci-chip.orig.no-orig{color:var(--muted);background:var(--tagbg);border-color:var(--line)}
-body.dark .ci-chip.orig.has-orig{color:#a7d8cf;background:#173a35;border-color:#376c64}
-.ci-chip.lock{color:var(--muted);background:var(--card);border:1px solid var(--line)}
+/* 状态签中性化（2026-08-27）：书卡不再用红/绿/琥珀各表一色，只留三档——
+   纯黑药丸＝版本标识（.ci-n5-chip）· 墨色描边＝需要留神的门（NSFW）· 细边灰药丸＝其余状态。
+   颜色取各主题自己的 --text/--muted/--line，所以四套皮肤下都成立。 */
+.ci-chip{border:1px solid var(--line);background:transparent;color:var(--muted)}
+.ci-chip.nsfw,.ci-chip.lock{border-color:var(--text);color:var(--text)}
 /* NSFW 小标解锁/未解锁二选一：updateCodexPickerState 只改 .locked 类，显隐交给 CSS */
 .codex-item .ci-chip.lock{display:none}
 .codex-item.locked .ci-chip.nsfw{display:none}
@@ -309,15 +333,19 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   .codex-item:hover,.codex-item:focus-visible,
   .codex-item:hover .ci-cover img{transform:none}
   .ci-cover img{opacity:1}
-  .n5-launch-panel.reveal::after{animation:none}
 }
 
 @media (max-width:600px){
-  .n5-launch-panel{flex-direction:column;align-items:stretch;gap:9px;padding:11px 12px}
-  .n5-launch-copy small{white-space:normal}
-  .n5-launch-books{width:100%}
-  .n5-launch-book{flex:1;min-width:0}
-  .n5-launch-notice{left:12px;right:12px;bottom:112px;width:auto}
+  /* 窄屏：版面改上下两段，日期戳从左栏底部挪到整块右下角 */
+  .n5-launch-panel{grid-template-columns:minmax(0,1fr);gap:0;padding:22px 16px 12px}
+  .n5-launch-books{border-left:0;border-top:1px solid var(--n5-line);padding-left:0;margin-top:18px;padding-top:4px}
+  .n5-launch-head strong{font-size:25px}
+  .n5-launch-head .n5-stamp{display:none}
+  .n5-launch-panel .n5-stamp-foot{display:block;text-align:right;padding:10px 10px 0}
+  .n5-launch-panel .n5-wm{left:auto;right:12px;bottom:-32px;font-size:130px}
+  .n5-launch-notice{left:12px;right:12px;bottom:112px;width:auto;padding:24px 20px 16px}
+  .n5-notice-title{font-size:28px}
+  .n5-launch-notice .n5-wm{right:-10px;bottom:-42px;font-size:146px}
 }
 .search-wrap{flex:1;max-width:520px;position:relative;display:flex;align-items:center}
 #search{

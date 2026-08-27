@@ -647,10 +647,29 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.doesNotMatch(withoutOriginal, /NSFW/);
 
   const chipStyles = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
-  assert.match(chipStyles, /\.ci-chip\.orig\.has-orig\{color:#356b64;background:#e4efec;border-color:#a9c9c2\}/);
-  assert.match(chipStyles, /\.ci-chip\.orig\.no-orig\{color:var\(--muted\);background:var\(--tagbg\)/);
-  assert.match(chipStyles, /body\.dark \.ci-chip\.orig\.has-orig\{color:#a7d8cf;background:#173a35;border-color:#376c64\}/);
+  // 2026-08-27 起状态签中性化：只剩三档，颜色一律走主题自己的 --text/--muted/--line，
+  // 红/绿/琥珀三套写死色值不允许回潮（回潮＝又冒出第二、第三个强调色）。
+  assert.match(chipStyles, /\.ci-chip\{border:1px solid var\(--line\);background:transparent;color:var\(--muted\)\}/);
+  assert.match(chipStyles, /\.ci-chip\.nsfw,\.ci-chip\.lock\{border-color:var\(--text\);color:var\(--text\)\}/);
+  assert.doesNotMatch(chipStyles, /\.ci-chip\.(?:orig\.has-orig|nsfw)\{color:#/, '状态签不得再写死配色');
   assert.doesNotMatch(chipStyles, /\.ci-chip\.orig\{display:none\}/, '窄屏也必须保留原图状态签');
+
+  // V5 上线版面的美术契约：唯一强调色只给 eyebrow，版面内禁止渐变/玻璃，书卡靠纯黑药丸而非发光底。
+  assert.match(chipStyles, /\.ci-n5-chip\{[^}]*background:#1d1d1f;color:#fff/);
+  assert.doesNotMatch(chipStyles, /\.codex-item\.n5-highlight/, 'V5 书卡不再用底色渐变突出');
+  const launchBlock = chipStyles.slice(
+    chipStyles.indexOf('.n5-launch-panel,.n5-launch-notice{'),
+    chipStyles.indexOf('/* ── 书卡'));
+  assert.ok(launchBlock.length > 500, '没定位到 V5 版面样式块');
+  assert.doesNotMatch(launchBlock, /gradient|backdrop-filter/, 'V5 版面禁止渐变与玻璃拟态');
+  const menuRule = chipStyles.slice(chipStyles.indexOf('.codex-menu{'), chipStyles.indexOf('}', chipStyles.indexOf('.codex-menu{')));
+  assert.match(menuRule, /background:var\(--panel\)/);
+  assert.doesNotMatch(menuRule, /backdrop-filter/, '选择器面板已去玻璃');
+
+  const codexUiSource = await readFile(new URL('../site/assets/app/codex-ui.js', import.meta.url), 'utf8');
+  assert.match(codexUiSource, /NEW · NOVELAI V5/);
+  assert.match(codexUiSource, /class="ci-n5-chip">V5</);
+  assert.doesNotMatch(codexUiSource, /NOVELAI 5/, '对外文案统一叫 V5');
 
   const settingsSource = await readFile(new URL('../site/index.html', import.meta.url), 'utf8');
   assert.match(settingsSource, /显示 NSFW 内容/);

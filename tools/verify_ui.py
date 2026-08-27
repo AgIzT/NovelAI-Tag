@@ -1957,7 +1957,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   if (!stringType) throw new Error('artist-string type item not found');
   stringType.click();
   const stringIds = [...document.querySelectorAll('#codexMenu .codex-item[data-id]')].map(node => node.dataset.id);
-  const expected = ['artist_nai45_personal', 'artist_nai45_strings', 'composition_style', 'qianteng'];
+  // 2026-08-26 起画风串多了 V5 画师词典，按 codexes.json 的顺序排在最前。
+  const expected = ['artist_nai5_personal', 'artist_nai45_personal', 'artist_nai45_strings', 'composition_style', 'qianteng'];
   if (JSON.stringify(stringIds) !== JSON.stringify(expected)) {
     throw new Error(`artist-string order mismatch: ${stringIds.join(',')}`);
   }
