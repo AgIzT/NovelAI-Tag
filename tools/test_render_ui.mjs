@@ -654,6 +654,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   // ⚠ 含原图必须实底、无原图必须描边——两枚同色是 2026-08-27 修过一次的回归。
   assert.match(chipStyles, /\.ci-chip\.has-orig\{border-color:transparent;background:rgba\(29,29,31,\.07\);color:var\(--text\)\}/);
   assert.match(chipStyles, /body\.dark \.ci-chip\.has-orig\{background:rgba\(255,255,255,\.1\)\}/);
+  assert.match(chipStyles, /\.ci-chip\.new\{border-color:var\(--accent\);color:var\(--accent\)\}/, '时效签走描边强调色，别退回最底档');
   assert.match(chipStyles, /\.data-pill\.has-orig\{color:var\(--text\);background:rgba\(29,29,31,\.07\)/, '横幅原图签要跟书卡同一套');
   assert.doesNotMatch(chipStyles, /\.data-pill\.has-orig\{color:#356b64/, '横幅原图签不得回到绿底');
   assert.doesNotMatch(chipStyles, /\.ci-chip\.orig\{display:none\}/, '窄屏也必须保留原图状态签');

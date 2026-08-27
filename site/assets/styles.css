@@ -284,6 +284,10 @@ body.dark .ci-n5-chip{background:#f5f5f7;color:#1d1d1f}
 .ci-chip svg{width:10px;height:10px}
 .ci-chip.has-orig{border-color:transparent;background:rgba(29,29,31,.07);color:var(--text)}
 .ci-chip.nsfw,.ci-chip.lock{border-color:var(--text);color:var(--text)}
+/* 「本次更新」是这堆签里唯一带时效的，而且它本身就是个日期（如「8.14更新」）——按
+   「日期可用强调色」升一档，否则它会和外部源/无原图一样沉在最底档，最该被看见的反而最轻。
+   与「当前」那枚**实心**强调色药丸靠虚实区分：实心＝当前状态，描边＝时效标签。 */
+.ci-chip.new{border-color:var(--accent);color:var(--accent)}
 body.dark .ci-chip.has-orig{background:rgba(255,255,255,.1)}
 /* NSFW 小标解锁/未解锁二选一：updateCodexPickerState 只改 .locked 类，显隐交给 CSS */
 .codex-item .ci-chip.lock{display:none}
