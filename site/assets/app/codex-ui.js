@@ -488,7 +488,6 @@ export function setupCodexPicker() {
       if (acknowledged || notice || document.querySelector('.n5-launch-notice')) return;
       const featured = state.codexes.filter(isN5LaunchCodex);
       const entries = featured.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
-      const allImaged = featured.every(c => Number(c.imagedCount || 0) >= Number(c.entryCount || 0));
       notice = document.createElement('aside');
       notice.className = 'n5-launch-notice';
       notice.setAttribute('aria-label', 'NovelAI V5 上线提示');
@@ -498,7 +497,7 @@ export function setupCodexPicker() {
         `<span class="n5-eyebrow">NEW · NOVELAI V5</span>` +
         `<strong class="n5-notice-title">新模型法典上线</strong>` +
         `<p class="n5-notice-sub">${n5BooksLabel(featured.length)}新法典 · ` +
-        `<b>${entries.toLocaleString()}</b> 条词条${allImaged ? ' · 全部配图' : ''}</p>` +
+        `<b>${entries.toLocaleString()}</b> 条词条</p>` +
         `<div class="n5-notice-actions">` +
         `<button class="n5-btn solid n5-notice-open" type="button">看看新法典</button>` +
         `<button class="n5-btn ghost n5-notice-later" type="button">以后再说</button>` +

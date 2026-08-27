@@ -219,8 +219,15 @@ assert.equal(shouldShowFavoritesMigrationBanner({
   origin: 'https://new.example',
   newOrigin: 'https://new.example',
   storage: markerStorage,
-  now: Date.parse('2026-10-31T23:59:59+08:00'),
+  now: Date.parse('2026-08-26T23:59:59+08:00'),
 }), true);
+// 2026-08-27 起横幅已收档：截止日之后任何人都不该再看到它。
+assert.equal(shouldShowFavoritesMigrationBanner({
+  origin: 'https://new.example',
+  newOrigin: 'https://new.example',
+  storage: markerStorage,
+  now: Date.parse('2026-08-27T00:00:01+08:00'),
+}), false);
 assert.equal(shouldShowFavoritesMigrationBanner({
   origin: 'https://old.example',
   newOrigin: 'https://new.example',
@@ -461,6 +468,8 @@ assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), originalC
     oldOrigin: 'https://old.example',
     newOrigin: 'https://new.example',
     currentOrigin: 'https://new.example',
+    // 横幅 2026-08-27 起已收档；这里固定到收档前，好让这段继续覆盖「横幅可见 → 走完整条桥」。
+    now: Date.parse('2026-08-26T12:00:00+08:00'),
     getCodexes: async () => codexes,
     onChanged: scopes => {
       assert.deepEqual(scopes, ['atlas', 'community']);

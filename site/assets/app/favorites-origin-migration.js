@@ -14,7 +14,10 @@ export const FAVORITES_MIGRATION_NEW_ORIGIN = 'https://novelai.quicktagcloud.com
 export const FAVORITES_MIGRATION_CACHE_BUSTER_PARAM = 'bridge';
 export const FAVORITES_MIGRATION_CACHE_BUSTER_VALUE = '20260721';
 export const FAVORITES_MIGRATION_MARKER_KEY = 'novelai-tag-favorites-origin-migration-v1';
-export const FAVORITES_MIGRATION_BANNER_END = Date.parse('2026-11-01T00:00:00+08:00');
+/* 首页横幅收档时间。原定 2026-11-01；2026-08-27 维护者判断迁移期已过、不必再在首页常驻，
+   提前关掉。⚠ 只关横幅——救援页 `_favorites-migration-202607.html`、备份对话框里的找回入口
+   与整条 postMessage 桥都保持可用（见 docs/decisions/旧Pages域收藏迁移桥.md）。 */
+export const FAVORITES_MIGRATION_BANNER_END = Date.parse('2026-08-27T00:00:00+08:00');
 
 export const FAVORITES_MIGRATION_MESSAGES = Object.freeze({
   ready: 'ready',
