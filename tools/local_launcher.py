@@ -90,6 +90,11 @@ class LocalEditStore(EditStore):
         result["pendingR2Sync"] = False
         return result
 
+    def create_entry_with_image(self, cid, payload, durl):
+        result = super().create_entry_with_image(cid, payload, durl)
+        result["pendingR2Sync"] = False
+        return result
+
     def delete_image(self, cid, eid):
         result = super().delete_image(cid, eid)
         result["pendingR2Sync"] = False

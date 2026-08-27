@@ -16,6 +16,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from edit_server import EditError, EditStore, build_tree  # noqa: E402
+from local_launcher import LocalEditStore  # noqa: E402
 
 
 def _write(path, text):
@@ -35,6 +36,36 @@ def make_png_dataurl(width=20, height=10, color=(200, 30, 30)):
     im = Image.new("RGB", (width, height), color)
     buf = io.BytesIO()
     im.save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def make_nai_png_dataurl():
+    from PIL import Image, PngImagePlugin
+
+    payload = {
+        "v4_prompt": {"caption": {
+            "base_caption": "masterpiece, 1girl",
+            "char_captions": [
+                {"char_caption": "red hair"},
+                {"char_caption": ""},
+                {"char_caption": ""},
+            ],
+        }},
+        "v4_negative_prompt": {"caption": {
+            "base_caption": "lowres",
+            "char_captions": [
+                {"char_caption": "bad hands"},
+                {"char_caption": ""},
+                {"char_caption": "bad tail"},
+            ],
+        }},
+    }
+    info = PngImagePlugin.PngInfo()
+    info.add_text("Software", "NovelAI")
+    info.add_text("Comment", json.dumps(payload, ensure_ascii=False))
+    im = Image.new("RGB", (32, 24), (90, 120, 180))
+    buf = io.BytesIO()
+    im.save(buf, "PNG", pnginfo=info)
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
@@ -278,6 +309,33 @@ class EditStoreTest(unittest.TestCase):
         again = self.store.create_entry("underbook", {"title": "U4", "tags": "d", "path": ["U"]})
         self.assertEqual(again["entry"]["id"], "underbook_0004")  # 删除号不复用，分隔符保持
 
+    def test_create_preserves_valid_character_prompts(self):
+        res = self.store.create_entry("testbook", {
+            "title": "角色词", "tags": "base", "path": ["甲"],
+            "characterPrompts": [
+                {"label": "char1", "prompt": "girl", "negative": "bad hands"},
+                {"label": "char3", "prompt": "", "negative": "bad tail"},
+                {"label": "char4", "prompt": "", "negative": ""},
+            ],
+        })
+        self.assertEqual(res["entry"]["characterPrompts"], [
+            {"label": "char1", "prompt": "girl", "negative": "bad hands"},
+            {"label": "char3", "prompt": "", "negative": "bad tail"},
+        ])
+
+    def test_create_rejects_malformed_character_prompts(self):
+        self.assert_edit_error(400, "bad-request", self.store.create_entry, "testbook", {
+            "title": "坏角色框", "tags": "base", "path": ["甲"],
+            "characterPrompts": [{"label": "角色1", "prompt": "x"}],
+        })
+        self.assert_edit_error(400, "bad-request", self.store.create_entry, "testbook", {
+            "title": "重复角色框", "tags": "base", "path": ["甲"],
+            "characterPrompts": [
+                {"label": "char1", "prompt": "x"},
+                {"label": "char1", "prompt": "y"},
+            ],
+        })
+
     def test_delete_keeps_image_files(self):
         tdir = os.path.join(self.root, "site", "images", "testbook")
         os.makedirs(tdir)
@@ -380,6 +438,65 @@ class EditStoreTest(unittest.TestCase):
             self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")  # 原图原样字节，未被重编码
         self.assertEqual(res["imagedCount"], 3)
         self.assertTrue(res["pendingR2Sync"])
+
+    def test_metadata_preview_reads_nai_base_negative_and_character_boxes(self):
+        res = self.store.inspect_image(make_nai_png_dataurl())
+        meta = res["metadata"]
+        self.assertEqual(meta["prompt"], "masterpiece, 1girl")
+        self.assertEqual(meta["negative"], "lowres")
+        self.assertEqual(meta["source"], "NovelAI")
+        self.assertRegex(meta["sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(meta["characterPrompts"], [
+            {"label": "char1", "prompt": "red hair", "negative": "bad hands"},
+            {"label": "char3", "prompt": "", "negative": "bad tail"},
+        ])
+
+    def test_create_entry_with_image_is_one_transaction(self):
+        durl = make_nai_png_dataurl()
+        meta = self.store.inspect_image(durl)["metadata"]
+        res = self.store.create_entry_with_image("testbook", {
+            "title": "NAI 导入", "tags": meta["prompt"], "negative": meta["negative"],
+            "characterPrompts": meta["characterPrompts"], "path": ["甲"],
+        }, durl)
+        entry = res["entry"]
+        self.assertEqual(entry["id"], "testbook-0004")
+        self.assertEqual(entry["characterPrompts"][1]["label"], "char3")
+        self.assertEqual(entry["original"], "testbook-0004.png")
+        self.assertTrue(os.path.isfile(os.path.join(self.root, "originals", "testbook", entry["original"])))
+        self.assertTrue(os.path.isfile(os.path.join(self.root, "site", "images", "testbook", entry["image"])))
+        self.assertEqual(res["entryCount"], 4)
+        self.assertEqual(res["imagedCount"], 3)
+        self.assertTrue(res["pendingR2Sync"])
+
+    def test_local_edition_atomic_import_does_not_claim_r2_sync_is_pending(self):
+        store = LocalEditStore(self.root)
+        res = store.create_entry_with_image("testbook", {
+            "title": "本地新增", "tags": "local", "path": ["甲"],
+        }, make_png_dataurl())
+        self.assertFalse(res["pendingR2Sync"])
+
+    def test_create_entry_with_image_rolls_back_entry_and_new_files(self):
+        book_path = os.path.join(self.data, "testbook.json")
+        before = _read(book_path)
+        with mock.patch.object(self.store, "_update_index_counts", side_effect=OSError("index failed")):
+            with self.assertRaises(OSError):
+                self.store.create_entry_with_image("testbook", {
+                    "title": "不应落地", "tags": "tag", "path": ["甲"],
+                }, make_png_dataurl())
+        self.assertEqual(_read(book_path), before)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "originals", "testbook", "testbook-0004.png")))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "site", "images", "testbook", "testbook-0004.jpg")))
+
+    def test_pack_import_keeps_images_zero_mirror(self):
+        path = os.path.join(self.data, "testbook.json")
+        book = self.read_book("testbook")
+        book["type"] = "pack"
+        _write(path, json.dumps(book, ensure_ascii=False))
+        res = self.store.create_entry_with_image("testbook", {
+            "title": "图包新增", "tags": "tag", "path": ["甲"],
+        }, make_png_dataurl())
+        entry = res["entry"]
+        self.assertEqual(entry["images"], [{"path": entry["image"], "original": entry["original"]}])
 
     def test_invalid_image_never_overwrites_existing_original(self):
         original = os.path.join(self.root, "originals", "testbook", "testbook-0001.png")
@@ -805,6 +922,31 @@ class HttpSmokeTest(unittest.TestCase):
         self.assertEqual(data["entryCount"], 3)
         on_disk = json.loads(_read(os.path.join(self.root, "site", "data", "testbook.json")))
         self.assertEqual(next(e for e in on_disk["entries"] if e["id"] == "testbook-0002")["title"], "HTTP改")
+
+    def test_metadata_and_atomic_import_roundtrip(self):
+        durl = make_nai_png_dataurl()
+        status, preview = self.request("/__edit__/metadata", {"dataURL": durl})
+        self.assertEqual(status, 200)
+        self.assertEqual(preview["metadata"]["prompt"], "masterpiece, 1girl")
+        self.assertEqual(preview["metadata"]["characterPrompts"][1]["label"], "char3")
+
+        status, imported = self.request("/__edit__/import-image", {
+            "codexId": "testbook",
+            "entry": {
+                "title": "HTTP 图片导入",
+                "tags": preview["metadata"]["prompt"],
+                "negative": preview["metadata"]["negative"],
+                "characterPrompts": preview["metadata"]["characterPrompts"],
+                "path": ["甲"],
+            },
+            "dataURL": durl,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(imported["entry"]["id"], "testbook-0004")
+        self.assertTrue(imported["pendingR2Sync"])
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.root, "originals", "testbook", imported["entry"]["original"]
+        )))
 
     def test_error_shell_and_statuses(self):
         status, data = self.request("/__edit__/entry", {"codexId": "nobook", "op": "delete", "entryId": "x"})

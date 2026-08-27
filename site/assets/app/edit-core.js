@@ -26,6 +26,46 @@ export function buildPathList(tree) {
   return out;
 }
 
+/* 全站搜索词条是来源法典的克隆；编辑前必须先解析回可写的原法典。
+   普通词条、外部源或锁定法典均返回 null，继续沿用主站的复制行为。 */
+export function resolveSiteSearchEditTarget(entry, editableCodexIds) {
+  const codexId = String(entry?._srcCodexId || '').trim();
+  const entryId = String(entry?.id || '').trim();
+  if (!codexId || !entryId || !Array.isArray(editableCodexIds) || !editableCodexIds.includes(codexId)) {
+    return null;
+  }
+  return {
+    codexId,
+    entryId,
+    codexTitle: String(entry._srcCodexTitle || codexId),
+    path: Array.isArray(entry._srcPath) ? entry._srcPath.slice() : [],
+  };
+}
+
+/* 图片文件名 → 新词条默认标题；只去掉最后一个扩展名，保留文件名中的其它点。 */
+export function titleFromImageFilename(name) {
+  const leaf = String(name || '').split(/[\\/]/).pop() || '';
+  return leaf.replace(/\.[^.]+$/, '').trim();
+}
+
+/* 服务端元数据 → 前端角色框安全形状。保留 char 原序号，空框不展示也不提交。 */
+export function normalizeImportedCharacterPrompts(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of value) {
+    const label = String(item?.label || '').trim();
+    const prompt = String(item?.prompt || '').trim();
+    const negative = String(item?.negative || '').trim();
+    if (!/^char[1-9]\d*$/.test(label) || seen.has(label) || (!prompt && !negative)) continue;
+    const clean = { label, prompt };
+    if (negative) clean.negative = negative;
+    seen.add(label);
+    out.push(clean);
+  }
+  return out;
+}
+
 /* 表单值 → 只含真正变化字段的 dirty 子集（服务器白名单同款字段）。
    values: { title, tags, negative, note, rating, isNew, pathValue } */
 export function diffFields(entry, values) {

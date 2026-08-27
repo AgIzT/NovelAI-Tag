@@ -13,16 +13,19 @@ import { invalidateBodyMetrics } from './masonry.js';
 import { invalidateSiteSearchCodex } from './site-search.js';
 import {
   buildPathList, diffFields, validateEntryForm, mergeEntryInPlace, joinTreePath, splitTreePath,
+  resolveSiteSearchEditTarget, titleFromImageFilename, normalizeImportedCharacterPrompts,
 } from './edit-core.js';
 
 const EDIT_MODE_KEY = 'fadian-editmode';
 const LOCAL_EDIT_MODE_KEY = 'fadian-local-editmode';
+const BATCH_IMPORT_MAX = 200;
 const RATING_OPTIONS = [['', '无'], ['safe', 'safe'], ['nsfw', 'nsfw'], ['r18', 'r18'], ['r18g', 'r18g'], ['restricted', 'restricted']];
 
 let caps = null;                 // /__edit__/ping 返回的能力声明
 let acts = {};                   // { loadCodex, applyFilter }
 let enabled = false;
 let saving = false;
+let openingSearchEntry = false;
 let panelEntryId = null;         // 灯箱编辑面板当前对应的词条 id（用于缓存复用）
 let activeDialog = null;
 
@@ -116,7 +119,7 @@ function editModeStorageKey() {
 function syncLocalEditionEmptyState() {
   if (caps?.localEdition !== true) return;
   const noCodex = !state.codexes?.length && !state.codex;
-  for (const id of ['editTreeToolbar', 'editNewEntryBtn', 'randomBtn']) {
+  for (const id of ['editTreeToolbar', 'editNewEntryBtn', 'editBatchImportBtn', 'randomBtn']) {
     const control = document.getElementById(id);
     if (control) control.style.display = noCodex ? 'none' : '';
   }
@@ -205,7 +208,13 @@ function mountEditDialog(mask, { trigger = document.activeElement } = {}) {
   if (activeDialog?.isConnected) activeDialog.remove();
   mask.id = 'editDialogLayer';
   mask.hidden = true;
-  const close = options => closeMask(mask, options);
+  const close = options => {
+    if (mask.dataset.busy === '1') {
+      toast('正在导入，请等待当前批次完成');
+      return;
+    }
+    closeMask(mask, options);
+  };
   mask.addEventListener('click', ev => { if (ev.target === mask) close(); });
   mask.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {
@@ -487,6 +496,55 @@ function readFileAsDataURL(file) {
   });
 }
 
+async function inspectImageFile(file) {
+  let dataURL;
+  try { dataURL = await readFileAsDataURL(file); }
+  catch { return { dataURL: null, metadata: null, error: '读取图片失败' }; }
+  const res = await editFetch('/__edit__/metadata', { dataURL }, { wantError: true, silent: true });
+  if (!res?.ok) {
+    return { dataURL, metadata: null, error: res?.error || '无法读取图片参数' };
+  }
+  const metadata = {
+    prompt: String(res.metadata?.prompt || '').trim(),
+    negative: String(res.metadata?.negative || '').trim(),
+    characterPrompts: normalizeImportedCharacterPrompts(res.metadata?.characterPrompts),
+    source: String(res.metadata?.source || 'unknown'),
+    sha256: String(res.metadata?.sha256 || ''),
+  };
+  return { dataURL, metadata, error: '' };
+}
+
+function renderCharacterPromptFields(container, prompts) {
+  if (!container) return;
+  const clean = normalizeImportedCharacterPrompts(prompts);
+  container.hidden = clean.length === 0;
+  container.innerHTML = clean.length ? `
+    <div class="edit-character-title">角色 Tag（已按图片中的角色框拆分）</div>
+    ${clean.map(item => `
+      <div class="edit-character-row" data-label="${esc(item.label)}">
+        <span class="edit-character-label">${esc(item.label)}</span>
+        <label>正向<textarea data-character-field="prompt">${esc(item.prompt)}</textarea></label>
+        <label>负面<textarea data-character-field="negative">${esc(item.negative || '')}</textarea></label>
+      </div>`).join('')}` : '';
+}
+
+function readCharacterPromptFields(container) {
+  if (!container) return [];
+  return normalizeImportedCharacterPrompts([...container.querySelectorAll('.edit-character-row')].map(row => ({
+    label: row.dataset.label,
+    prompt: row.querySelector('[data-character-field="prompt"]')?.value || '',
+    negative: row.querySelector('[data-character-field="negative"]')?.value || '',
+  })));
+}
+
+function metadataSummary(metadata) {
+  if (!metadata) return '';
+  const roles = metadata.characterPrompts.length;
+  return metadata.prompt
+    ? `已读取 ${metadata.source} 参数 · 正向 ${metadata.prompt.length} 字 · 负面 ${metadata.negative.length} 字 · 角色 ${roles} 个`
+    : `图片可用，但没有读到主正向 Tag（来源：${metadata.source}）`;
+}
+
 async function uploadImage(entry, file) {
   if (file.type && !/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
   let dataURL;
@@ -529,20 +587,69 @@ function reopenLightboxById(id, imageIndex = 0) {
 
 /* ---------- 编辑模式下卡片点击 = 进灯箱编辑 ---------- */
 
+/* 全站搜索展示的是跨书虚拟词条，不能直接交给编辑 API；先把详情路由推入历史，
+   切到它所属的可编辑法典，再用原词条对象打开灯箱。关闭灯箱即可返回原搜索结果。 */
+async function openSiteSearchEntryForEdit(target) {
+  if (openingSearchEntry || typeof acts.loadCodex !== 'function') return;
+  openingSearchEntry = true;
+  toast(`正在打开「${target.codexTitle}」中的原词条…`);
+  try {
+    await acts.loadCodex(target.codexId, {
+      urlState: {
+        codex: target.codexId,
+        favorites: false,
+        path: target.path,
+        q: '',
+        scope: 'codex',
+        entry: target.entryId,
+        updateFilter: '',
+      },
+      historyMode: 'push',
+      transition: 'detail',
+      parentScrollY: Math.max(0, window.scrollY || 0),
+      saveBrowse: false,
+      // 主站深链接只开有图词条；编辑器接管后用 allowEmpty 同时支持缺图词条。
+      autoOpenEntry: false,
+    });
+    const fresh = currentCodexId() === target.codexId
+      ? state.codex?.entries?.find(entry => entry.id === target.entryId)
+      : null;
+    if (!fresh) {
+      toast('没有找到原词条，请返回后重新搜索');
+      return;
+    }
+    openLightbox(fresh, 0, null, { historyMode: 'none', allowEmpty: true });
+  } catch (error) {
+    console.error('打开搜索结果原词条失败', error);
+    toast('打开原词条失败，请重试');
+  } finally {
+    openingSearchEntry = false;
+  }
+}
+
 /* 编辑模式里「复制 tag」没有意义，而单独的 ✎ 角标与右上放大按钮其实是同一个动作。
-   所以：整张卡片点击即进灯箱（放大按钮与角标由 CSS 一并隐藏）。
+   普通词条整卡进灯箱；全站搜索里的可写词条先跳回来源法典再进灯箱。
    用捕获阶段委托在 #masonry 上，天然免疫瀑布流虚拟化与编辑模式随时开关。 */
 function bindCardClick() {
   const grid = document.getElementById('masonry');
   if (!grid || grid.dataset.editClickBound) return;
   grid.dataset.editClickBound = '1';
   grid.addEventListener('click', ev => {
-    if (!canEditContext()) return;
+    if (!enabled) return;
     const card = ev.target.closest('.card');
     if (!card) return;
     // 收藏 / 反馈 / 底部复制按钮仍走各自逻辑
     if (ev.target.closest('.fav-btn, .report-card-btn, .card-actions')) return;
     const entry = state.placements?.[Number(card.dataset.index)]?.entry;
+    const searchTarget = state.siteSearchView
+      ? resolveSiteSearchEditTarget(entry, caps?.editable)
+      : null;
+    if (searchTarget) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      void openSiteSearchEntryForEdit(searchTarget);
+      return;
+    }
     if (!canEditEntry(entry)) return;
     ev.preventDefault();
     ev.stopPropagation();   // 拦掉 masonry 自己的「点卡复制」
@@ -970,6 +1077,8 @@ function openCreateDialog(path = null) {
         <label class="edit-check"><input type="checkbox" id="ndNew"> 标记为「本次更新」</label>
       </div>
       <label>图片（可选；原图会原样保存）<input type="file" id="ndImage" accept="image/*"></label>
+      <div class="edit-metadata-status" id="ndMetadataStatus">选图后会自动读取正向、负面与角色 Tag</div>
+      <div class="edit-character-fields" id="ndCharacters" hidden></div>
       <div class="edit-actions">
         <button type="button" class="edit-btn primary" id="ndSave">创建</button>
         <button type="button" class="edit-btn" id="ndCancel">取消</button>
@@ -978,8 +1087,57 @@ function openCreateDialog(path = null) {
   const close = mountEditDialog(mask);
   const pathSel = mask.querySelector('#ndPath');
   if (pathSel && pathList.some(p => p.value === preferred)) pathSel.value = preferred;
+  const imageInput = mask.querySelector('#ndImage');
+  const metadataStatus = mask.querySelector('#ndMetadataStatus');
+  const characterFields = mask.querySelector('#ndCharacters');
+  let imageReadOk = false;
+  let metadataBusy = false;
+  let lastAutofill = { tags: '', negative: '' };
+  imageInput.onchange = async () => {
+    const file = imageInput.files?.[0] || null;
+    imageReadOk = false;
+    renderCharacterPromptFields(characterFields, []);
+    if (!file) {
+      metadataStatus.textContent = '选图后会自动读取正向、负面与角色 Tag';
+      metadataStatus.classList.remove('is-error');
+      return;
+    }
+    if (file.type && !/^image\//.test(file.type)) {
+      metadataStatus.textContent = '请选择图片文件';
+      metadataStatus.classList.add('is-error');
+      return;
+    }
+    metadataBusy = true;
+    imageInput.disabled = true;
+    metadataStatus.textContent = '正在读取图片参数…';
+    metadataStatus.classList.remove('is-error');
+    const inspected = await inspectImageFile(file);
+    imageInput.disabled = false;
+    metadataBusy = false;
+    imageReadOk = Boolean(inspected.dataURL);
+    if (!inspected.metadata) {
+      metadataStatus.textContent = inspected.error || '无法读取图片参数，可手动填写 Tag 后继续';
+      metadataStatus.classList.add('is-error');
+      return;
+    }
+    const metadata = inspected.metadata;
+    const titleInput = mask.querySelector('#ndTitle');
+    const tagsInput = mask.querySelector('#ndTags');
+    const negativeInput = mask.querySelector('#ndNegative');
+    if (!titleInput.value.trim()) titleInput.value = titleFromImageFilename(file.name);
+    const keptManual = [];
+    if (!tagsInput.value.trim() || tagsInput.value === lastAutofill.tags) tagsInput.value = metadata.prompt;
+    else keptManual.push('正向');
+    if (!negativeInput.value.trim() || negativeInput.value === lastAutofill.negative) negativeInput.value = metadata.negative;
+    else keptManual.push('负面');
+    lastAutofill = { tags: metadata.prompt, negative: metadata.negative };
+    renderCharacterPromptFields(characterFields, metadata.characterPrompts);
+    metadataStatus.textContent = metadataSummary(metadata) + (keptManual.length ? ` · 已保留手填${keptManual.join('、')}内容` : '');
+    metadataStatus.classList.toggle('is-error', !metadata.prompt);
+  };
   mask.querySelector('#ndCancel').onclick = () => close();
   mask.querySelector('#ndSave').onclick = async () => {
+    if (metadataBusy) { toast('图片参数仍在读取，请稍候'); return; }
     const targetPath = fixed || splitTreePath(pathSel?.value || '');
     const values = {
       title: mask.querySelector('#ndTitle').value,
@@ -988,8 +1146,9 @@ function openCreateDialog(path = null) {
     };
     const invalid = validateEntryForm(values, { requireAll: true });
     if (invalid) { toast(invalid); return; }
-    const imageFile = mask.querySelector('#ndImage').files?.[0] || null;
+    const imageFile = imageInput.files?.[0] || null;
     if (imageFile?.type && !/^image\//.test(imageFile.type)) { toast('请选择图片文件'); return; }
+    if (imageFile && !imageReadOk) { toast('图片尚未读取成功，请重新选择'); return; }
     let imageDataURL = null;
     if (imageFile) {
       try { imageDataURL = await readFileAsDataURL(imageFile); }
@@ -1003,36 +1162,243 @@ function openCreateDialog(path = null) {
     const rating = mask.querySelector('#ndRating').value;
     if (rating) entry.rating = rating;
     if (mask.querySelector('#ndNew').checked) entry.isNew = true;
+    const characterPrompts = readCharacterPromptFields(characterFields);
+    if (characterPrompts.length) entry.characterPrompts = characterPrompts;
     const btn = mask.querySelector('#ndSave');
     btn.disabled = true;
-    const res = await editFetch('/__edit__/entry', { codexId: currentCodexId(), op: 'create', entry });
+    const res = imageDataURL
+      ? await editFetch('/__edit__/import-image', { codexId: currentCodexId(), entry, dataURL: imageDataURL })
+      : await editFetch('/__edit__/entry', { codexId: currentCodexId(), op: 'create', entry });
     if (!res) { btn.disabled = false; return; }
-    let imageRes = null;
-    if (imageDataURL) {
-      imageRes = await editFetch('/__edit__/image', {
-        codexId: currentCodexId(), entryId: res.entry.id, op: 'set', dataURL: imageDataURL,
-      });
-    }
     await structuralRefresh({ reopenEntryId: res.entry.id, consumeLayer: true });
     close();
-    toast(imageDataURL && !imageRes
-      ? `已新增词条 ${res.entry?.id || ''}，但图片未保存`
-      : '已新增词条：' + (res.entry?.id || ''));
+    toast('已新增词条：' + (res.entry?.id || '') +
+      (res.pendingR2Sync && caps?.localEdition !== true ? ' · 记得发布数据以同步 R2' : ''));
   };
 }
 
-/* 结果栏常驻「＋ 新增词条」——新增是高频操作，不该只藏在目录树菜单里 */
+/* 多图批量导入：先只读解析和人工确认，再逐条走单项原子事务。 */
+function openBatchImportDialog(path = null) {
+  const pathList = buildPathList(state.codex?.tree || []);
+  if (!pathList.length) {
+    toast('先新建一个分类，才能批量导入');
+    return;
+  }
+  const fixed = Array.isArray(path) && path.length ? path : null;
+  const preferred = joinTreePath(state.activePath || []);
+  const mask = document.createElement('div');
+  mask.className = 'edit-dialog-mask';
+  mask.innerHTML = `
+    <div class="edit-dialog edit-dialog-wide" role="dialog" aria-modal="true" aria-label="批量导入词条">
+      <h3>批量导入图片词条</h3>
+      <p class="edit-dialog-help">每张图片创建一个词条。先读取参数并预览，不会在选择文件时直接写入。</p>
+      ${fixed
+        ? `<div class="edit-dialog-path">分类：${esc(fixed.join(' / '))}</div>`
+        : `<label>统一导入到分类 *<select id="bdPath">${pathList
+            .map(p => `<option value="${esc(p.value)}">${esc(p.label)}</option>`).join('')}</select></label>`}
+      <div class="edit-panel-row">
+        <label>统一分级
+          <select id="bdRating">${RATING_OPTIONS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
+        </label>
+        <label class="edit-check"><input type="checkbox" id="bdNew"> 标记为「本次更新」</label>
+      </div>
+      <label class="edit-batch-picker">选择图片（可多选，最多 ${BATCH_IMPORT_MAX} 张）
+        <input type="file" id="bdImages" accept="image/*" multiple>
+      </label>
+      <div class="edit-metadata-status" id="bdStatus">尚未选择图片</div>
+      <div class="edit-batch-list" id="bdList"></div>
+      <div class="edit-actions">
+        <button type="button" class="edit-btn primary" id="bdImport" disabled>导入已选（0）</button>
+        <button type="button" class="edit-btn" id="bdCancel">取消</button>
+      </div>
+    </div>`;
+  const close = mountEditDialog(mask);
+  const pathSel = mask.querySelector('#bdPath');
+  if (pathSel && pathList.some(p => p.value === preferred)) pathSel.value = preferred;
+  const fileInput = mask.querySelector('#bdImages');
+  const status = mask.querySelector('#bdStatus');
+  const list = mask.querySelector('#bdList');
+  const importBtn = mask.querySelector('#bdImport');
+  const cancelBtn = mask.querySelector('#bdCancel');
+  let rows = [];
+
+  const updateImportCount = () => {
+    const count = list.querySelectorAll('input[data-batch-select]:checked:not(:disabled)').length;
+    importBtn.textContent = `导入已选（${count}）`;
+    importBtn.disabled = count === 0;
+  };
+
+  const renderRows = () => {
+    list.innerHTML = rows.map((row, index) => {
+      const ready = Boolean(row.metadata?.prompt) && !row.error;
+      const meta = row.metadata;
+      const detail = row.error || (meta
+        ? `${meta.source} · 正向 ${meta.prompt.length} 字 · 负面 ${meta.negative.length} 字 · 角色 ${meta.characterPrompts.length} 个`
+        : '未读取');
+      const snippet = meta?.prompt ? `<div class="edit-batch-snippet">${esc(meta.prompt.slice(0, 180))}</div>` : '';
+      return `
+        <div class="edit-batch-row${ready ? '' : ' has-error'}" data-batch-index="${index}">
+          <input type="checkbox" data-batch-select ${ready ? 'checked' : 'disabled'} aria-label="导入 ${esc(row.file.name)}">
+          <div class="edit-batch-main">
+            <input type="text" data-batch-title value="${esc(row.title)}" aria-label="${esc(row.file.name)} 的词条标题" ${ready ? '' : 'disabled'}>
+            <div class="edit-batch-file">${esc(row.file.name)}</div>
+            <div class="edit-batch-meta">${esc(detail)}</div>
+            ${snippet}
+          </div>
+        </div>`;
+    }).join('');
+    updateImportCount();
+  };
+
+  list.addEventListener('change', updateImportCount);
+  cancelBtn.onclick = () => close();
+  fileInput.onchange = async () => {
+    const files = [...(fileInput.files || [])];
+    rows = [];
+    list.innerHTML = '';
+    importBtn.disabled = true;
+    if (!files.length) {
+      status.textContent = '尚未选择图片';
+      return;
+    }
+    if (files.length > BATCH_IMPORT_MAX) {
+      status.textContent = `一次最多导入 ${BATCH_IMPORT_MAX} 张，请分批选择`;
+      status.classList.add('is-error');
+      return;
+    }
+    status.classList.remove('is-error');
+    fileInput.disabled = true;
+    const seenHashes = new Map();
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      status.textContent = `正在读取图片参数 ${index + 1} / ${files.length}：${file.name}`;
+      let inspected = { metadata: null, error: '' };
+      if (file.type && !/^image\//.test(file.type)) inspected.error = '不是图片文件';
+      else if (file.size > 45 * 1024 * 1024) inspected.error = '单张图片超过 45MB';
+      else inspected = await inspectImageFile(file);
+      let error = inspected.error;
+      if (inspected.metadata && !inspected.metadata.prompt) error = '未读取到主正向 Tag，已跳过';
+      const duplicateOf = inspected.metadata?.sha256 && seenHashes.get(inspected.metadata.sha256);
+      if (!error && duplicateOf) error = `与 ${duplicateOf} 内容重复，已跳过`;
+      if (inspected.metadata?.sha256 && !duplicateOf) seenHashes.set(inspected.metadata.sha256, file.name);
+      rows.push({
+        file,
+        metadata: inspected.metadata,
+        error,
+        title: titleFromImageFilename(file.name) || `图片 ${String(index + 1).padStart(3, '0')}`,
+      });
+      if (mask.hidden || !mask.classList.contains('show')) return;
+    }
+    fileInput.disabled = false;
+    renderRows();
+    const ready = rows.filter(row => row.metadata?.prompt && !row.error).length;
+    status.textContent = `解析完成：${files.length} 张中 ${ready} 张可导入，${files.length - ready} 张已拦截`;
+    status.classList.toggle('is-error', ready === 0);
+  };
+
+  importBtn.onclick = async () => {
+    const selected = [...list.querySelectorAll('.edit-batch-row')].filter(row =>
+      row.querySelector('[data-batch-select]')?.checked && !row.querySelector('[data-batch-select]')?.disabled
+    );
+    if (!selected.length) { toast('请至少选择一张可导入图片'); return; }
+    for (const row of selected) {
+      if (!row.querySelector('[data-batch-title]').value.trim()) {
+        toast('每个待导入词条都必须有标题');
+        row.querySelector('[data-batch-title]').focus();
+        return;
+      }
+    }
+    const targetPath = fixed || splitTreePath(pathSel?.value || '');
+    if (!targetPath.length) { toast('必须选择分类'); return; }
+    const rating = mask.querySelector('#bdRating').value;
+    const isNew = mask.querySelector('#bdNew').checked;
+    mask.dataset.busy = '1';
+    fileInput.disabled = true;
+    cancelBtn.disabled = true;
+    importBtn.disabled = true;
+    let succeeded = 0;
+    let failed = 0;
+    let pendingR2 = false;
+    for (let index = 0; index < selected.length; index += 1) {
+      const rowElement = selected[index];
+      const rowIndex = Number(rowElement.dataset.batchIndex);
+      const row = rows[rowIndex];
+      const metaElement = rowElement.querySelector('.edit-batch-meta');
+      metaElement.textContent = `正在导入 ${index + 1} / ${selected.length}…`;
+      let dataURL = null;
+      try { dataURL = await readFileAsDataURL(row.file); }
+      catch { /* 统一走下面的失败报告 */ }
+      const entry = {
+        title: rowElement.querySelector('[data-batch-title]').value.trim(),
+        tags: row.metadata.prompt,
+        path: targetPath,
+      };
+      if (row.metadata.negative) entry.negative = row.metadata.negative;
+      if (row.metadata.characterPrompts.length) entry.characterPrompts = row.metadata.characterPrompts;
+      if (rating) entry.rating = rating;
+      if (isNew) entry.isNew = true;
+      const res = dataURL
+        ? await editFetch('/__edit__/import-image', { codexId: currentCodexId(), entry, dataURL }, { wantError: true, silent: true })
+        : null;
+      if (res?.ok) {
+        succeeded += 1;
+        pendingR2 ||= res.pendingR2Sync === true;
+        metaElement.textContent = `已导入：${res.entry?.id || entry.title}`;
+        rowElement.classList.add('is-done');
+        rowElement.querySelector('[data-batch-select]').checked = false;
+        rowElement.querySelector('[data-batch-select]').disabled = true;
+        rowElement.querySelector('[data-batch-title]').disabled = true;
+      } else {
+        failed += 1;
+        metaElement.textContent = res?.error || '读取或导入失败';
+        rowElement.classList.add('has-error');
+      }
+    }
+    mask.dataset.busy = '0';
+    fileInput.disabled = false;
+    cancelBtn.disabled = false;
+    updateImportCount();
+    if (succeeded) {
+      await structuralRefresh({ consumeLayer: failed === 0 });
+    }
+    const r2Hint = pendingR2 && caps?.localEdition !== true ? ' · 记得发布数据以同步 R2' : '';
+    if (failed === 0) {
+      close();
+      toast(`批量导入完成：${succeeded} 条${r2Hint}`);
+    } else {
+      status.textContent = `本次成功 ${succeeded} 条，失败 ${failed} 条；失败项可修正后重试`;
+      status.classList.add('is-error');
+      toast(`批量导入部分完成：成功 ${succeeded}，失败 ${failed}${r2Hint}`);
+    }
+  };
+}
+
+/* 结果栏常驻新增与批量导入——高频动作不藏在目录树菜单里。 */
 function ensureResultBarButton() {
   const bar = document.querySelector('.result-bar');
-  if (!bar || document.getElementById('editNewEntryBtn')) return;
-  const btn = document.createElement('button');
-  btn.id = 'editNewEntryBtn';
-  btn.type = 'button';
-  btn.className = 'edit-newentry-btn';
-  btn.textContent = '＋ 新增词条';
-  btn.onclick = () => {
-    if (!canEditContext()) { toast('当前法典不可编辑'); return; }
-    openCreateDialog();
-  };
-  bar.appendChild(btn);
+  if (!bar) return;
+  if (!document.getElementById('editNewEntryBtn')) {
+    const btn = document.createElement('button');
+    btn.id = 'editNewEntryBtn';
+    btn.type = 'button';
+    btn.className = 'edit-newentry-btn';
+    btn.textContent = '＋ 新增词条';
+    btn.onclick = () => {
+      if (!canEditContext()) { toast('当前法典不可编辑'); return; }
+      openCreateDialog();
+    };
+    bar.appendChild(btn);
+  }
+  if (!document.getElementById('editBatchImportBtn')) {
+    const btn = document.createElement('button');
+    btn.id = 'editBatchImportBtn';
+    btn.type = 'button';
+    btn.className = 'edit-newentry-btn edit-batchimport-btn';
+    btn.textContent = '⇧ 批量导入';
+    btn.onclick = () => {
+      if (!canEditContext()) { toast('当前法典不可编辑'); return; }
+      openBatchImportDialog();
+    };
+    bar.appendChild(btn);
+  }
 }

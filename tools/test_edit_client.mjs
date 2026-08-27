@@ -6,6 +6,7 @@ import path from 'node:path';
 const coreUrl = pathToFileURL(path.resolve('site/assets/app/edit-core.js')).href;
 const {
   TREE_PATH_SEP, splitTreePath, joinTreePath, buildPathList, diffFields, validateEntryForm, mergeEntryInPlace,
+  resolveSiteSearchEditTarget, titleFromImageFilename, normalizeImportedCharacterPrompts,
 } = await import(coreUrl);
 
 // 分隔符必须是 U+0001（与 codex-ui 的 dataset.path 一致），不能漂成别的字符
@@ -24,6 +25,43 @@ assert.equal(TREE_PATH_SEP.charCodeAt(0), 1, 'TREE_PATH_SEP 必须是 U+0001');
   assert.deepEqual(list[1].parts, ['甲', '乙']);
   assert.deepEqual(buildPathList([]), []);
   assert.deepEqual(buildPathList(undefined), []);
+}
+
+// 全站搜索编辑目标：只接受有来源标记且来源法典可写的虚拟词条
+{
+  const virtualEntry = {
+    id: 'book-a-0001',
+    _srcCodexId: 'book-a',
+    _srcCodexTitle: '法典 A',
+    _srcPath: ['一级', '二级'],
+  };
+  const target = resolveSiteSearchEditTarget(virtualEntry, ['book-a']);
+  assert.deepEqual(target, {
+    codexId: 'book-a', entryId: 'book-a-0001', codexTitle: '法典 A', path: ['一级', '二级'],
+  });
+  target.path.push('不会反写');
+  assert.deepEqual(virtualEntry._srcPath, ['一级', '二级'], '返回路径必须是副本');
+  assert.equal(resolveSiteSearchEditTarget(virtualEntry, ['book-b']), null, '锁定来源不可编辑');
+  assert.equal(resolveSiteSearchEditTarget({ id: 'book-a-0001' }, ['book-a']), null, '普通词条不是搜索克隆');
+  assert.equal(resolveSiteSearchEditTarget({ _srcCodexId: 'book-a' }, ['book-a']), null, '缺少词条 id 时拒绝');
+}
+
+// 图片导入辅助：标题取文件名，角色框保留原编号并清洗空项/重复项
+{
+  assert.equal(titleFromImageFilename('角色.最终版.png'), '角色.最终版');
+  assert.equal(titleFromImageFilename('C:\\图包\\示例.webp'), '示例');
+  assert.equal(titleFromImageFilename('.png'), '');
+  assert.deepEqual(normalizeImportedCharacterPrompts([
+    { label: 'char1', prompt: ' girl ', negative: ' bad ' },
+    { label: 'char2', prompt: '', negative: '' },
+    { label: 'char3', prompt: '', negative: 'solo uc' },
+    { label: 'char1', prompt: 'duplicate' },
+    { label: 'role4', prompt: 'invalid label' },
+  ]), [
+    { label: 'char1', prompt: 'girl', negative: 'bad' },
+    { label: 'char3', prompt: '', negative: 'solo uc' },
+  ]);
+  assert.deepEqual(normalizeImportedCharacterPrompts(null), []);
 }
 
 // split / join 往返

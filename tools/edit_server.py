@@ -7,7 +7,7 @@
 组成：
   · 静态服务 site/ + /originals/ 安全映射（同 preview_server，带 no-store）
   · EditStore —— 词条/图片写核心：备份 → 变更 → 重算 tree/计数 → 自检 → 原子写 → 同步索引
-  · HTTP 层（三端点）：GET /__edit__/ping · POST /__edit__/entry · POST /__edit__/image
+  · HTTP 层：GET /__edit__/ping · POST /__edit__/entry|image|metadata|import-image
 
 数据安全：
   · 只绑 127.0.0.1；写接口校验 Origin
@@ -32,6 +32,9 @@ import tempfile
 import threading
 import time
 import urllib.parse
+from pathlib import Path
+
+from sd_metadata_inspector import extract_image_metadata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = 8769
@@ -168,6 +171,65 @@ def _decode_image_dataurl(durl):
     except Exception:
         raise EditError(400, "bad-request", "无法完整解码为图片")
     return raw, ext, out.getvalue(), thumb_w, thumb_h
+
+
+def _normalize_character_prompts(value):
+    """校验并清洗 NAI V4 角色框；正负任一侧非空就保留原 char 序号。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise EditError(400, "bad-request", "characterPrompts 必须是数组")
+    if len(value) > 64:
+        raise EditError(400, "bad-request", "角色框过多（最多 64 个）")
+    out = []
+    labels = set()
+    for item in value:
+        if not isinstance(item, dict):
+            raise EditError(400, "bad-request", "角色框必须是对象")
+        label = item.get("label")
+        prompt = item.get("prompt", "")
+        negative = item.get("negative", "")
+        if not isinstance(label, str) or not re.fullmatch(r"char[1-9]\d*", label):
+            raise EditError(400, "bad-request", "角色框 label 必须形如 char1")
+        if label in labels:
+            raise EditError(400, "bad-request", f"角色框 label 重复：{label}")
+        if not isinstance(prompt, str) or not isinstance(negative, str):
+            raise EditError(400, "bad-request", "角色框正负 Tag 必须是字符串")
+        prompt = prompt.strip()
+        negative = negative.strip()
+        if not prompt and not negative:
+            continue
+        clean = {"label": label, "prompt": prompt}
+        if negative:
+            clean["negative"] = negative
+        labels.add(label)
+        out.append(clean)
+    return out
+
+
+def _extract_metadata_payload(raw, ext):
+    """让浏览器上传也走项目唯一的 sd_metadata_inspector 解析语义。"""
+    fd, temp_path = tempfile.mkstemp(prefix="fadian-metadata-", suffix="." + ext)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(raw)
+        meta = extract_image_metadata(Path(temp_path))
+    except EditError:
+        raise
+    except Exception as ex:
+        raise EditError(400, "metadata-read-failed", f"无法读取图片元数据：{ex}") from ex
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+    return {
+        "prompt": str(meta.prompt or "").strip(),
+        "negative": str(meta.negative or "").strip(),
+        "characterPrompts": _normalize_character_prompts(meta.character_prompts),
+        "source": str(meta.source_type or "unknown"),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
 
 
 class EditStore:
@@ -489,8 +551,12 @@ class EditStore:
 
     def mutate(self, cid, mutator, file_writes=None):
         """统一写管线：锁 → 校验可编辑 → 备份 → 变更 → 重算 → 自检 → 原子写 → 同步索引。
-        mutator(data) 返回被操作的词条（delete 返回 None）；file_writes 与 JSON 同事务提交。"""
-        file_writes = dict(file_writes or {})
+        mutator(data) 返回被操作的词条（delete 返回 None）；file_writes 与 JSON 同事务提交。
+        file_writes 保留传入字典引用，允许新词条在锁内发号后再登记对应资源路径。"""
+        if file_writes is None:
+            file_writes = {}
+        if not isinstance(file_writes, dict):
+            raise TypeError("file_writes must be a dict")
         with self.lock:
             meta = self.codex_meta(cid)
             if not self.is_editable(meta):
@@ -765,40 +831,61 @@ class EditStore:
             max_n = stored
         return sep, max_n
 
-    def create_entry(self, cid, payload):
+    def _build_new_entry(self, cid, data, payload):
         if not isinstance(payload, dict):
             raise EditError(400, "bad-request", "entry 必须是对象")
+        for key in ("title", "tags"):
+            if not isinstance(payload.get(key), str) or not payload[key].strip():
+                raise EditError(400, "bad-request", f"新词条必须有非空 {key}")
+        self._check_path_field(payload.get("path"), data)
+        if "rating" in payload:
+            r = payload["rating"]
+            if not isinstance(r, str) or (r and r not in RATINGS):
+                raise EditError(400, "bad-request", f"rating 必须是 {sorted(RATINGS)} 之一或空串")
+        if "isNew" in payload and not isinstance(payload["isNew"], bool):
+            raise EditError(400, "bad-request", "isNew 必须是布尔值")
+        character_prompts = _normalize_character_prompts(payload.get("characterPrompts"))
+        sep, max_n = self._id_scheme(cid, data)
+        seq = max_n + 1
+        data["editorMaxSeq"] = seq
+        entry = {
+            "id": f"{cid}{sep}{seq:04d}",
+            "title": payload["title"].strip(),
+            "path": list(payload["path"]),
+            "tags": payload["tags"].strip(),
+        }
+        for key in ("negative", "note", "rating"):
+            if isinstance(payload.get(key), str) and payload[key].strip():
+                entry[key] = payload[key].strip()
+        if character_prompts:
+            entry["characterPrompts"] = character_prompts
+        if payload.get("isNew") is True:
+            entry["isNew"] = True
+        data["entries"].append(entry)
+        self._reposition(data["entries"], entry)
+        return entry
 
+    def create_entry(self, cid, payload):
         def mutator(data):
-            for key in ("title", "tags"):
-                if not isinstance(payload.get(key), str) or not payload[key].strip():
-                    raise EditError(400, "bad-request", f"新词条必须有非空 {key}")
-            self._check_path_field(payload.get("path"), data)
-            if "rating" in payload:
-                r = payload["rating"]
-                if not isinstance(r, str) or (r and r not in RATINGS):
-                    raise EditError(400, "bad-request", f"rating 必须是 {sorted(RATINGS)} 之一或空串")
-            if "isNew" in payload and not isinstance(payload["isNew"], bool):
-                raise EditError(400, "bad-request", "isNew 必须是布尔值")
-            sep, max_n = self._id_scheme(cid, data)
-            seq = max_n + 1
-            data["editorMaxSeq"] = seq
-            entry = {
-                "id": f"{cid}{sep}{seq:04d}",
-                "title": payload["title"],
-                "path": list(payload["path"]),
-                "tags": payload["tags"],
-            }
-            for key in ("negative", "note", "rating"):
-                if isinstance(payload.get(key), str) and payload[key]:
-                    entry[key] = payload[key]
-            if payload.get("isNew") is True:
-                entry["isNew"] = True
-            data["entries"].append(entry)
-            self._reposition(data["entries"], entry)
-            return entry
+            return self._build_new_entry(cid, data, payload)
 
         return self.mutate(cid, mutator)
+
+    def create_entry_with_image(self, cid, payload, durl):
+        """单张原子导入：词条、原图、缩略图、索引任一步失败都整体回滚。"""
+        raw, ext, thumb_bytes, thumb_w, thumb_h = _decode_image_dataurl(durl)
+        file_writes = {}
+
+        def mutator(data):
+            entry = self._build_new_entry(cid, data, payload)
+            self._apply_image_fields(
+                data, cid, entry, raw, ext, thumb_bytes, thumb_w, thumb_h, file_writes
+            )
+            return entry
+
+        result = self.mutate(cid, mutator, file_writes=file_writes)
+        result["pendingR2Sync"] = True
+        return result
 
     def delete_entry(self, cid, eid):
         def mutator(data):
@@ -811,37 +898,46 @@ class EditStore:
 
     # ---------- 图片操作 ----------
 
-    def set_image(self, cid, eid, durl):
-        raw, ext, thumb_bytes, thumb_w, thumb_h = _decode_image_dataurl(durl)
+    @staticmethod
+    def inspect_image(durl):
+        raw, ext, _thumb_bytes, _thumb_w, _thumb_h = _decode_image_dataurl(durl)
+        return {"ok": True, "metadata": _extract_metadata_payload(raw, ext)}
+
+    def _apply_image_fields(self, data, cid, entry, raw, ext, thumb_bytes, thumb_w, thumb_h, file_writes):
+        eid = entry["id"]
+        imgs = entry.get("images")
+        if isinstance(imgs, list) and len(imgs) > 1:
+            raise EditError(400, "multi-image-unsupported", "多图词条的图片编辑留待 P1")
         odir = os.path.join(self.orig, cid)
         tdir = os.path.join(self.site, "images", cid)
         ofn = eid + "." + ext
         tfn = eid + ".jpg"
         original_path = self._safe_child_path(odir, ofn)
         thumb_path = self._safe_child_path(tdir, tfn)
-        asset_rev = _asset_rev_bytes(thumb_bytes, raw)
+        entry["image"] = tfn
+        entry["imageWidth"] = thumb_w
+        entry["imageHeight"] = thumb_h
+        entry["original"] = ofn
+        entry["assetRev"] = _asset_rev_bytes(thumb_bytes, raw)
+        entry.pop("assetCodexId", None)
+        # 图包统一保留 images[0] 镜像；普通书沿用既有顶层单图结构。
+        if isinstance(imgs, list) or data.get("type") == "pack":
+            entry["images"] = [{"path": tfn, "original": ofn}]
+        file_writes[original_path] = raw
+        file_writes[thumb_path] = thumb_bytes
+
+    def set_image(self, cid, eid, durl):
+        raw, ext, thumb_bytes, thumb_w, thumb_h = _decode_image_dataurl(durl)
+        file_writes = {}
 
         def mutator(data):
             entry = self._find_entry(data, eid)
-            imgs = entry.get("images")
-            if isinstance(imgs, list) and len(imgs) > 1:
-                raise EditError(400, "multi-image-unsupported", "多图词条的图片编辑留待 P1")
-            entry["image"] = tfn
-            entry["imageWidth"] = thumb_w
-            entry["imageHeight"] = thumb_h
-            entry["original"] = ofn
-            entry["assetRev"] = asset_rev
-            entry.pop("assetCodexId", None)
-            # 本书若用 images[] 存图（单图也是 1 元素数组，顶层与 images[0] 镜像），保持同步
-            if isinstance(imgs, list):
-                entry["images"] = [{"path": tfn, "original": ofn}]
+            self._apply_image_fields(
+                data, cid, entry, raw, ext, thumb_bytes, thumb_w, thumb_h, file_writes
+            )
             return entry
 
-        result = self.mutate(
-            cid,
-            mutator,
-            file_writes={original_path: raw, thumb_path: thumb_bytes},
-        )
+        result = self.mutate(cid, mutator, file_writes=file_writes)
         result["pendingR2Sync"] = True
         return result
 
@@ -1035,6 +1131,8 @@ def make_handler(store):
                 routes = {
                     "/__edit__/entry": ENTRY_MAX_BYTES,
                     "/__edit__/image": IMAGE_MAX_BYTES,
+                    "/__edit__/metadata": IMAGE_MAX_BYTES,
+                    "/__edit__/import-image": IMAGE_MAX_BYTES,
                     "/__edit__/category": ENTRY_MAX_BYTES,
                     "/__edit__/codex": ENTRY_MAX_BYTES,
                 }
@@ -1054,6 +1152,10 @@ def make_handler(store):
                     result = self._handle_entry(body)
                 elif path == "/__edit__/image":
                     result = self._handle_image(body)
+                elif path == "/__edit__/metadata":
+                    result = store.inspect_image(body.get("dataURL"))
+                elif path == "/__edit__/import-image":
+                    result = self._handle_import_image(body)
                 elif path == "/__edit__/category":
                     result = self._handle_category(body)
                 else:
@@ -1122,6 +1224,12 @@ def make_handler(store):
             if op == "delete":
                 return store.delete_image(cid, eid)
             raise EditError(400, "bad-request", f"未知 op：{op}")
+
+        def _handle_import_image(self, body):
+            cid = body.get("codexId")
+            if not isinstance(cid, str) or not cid:
+                raise EditError(400, "bad-request", "缺少 codexId")
+            return store.create_entry_with_image(cid, body.get("entry"), body.get("dataURL"))
 
         def _check_origin(self):
             origin = self.headers.get("Origin")

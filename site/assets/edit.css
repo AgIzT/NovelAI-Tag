@@ -25,6 +25,8 @@ body.edit-mode .card{cursor:pointer}
 }
 body.edit-mode .edit-newentry-btn{display:inline-block}
 .edit-newentry-btn:hover{filter:brightness(1.05)}
+.edit-batchimport-btn{margin-left:6px;background:var(--card);border-color:var(--line);color:var(--text)}
+.edit-batchimport-btn:hover{border-color:var(--accent);color:var(--accent)}
 @media (max-width:600px){
   .edit-newentry-btn{margin-left:0}
 }
@@ -140,6 +142,8 @@ body.edit-mode .lb-edit-hidden{display:none!important}
 }
 .edit-dialog-mask.show .edit-dialog{opacity:1;transform:none}
 .edit-dialog h3{margin:0;font-size:15px;color:var(--text)}
+.edit-dialog-wide{width:min(760px,100%)}
+.edit-dialog .edit-dialog-help{margin:0;color:var(--muted);font-size:12px;line-height:1.55}
 .edit-dialog .edit-dialog-path{font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:8px;padding:4px 10px;align-self:flex-start}
 .edit-dialog label{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:11.5px}
 .edit-dialog input[type="text"],.edit-dialog input[type="file"],.edit-dialog select,.edit-dialog textarea{
@@ -148,6 +152,47 @@ body.edit-mode .lb-edit-hidden{display:none!important}
 }
 .edit-dialog textarea{font-family:var(--font-prompt);resize:vertical;min-height:64px}
 .edit-dialog input:focus,.edit-dialog textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+
+/* 新增词条：图片元数据回填与 NAI V4 角色框 */
+.edit-metadata-status{
+  padding:7px 9px;border-radius:8px;background:var(--accent-soft);color:var(--accent);
+  font-size:11.5px;line-height:1.45;
+}
+.edit-metadata-status.is-error{background:color-mix(in srgb,var(--new) 12%,transparent);color:var(--new)}
+.edit-character-fields{display:flex;flex-direction:column;gap:7px;padding:9px;border:1px solid var(--line);border-radius:10px}
+.edit-character-fields[hidden]{display:none}
+.edit-character-title{font-size:11.5px;font-weight:700;color:var(--accent)}
+.edit-character-row{
+  display:grid;grid-template-columns:52px minmax(0,1fr) minmax(0,1fr);gap:7px;align-items:start;
+  padding-top:7px;border-top:1px solid var(--line);
+}
+.edit-character-label{padding-top:7px;color:var(--accent);font-family:var(--font-prompt);font-size:11px}
+.edit-character-row textarea{min-height:52px}
+
+/* 批量导入预览 */
+.edit-batch-list{display:flex;flex-direction:column;gap:7px;max-height:42vh;overflow:auto;padding-right:2px}
+.edit-batch-row{
+  display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;
+  padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--card);
+}
+.edit-batch-row>input[type="checkbox"]{margin-top:9px}
+.edit-batch-main{min-width:0;display:flex;flex-direction:column;gap:3px}
+.edit-batch-main input[type="text"]{padding:6px 8px}
+.edit-batch-file{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}
+.edit-batch-meta{color:var(--accent);font-size:11.5px;line-height:1.4}
+.edit-batch-snippet{
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  color:var(--muted);font-family:var(--font-prompt);font-size:10.5px;line-height:1.4;
+}
+.edit-batch-row.has-error{border-color:color-mix(in srgb,var(--new) 45%,var(--line))}
+.edit-batch-row.has-error .edit-batch-meta{color:var(--new)}
+.edit-batch-row.is-done{border-color:var(--accent);opacity:.72}
+
+@media (max-width:600px){
+  .edit-character-row{grid-template-columns:42px minmax(0,1fr)}
+  .edit-character-row label:last-child{grid-column:2}
+  .edit-batch-list{max-height:38vh}
+}
 
 /* 独立本地版删掉 Demo/最后一本法典后的首次创建入口 */
 .local-first-codex{padding-top:clamp(90px,18vh,180px)}

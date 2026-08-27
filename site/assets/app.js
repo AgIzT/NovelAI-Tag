@@ -119,7 +119,7 @@ function renderCodexView(codex, seq, {
     entry: urlState?.entry || '',
     saveBrowse: options.saveBrowse !== false,
   });
-  if (urlState?.entry) {
+  if (urlState?.entry && options.autoOpenEntry !== false) {
     window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
   }
   setLoading('');
