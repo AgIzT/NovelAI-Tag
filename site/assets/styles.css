@@ -157,27 +157,27 @@ body.dark .n5-launch-panel,body.dark .n5-launch-notice{
   /* flex:none 是给窄屏的 .codex-menu.grouped 用的：那是个会滚动的 flex 列，
      不写就会被当成可压缩项压扁成一条（PC 的 grid 布局下这条无副作用）。 */
   grid-column:1/-1;flex:none;position:relative;isolation:isolate;overflow:hidden;
-  margin:-9px -9px 0;padding:26px 24px 16px;border-radius:13px 13px 0 0;
+  margin:-9px -9px 0;padding:20px 24px 12px;border-radius:13px 13px 0 0;
   border-bottom:1px solid var(--n5-line);
   display:grid;grid-template-columns:minmax(0,196px) minmax(0,1fr);gap:0 28px;
 }
 .n5-launch-panel:focus-visible{outline-offset:-4px}
 .n5-launch-panel .n5-wm{left:14px;bottom:-38px;font-size:150px}
 .n5-launch-head{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
-.n5-launch-head .n5-brand{width:24px;height:24px;margin-bottom:16px}
-.n5-launch-head strong{margin-top:16px;font-size:28px;font-weight:900;line-height:1.18;letter-spacing:-.015em}
-.n5-launch-head small{margin-top:10px;font-size:12.5px;font-weight:400;color:var(--n5-dim)}
-.n5-launch-head .n5-stamp{margin-top:auto;padding-top:18px}
+.n5-launch-head .n5-brand{width:24px;height:24px;margin-bottom:12px}
+.n5-launch-head strong{margin-top:12px;font-size:28px;font-weight:900;line-height:1.18;letter-spacing:-.015em}
+.n5-launch-head small{margin-top:8px;font-size:12.5px;font-weight:400;color:var(--n5-dim)}
+.n5-launch-head .n5-stamp{margin-top:auto;padding-top:10px}
 .n5-launch-books{min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--n5-line);padding-left:28px}
 .n5-launch-book{
-  display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;align-items:center;gap:16px;
-  width:100%;padding:11px 10px;border:0;border-radius:8px;background:transparent;color:var(--n5-ink);
+  display:grid;grid-template-columns:50px minmax(0,1fr) auto auto;align-items:center;gap:16px;
+  width:100%;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:var(--n5-ink);
   font-family:inherit;text-align:left;cursor:pointer;transition:background .15s;
 }
 .n5-launch-book + .n5-launch-book{border-top:1px solid var(--n5-line)}
 .n5-launch-book:hover{background:var(--n5-wash)}
 .n5-launch-book:focus-visible{background:var(--n5-wash);outline-offset:-2px}
-.n5b-cover{width:56px;height:56px;border-radius:22px;overflow:hidden;background:var(--n5-wash)}
+.n5b-cover{width:50px;height:50px;border-radius:22px;overflow:hidden;background:var(--n5-wash)}
 .n5b-cover img{display:block;width:100%;height:100%;object-fit:cover}
 .n5b-main{min-width:0;display:flex;flex-direction:column;gap:3px}
 .n5b-name{font-size:15px;font-weight:900;letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -185,9 +185,17 @@ body.dark .n5-launch-panel,body.dark .n5-launch-notice{
 .n5b-n{flex:none;font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
 .n5b-n i{margin-left:3px;font-size:11px;font-weight:400;font-style:normal;color:var(--n5-dim)}
 .n5-stamp-foot{display:none}
-/* 版面吃掉菜单顶部约 200px，列表同步收一档，矮屏下拉才不会顶出视口。
-   396 ＝ 顶栏落点 + 版面 + 内外边距的实测和；纯 vh 比例挡不住 700px 高的笔记本。 */
-body.n5-launch-active .codex-list{max-height:min(calc(100vh - 396px),360px)}
+/* 上线窗口内的列表限高。361 ＝ 顶栏落点 65 + 版面与内外边距 284 + 12px 余量，全是实测值；
+   512 的上限 ＝ 最长一类（画风串 5 本）需要的 511px，所以高屏上三类都不出滚动条。
+   ⚠ 别改回纯 vh 比例：比例挡不住 700px 高的笔记本，也白白浪费高屏的空间。
+   常见的 766px 视口下这里算出 420px，正好让 4 本一类（408px）站满不滚动——
+   之前是死值 360，两类书只超出 48px 却要常驻一根滚动条。 */
+body.n5-launch-active .codex-list{
+  max-height:min(calc(100vh - 361px),512px);
+  /* 行距顺带收 1px、上下内距收 1px：只在上线窗口内生效，凑出的这几像素正好让
+     4 本一类整段落地不滚动，窗口一过自动还原。 */
+  gap:6px;padding:2px 4px;
+}
 
 /* 首次公告推送：右下角悬浮，进场仍是原来的淡入上移 */
 .n5-launch-notice{
@@ -313,7 +321,12 @@ body.dark .codex-rail{border-color:rgba(255,255,255,.08)}
 .codex-rail-foot{margin-top:auto;padding:12px 6px 2px;font-size:10.5px;line-height:1.65;color:var(--muted)}
 .codex-rail-foot b{color:var(--text);font-weight:800}
 /* padding 给 hover 抬升与描边留出余量，否则会被滚动容器切边 */
-.codex-list{min-height:236px;max-height:min(70vh,438px);overflow:auto;display:flex;flex-direction:column;gap:7px;padding:3px 4px}
+.codex-list{
+  min-height:236px;max-height:min(70vh,438px);overflow:auto;display:flex;flex-direction:column;gap:7px;padding:3px 4px;
+  /* 全站其余滚动容器都是这套细条，唯独这里一直是系统默认——Windows 上那根占 15px 宽、
+     把书卡挤窄一截，还特别显眼。 */
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
 /* ── 占位类型（画风串 / 精选图包）── */
 .codex-soon-tag{flex:none;font-size:9px;font-weight:900;letter-spacing:.04em;color:#b0823a;background:rgba(202,154,62,.16);border-radius:999px;padding:1px 6px}
 body.dark .codex-soon-tag{color:#e3b463}
