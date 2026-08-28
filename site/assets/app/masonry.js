@@ -431,8 +431,6 @@ export function makeCard(placement) {
   const hasNegative = !!(e.negative && String(e.negative).trim());
   const charPrompts = Array.isArray(e.characterPrompts) ? e.characterPrompts : [];
   const imageCount = entryImages(e).length;
-  const negBadge = node.querySelector('.badge-neg');
-  if (negBadge) negBadge.hidden = !(hasImage && hasNegative);
   const charTitle = charPrompts.length
     ? `含 ${charPrompts.length} 组角色词：${charPrompts.map(item => item.label).join(' / ')}`
     : '';
