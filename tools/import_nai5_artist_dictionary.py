@@ -4,7 +4,7 @@ The source is deliberately limited to four credited collections:
 
 * 九七: DOCX table (artist label + embedded PNG)
 * 无冕: one-page PDF board (300 labels + 300 embedded image patterns)
-* 所长: loose N5 single-artist PNG files
+* 成川姬: loose N5 single-artist PNG files (legacy source folder / IDs use 所长 / suozhang)
 * 梦神: the 95-image "第二弹" artist-string folder
 
 The unrelated ``nai5鲍群+闲云群提示词收集.docx`` source is never opened.
@@ -48,11 +48,13 @@ OUTPUT_DIR = ROOT / "output" / "nai5_artist_dictionary_import"
 CODEX_ID = "artist_nai5_personal"
 TITLE = "NovelAI5画师词典"
 VERSION = "2026.8.25"
-AUTHOR = "九七 / 无冕 / 所长 / 梦神"
+CHENGCHUANJI = "成川姬"
+LEGACY_SUOZHANG_SOURCE_MARKER = "所长"
+AUTHOR = f"九七 / 无冕 / {CHENGCHUANJI} / 梦神"
 EXCLUDED_SOURCE_NAME = "nai5鲍群+闲云群提示词收集.docx"
 IMAGE_EXTS = {".png", ".webp", ".jpg", ".jpeg"}
 
-SECTION_ORDER = {"九七": 0, "无冕": 1, "所长": 2, "梦神": 3}
+SECTION_ORDER = {"九七": 0, "无冕": 1, CHENGCHUANJI: 2, "梦神": 3}
 SECTION_CONFIG = {
     "九七": {
         "path": ["单画师词典", "九七(无原图)", "5F单artist画风炼度参考"],
@@ -64,8 +66,8 @@ SECTION_CONFIG = {
         "idPrefix": "wumian",
         "rating": "r18",
     },
-    "所长": {
-        "path": ["单画师词典", "所长", "N5F单画师测试（2025–2026）"],
+    CHENGCHUANJI: {
+        "path": ["单画师词典", CHENGCHUANJI, "N5F单画师测试（2025–2026）"],
         "idPrefix": "suozhang",
         "rating": "r18",
     },
@@ -141,10 +143,10 @@ def discover_sources(raw_root: Path) -> dict[str, Path]:
     pdf = find_one(single_root, "*无冕*.pdf", "无冕 PDF")
     suozhang_candidates = [
         path for path in single_root.rglob("*")
-        if path.is_dir() and path.name == "nai5单画师测试" and "所长" in path.parent.name
+        if path.is_dir() and path.name == "nai5单画师测试" and LEGACY_SUOZHANG_SOURCE_MARKER in path.parent.name
     ]
     if len(suozhang_candidates) != 1:
-        raise RuntimeError(f"expected one 所长 single-artist folder, found: {suozhang_candidates}")
+        raise RuntimeError(f"expected one legacy 所长 single-artist folder, found: {suozhang_candidates}")
     mengshen_candidates = [
         path for path in string_root.rglob("*")
         if path.is_dir()
@@ -533,12 +535,12 @@ def pdf_rows(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 def direct_tasks(sources: dict[str, Path]) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     source_index = 0
-    for section, directory in (("所长", sources["suozhang"]), ("梦神", sources["mengshen"])):
+    for section, directory in ((CHENGCHUANJI, sources["suozhang"]), ("梦神", sources["mengshen"])):
         files = sorted(
             (path for path in directory.rglob("*") if path.is_file() and path.suffix.lower() in IMAGE_EXTS),
             key=lambda path: path.relative_to(directory).as_posix().casefold(),
         )
-        expected = 87 if section == "所长" else 95
+        expected = 87 if section == CHENGCHUANJI else 95
         if len(files) != expected:
             raise RuntimeError(f"{section} source count changed: expected={expected}, actual={len(files)}")
         for path in files:
@@ -572,7 +574,7 @@ def direct_rows(sources: dict[str, Path], workers: int) -> tuple[list[dict[str, 
             rejected.append({**row, "accepted": False, "reason": reason})
             continue
         section_positions[section] += 1
-        if section == "所长":
+        if section == CHENGCHUANJI:
             source_title = Path(row["sourcePath"]).stem
             tags = first_style_tag(row["prompt"], source_title)
             title = source_title
@@ -588,7 +590,7 @@ def direct_rows(sources: dict[str, Path], workers: int) -> tuple[list[dict[str, 
             "accepted": True,
             "reason": "accepted",
         })
-    expected = {"所长": 87, "梦神": 95}
+    expected = {CHENGCHUANJI: 87, "梦神": 95}
     accepted_counts = Counter(row["section"] for row in rows)
     if dict(accepted_counts) != expected:
         raise RuntimeError(
@@ -630,7 +632,7 @@ def audit_sources(raw_root: Path, workers: int) -> tuple[list[dict[str, Any]], d
     pdf, pdf_report = pdf_rows(sources["pdf"])
     direct, direct_report = direct_rows(sources, workers)
     rows = assign_entry_fields([*word, *pdf, *direct])
-    expected = {"九七": 437, "无冕": 300, "所长": 87, "梦神": 95}
+    expected = {"九七": 437, "无冕": 300, CHENGCHUANJI: 87, "梦神": 95}
     section_counts = Counter(row["section"] for row in rows)
     if dict(section_counts) != expected or len(rows) != 919:
         raise RuntimeError(f"dictionary source gate changed: {dict(section_counts)}")
@@ -646,7 +648,7 @@ def audit_sources(raw_root: Path, workers: int) -> tuple[list[dict[str, Any]], d
         "topLevelDirectories": ["单画师词典", "画师串词典"],
         "pathDepth": 3,
         "attributionRules": [
-            {"filenameContains": "1984", "creditedAuthor": "所长"},
+            {"filenameContains": "1984", "creditedAuthor": CHENGCHUANJI},
             {"filenameContains": "密码梦神", "creditedAuthor": "梦神"},
         ],
         "excludedSource": {
@@ -770,11 +772,11 @@ def codex_payload(rows: list[dict[str, Any]], assets: dict[str, dict[str, Any]])
         "entryCount": len(entries),
         "imagedCount": len(entries),
         "hasOriginal": True,
-        "source": "九七 · 5F单artist画风炼度参考 / 无冕 · N5单画师300筛选 / 所长 · N5F单画师测试 / 梦神 · N5暂时可用画风",
+        "source": f"九七 · 5F单artist画风炼度参考 / 无冕 · N5单画师300筛选 / {CHENGCHUANJI} · N5F单画师测试 / 梦神 · N5暂时可用画风",
         "contributors": [
             {"name": "九七", "role": "5F单artist画风炼度参考 · 词条整理 / 配图数据提供"},
             {"name": "无冕", "role": "N5单画师300筛选 · 词条整理 / 配图数据提供"},
-            {"name": "所长", "role": "N5F单画师测试 · 词条整理 / 配图数据提供"},
+            {"name": CHENGCHUANJI, "role": "N5F单画师测试 · 词条整理 / 配图数据提供"},
             {"name": "梦神", "role": "N5暂时可用画风 · 词条整理 / 配图数据提供"},
         ],
         "links": [],
@@ -836,6 +838,8 @@ def validate_payload(codex: dict[str, Any], thumb_dir: Path, original_dir: Path)
     public_meta = json.dumps({key: codex.get(key) for key in ("author", "source", "contributors", "tree")}, ensure_ascii=False)
     if "1984" in public_meta:
         issues.append("fake_1984_author_leaked")
+    if LEGACY_SUOZHANG_SOURCE_MARKER in public_meta:
+        issues.append("legacy_suozhang_credit_leaked")
     if EXCLUDED_SOURCE_NAME in json.dumps(codex, ensure_ascii=False):
         issues.append("excluded_source_leaked")
     if issues:

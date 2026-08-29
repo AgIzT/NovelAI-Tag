@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from import_nai5_artist_dictionary import (
+    CHENGCHUANJI,
     SECTION_CONFIG,
     TITLE,
     artist_title,
@@ -27,7 +28,11 @@ class Nai5ArtistDictionaryTests(unittest.TestCase):
     def test_partial_nsfw_uses_entry_ratings_without_root_lock(self) -> None:
         self.assertEqual(
             {name: config["rating"] for name, config in SECTION_CONFIG.items()},
-            {"九七": "safe", "无冕": "r18", "所长": "r18", "梦神": "safe"},
+            {"九七": "safe", "无冕": "r18", CHENGCHUANJI: "r18", "梦神": "safe"},
+        )
+        self.assertEqual(
+            SECTION_CONFIG[CHENGCHUANJI]["path"],
+            ["单画师词典", "成川姬", "N5F单画师测试（2025–2026）"],
         )
         entry_id = "artist_nai5_personal_test_0001"
         payload = codex_payload(
