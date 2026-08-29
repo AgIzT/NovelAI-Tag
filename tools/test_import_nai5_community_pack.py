@@ -12,6 +12,7 @@ from import_nai5_community_pack import (  # noqa: E402
     DREAM_SAFE_PATH,
     SUOZHANG_PATH,
     codex_payload,
+    dream_entry_title,
     finalize_groups,
     model_family,
 )
@@ -65,6 +66,10 @@ def asset(entry_id: str, prompts: list[str]) -> dict:
 
 
 class Nai5CommunityPackTests(unittest.TestCase):
+    def test_dream_branch_uses_community_entry_titles(self) -> None:
+        self.assertEqual(dream_entry_title(1), "社区精选 001")
+        self.assertEqual(dream_entry_title(76), "社区精选 076")
+
     def test_current_first_level_directory_names(self) -> None:
         self.assertEqual(DREAM_SAFE_PATH, ("梦神 · N5精选图包", "常规"))
         self.assertEqual(DREAM_NSFW_PATH, ("梦神 · N5精选图包", "NSFW"))

@@ -47,6 +47,10 @@ EXPECTED_RATINGS = {
     DREAM_NSFW_PATH: "r18",
     SUOZHANG_PATH: "r18",
 }
+
+
+def dream_entry_title(number: int) -> str:
+    return f"社区精选 {number:03d}"
 PATH_ORDER = {path: index for index, path in enumerate(EXPECTED_RATINGS)}
 
 EXPECTED_SOURCE_COUNTS = {
@@ -206,7 +210,7 @@ def source_tasks(source: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any
     for number, (image_path, path, rating) in sorted(dream_numbers.items()):
         add_group(
             entry_id=f"{CODEX_ID}_mengshen_{number:04d}",
-            title=f"梦神精选 {number:03d}",
+            title=dream_entry_title(number),
             author="梦神",
             kind="single",
             path=path,
