@@ -23,7 +23,7 @@ import PIL  # noqa: F401
 from edit_server import EditStore, Server, make_handler
 
 
-DEFAULT_PORT = 8769
+DEFAULT_PORT = 18769
 
 
 def _configure_console():

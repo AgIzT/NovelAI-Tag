@@ -21,8 +21,8 @@ if errorlevel 1 (
   %PY% -m pip install -r requirements.txt
 )
 
-echo Image tool:  http://localhost:8767/__pei__
-echo Gallery:     http://localhost:8767/
-start "" http://localhost:8767/__pei__
+echo Image tool:  http://localhost:18767/__pei__
+echo Gallery:     http://localhost:18767/
+start "" http://localhost:18767/__pei__
 %PY% tools\imgserver.py
 pause

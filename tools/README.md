@@ -27,14 +27,16 @@
 
 | 文件 | 用途 | 默认是否改数据 |
 | --- | --- | --- |
-| `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器（:8769）：主站"编辑模式"的写后端，词条/分类/图片编辑，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
-| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:8767）。⚠ 别和法典编辑器同时开 | 页面操作才写 |
-| `strings_server.py` + `strings_editor.html` | 画师串编辑器（:8768） | 页面操作才写 |
+| `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器（:18769）：主站"编辑模式"的写后端，词条/分类/图片编辑，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
+| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:18767）。⚠ 别和法典编辑器同时开 | 页面操作才写 |
+| `strings_server.py` + `strings_editor.html` | 画师串编辑器（:18768） | 页面操作才写 |
 | `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
 | `build_local_edition.py` | `单项工具/打包本地版.bat` / 总控台菜单 7 的内核：按白名单生成独立本地发行包 + zip（见 docs/decisions/独立本地发行版.md） | 不改仓库数据；默认写 `output/local-edition/` |
 | `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 仓库内不单独运行 |
 | `backfill_pack_character_prompts.py` | 从原图幂等回填两本图包的 NAI V4 角色提示词 | 默认预演；`--apply` 才写 |
 | `migrate_suozhang_char_prompts.py` | 把所长两本 `tags` 里内联的 `char1：xxx` 拆进 `characterPrompts`。**幂等，是所长法典更新链路的固定收尾**——每次 `convert.py` / `suozhang_r18_merge_match.py --apply` 之后都要再跑一次，否则角色词回到正面串（详见 `docs/经验/Word法典增量更新.md`） | 默认预演；`--apply` 才写（先自动备份） |
+
+> 本地写工具使用 `18767–18769`，刻意避开曾被 Windows HNS/WSL 动态保留的 `8767–8866`。若启动时报 `WinError 10013`，先用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查系统排除范围；不要把 PNG 解析代码里的 EXIF 标准字段 `0x8769` 当成端口修改。
 
 ## 现役 · NAI API 基础兼容工具
 
@@ -46,7 +48,7 @@
 | --- | --- |
 | `nai_api_test_generate.py` | 小规模试跑与 V4 角色框请求/元数据验证（只生成审阅用测试批） |
 | `nai_api_batch_generate.py` | 正式批量双候选生成（断点续跑） |
-| `nai_api_review_server.py` | 1–8 候选人工审核页，四画风显示模板名（默认 :8767；四画风入口用 :8768） |
+| `nai_api_review_server.py` | 1–8 候选人工审核页，四画风显示模板名（默认 :18767；四画风入口用 :18768） |
 | `nai_api_verify_batch.py` | 独立复验暂存批次（重开每张图核对真实 PNG 元数据） |
 | `nai_api_apply_selections.py` | 把人工选择正式导入法典（默认 dry-run；`--apply` 才写） |
 | `nai_api_verify_applied.py` | 正式导入后的独立复验 |

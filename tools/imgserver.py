@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-配图工具的本地服务（端口 8767）：
+配图工具的本地服务（端口 18767）：
   GET  /            → 画廊（site/ 静态文件）
   GET  /__pei__     → 配图工具页面
   POST /__upload__  → 接收一张图：
@@ -19,7 +19,7 @@ INDEX = os.path.join(DATA, "codexes.json")
 ORIG = os.path.join(ROOT, "originals")     # 原图（本地保留，不进仓库）
 TOOL_HTML = os.path.join(os.path.dirname(__file__), "pei.html")
 MAXDIM = 1100          # 缩略图最长边压到 1100px
-PORT = 8767
+PORT = 18767
 LOCK = threading.Lock()
 SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]+$")
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}

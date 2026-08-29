@@ -34,11 +34,11 @@ if not %errorlevel%==0 (
 )
 
 echo Starting the codex editor server...
-echo Open http://localhost:8769/ then click the pencil toggle in the topbar.
+echo Open http://localhost:18769/ then click the pencil toggle in the topbar.
 echo Every save is backed up to output\edit-backups\ first.
-echo NOTE: do not run this together with the peitu tool (port 8767).
+echo NOTE: do not run this together with the peitu tool (port 18767).
 echo Press Ctrl+C to stop.
 echo.
-start "" http://localhost:8769/
+start "" http://localhost:18769/
 %PY% tools\edit_server.py
 pause

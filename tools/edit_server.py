@@ -2,7 +2,7 @@
 """本地法典编辑服务器（P0）：主站"编辑模式"的后端。
 
 用法：python tools/edit_server.py （或双击 单项工具/法典编辑器.bat）
-浏览器打开 http://localhost:8769/ —— 主站探测到 /__edit__/ping 后自动加载编辑模块。
+浏览器打开 http://localhost:18769/ —— 主站探测到 /__edit__/ping 后自动加载编辑模块。
 
 组成：
   · 静态服务 site/ + /originals/ 安全映射（同 preview_server，带 no-store）
@@ -37,7 +37,7 @@ from pathlib import Path
 from sd_metadata_inspector import extract_image_metadata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PORT = 8769
+PORT = 18769
 MAXDIM = 1100
 ENTRY_MAX_BYTES = 512 * 1024
 IMAGE_MAX_BYTES = 64 * 1024 * 1024
@@ -1298,5 +1298,5 @@ if __name__ == "__main__":
     with Server(("127.0.0.1", args.port), make_handler(store)) as server:
         print(f"Codex editor -> http://localhost:{args.port}/")
         print("Open the site, the pencil toggle appears in the topbar automatically.")
-        print("Do NOT run this together with the peitu tool (imgserver :8767) on the same book.")
+        print("Do NOT run this together with the peitu tool (imgserver :18767) on the same book.")
         server.serve_forever()

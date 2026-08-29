@@ -230,9 +230,9 @@ class LocalServerSafetyTests(unittest.TestCase):
         for module in (imgserver, strings_server):
             with self.subTest(module=module.__name__):
                 self.assertTrue(module._is_loopback_origin(None))
-                self.assertTrue(module._is_loopback_origin("http://localhost:8767"))
-                self.assertTrue(module._is_loopback_origin("http://127.0.0.1:8768"))
-                self.assertTrue(module._is_loopback_origin("http://[::1]:8768"))
+                self.assertTrue(module._is_loopback_origin("http://localhost:18767"))
+                self.assertTrue(module._is_loopback_origin("http://127.0.0.1:18768"))
+                self.assertTrue(module._is_loopback_origin("http://[::1]:18768"))
                 self.assertFalse(module._is_loopback_origin("https://evil.example"))
                 self.assertFalse(module._is_loopback_origin("http://localhost.evil.example"))
                 self.assertFalse(module._is_loopback_origin("http://[::1"))

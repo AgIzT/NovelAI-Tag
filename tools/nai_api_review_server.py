@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--batch-dir", type=Path, required=True)
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8767)
+    parser.add_argument("--port", type=int, default=18767)
     parser.add_argument(
         "--check",
         action="store_true",

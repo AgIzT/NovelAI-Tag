@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-画师串编辑器本地服务（端口 8768）：
+画师串编辑器本地服务（端口 18768）：
   GET  /                → 画师串画廊（strings.html）
   GET  /__editor__      → 编辑器页面
   GET  /__strings__     → 编辑器 API
@@ -17,7 +17,7 @@ DATA = os.path.join(SITE, "data")
 EDITOR_HTML = os.path.join(os.path.dirname(__file__), "strings_editor.html")
 STRINGS_INDEX = os.path.join(DATA, "strings_index.json")
 MAXDIM = 1100
-PORT = 8768
+PORT = 18768
 LOCK = threading.Lock()
 SAFE_ENTRY_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 SAFE_COLLECTION_FILE = re.compile(r"^strings(?:_[A-Za-z0-9_-]+)?\.json$")

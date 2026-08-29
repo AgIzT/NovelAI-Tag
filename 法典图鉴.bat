@@ -18,8 +18,8 @@ echo                     法典图鉴  总控台
 echo ============================================================
 echo.
 echo   [ 日常维护 ]
-echo      1.  法典编辑器      浏览 + 编辑一体          :8769
-echo      2.  配图工具        批量拖图配词条           :8767
+echo      1.  法典编辑器      浏览 + 编辑一体          :18769
+echo      2.  配图工具        批量拖图配词条           :18767
 echo      3.  转换法典        法典源\ 新 docx 转数据
 echo.
 echo   [ 上线 ]
@@ -33,7 +33,7 @@ echo.
 echo   [ 开发 / 测试 ]
 echo      8.  只读预览        访客视角                 :8766
 echo      9.  投稿本地测试    站 + 后端 + R2 + D1      :8788
-echo     10.  画风串编辑                               :8768
+echo     10.  画风串编辑                               :18768
 echo     11.  回归验证        UI 自检
 echo     12.  清理输出        按保留策略清 output
 echo     13.  互动数据库迁移  生产 D1, 谨慎
@@ -61,11 +61,11 @@ goto menu
 :act_editor
 echo 编辑模式请点顶栏铅笔; 每次保存前自动备份到 output\edit-backups\
 echo 注意: 别和配图工具 ^(菜单 2^) 同时开, 两者都会写同一份数据
-call :window "fadian-editor-8769" "法典编辑器.bat"
+call :window "fadian-editor-18769" "法典编辑器.bat"
 goto menu
 
 :act_imgserver
-call :window "fadian-imgserver-8767" "配图工具.bat"
+call :window "fadian-imgserver-18767" "配图工具.bat"
 goto menu
 
 :act_convert
@@ -97,7 +97,7 @@ call :window "fadian-wrangler-8788" "投稿本地测试.bat"
 goto menu
 
 :act_strings
-call :window "fadian-strings-8768" "画师串编辑.bat"
+call :window "fadian-strings-18768" "画师串编辑.bat"
 goto menu
 
 :act_verify

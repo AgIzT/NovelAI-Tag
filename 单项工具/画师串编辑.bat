@@ -13,11 +13,11 @@ if not defined PY (
   exit /b 1
 )
 
-echo Opening http://localhost:8768  (close this window to stop)
+echo Opening http://localhost:18768  (close this window to stop)
 echo.
-echo   Gallery : http://localhost:8768/strings.html
-echo   Editor  : http://localhost:8768/__editor__
+echo   Gallery : http://localhost:18768/strings.html
+echo   Editor  : http://localhost:18768/__editor__
 echo.
-start "" http://localhost:8768/__editor__
+start "" http://localhost:18768/__editor__
 %PY% tools\strings_server.py
 pause
