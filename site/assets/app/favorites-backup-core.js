@@ -15,11 +15,32 @@ export const FAVORITES_BACKUP_LIMITS = Object.freeze({
 export const ATLAS_FAVORITE_OWNER_MIGRATIONS = Object.freeze([
   Object.freeze({
     sourceCodexId: 'mengshen_pack',
+    // 2026-08-31 画师串词典并入 artist_nai45_personal 后，这个 target 只是别名——
+    // findFavoriteOwnerMigration 用 byAnyId（含 aliases）查 target，会自己落到合并册，故不改。
     targetCodexId: 'artist_nai45_strings',
     entryIdPrefix: 'mengshen_pack-',
     entryNumberMin: 1,
     entryNumberMax: 258,
     entryNumberWidth: 4,
+  }),
+  // 2026-08-31 两本社区图包并成 nai45_community_pack。
+  // ⚠ 这里必须走迁移表、不能只靠 aliases：这两本的词条 id 带旧书 id 前缀
+  // （`mengshen_pack-NNNN` / `community_ai_misc-NNNN`），别名那条路径会把 id 前缀一起换掉
+  // （见下面 canonicalizeAtlasFavorite 的注释），换完就找不到词条；迁移表原样保留 entryId。
+  // 梦神那本的 0001–0258 早在 2026-07 就迁进画师串词典，所以这条从 0259 起算，
+  // 上面那条老规则继续管 0001–0258，两段不重叠。
+  Object.freeze({
+    sourceCodexId: 'mengshen_pack',
+    targetCodexId: 'nai45_community_pack',
+    entryIdPrefix: 'mengshen_pack-',
+    entryNumberMin: 259,
+    entryNumberMax: 1944,
+    entryNumberWidth: 4,
+  }),
+  Object.freeze({
+    sourceCodexId: 'community_ai_misc',
+    targetCodexId: 'nai45_community_pack',
+    entryIdPrefix: 'community_ai_misc-',
   }),
   Object.freeze({
     sourceCodexId: 'codex_6e699406',
@@ -201,8 +222,12 @@ export function atlasFavoriteStorageKeys(favorite, codexesOrLookup = []) {
   }
 
   for (const migration of ATLAS_FAVORITE_OWNER_MIGRATIONS) {
+    // ⚠ target 要先按 aliases 归一再比：迁移目标那本自己也可能后来被并册
+    // （2026-08-31 artist_nai45_strings 并进 artist_nai45_personal 就是），
+    // 裸比 id 会生成不出旧键，收藏在「全部收藏」里直接消失——isFav 靠这些键认卡。
+    const migrationTargetId = lookup.byAnyId.get(migration.targetCodexId)?.id || migration.targetCodexId;
     if (
-      migration.targetCodexId === canonical.codexId
+      migrationTargetId === canonical.codexId
       && migrationMatchesEntryId(migration, canonical.entryId)
     ) {
       keys.add(atlasStorageKey({ codexId: migration.sourceCodexId, entryId: canonical.entryId }));

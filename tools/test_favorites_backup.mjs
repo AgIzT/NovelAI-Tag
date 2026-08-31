@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 
 const coreUrl = new URL('../site/assets/app/favorites-backup-core.js', import.meta.url);
 const coreSource = await readFile(coreUrl, 'utf8');
@@ -31,6 +31,17 @@ const ownerMigrationCodexes = [
   { id: 'artist_nai45_strings' },
   { id: 'mengshen_pack' },
   { id: 'suozhang_r18' },
+];
+/* 2026-08-31 之后的现状：迁移目标 artist_nai45_strings 自己被并进了合并册，只剩别名身份。 */
+const mergedOwnerMigrationCodexes = [
+  { id: 'artist_nai45_personal', aliases: ['artist_300', 'artist_nai45_strings'] },
+  { id: 'mengshen_pack' },
+  { id: 'suozhang_r18' },
+];
+/* 两本社区图包并成一册后的现状：旧书 id 只作为别名与迁移来源存在。 */
+const mergedPackCodexes = [
+  { id: 'nai45_community_pack', aliases: ['mengshen_pack', 'community_ai_misc'] },
+  { id: 'artist_nai45_personal', aliases: ['artist_nai45_strings'] },
 ];
 const exportedAt = '2026-07-10T00:00:00.000Z';
 
@@ -153,6 +164,46 @@ assert.deepEqual(
     'artist_nai45_strings:mengshen_pack-0001',
     'mengshen_pack:mengshen_pack-0001',
   ],
+);
+
+// 迁移目标那本后来被并册（只剩别名）时，正反两个方向都必须照旧成立：
+// 反向少生成一个旧键，收藏就会在「全部收藏」里静默消失——isFav 正是靠这些键认卡的。
+assert.deepEqual(
+  canonicalizeAtlasStorageKey('mengshen_pack:mengshen_pack-0001', mergedOwnerMigrationCodexes),
+  { codexId: 'artist_nai45_personal', entryId: 'mengshen_pack-0001' },
+);
+assert.ok(
+  atlasFavoriteStorageKeys(
+    { codexId: 'artist_nai45_personal', entryId: 'mengshen_pack-0001' },
+    mergedOwnerMigrationCodexes,
+  ).includes('mengshen_pack:mengshen_pack-0001'),
+  '并册后仍须生成旧归属键 mengshen_pack:mengshen_pack-0001',
+);
+
+// 图包合并：两本旧图包的收藏都要落到 nai45_community_pack，且 **词条 id 一个字符都不能改**
+// （别名路径会把 id 前缀换掉，所以这两本必须走迁移表；这几条断言就是钉住这一点）。
+for (const [codexId, entryId] of [
+  ['mengshen_pack', 'mengshen_pack-0259'],
+  ['mengshen_pack', 'mengshen_pack-1944'],
+  ['community_ai_misc', 'community_ai_misc-0001'],
+  ['community_ai_misc', 'community_ai_misc-5330'],
+]) {
+  assert.deepEqual(
+    canonicalizeAtlasFavorite({ codexId, entryId }, mergedPackCodexes),
+    { codexId: 'nai45_community_pack', entryId },
+  );
+}
+// 梦神 0001–0258 归画师词典那本，别被图包这条新规则抢走。
+assert.deepEqual(
+  canonicalizeAtlasFavorite({ codexId: 'mengshen_pack', entryId: 'mengshen_pack-0001' }, mergedPackCodexes),
+  { codexId: 'artist_nai45_personal', entryId: 'mengshen_pack-0001' },
+);
+assert.ok(
+  atlasFavoriteStorageKeys(
+    { codexId: 'nai45_community_pack', entryId: 'community_ai_misc-0042' },
+    mergedPackCodexes,
+  ).includes('community_ai_misc:community_ai_misc-0042'),
+  '并册后仍须生成旧归属键 community_ai_misc:community_ai_misc-0042',
 );
 assert.deepEqual(
   atlasFavoriteStorageKeys(
@@ -314,43 +365,73 @@ assert.deepEqual(ownerMigrationPlan.next.atlas, [
   { codexId: 'artist_nai45_strings', entryId: 'mengshen_pack-0001' },
 ]);
 
-// 永久兼容表在维护者本机仍和真实数据做全量对齐；公开仓库不再携带这些 JSON。
-try {
+// 公开仓库没有整个 data 目录时才跳过；索引或任何一本应存在的书缺失必须失败。
+const localDataDir = new URL('../site/data/', import.meta.url);
+const hasLocalData = await stat(localDataDir).then(value => value.isDirectory()).catch(error => {
+  if (error?.code !== 'ENOENT') throw error;
+  return false;
+});
+if (hasLocalData) {
   const realCodexes = JSON.parse(await readFile(new URL('../site/data/codexes.json', import.meta.url), 'utf8'));
-  const artistStrings = JSON.parse(await readFile(new URL('../site/data/artist_nai45_strings.json', import.meta.url), 'utf8'));
-  const mengshenPack = JSON.parse(await readFile(new URL('../site/data/mengshen_pack.json', import.meta.url), 'utf8'));
-  const suozhangR18 = JSON.parse(await readFile(new URL('../site/data/suozhang_r18.json', import.meta.url), 'utf8'));
-  const movedMengshenEntries = artistStrings.entries.filter(entry => entry.id.startsWith('mengshen_pack-'));
+  const lookup = createCodexLookup(realCodexes);
+  const readBook = async id => {
+    const meta = lookup.byAnyId.get(id);
+    assert.ok(meta, `真实书目缺失：${id}`);
+    const book = JSON.parse(await readFile(new URL(`${meta.id}.json`, localDataDir), 'utf8'));
+    assert.equal(book.entries.length, meta.entryCount, `${id} 索引计数`);
+    assert.equal(new Set(book.entries.map(entry => entry.id)).size, book.entries.length, `${id} ID 唯一`);
+    return book;
+  };
+  const [artists, packs, suozhangR18] = await Promise.all([
+    readBook('artist_nai45_personal'), readBook('nai45_community_pack'), readBook('suozhang_r18'),
+  ]);
+  const legacyKeys = [];
+  const assertLegacyFavorite = (sourceCodexId, entry, targetCodexId) => {
+    const expected = { codexId: targetCodexId, entryId: entry.id };
+    const oldKey = `${sourceCodexId}:${entry.id}`;
+    assert.deepEqual(canonicalizeAtlasStorageKey(oldKey, lookup), expected, oldKey);
+    assert.ok(atlasFavoriteStorageKeys(expected, lookup).includes(oldKey), `反向兼容键缺失：${oldKey}`);
+    legacyKeys.push(oldKey);
+  };
+  // 旧个人词典、旧画师串、两个旧图包全量覆盖，不能只验证迁移表里的几条样例。
+  for (const entry of artists.entries) {
+    const sourceCodexId = {
+      '单画师词典': 'artist_nai45_personal',
+      '画师串词典': 'artist_nai45_strings',
+    }[entry.path[0]];
+    assert.ok(sourceCodexId, `画师词典存在未审计分区：${entry.path[0]}`);
+    assertLegacyFavorite(sourceCodexId, entry, artists.id);
+  }
+  for (const entry of packs.entries) {
+    const sourceCodexId = {
+      '梦神 · 社区图包': 'mengshen_pack',
+      '社区 · AI杂图': 'community_ai_misc',
+    }[entry.path[0]];
+    assert.ok(sourceCodexId, `社区图包存在未审计分区：${entry.path[0]}`);
+    assertLegacyFavorite(sourceCodexId, entry, packs.id);
+  }
+  const movedMengshenEntries = artists.entries.filter(entry => entry.id.startsWith('mengshen_pack-'));
   assert.equal(movedMengshenEntries.length, 258);
   for (const entry of movedMengshenEntries) {
-    assert.deepEqual(
-      canonicalizeAtlasFavorite(
-        { codexId: 'mengshen_pack', entryId: entry.id },
-        realCodexes,
-      ),
-      { codexId: 'artist_nai45_strings', entryId: entry.id },
-    );
-  }
-  for (const entry of mengshenPack.entries) {
-    assert.deepEqual(
-      canonicalizeAtlasFavorite(
-        { codexId: 'mengshen_pack', entryId: entry.id },
-        realCodexes,
-      ),
-      { codexId: 'mengshen_pack', entryId: entry.id },
-    );
+    assertLegacyFavorite('mengshen_pack', entry, artists.id);
   }
   for (const entry of suozhangR18.entries) {
     const sourceCodexId = entry.id.startsWith('codex_6e699406-')
       ? 'codex_6e699406'
       : 'codex_8489ac52';
-    assert.deepEqual(
-      canonicalizeAtlasFavorite({ codexId: sourceCodexId, entryId: entry.id }, realCodexes),
-      { codexId: 'suozhang_r18', entryId: entry.id },
-    );
+    assertLegacyFavorite(sourceCodexId, entry, suozhangR18.id);
   }
-} catch (error) {
-  if (error?.code !== 'ENOENT') throw error;
+  const restored = parseFavoritesBackup(serializeFavoritesBackup({
+    atlasKeys: legacyKeys, codexes: realCodexes, exportedAt,
+  }), realCodexes);
+  assert.equal(restored.unknownCodexCount, 0);
+  assert.equal(restored.favorites.atlas.length, artists.entries.length + packs.entries.length + suozhangR18.entries.length);
+  const actualIds = new Map([artists, packs, suozhangR18].map(book => [book.id, new Set(book.entries.map(entry => entry.id))]));
+  for (const item of restored.favorites.atlas) {
+    assert.ok(actualIds.get(item.codexId)?.has(item.entryId), `备份恢复后目标不存在：${item.codexId}:${item.entryId}`);
+  }
+  console.log(`favorites backup core: audited ${legacyKeys.length} real legacy keys, export/restore OK`);
+} else {
   console.log('favorites backup core: skipped local-only site/data compatibility audit');
 }
 

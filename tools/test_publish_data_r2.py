@@ -2,7 +2,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+from tools.program_compatibility import ProgramCompatibilityError
 
 from tools.publish_data_r2 import (
     POINTER_CACHE_CONTROL,
@@ -212,6 +214,68 @@ class PublishDataR2Tests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "remote verification failed"):
                 activate_release(client, "data", plan.release)
             self.assertNotIn(("put", "data/current.json"), client.operations)
+
+    def test_incompatible_program_stops_before_any_upload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            write_json(root / "codexes.json", [{"id": "demo", "type": "composition"}])
+            plan = build_release_plan(root)
+            client = FakeClient()
+            seed_pointer(client, ROLLBACK_TARGET)
+            guard = Mock(side_effect=ProgramCompatibilityError("still cached"))
+            with self.assertRaisesRegex(ProgramCompatibilityError, "still cached"):
+                publish_release(client, plan, program_check=guard)
+            self.assertEqual(client.operations, [])
+            self.assertEqual(client.get_json("data/current.json")["release"], ROLLBACK_TARGET)
+            guard.assert_called_once_with(("assets/app/codex-ui.js",))
+
+    def test_program_is_rechecked_before_pointer_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            write_json(root / "codexes.json", [{"id": "demo", "type": "composition"}])
+            plan = build_release_plan(root)
+            client = FakeClient()
+            seed_pointer(client, ROLLBACK_TARGET)
+            guard = Mock(side_effect=[None, ProgramCompatibilityError("program rolled back")])
+            with self.assertRaisesRegex(ProgramCompatibilityError, "program rolled back"):
+                publish_release(client, plan, program_check=guard)
+            self.assertTrue(client.operations, "此用例必须真的走过夹具上传阶段")
+            self.assertNotIn(("put", "data/current.json"), client.operations)
+            self.assertEqual(client.get_json("data/current.json")["release"], ROLLBACK_TARGET)
+
+    def test_manual_activation_checks_target_data_but_old_rollback_remains_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            old = build_release_plan(root)
+            client = FakeClient()
+            publish_release(client, old)
+            write_json(root / "codexes.json", [{"id": "demo", "type": "composition"}])
+            new = build_release_plan(root)
+            publish_release(client, new, program_check=Mock())
+            blocked = Mock(side_effect=ProgramCompatibilityError("program not ready"))
+            activate_release(client, "data", old.release, program_check=blocked)
+            blocked.assert_not_called()
+            client.operations.clear()
+            with self.assertRaises(ProgramCompatibilityError):
+                activate_release(client, "data", new.release, program_check=blocked)
+            self.assertEqual(client.operations, [])
+            self.assertEqual(client.get_json("data/current.json")["release"], old.release)
+
+    def test_check_program_does_not_need_share_shards_or_r2_client(self):
+        from tools import publish_data_r2 as publisher
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_json(root / "codexes.json", [{"id": "demo", "type": "composition"}])
+            with patch.object(publisher, "DATA_DIR", root), \
+                    patch.object(publisher, "load_config", return_value={}), \
+                    patch.object(publisher, "R2DataClient") as client, \
+                    patch.object(publisher, "ensure_program_ready") as guard:
+                self.assertEqual(publisher.main(["--check-program"]), 0)
+                guard.assert_called_once()
+                client.assert_not_called()
 
 
 if __name__ == "__main__":

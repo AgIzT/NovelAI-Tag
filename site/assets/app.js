@@ -15,6 +15,7 @@ import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
+import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
@@ -52,6 +53,8 @@ const historyRouteNeedsCanonicalization = (route, normalizedRoute) => Boolean(
   hasOwnRouteField(route, 'onlyImaged')
   || hasOwnRouteField(route, 'onlyNew')
   || requestedUpdateFilter(route) !== String(normalizedRoute?.updateFilter || '')
+  // 旧 id 只用于判定并册前的目录来源；一旦迁移完成，历史记录与地址栏都写回正式 id。
+  || Boolean(route?.codex && route.codex !== normalizedRoute?.codex)
 );
 const announceCodexLoaded = codex => {
   document.dispatchEvent(new CustomEvent('codex:loaded', { detail: { codex } }));
@@ -100,7 +103,7 @@ function renderCodexView(codex, seq, {
   updateCodexPickerState();
   const urlState = resolveUrlState(c);
   applyViewUrlState(urlState, c);
-  const nextPath = normalizeRoutePath(c.tree, urlState?.path || []);
+  const nextPath = normalizeCodexRoutePath(c, urlState?.path || [], urlState?.codex || c.id);
   state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
   state.query = resolveQuery(urlState);
   state.seenAnimated.clear();
@@ -557,19 +560,6 @@ function refreshFavoritesView(options = {}) {
   applyFilter(options);
 }
 
-function normalizeRoutePath(tree, path) {
-  if (!Array.isArray(path) || !path.length) return [];
-  let nodes = Array.isArray(tree) ? tree : [];
-  const normalized = [];
-  for (const seg of path) {
-    const node = nodes.find(nd => nd?.name === seg);
-    if (!node) return [];
-    normalized.push(node.name);
-    nodes = Array.isArray(node.children) ? node.children : [];
-  }
-  return normalized;
-}
-
 async function applyAtlasHistoryRoute(route = {}, context = {}) {
   const currentRestore = () => context.token === undefined || isHistoryRestoreToken(context.token);
   const requestedMeta = findCodexMeta(route.codex);
@@ -600,7 +590,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
       : undefined;
   }
   const urlState = {
-    codex: targetId,
+    codex: targetLocked || targetUnknown ? targetId : (route.codex || targetId),
     favorites: Boolean(route.favorites),
     scope: route.siteSearch ? 'site' : (route.scope || 'codex'),
     path: Array.isArray(route.path) ? route.path : [],
@@ -635,7 +625,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
       state.updateFilter = resolveUpdateFilter(state.codex, requestedUpdateFilter(route));
       state.searchScope = route.scope === 'site' ? 'site' : 'codex';
       updateSearchScopeControl();
-      const nextPath = normalizeRoutePath(state.codex.tree, urlState.path);
+      const nextPath = normalizeCodexRoutePath(state.codex, urlState.path, urlState.codex);
       state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
       state.query = urlState.q;
       const search = $('#search');
@@ -658,16 +648,16 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
           : { ...route, entry: '', imageIndex: 0 };
       }
     }
-    state.searchReturnPath = Array.isArray(route.searchReturnPath) ? [...route.searchReturnPath] : [];
+    state.searchReturnPath = route.searchReturnPath?.length
+      ? normalizeCodexRoutePath(state.browseCodex || state.codex, route.searchReturnPath, urlState.codex)
+      : [];
     const normalizedRoute = captureAtlasRoute(targetEntry);
-    const canonicalRequested = requestedMeta?.id || requestedId;
     const pathChanged = !targetEntry && JSON.stringify(normalizedRoute.path) !== JSON.stringify(urlState.path);
     if (
       targetLocked
       || targetUnknown
       || pathChanged
       || historyRouteNeedsCanonicalization(route, normalizedRoute)
-      || (canonicalRequested && normalizedRoute.codex !== canonicalRequested)
     ) {
       return normalizedRoute;
     }

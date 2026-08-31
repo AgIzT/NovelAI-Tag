@@ -452,8 +452,22 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     r18_latest_update = next((item for item in r18_update_filters if item["latest"]), None)
     if not old_update or not latest_update or not r18_latest_update:
         raise RuntimeError("Expected one historical and one latest update filter for the Suozhang regression")
-    pack_data = json.loads((ROOT / "site" / "data" / "community_ai_misc.json").read_text(encoding="utf-8"))
-    pack_entries = pack_data.get("entries") or []
+    # 2026-08-31 两本社区图包并成 nai45_community_pack；这三个用例只取杂图那一片，
+    # 深链仍按旧 id 进（下面几处 ?codex=community_ai_misc），顺带钉住别名路由没断。
+    pack_data = json.loads((ROOT / "site" / "data" / "nai45_community_pack.json").read_text(encoding="utf-8"))
+    pack_entries = [
+        entry for entry in (pack_data.get("entries") or [])
+        if str(entry.get("id") or "").startswith("community_ai_misc-")
+    ]
+    artist_data = json.loads((ROOT / "site" / "data" / "artist_nai45_personal.json").read_text(encoding="utf-8"))
+    legacy_artist_entry = next(
+        entry for entry in (artist_data.get("entries") or [])
+        if entry.get("assetCodexId") == "artist_nai45_strings"
+        and (entry.get("image") or entry.get("images"))
+        and list(entry.get("path") or [])[:1] == ["画师串词典"]
+    )
+    legacy_artist_path = list(legacy_artist_entry["path"])
+    legacy_artist_source_path = legacy_artist_path[1:]
     multi_character_entry = next(
         entry for entry in pack_entries
         if entry.get("rating") == "safe" and len(entry.get("characterPrompts") or []) >= 2
@@ -1958,9 +1972,19 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   stringType.click();
   const stringIds = [...document.querySelectorAll('#codexMenu .codex-item[data-id]')].map(node => node.dataset.id);
   // 2026-08-26 起画风串多了 V5 画师词典，按 codexes.json 的顺序排在最前。
-  const expected = ['artist_nai5_personal', 'artist_nai45_personal', 'artist_nai45_strings', 'composition_style', 'qianteng'];
+  // 2026-08-31「构图」大分类拆走构图风格与千藤衣柜，v4.5 两本又合并成一册，
+  // 画风这一类只剩 v5 与 v4.5 两本（decisions/法典重归类.md）。
+  const expected = ['artist_nai5_personal', 'artist_nai45_personal'];
   if (JSON.stringify(stringIds) !== JSON.stringify(expected)) {
     throw new Error(`artist-string order mismatch: ${stringIds.join(',')}`);
+  }
+  const compositionType = document.querySelector('#codexMenu .codex-type[data-type="composition"]');
+  if (!compositionType) throw new Error('composition type item not found');
+  compositionType.click();
+  const compositionIds = [...document.querySelectorAll('#codexMenu .codex-item[data-id]')].map(node => node.dataset.id);
+  const expectedComposition = ['composition_style', 'qianteng'];
+  if (JSON.stringify(compositionIds) !== JSON.stringify(expectedComposition)) {
+    throw new Error(`composition order mismatch: ${compositionIds.join(',')}`);
   }
   const target = document.querySelector('#codexMenu .codex-item[data-id="qianteng"]');
   if (!target) throw new Error('wardrobe codex item not found');
@@ -1971,7 +1995,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "document.querySelector('#codexBtnText')?.textContent.includes('衣柜')", "wardrobe selected", timeout=10)
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "wardrobe cards", timeout=10)
         settle(cdp, 350)
-        data = cdp.eval("({codex: document.querySelector('#codexBtnText')?.textContent || '', url: location.href, cards: document.querySelectorAll('.card').length, result: document.querySelector('#resultInfo')?.textContent || '', type: 'string', position: 4})")
+        data = cdp.eval("({codex: document.querySelector('#codexBtnText')?.textContent || '', url: location.href, cards: document.querySelectorAll('.card').length, result: document.querySelector('#resultInfo')?.textContent || '', type: 'composition', position: 2})")
         if "衣柜" not in data["codex"]:
             raise CheckFailed("Codex switch did not select wardrobe")
         check_no_errors(cdp)
@@ -1991,6 +2015,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             "localStorage.setItem('fadian-nsfw-ok', '1'); "
             f"localStorage.setItem('fadian-favs', JSON.stringify({favorite_keys}))"
         )
+        # 故意仍按旧 id 进：合并后 artist_nai45_strings 只是别名，这一行顺带钉住别名路由没断
         navigate(cdp, base + "?codex=artist_nai45_strings&fav=1")
         wait_for(cdp, "!document.querySelector('#favoritesViewBackupBtn')?.hidden", "favorites backup entry")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 3", "favorite cards", timeout=15)
@@ -2005,7 +2030,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if data["atlas"] != "3" or "收藏：3 条" not in data["result"]:
             raise CheckFailed(f"Historical favorite owners did not render all three cards: {data!r}")
         dream_card = next((card for card in data["cards"] if card["title"] == "梦神NAI4.5F画风合集 0001"), None)
-        if not dream_card or not dream_card["path"].startswith("NovelAI4.5画师串词典 ›"):
+        if not dream_card or not dream_card["path"].startswith("NovelAI v4.5画师词典 ›"):
             raise CheckFailed(f"Moved mengshen favorite did not resolve to artist strings: {data['cards']!r}")
         if not any(card["path"].startswith("所长色色NovalAI个人法典（合并版） ›") for card in data["cards"]):
             raise CheckFailed(f"Legacy suozhang favorite did not resolve to the merged codex: {data['cards']!r}")
@@ -2066,6 +2091,104 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         shot = screenshot(cdp, out_dir, "mobile-home")
         return {**data, "screenshot": shot}
+
+    def legacy_codex_alias_routes():
+        clear_errors(cdp)
+        cdp.command("Emulation.clearDeviceMetricsOverride")
+        navigate(cdp, base)
+        cdp.eval("localStorage.setItem('fadian-onboarding-v1-done','1'); localStorage.setItem('fadian-nsfw-ok','0')")
+
+        canonical_id = "artist_nai45_personal"
+        legacy_id = "artist_nai45_strings"
+        canonical_id_js = js_string(canonical_id)
+        legacy_id_js = js_string(legacy_id)
+        canonical_path_js = json.dumps(legacy_artist_path, ensure_ascii=False)
+        entry_id_js = js_string(str(legacy_artist_entry["id"]))
+        legacy_pairs = [("codex", legacy_id)]
+        legacy_pairs.extend(("path", segment) for segment in legacy_artist_source_path)
+        legacy_pairs.append(("path", ""))
+        legacy_directory_url = base + "?" + urllib.parse.urlencode(legacy_pairs)
+
+        # 首载旧书签：先用旧 id 迁目录，落稳后 URL/history 一律改成正式 id 和新目录。
+        navigate(cdp, legacy_directory_url)
+        wait_for(
+            cdp,
+            "history.state?.page === 'atlas'"
+            + " && history.state.route.codex === " + canonical_id_js
+            + " && new URL(location.href).searchParams.get('codex') === " + canonical_id_js
+            + " && JSON.stringify(history.state.route.path) === JSON.stringify(" + canonical_path_js + ")"
+            + " && document.querySelectorAll('.card').length > 0",
+            "legacy codex bookmark canonicalized",
+            timeout=15,
+        )
+        bookmark = cdp.eval("({url:location.href,codex:history.state.route.codex,path:history.state.route.path})")
+
+        # 词条深链同样保留词条并打开灯箱，但旧别名不能继续留在地址栏。
+        legacy_entry_url = legacy_directory_url + "&entry=" + urllib.parse.quote(str(legacy_artist_entry["id"]), safe="")
+        navigate(cdp, legacy_entry_url)
+        wait_for(
+            cdp,
+            "document.querySelector('#lightbox')?.classList.contains('is-open')"
+            + " && history.state?.route?.entry === " + entry_id_js
+            + " && history.state.route.codex === " + canonical_id_js
+            + " && new URL(location.href).searchParams.get('codex') === " + canonical_id_js
+            + " && JSON.stringify(history.state.route.path) === JSON.stringify(" + canonical_path_js + ")",
+            "legacy codex entry deep link canonicalized",
+            timeout=15,
+        )
+        deep_link = cdp.eval("({url:location.href,codex:history.state.route.codex,path:history.state.route.path,entry:history.state.route.entry})")
+
+        # 旧部署留下的 Back 记录可能已经是新目录、却仍带旧书 id；此时 path 不变，
+        # 也必须单独触发规范化。这正是地址栏曾残留旧别名的分支。
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "history.state?.page === 'atlas' && history.state.route.codex === 'suozhang'", "canonical history seed")
+        adopted = cdp.eval(
+            """
+(() => {
+  const target = structuredClone(history.state);
+  target.route = {
+    ...target.route,
+    codex: __LEGACY_ID__, favorites: false, siteSearch: false, scope: 'codex',
+    path: __CANONICAL_PATH__, searchReturnPath: [], q: '', entry: '', imageIndex: 0, updateFilter: '',
+  };
+  const targetUrl = new URL(location.href);
+  targetUrl.search = '';
+  targetUrl.searchParams.set('codex', __LEGACY_ID__);
+  for (const segment of __CANONICAL_PATH__) targetUrl.searchParams.append('path', segment);
+  history.replaceState(target, '', targetUrl);
+  const dummy = structuredClone(target);
+  dummy.id = `${target.id}-legacy-alias-${Date.now()}`;
+  dummy.parentId = target.id;
+  dummy.transition = 'route';
+  dummy.route = {...target.route, codex:'suozhang', path:[]};
+  history.pushState(dummy, '', '?codex=suozhang');
+  history.back();
+  return {id:target.id};
+})()
+"""
+            .replace("__LEGACY_ID__", legacy_id_js)
+            .replace("__CANONICAL_PATH__", canonical_path_js)
+        )
+        wait_for(
+            cdp,
+            "history.state?.id === " + js_string(adopted["id"])
+            + " && history.state.route.codex === " + canonical_id_js
+            + " && new URL(location.href).searchParams.get('codex') === " + canonical_id_js
+            + " && JSON.stringify(history.state.route.path) === JSON.stringify(" + canonical_path_js + ")"
+            + " && document.querySelectorAll('.card').length > 0",
+            "legacy codex Back record canonicalized",
+            timeout=15,
+        )
+        back_record = cdp.eval("({url:location.href,codex:history.state.route.codex,path:history.state.route.path})")
+        if cdp.eval("new URL(location.href).searchParams.get('codex') === " + legacy_id_js):
+            raise CheckFailed("Legacy codex alias remained in the address bar")
+        check_no_errors(cdp)
+        return {
+            "sourcePath": legacy_artist_source_path,
+            "bookmark": bookmark,
+            "deepLink": deep_link,
+            "backRecord": back_record,
+        }
 
     def mobile_atlas_history():
         clear_errors(cdp)
@@ -2657,6 +2780,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("recent entry opens lightbox", recent_entry_lightbox),
         ("codex switch loads wardrobe", codex_switch),
         ("favorites view opens backup dialog", favorites_backup_entry),
+        ("legacy codex aliases canonicalize", legacy_codex_alias_routes),
         ("NSFW toggle locks back", nsfw_toggle),
         ("mobile home renders", mobile_home),
         ("mobile atlas back stack", mobile_atlas_history),

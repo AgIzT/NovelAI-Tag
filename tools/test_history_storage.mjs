@@ -188,6 +188,36 @@ try {
   window.scrollY = 99;
   windowListeners.get('pagehide')?.(new Event('pagehide'));
   assert.strictEqual(state.lastBrowse, beforeSuppressedPagehide);
+
+  // 并册后：继续浏览与最近浏览的同书快速路径、跨书加载路径都保留原来源。
+  state.suppressUrlSync = true;
+  const merged = {
+    id: 'artist_nai45_personal', aliases: ['artist_nai45_strings'], title: '合并画师词典',
+    tree: [{ name: '画师串词典', children: [{ name: 'W.O.F_画风', children: [] }] }],
+  };
+  state.codexes = [merged];
+  state.codex = merged;
+  state.browseCodex = merged;
+  state.favoritesView = false;
+  state.siteSearchView = false;
+  state.lastBrowse = { codexId: 'artist_nai45_strings', path: ['W.O.F_画风'], q: '', entryId: 'wof-1' };
+  await historyModule.resumeLastBrowse();
+  assert.deepEqual(state.activePath, ['画师串词典', 'W.O.F_画风']);
+  const recent = { codexId: 'artist_nai45_strings', path: ['W.O.F_画风'], entryId: 'wof-1' };
+  state.activePath = [];
+  await historyModule.openRecentEntry(recent);
+  assert.deepEqual(state.activePath, ['画师串词典', 'W.O.F_画风']);
+  const loads = [];
+  historyModule.setHistoryActions({ loadCodex: async (id, options) => loads.push({ id, options }) });
+  state.codex = { id: 'another' };
+  await historyModule.resumeLastBrowse();
+  await historyModule.openRecentEntry(recent);
+  assert.equal(loads.length, 2);
+  for (const { id, options } of loads) {
+    assert.equal(id, merged.id);
+    assert.equal(options.urlState.codex, 'artist_nai45_strings');
+    assert.deepEqual(options.urlState.path, ['W.O.F_画风']);
+  }
 } finally {
   console.warn = originalWarn;
   globalThis.setTimeout = originalSetTimeout;

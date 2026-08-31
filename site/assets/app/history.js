@@ -2,6 +2,7 @@ import { state, RECENT_ENTRY_LIMIT, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY 
 import { $, esc, updateSearchClear, updateScrollProgress } from './utils.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { syncUrlState } from './router.js';
+import { normalizeCodexRoutePath } from './codex-route-compat.js';
 import { firstUnlockedCodex, isCodexLocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { toast } from './feedback.js';
 import { findCodexMeta, resolveUpdateFilter, updateFilterDefinitions } from './data.js';
@@ -305,7 +306,7 @@ export function applyBrowseControls(snapshot) {
 }
 
 export function applyBrowseState(snapshot, options = {}) {
-  state.activePath = snapshot.path || [];
+  state.activePath = normalizeCodexRoutePath(state.codex, snapshot.path || [], snapshot.codexId);
   state.query = snapshot.q || '';
   const search = $('#search');
   if (search) search.value = state.query;
@@ -401,7 +402,7 @@ export async function resumeLastBrowse(options = {}) {
   } else if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
     applyBrowseControls(snapshot);
     await historyActions.loadCodex(targetId, {
-      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', updateFilter: String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : '')) },
+      urlState: { codex: requestedCodexId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', updateFilter: String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : '')) },
       ...finalHistory,
     });
   } else {
@@ -432,7 +433,7 @@ export async function openRecentEntry(item, options = {}) {
     showNsfwLockedHint();
     return;
   }
-  const urlState = { codex: targetId, path: item.path || [], q: '', entry: item.entryId };
+  const urlState = { codex: item.codexId, path: item.path || [], q: '', entry: item.entryId };
   const finalHistory = {
     historyMode: options.historyMode || 'push',
     transition: 'detail',
@@ -444,7 +445,7 @@ export async function openRecentEntry(item, options = {}) {
     await historyActions.loadCodex(targetId, { urlState, ...finalHistory });
   } else {
     state.query = '';
-    state.activePath = item.path || [];
+    state.activePath = normalizeCodexRoutePath(state.codex, item.path || [], item.codexId);
     state.onlyFav = false;
     applyBrowseControls({ onlyFav: false });
     const search = $('#search');

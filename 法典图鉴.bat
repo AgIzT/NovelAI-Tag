@@ -24,7 +24,7 @@ echo      3.  转换法典        法典源\ 新 docx 转数据
 echo.
 echo   [ 上线 ]
 echo      4.  发布数据        图片 + 分享索引 + R2 数据版本 ^(不动 Git^)
-echo      5.  发布程序        先发布数据, 再推 GitHub 自动部署
+echo      5.  发布程序        仅推 GitHub 自动部署, 数据另走 4
 echo      6.  回滚数据        切回上一个 R2 数据版本
 echo.
 echo   [ 发行 ]

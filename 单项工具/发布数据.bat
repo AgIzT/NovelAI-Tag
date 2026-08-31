@@ -12,7 +12,7 @@ echo.
 if "%RC%"=="0" (
   echo Done. The R2 data release is active; Git and Pages were not changed.
 ) else (
-  echo Data publish failed. The previous R2 release remains active.
+  echo Data publish stopped. If pointer verification failed, check the active release before retrying.
 )
 pause
 exit /b %RC%
@@ -21,10 +21,10 @@ exit /b %RC%
 chcp 65001 >nul
 
 set "PY="
-python --version >nul 2>nul
+call python --version >nul 2>nul
 if not errorlevel 1 set "PY=python"
 if not defined PY (
-  py -3 --version >nul 2>nul
+  call py -3 --version >nul 2>nul
   if not errorlevel 1 set "PY=py -3"
 )
 if not defined PY (
@@ -36,6 +36,13 @@ if not defined PY (
 if not exist r2_config.json (
   echo [ERROR] Missing r2_config.json
   echo Copy r2_config.example.json to r2_config.json and fill in your R2 keys.
+  exit /b 1
+)
+
+echo == Checking deployed program compatibility before any upload ==
+call %PY% "tools\publish_data_r2.py" --check-program
+if errorlevel 1 (
+  echo [STOP] No images or data were uploaded. Follow the compatibility message above and rerun later.
   exit /b 1
 )
 
