@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 import subprocess
@@ -8,11 +7,17 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from tools.program_compatibility import (
-    BROWSER_CACHE_SECONDS, ProgramCompatibilityError, ensure_program_ready, required_program_files,
+    ProgramCompatibilityError, ensure_program_ready, required_program_files,
 )
 
 
 class ProgramCompatibilityTests(unittest.TestCase):
+    """闸门只回答一个问题：正式域上部署的程序，是不是本地这一份。
+
+    2026-09-01 起不再有等待窗口——形态升级时「先发程序、自己等 4 小时」是人的规程，
+    工具不替你计时（原因见 program_compatibility 模块文档）。
+    """
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -20,26 +25,18 @@ class ProgramCompatibilityTests(unittest.TestCase):
         self.site = self.root / "site"
         self.file = self.site / "assets" / "app" / "codex-ui.js"
         self.file.parent.mkdir(parents=True)
-        self.file.write_bytes(b"const compatible = true;\r\n")
+        self.file.write_bytes(b"const compatible = true;" + bytes([13, 10]))  # CRLF 本地
         self.files = ("assets/app/codex-ui.js",)
-        self.record = self.root / "observation.json"
-        self.start = 1800000000
-        self.fetch = Mock(return_value=(b"const compatible = true;\n", "max-age=14400"))
+        self.fetch = Mock(return_value=(b"const compatible = true;" + bytes([10]), "max-age=14400"))  # LF 线上
 
-    def check(self, now, **kwargs):
-        return ensure_program_ready(self.files, site_dir=self.site, observation_path=self.record,
-                                    fetch_file=self.fetch, now=now, **kwargs)
-
-    def begin_wait(self):
-        with self.assertRaisesRegex(ProgramCompatibilityError, "Existing browser caches"):
-            self.check(self.start)
+    def check(self, **kwargs):
+        return ensure_program_ready(self.files, site_dir=self.site, fetch_file=self.fetch, **kwargs)
 
     def test_legacy_data_needs_no_program_probe(self):
         self.assertEqual(required_program_files([{"id": "old", "type": "string"}]), ())
-        result = ensure_program_ready((), fetch_file=self.fetch, observation_path=self.record)
+        result = ensure_program_ready((), fetch_file=self.fetch)
         self.assertTrue(result["ready"])
         self.fetch.assert_not_called()
-        self.assertFalse(self.record.exists())
 
     def test_known_new_shapes_and_unknown_types_are_guarded(self):
         self.assertEqual(required_program_files([{"id": "new", "type": "composition"}]), self.files)
@@ -54,61 +51,25 @@ class ProgramCompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported codex types"):
             required_program_files([{"id": "unknown", "type": "typo"}])
 
-    def test_entire_existing_cache_window_must_pass(self):
-        self.begin_wait()
-        with self.assertRaises(ProgramCompatibilityError):
-            self.check(self.start + BROWSER_CACHE_SECONDS - 1)
-        self.assertTrue(self.check(self.start + BROWSER_CACHE_SECONDS)["ready"])
-        self.assertEqual(json.loads(self.record.read_text())["firstObservedAt"], self.start)
-        self.assertEqual(self.fetch.call_count, 3, "每次都重新核对生产，不能只信本地计时记录")
+    def test_deployed_program_matching_local_passes_immediately(self):
+        """字节一致就放行——CRLF 与 LF 视为同一程序，且不再有任何等待。"""
+        result = self.check()
+        self.assertEqual(result, {"requiredFiles": list(self.files), "ready": True})
 
-    def test_mismatch_or_unavailable_program_resets_wait(self):
-        for failure in (False, True):
-            with self.subTest(network_failure=failure):
-                self.fetch.side_effect = None
-                self.fetch.return_value = (b"const compatible = true;\n", "max-age=14400")
-                self.begin_wait()
-                if failure:
-                    self.fetch.side_effect = OSError("network down")
-                else:
-                    self.fetch.return_value = (b"const compatible = false;\n", "max-age=14400")
-                with self.assertRaisesRegex(ProgramCompatibilityError, "Deploy the compatible program first"):
-                    self.check(self.start + BROWSER_CACHE_SECONDS)
-                self.assertEqual(json.loads(self.record.read_text()), {})
-                self.fetch.side_effect = None
-                self.fetch.return_value = (b"const compatible = true;\n", "max-age=14400")
-                with self.assertRaises(ProgramCompatibilityError):
-                    self.check(self.start + BROWSER_CACHE_SECONDS + 1)
+    def test_deployed_bytes_differing_stops_the_release(self):
+        self.fetch.return_value = (b"const compatible = false;" + bytes([10]), "max-age=14400")
+        with self.assertRaisesRegex(ProgramCompatibilityError, "deployed bytes differ"):
+            self.check()
 
-    def test_new_program_bytes_or_origin_start_new_wait(self):
-        self.begin_wait()
-        self.file.write_bytes(b"const compatible = 'new';\n")
-        self.fetch.return_value = (self.file.read_bytes(), "no-cache")
-        with self.assertRaises(ProgramCompatibilityError):
-            self.check(self.start + BROWSER_CACHE_SECONDS)
-        self.assertEqual(json.loads(self.record.read_text())["firstObservedAt"], self.start + BROWSER_CACHE_SECONDS)
-        with self.assertRaises(ProgramCompatibilityError):
-            self.check(self.start + 2 * BROWSER_CACHE_SECONDS, site_origin="https://other.example")
+    def test_unreadable_program_file_stops_the_release(self):
+        self.fetch.side_effect = TimeoutError("boom")
+        with self.assertRaisesRegex(ProgramCompatibilityError, "unavailable"):
+            self.check()
 
-    def test_shorter_headers_do_not_expire_previously_stored_responses(self):
-        self.fetch.return_value = (self.file.read_bytes(), "public, max-age=28800")
-        self.begin_wait()
-        self.fetch.return_value = (self.file.read_bytes(), "no-cache")
-        with self.assertRaises(ProgramCompatibilityError):
-            self.check(self.start + BROWSER_CACHE_SECONDS)
-        self.assertTrue(self.check(self.start + 28800)["ready"])
-
-    def test_broken_record_and_clock_reversal_restart_wait(self):
-        self.record.write_text("{broken", encoding="utf-8")
-        self.begin_wait()
-        with self.assertRaises(ProgramCompatibilityError):
-            self.check(self.start - 1)
-        self.assertEqual(json.loads(self.record.read_text())["firstObservedAt"], self.start - 1)
-        record = json.loads(self.record.read_text())
-        record["firstObservedAt"] = True
-        self.record.write_text(json.dumps(record), encoding="utf-8")
-        with self.assertRaises(ProgramCompatibilityError):
-            self.check(self.start + BROWSER_CACHE_SECONDS)
+    def test_origin_must_be_a_bare_public_https_origin(self):
+        for bad in ("http://novelai.quicktagcloud.com", "https://site/path", "https://u:p@site"):
+            with self.subTest(origin=bad), self.assertRaisesRegex(ValueError, "site_origin"):
+                self.check(site_origin=bad)
 
 
 @unittest.skipUnless(os.name == "nt", "Windows maintenance batch files")

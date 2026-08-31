@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Block incompatible data activation until the deployed program's cache window passes.
+"""Refuse to activate data that the deployed program cannot render.
 
-No Cloudflare settings, credentials, browser caches or production data are changed.
-Only a local record of successfully observed program bytes is written under output/.
+只做一件事：把新数据依赖的那几个程序文件，拿本地字节和**正式域上真实部署的字节**比一遍，
+不一致或读不到就中止，不做任何 R2 写入。不改 Cloudflare 配置、不碰凭据、不动浏览器缓存。
+
+⚠ **这里曾经还有一道「浏览器缓存等待窗口」，2026-09-01 由维护者定案去掉**（保留核对、去掉计时）。
+原因：`required_program_files` 是从数据形态推导的，而并册后的数据**永远**满足条件，
+于是那 5 个受监控文件的哈希被永久绑进指纹——**以后随便改动其中一个前端文件，
+下一次发数据就要重新等满 4 小时**，哪怕数据改动只是修个错别字。这种形态升级并不常有，
+不值得让日常发布长期交这笔税。
+
+**代价是已知并被接受的**：线上 JS 是 `max-age=14400`，老访客最长 4 小时内仍持有旧程序。
+所以**新增法典类型、并册这类会改变数据形态的升级，必须由人按顺序来**：
+先发程序 → 确认 Pages 部署完成 → **自己等 ≥4 小时** → 再发数据。
+本工具只能告诉你「线上程序是不是你本地这份」，不再替你计时。规程见
+`docs/运维/R2数据发布与回滚.md`；不兼容窗口里会发生什么，见 `docs/decisions/法典重归类.md`。
 """
 
-import datetime as dt
 import hashlib
-import json
-import math
-import os
-import re
-import tempfile
-import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -20,9 +25,6 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SITE_ORIGIN = "https://novelai.quicktagcloud.com"
-# 已有访客可能仍持有该期限的旧响应；即使现在缩短响应头，也不能立刻消除它。
-BROWSER_CACHE_SECONDS = 4 * 60 * 60
-OBSERVATION_PATH = ROOT / "output" / "program-compatibility" / "observation.json"
 MERGED_PROGRAM_FILES = (
     "assets/app.js",
     "assets/app/codex-route-compat.js",
@@ -73,104 +75,42 @@ def fetch_program_file(url):
         return body, response.headers.get("Cache-Control", "")
 
 
-def _read_observation(path):
-    try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-        return record if isinstance(record, dict) else {}
-    except (OSError, ValueError):
-        return {}
+def ensure_program_ready(files, *, site_origin=DEFAULT_SITE_ORIGIN, site_dir=None, fetch_file=None):
+    """本地那几个程序文件必须与正式域上部署的完全一致，否则中止。
 
-
-def _write_observation(path, record):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix="observation-", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(record, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-
-
-def ensure_program_ready(files, *, site_origin=DEFAULT_SITE_ORIGIN, site_dir=None,
-                         observation_path=None, fetch_file=None, now=None):
-    """Verify exact compatible files, then require the existing browser TTL to elapse.
-
-    A failed/mismatched observation resets the local waiting record. Subsequent
-    calls recheck production; a local clock reversal also restarts the wait.
+    读不到、对不上一律算不通过（fail-closed）。通过只代表「程序已经部署」，
+    **不代表老访客的浏览器缓存已经换掉**——那段等待是人的责任，见模块文档。
     """
     files = tuple(sorted(set(files)))
     if not files:
         return {"requiredFiles": [], "ready": True}
     site_dir = Path(site_dir) if site_dir is not None else ROOT / "site"
-    observation_path = Path(observation_path) if observation_path is not None else OBSERVATION_PATH
     fetch_file = fetch_file or fetch_program_file
     site_origin = str(site_origin).rstrip("/")
     parsed = urlsplit(site_origin)
     if parsed.scheme != "https" or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username:
         raise ValueError("site_origin must be a public HTTPS origin without a path or credentials")
 
-    cache_seconds = BROWSER_CACHE_SECONDS
-    expected = {}
     problems = []
 
     def compare(relative):
         local = _program_hash((site_dir / relative).read_bytes())
-        body, cache_control = fetch_file(f"{site_origin}/{relative}")
-        match = re.search(r"(?:^|,)\s*max-age\s*=\s*\"?(\d+)", cache_control, re.I)
-        return relative, local, _program_hash(body), int(match.group(1)) if match else 0
+        body, _ = fetch_file(f"{site_origin}/{relative}")
+        return relative, local, _program_hash(body)
 
     with ThreadPoolExecutor(max_workers=min(6, len(files))) as pool:
         pending = {relative: pool.submit(compare, relative) for relative in files}
         for relative, future in pending.items():
             try:
-                relative, local, remote, ttl = future.result()
-                expected[relative] = local
-                cache_seconds = max(cache_seconds, ttl)
+                relative, local, remote = future.result()
                 if local != remote:
                     problems.append(relative + " (deployed bytes differ)")
             except Exception as ex:
                 problems.append(relative + " (unavailable: " + type(ex).__name__ + ")")
 
     if problems:
-        if observation_path.exists():
-            _write_observation(observation_path, {})
         raise ProgramCompatibilityError(
             "Deploy the compatible program first, then rerun the data publish/check. "
             "No data release was activated. Files: " + "; ".join(problems)
         )
-
-    fingerprint = hashlib.sha256(json.dumps({
-        "origin": site_origin, "files": expected,
-    }, sort_keys=True).encode("utf-8")).hexdigest()
-    # 以全部探测完成时开始计时，不能把网络请求耗时算进安全窗口。
-    now = time.time() if now is None else now
-    previous = _read_observation(observation_path)
-    first_seen = previous.get("firstObservedAt")
-    last_seen = previous.get("lastCheckedAt")
-    valid_times = all(type(value) in (int, float) and math.isfinite(value) for value in (first_seen, last_seen))
-    if (previous.get("schemaVersion") != 1 or previous.get("fingerprint") != fingerprint
-            or not valid_times or not 0 < first_seen <= last_seen <= now):
-        first_seen = now
-    else:
-        # 若曾观察到更长的 max-age，不能靠后一次短响应头缩短旧缓存窗口。
-        previous_ttl = previous.get("cacheSeconds")
-        if type(previous_ttl) in (int, float) and math.isfinite(previous_ttl):
-            cache_seconds = max(cache_seconds, previous_ttl)
-    record = {
-        "schemaVersion": 1, "origin": site_origin, "fingerprint": fingerprint,
-        "files": expected, "firstObservedAt": first_seen, "lastCheckedAt": now,
-        "cacheSeconds": cache_seconds,
-    }
-    _write_observation(observation_path, record)
-    ready_at = first_seen + cache_seconds
-    if now < ready_at:
-        local_time = dt.datetime.fromtimestamp(ready_at, dt.timezone.utc).astimezone().isoformat(timespec="seconds")
-        raise ProgramCompatibilityError(
-            f"Compatible program verified. Existing browser caches may still be old; "
-            f"rerun data publish at or after {local_time} ({math.ceil(ready_at - now)} seconds remaining). "
-            "No data release was activated. Keep the compatible program deployed during this window."
-        )
-    return {"requiredFiles": list(files), "ready": True, "readyAt": ready_at}
+    return {"requiredFiles": list(files), "ready": True}

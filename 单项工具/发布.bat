@@ -12,7 +12,7 @@ echo.
 if "%RC%"=="0" (
   echo Done. Program pushed; Cloudflare Pages will deploy it automatically.
   echo Data was NOT changed. After deployment, use menu 4 to check and publish data.
-  echo For incompatible data, the first successful check starts the existing browser-cache waiting window.
+  echo For data that needs this new program, wait 4 hours after deployment before publishing data.
 ) else (
   echo Publish failed. Please check the message above.
 )

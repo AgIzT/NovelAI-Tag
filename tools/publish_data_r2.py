@@ -326,7 +326,7 @@ def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=
     program_check = program_check or ensure_program_ready
     program_files = plan_program_files(plan)
     if program_files:
-        program_check(program_files)  # 在任何 R2 上传之前拦住旧程序/等待窗口。
+        program_check(program_files)  # 在任何 R2 上传之前拦住未部署/对不上的旧程序。
     data_prefix = normalize_prefix(data_prefix)
     release_prefix = f"{data_prefix}/releases/{plan.release}"
     uploaded = 0
@@ -424,7 +424,7 @@ def main(argv=None):
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--publish", action="store_true", help="Upload and activate the local JSON release.")
     actions.add_argument("--check-current", action="store_true", help="Verify the active remote release.")
-    actions.add_argument("--check-program", action="store_true", help="Check deployed compatibility and record the browser-cache waiting window; no R2 writes.")
+    actions.add_argument("--check-program", action="store_true", help="Check that production runs this exact program; no R2 writes. The browser-cache wait is manual.")
     actions.add_argument("--activate-release", metavar="RELEASE", help="Activate an existing release after validation.")
     actions.add_argument("--rollback", action="store_true", help="Activate current.json previousRelease.")
     parser.add_argument("--skip-public-check", action="store_true", help="Skip public custom-domain CORS verification.")
@@ -446,7 +446,7 @@ def main(argv=None):
         print(f"bytes: {total_size}")
         program_files = plan_program_files(plan)
         if program_files:
-            print(f"program compatibility guard: {len(program_files)} files; --check-program starts/checks the existing cache window")
+            print(f"program compatibility guard: {len(program_files)} files must already be deployed; the 4h browser-cache wait is manual (see docs/运维/R2数据发布与回滚.md)")
     if not any((args.publish, args.check_current, args.activate_release, args.rollback)):
         print("plan only; pass --publish to upload and activate")
         return 0
