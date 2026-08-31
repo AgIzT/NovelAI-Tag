@@ -18,8 +18,11 @@ DATA_DIR = ROOT / "site" / "data"
 THUMB_ROOT = ROOT / "site" / "images"
 ORIG_ROOT = ROOT / "originals"
 CODEX_ID = "mengshen_pack"
-MOVED_TARGET_ID = "artist_nai45_strings"
+# 画风章节 2026-07 迁去画师串词典，那本又于 2026-08-31 并进 artist_nai45_personal，
+# 路径也随之降了一层；图包本身同日并进 nai45_community_pack。见 docs/decisions/法典重归类.md。
+MOVED_TARGET_ID = "artist_nai45_personal"
 MOVED_CHAPTER = "梦神NAI4.5F画风合集"
+MERGED_PACK_ID = "nai45_community_pack"
 MAXDIM = 1100
 
 TOP_ORDER = [
@@ -421,11 +424,18 @@ def main():
     source = args.source
     if not source.is_dir():
         raise SystemExit(f"Source folder not found: {source}")
+    # 图包已并册：这个脚本会重建一本已经不存在的书，直接拦死。
+    if args.apply and (DATA_DIR / f"{MERGED_PACK_ID}.json").is_file():
+        raise SystemExit(
+            f"{CODEX_ID} has been merged into {MERGED_PACK_ID}; "
+            "this legacy importer would recreate a book that no longer exists "
+            "(see docs/decisions/法典重归类.md)"
+        )
     moved_target_path = DATA_DIR / f"{MOVED_TARGET_ID}.json"
     if args.apply and moved_target_path.is_file():
         moved_target = json.loads(moved_target_path.read_text(encoding="utf-8"))
         if any(
-            entry.get("path") and entry["path"][0] == MOVED_CHAPTER
+            MOVED_CHAPTER in (entry.get("path") or ())
             for entry in moved_target.get("entries", [])
         ):
             raise SystemExit(

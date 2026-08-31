@@ -16,11 +16,14 @@
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
 | `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走总控台菜单 4 | 默认上传；`--dry-run`/`--check-only` 只检查 |
 | `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
-| `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据/发布程序两条链已自动跑） | 会改 share 索引 |
+| `program_compatibility.py` | 数据发布保护：识别新类型/并册前提，逐文件核对生产程序并覆盖现有浏览器缓存窗口；由 `publish_data_r2.py --check-program` / 发布 / 激活调用 | 只读线上程序；仅写 `output/program-compatibility/` 本地等待记录，不改缓存设置 |
+| `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据） | 会改 share 索引 |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
 | `preview_server.py` | 本地预览 site/（:8766，带 no-store + /originals/ 映射） | 只读 |
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`） | 只读，写测试输出 |
 | `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率（详见下文）；**图片参数解析的唯一公共入口** | 只读；审计写 CSV |
+| `merge_nai45_artist_books.py` | **🔒 已用完**（2026-08-31 跑过一次）：把 `artist_nai45_strings` 并进 `artist_nai45_personal`，两本原顶层目录各降一层，W.O.F 补 `assetCodexId`，画师串那行从索引删除。**重跑会报「已经合并过」并退出**，别指望它能再合第二次；决策见 `docs/decisions/法典重归类.md` | 默认预演；`--apply` 才写（先备份） |
+| `merge_nai45_community_packs.py` | **🔒 已用完**（2026-08-31 跑过一次）：把 `mengshen_pack` 与 `community_ai_misc` 并成 `nai45_community_pack`，两片各降一层到 `梦神 · 社区图包` / `社区 · AI杂图`，全部词条补 `assetCodexId`，两行旧索引删除。**重跑会报「已经合并过」并退出**；收藏兼容靠 `ATLAS_FAVORITE_OWNER_MIGRATIONS` 的两条新规则，不是 aliases | 默认预演；`--apply` 才写（先备份） |
 | `cleanup_output.py` | 按保留策略清理 `output/`（详见文件头；`单项工具/清理输出.bat` 的内核） | 默认 dry-run；`--apply` 才删 |
 
 ## 现役 · 辅助
@@ -33,7 +36,8 @@
 | `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
 | `build_local_edition.py` | `单项工具/打包本地版.bat` / 总控台菜单 7 的内核：按白名单生成独立本地发行包 + zip（见 docs/decisions/独立本地发行版.md） | 不改仓库数据；默认写 `output/local-edition/` |
 | `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 仓库内不单独运行 |
-| `backfill_pack_character_prompts.py` | 从原图幂等回填两本图包的 NAI V4 角色提示词 | 默认预演；`--apply` 才写 |
+| `backfill_pack_character_prompts.py` | 从原图幂等回填图包的 NAI V4 角色提示词（2026-08-31 两本并册后默认只跑合并册；逐条取原图本来就走 `assetCodexId`） | 默认预演；`--apply` 才写 |
+| `lint_docs.py` | **文档体检**：索引完整性 / 死链 / 脚本与模块引用 / 写死的数字与端口 / 字节预算 / 孤儿文档。报告写 `output/docs-lint-report.txt`（UTF-8，避开控制台 GBK）。定期规整流程见 `docs/经验/文档规整.md` | 只读 |
 | `migrate_suozhang_char_prompts.py` | 把所长两本 `tags` 里内联的 `char1：xxx` 拆进 `characterPrompts`。**幂等，是所长法典更新链路的固定收尾**——每次 `convert.py` / `suozhang_r18_merge_match.py --apply` 之后都要再跑一次，否则角色词回到正面串（详见 `docs/经验/Word法典增量更新.md`） | 默认预演；`--apply` 才写（先自动备份） |
 
 > 本地写工具使用 `18767–18769`，刻意避开曾被 Windows HNS/WSL 动态保留的 `8767–8866`。若启动时报 `WinError 10013`，先用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查系统排除范围；不要把 PNG 解析代码里的 EXIF 标准字段 `0x8769` 当成端口修改。
@@ -57,10 +61,11 @@
 
 | 文件 | 状态说明 |
 | --- | --- |
-| `import_mengshen_pack.py` | 梦神图包历史来源适配器。**画风章节已迁出，重放 `--apply` 会被工具主动中止**——别绕过它 |
-| `import_community_ai_misc.py` | 社区AI杂图。`--apply` 仅限首次导入；现役安全模式只有 `--validate`（验证现状）和 `--sync-manual-classification-overrides`（幂等同步具名人工分级纠正） |
+| `import_mengshen_pack.py` | 梦神图包历史来源适配器。**画风章节已迁出、整片又于 2026-08-31 并进 `nai45_community_pack`；`--apply` 有两道主动中止**（合并册存在 / 画风章节仍在画师词典）——别绕过它 |
+| `import_community_ai_misc.py` | 社区AI杂图（现为合并册 `nai45_community_pack` 里 id 前缀 `community_ai_misc-` 的那一片）。`--apply` 仅限首次导入；现役安全模式只有 `--validate`（验证现状）和 `--sync-manual-classification-overrides`（幂等同步具名人工分级纠正）。⚠ 两个模式都只操作自己那一片，`BOOK_ID`（数据落点）与 `CODEX_ID`（系列身份）别混用 |
 | `import_nai5_artist_dictionary.py` | N5 四份来源 → `artist_nai5_personal`。默认只审计；`--apply` 仅限首次导入且现状已存在会拒绝覆盖，日常跑 `--validate`。具名 PDF 标签纠错用 `--correct-existing` 预演、再加 `--apply` 幂等落地，只改登记 ID 的 `title/tags`；见 `docs/decisions/NovelAI5画师词典.md` |
-| `import_nai5_community_pack.py` | 梦神 / 所长 N5 图包 → `nai5_community_pack`。默认只审计；`--apply` 仅限首次导入且拒绝覆盖，日常跑 `--validate`。所长直接子文件夹按套图保组；见 `docs/decisions/NovelAI5社区精选图包.md` |
+| `import_nai5_community_pack.py` | 梦神 / 所长 N5 图包 → `nai5_community_pack`。默认与 `--apply` 仍只用于历史首次导入且拒绝覆盖；编号所长包用 `--batch-plan` 预演、`--batch-apply` 增量落盘、`--batch-validate`/`--validate` 逐图复验。更新模式按哈希保留既有资产、同文件夹保成一条套图，并从 `新数据/N5新图包` 自动识别连续的“筛选整理1…N”；见 `docs/decisions/NovelAI5社区精选图包.md` |
+| `import_wof_artist_strings.py` | W.O.F PNG 元数据 → 合并册 `artist_nai45_personal`（`--book-id`）里 `["画师串词典","W.O.F_画风"]` 那一枝；词条 id 前缀 / 图片目录 / `assetCodexId` 仍走系列身份 `artist_nai45_strings`（`--codex-id`），⚠ 两个身份别混用。默认只扫描；全量更新先加 `--update-existing` 预演，再加 `--apply` 落盘。按提示词 / 文件哈希 / PNG 视觉哈希保稳定 ID，只替换 W.O.F 分区，梦神分区与作者信息原样保留；源包漏掉的旧串或旧例图默认保留并进审计报告，写前自动备份。`--validate` 复验资源、prompt、assetRev、目录计数与索引一致性 |
 
 ## 🔒 已用完 · 一次性历史导入（禁止直接重跑）
 
@@ -70,13 +75,14 @@
 | --- | --- | --- |
 | `import_artist_excel_strings.py` | 多卷画师 Excel → 旧「Nai4.5Full个人单画师收藏」 | 三册已合并为 `artist_nai45_personal`（见 decisions/合并NovelAI4.5单画师词典.md），重跑会加回独立旧册 |
 | `import_wps_artist_excel_strings.py` | WPS DISPIMG 画师工作簿 → 旧「4.5画师收录」 | 同上 |
-| `import_wof_artist_strings.py` | W.O.F PNG 元数据 → `artist_nai45_strings` | 该书后来并入了梦神画风合集 258 条，重跑会覆盖合并结果 |
 | `import_composition_style_excel.py` | 构图风格工作簿 → `composition_style` | 一次性导入已完成，现状手工维护 |
 | `attic/migrate_asset_prefix.py` | suozhang_r18 图片前缀统一迁移 | 已用完（见 decisions/合并版与图片前缀.md），仅留档 |
 
 ## 🧪 测试
 
-`test_import_docx_codex.py` · `test_import_nai5_artist_dictionary.py` · `test_import_nai5_community_pack.py` · `test_pack_import_core.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_suozhang_char_prompts.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py` · `test_python_tool_safety.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_backend_low_risk.mjs` · `test_community_frontend.mjs` · `test_community_frontend_low_risk.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_history_storage.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_r2_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_search_data.mjs` · `test_render_ui.mjs` · `test_copy.mjs` · `test_favorites_backup.mjs` · `test_favorites_runtime.mjs` · `test_favorites_origin_migration.mjs` · `test_beta_banner.mjs` · `test_community_router_url.mjs` · `test_favorites_transfer.mjs` · `test_home_shortcut.mjs` · `test_local_ownership.mjs` · `test_resume_prompt.mjs` · `test_tag_relay_access.mjs` · `test_tag_relay_core.mjs` · `test_tag_relay_store.mjs` · `test_404_page.mjs`（Node）。
+`test_import_docx_codex.py` · `test_import_nai5_artist_dictionary.py` · `test_import_nai5_community_pack.py` · `test_import_wof_artist_strings.py` · `test_merge_nai45_artist_books.py` · `test_merge_nai45_community_packs.py` · `test_pack_import_core.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_suozhang_char_prompts.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py` · `test_python_tool_safety.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_backend_low_risk.mjs` · `test_community_frontend.mjs` · `test_community_frontend_low_risk.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_history_storage.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_r2_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_search_data.mjs` · `test_render_ui.mjs` · `test_copy.mjs` · `test_favorites_backup.mjs` · `test_favorites_runtime.mjs` · `test_favorites_origin_migration.mjs` · `test_beta_banner.mjs` · `test_community_router_url.mjs` · `test_favorites_transfer.mjs` · `test_home_shortcut.mjs` · `test_local_ownership.mjs` · `test_resume_prompt.mjs` · `test_tag_relay_access.mjs` · `test_tag_relay_core.mjs` · `test_tag_relay_store.mjs` · `test_masonry_viewport.mjs` · `test_skeleton_transition.mjs` · `test_404_page.mjs`（Node）。
+
+兼容升级专项：`test_program_compatibility.py`（Python，含真实 bat + 假命令的发布顺序验证）、`test_codex_route_compat.mjs`（Node，旧目录路径与现行真实数据审计）。
 
 `__pycache__/` 是 Python 缓存，忽略。
 

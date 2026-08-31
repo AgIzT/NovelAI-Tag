@@ -42,6 +42,7 @@ MAXDIM = 1100
 ENTRY_MAX_BYTES = 512 * 1024
 IMAGE_MAX_BYTES = 64 * 1024 * 1024
 RATINGS = {"safe", "nsfw", "r18", "r18g", "restricted"}
+CODEX_TYPES = ("codex", "string", "composition", "pack")
 IMAGE_FIELD_KEYS = ("image", "original", "assetRev", "imageWidth", "imageHeight", "assetCodexId")
 IMAGE_FORMAT_EXTENSIONS = {
     "JPEG": "jpg",
@@ -973,8 +974,8 @@ class EditStore:
         if "nsfw" in payload and not isinstance(payload["nsfw"], bool):
             raise EditError(400, "bad-request", "nsfw 必须是布尔值")
         ctype = payload.get("type") or "codex"
-        if ctype not in ("codex", "string", "pack"):
-            raise EditError(400, "bad-request", "type 只能是 codex / string / pack")
+        if ctype not in CODEX_TYPES:
+            raise EditError(400, "bad-request", "type 只能是 " + " / ".join(CODEX_TYPES))
         with self.lock:
             index = self.read_index()
             reserved_ids = set()
@@ -1044,8 +1045,8 @@ class EditStore:
             raise EditError(400, "bad-request", f"不可编辑的字段：{','.join(sorted(unknown))}")
         if "title" in fields and (not isinstance(fields["title"], str) or not fields["title"].strip()):
             raise EditError(400, "bad-request", "书名不能为空")
-        if "type" in fields and fields["type"] not in ("codex", "string", "pack"):
-            raise EditError(400, "bad-request", "type 只能是 codex / string / pack")
+        if "type" in fields and fields["type"] not in CODEX_TYPES:
+            raise EditError(400, "bad-request", "type 只能是 " + " / ".join(CODEX_TYPES))
         if "nsfw" in fields and not isinstance(fields["nsfw"], bool):
             raise EditError(400, "bad-request", "nsfw 必须是布尔值")
         for key in ("title", "version", "author", "selectorTitle"):

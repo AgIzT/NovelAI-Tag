@@ -46,7 +46,7 @@ ORIGINAL_ROOT = ROOT / "originals"
 OUTPUT_DIR = ROOT / "output" / "nai5_artist_dictionary_import"
 
 CODEX_ID = "artist_nai5_personal"
-TITLE = "NovelAI5画师词典"
+TITLE = "NovelAI v5画师词典"
 VERSION = "2026.8.25"
 CHENGCHUANJI = "成川姬"
 LEGACY_SUOZHANG_SOURCE_MARKER = "所长"

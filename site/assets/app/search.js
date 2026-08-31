@@ -189,7 +189,9 @@ export function entryTypeText(e) {
   const type = e._srcType || state.codex?.type || '';
   const labels = {
     codex: 'codex 法典',
-    string: 'string 画风串',
+    // 旧类型名（画风串 / 精选图包）保留为搜索别名：2026-08-31 类型名收成两字，老习惯还得搜得到
+    string: 'string 画风 画风串',
+    composition: 'composition 构图 服装 场景',
     pack: 'pack 图包 精选图包',
   };
   return [type, labels[type] || ''].join('\n').toLowerCase();

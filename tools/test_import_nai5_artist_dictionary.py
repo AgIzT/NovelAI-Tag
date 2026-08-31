@@ -22,7 +22,7 @@ from import_nai5_artist_dictionary import (
 
 class Nai5ArtistDictionaryTests(unittest.TestCase):
     def test_current_book_and_jiuqi_directory_names(self) -> None:
-        self.assertEqual(TITLE, "NovelAI5画师词典")
+        self.assertEqual(TITLE, "NovelAI v5画师词典")
         self.assertEqual(SECTION_CONFIG["九七"]["path"][1], "九七(无原图)")
 
     def test_partial_nsfw_uses_entry_ratings_without_root_lock(self) -> None:

@@ -186,7 +186,7 @@ body.dark .n5-launch-panel,body.dark .n5-launch-notice{
 .n5b-n i{margin-left:3px;font-size:11px;font-weight:400;font-style:normal;color:var(--n5-dim)}
 .n5-stamp-foot{display:none}
 /* 上线窗口内的列表限高。361 ＝ 顶栏落点 65 + 版面与内外边距 284 + 12px 余量，全是实测值；
-   512 的上限 ＝ 最长一类（画风串 5 本）需要的 511px，所以高屏上三类都不出滚动条。
+   512 的上限 ＝ 当年最长一类（画风串 5 本）需要的 511px；2026-08-31 拆出「构图」后最长一类降到 4 本，余量更大。
    ⚠ 别改回纯 vh 比例：比例挡不住 700px 高的笔记本，也白白浪费高屏的空间。
    常见的 766px 视口下这里算出 420px，正好让 4 本一类（408px）站满不滚动——
    之前是死值 360，两类书只超出 48px 却要常驻一根滚动条。 */
@@ -327,7 +327,7 @@ body.dark .codex-rail{border-color:rgba(255,255,255,.08)}
      把书卡挤窄一截，还特别显眼。 */
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
-/* ── 占位类型（画风串 / 精选图包）── */
+/* ── 占位类型（画风 / 构图 / 图包）── */
 .codex-soon-tag{flex:none;font-size:9px;font-weight:900;letter-spacing:.04em;color:#b0823a;background:rgba(202,154,62,.16);border-radius:999px;padding:1px 6px}
 body.dark .codex-soon-tag{color:#e3b463}
 .codex-item.soon .ci-sub{opacity:.72}

@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "site" / "data"
 ORIGINAL_ROOT = ROOT / "originals"
 OUTPUT_DIR = ROOT / "output" / "pack_character_prompts"
-DEFAULT_CODEX_IDS = ("mengshen_pack", "community_ai_misc")
+# 2026-08-31 两本图包并成一册；逐条取原图本来就走 assetCodexId，所以只要换成合并册即可。
+DEFAULT_CODEX_IDS = ("nai45_community_pack",)
 
 
 def clean_text(value: Any) -> str:

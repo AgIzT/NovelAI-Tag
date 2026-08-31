@@ -24,6 +24,11 @@ ORIGINAL_ROOT = ROOT / "originals"
 OUTPUT_DIR = ROOT / "output" / "community_ai_misc_import"
 DEFAULT_SOURCE = ROOT.parent / "新数据" / "AI杂图（带元数据）-N4.5最终版" / "人工分类"
 CODEX_ID = "community_ai_misc"
+# 2026-08-31 两本社区图包并成 nai45_community_pack（docs/decisions/法典重归类.md）：
+#   BOOK_ID  ＝ 数据落点（合并册）；CODEX_ID ＝ 本片的系列身份：词条 id 前缀与图片目录，没变。
+#   合并后本片的路径前面多了一层 TOP_NAME，现役的 --validate / --sync-... 都只认自己这一片。
+BOOK_ID = "nai45_community_pack"
+TOP_NAME = "社区 · AI杂图"
 TITLE = "社区AI杂图"
 AUTHOR = "社区贡献者"
 VERSION = "2026.7.20"
@@ -516,10 +521,47 @@ def build_tree(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return serialize(root)
 
 
+def load_merged_book() -> tuple[Path, dict[str, Any]]:
+    path = DATA_DIR / f"{BOOK_ID}.json"
+    if not path.is_file():
+        raise RuntimeError(f"合并册不在：{path}（见 docs/decisions/法典重归类.md）")
+    return path, json.loads(path.read_text(encoding="utf-8"))
+
+
+def own_positions(entries: list[dict[str, Any]]) -> list[int]:
+    """合并册里属于本片的下标；梦神那片一律不碰。"""
+    prefix = f"{CODEX_ID}-"
+    return [i for i, e in enumerate(entries) if str(e.get("id") or "").startswith(prefix)]
+
+
+def local_path(entry: dict[str, Any]) -> tuple:
+    """去掉合并册加的那一层顶层目录，换回本片自己的历史路径。"""
+    path = list(entry.get("path") or ())
+    return tuple(path[1:]) if path[:1] == [TOP_NAME] else tuple(path)
+
+
+def merged_path(path) -> list:
+    return [TOP_NAME, *path]
+
+
+def rebuilt_tree(tree: list[dict[str, Any]], own: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """只重建「社区 · AI杂图」那一枝，梦神那枝原样保留。"""
+    children = build_tree([{**entry, "path": list(local_path(entry))} for entry in own])
+    out = []
+    for raw in tree:
+        node = dict(raw)
+        if node.get("name") == TOP_NAME:
+            node["children"] = children
+            node["count"] = len(own)
+        out.append(node)
+    return out
+
+
 def sync_manual_classification_overrides() -> dict[str, Any]:
-    data_path = DATA_DIR / f"{CODEX_ID}.json"
-    codex = json.loads(data_path.read_text(encoding="utf-8"))
-    entries = codex.get("entries") or []
+    data_path, codex = load_merged_book()
+    all_entries = codex.get("entries") or []
+    positions = own_positions(all_entries)
+    entries = [all_entries[i] for i in positions]
     by_id = {entry.get("id"): entry for entry in entries}
     original_positions = {
         entry.get("id"): position
@@ -538,7 +580,7 @@ def sync_manual_classification_overrides() -> dict[str, Any]:
             "title": entry.get("title"),
         }
         after = {
-            "path": list(override["path"]),
+            "path": merged_path(override["path"]),
             "rating": override["rating"],
             "title": override["title"],
         }
@@ -553,15 +595,18 @@ def sync_manual_classification_overrides() -> dict[str, Any]:
 
     try:
         entries.sort(key=lambda entry: (
-            CATEGORY_ORDER[tuple(entry.get("path") or ())],
+            CATEGORY_ORDER[local_path(entry)],
             entry.get("id") in MANUAL_CLASSIFICATION_OVERRIDES,
             original_positions[entry.get("id")],
         ))
     except KeyError as exc:
         raise RuntimeError(f"unknown category path while sorting: {exc.args[0]}") from exc
 
+    # 排完序放回合并册里本片原来占的那些下标，别动整本的布局
+    for position, entry in zip(positions, entries):
+        all_entries[position] = entry
     old_tree = codex.get("tree")
-    codex["tree"] = build_tree(entries)
+    codex["tree"] = rebuilt_tree(codex.get("tree") or [], entries)
     order_changed = original_order != [entry.get("id") for entry in entries]
     tree_changed = old_tree != codex["tree"]
     if changes or order_changed or tree_changed:
@@ -574,6 +619,7 @@ def sync_manual_classification_overrides() -> dict[str, Any]:
 
     return {
         "codexId": CODEX_ID,
+        "bookId": BOOK_ID,
         "changedEntries": changes,
         "orderChanged": order_changed,
         "treeChanged": tree_changed,
@@ -695,17 +741,20 @@ def apply_import(results: list[dict[str, Any]], workers: int) -> dict[str, Any]:
 
 
 def validate_import(workers: int) -> dict[str, Any]:
-    data_path = DATA_DIR / f"{CODEX_ID}.json"
-    codex = json.loads(data_path.read_text(encoding="utf-8"))
-    entries = codex.get("entries") or []
+    data_path, codex = load_merged_book()
+    all_entries = codex.get("entries") or []
+    entries = [all_entries[i] for i in own_positions(all_entries)]
     issues: list[str] = []
     ids = [entry.get("id") for entry in entries]
     if len(ids) != len(set(ids)):
         issues.append("duplicate_ids")
-    if codex.get("entryCount") != len(entries) or codex.get("imagedCount") != len(entries):
+    # 合并册的 entryCount/imagedCount 是整本的，本片只能校验整本自洽
+    if codex.get("entryCount") != len(all_entries) or codex.get("imagedCount") != len(all_entries):
         issues.append("metadata_counts")
+    if not entries:
+        issues.append("own_slice_missing")
     expected = {
-        tuple(category.path): category.rating
+        tuple(merged_path(category.path)): category.rating
         for category in CATEGORIES
     }
     for entry in entries:
@@ -722,7 +771,7 @@ def validate_import(workers: int) -> dict[str, Any]:
         if not entry:
             issues.append(f"missing_manual_override:{entry_id}")
             continue
-        if tuple(entry.get("path") or ()) != tuple(override["path"]):
+        if tuple(entry.get("path") or ()) != tuple(merged_path(override["path"])):
             issues.append(f"bad_manual_override_path:{entry_id}")
         if entry.get("rating") != override["rating"]:
             issues.append(f"bad_manual_override_rating:{entry_id}")
@@ -744,6 +793,8 @@ def validate_import(workers: int) -> dict[str, Any]:
         raise RuntimeError("\n".join(issues[:100]))
     return {
         "codexId": CODEX_ID,
+        "bookId": BOOK_ID,
+        "bookEntries": len(all_entries),
         "entries": len(entries),
         "uniqueIds": len(set(ids)),
         "promptMismatches": 0,

@@ -794,6 +794,21 @@ class CodexOpsTest(unittest.TestCase):
         self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "x", "selectorTitle": 3})
         self.assert_edit_error(400, "bad-request", cc, {"id": "ok_id", "title": "x", "nsfw": "yes"})
 
+    def test_composition_codex_create_and_edit_keep_index_in_sync(self):
+        self.store.create_codex({"id": "composition_book", "title": "构图", "type": "composition"})
+        self.store.create_category("composition_book", [], "镜头")
+        self.store.create_entry("composition_book", {"title": "远景", "tags": "wide shot", "path": ["镜头"]})
+        self.store.update_codex_meta("composition_book", {"title": "构图改名"})
+        self.store.update_codex_meta("testbook", {"type": "composition"})
+        for cid, count in (("composition_book", 1), ("testbook", 3)):
+            with self.subTest(cid=cid):
+                book = json.loads(_read(os.path.join(self.data, cid + ".json")))
+                meta = next(item for item in self.index() if item["id"] == cid)
+                self.assertEqual(book["type"], "composition")
+                self.assertEqual(meta["type"], "composition")
+                self.assertEqual(meta["entryCount"], count)
+        self.assertEqual(book["entries"][0]["id"], "testbook-0001")
+
     def test_create_codex_rejects_existing_alias(self):
         index_path = os.path.join(self.data, "codexes.json")
         index = self.index()
@@ -855,6 +870,7 @@ class CodexOpsTest(unittest.TestCase):
         self.assert_edit_error(400, "bad-request", um, "testbook", {"title": " "})
         self.assert_edit_error(400, "bad-request", um, "testbook", {"entryCount": 999})
         self.assert_edit_error(400, "bad-request", um, "testbook", {"selectorTitle": 3})
+        self.assert_edit_error(400, "bad-request", um, "testbook", {"type": "unknown"})
         self.assert_edit_error(403, "codex-locked", um, "lockbook", {"title": "x"})
 
     def test_update_codex_meta_rolls_back_book_when_index_write_fails(self):

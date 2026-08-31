@@ -12,9 +12,12 @@ from import_nai5_community_pack import (  # noqa: E402
     DREAM_SAFE_PATH,
     SUOZHANG_PATH,
     codex_payload,
+    batch_number_from_name,
     dream_entry_title,
     finalize_groups,
+    mark_batch_duplicates,
     model_family,
+    suozhang_batch_path,
 )
 
 
@@ -74,6 +77,56 @@ class Nai5CommunityPackTests(unittest.TestCase):
         self.assertEqual(DREAM_SAFE_PATH, ("梦神 · N5精选图包", "常规"))
         self.assertEqual(DREAM_NSFW_PATH, ("梦神 · N5精选图包", "NSFW"))
         self.assertEqual(SUOZHANG_PATH, ("所长 · N5韩网精选", "NSFW"))
+
+    def test_numbered_batch_paths_use_the_requested_directory_names(self) -> None:
+        self.assertEqual(suozhang_batch_path(1), ("所长 · N5韩网精选", "筛选整理1"))
+        self.assertEqual(suozhang_batch_path(4), ("所长 · N5韩网精选", "筛选整理4"))
+        self.assertEqual(batch_number_from_name("（1984）韩网N5作品筛选整理"), 1)
+        self.assertEqual(batch_number_from_name("（1984）韩网N5作品筛选整理4"), 4)
+        self.assertIsNone(batch_number_from_name("unrelated"))
+
+    def test_same_batch_duplicate_prefers_the_set_folder_copy(self) -> None:
+        loose = {
+            "accepted": True,
+            "sha256": "same",
+            "batch": 1,
+            "kind": "single",
+            "sourceIndex": 1,
+            "relativePath": "筛选整理1/loose.png",
+        }
+        set_member = {
+            "accepted": True,
+            "sha256": "same",
+            "batch": 1,
+            "kind": "set",
+            "sourceIndex": 2,
+            "relativePath": "筛选整理1/set/001.png",
+        }
+        mark_batch_duplicates([loose, set_member])
+        self.assertFalse(loose["accepted"])
+        self.assertEqual(loose["reason"], "exact_duplicate")
+        self.assertTrue(set_member["accepted"])
+
+    def test_earlier_batch_wins_before_folder_preference(self) -> None:
+        first = {
+            "accepted": True,
+            "sha256": "same",
+            "batch": 1,
+            "kind": "single",
+            "sourceIndex": 1,
+            "relativePath": "筛选整理1/loose.png",
+        }
+        later_set = {
+            "accepted": True,
+            "sha256": "same",
+            "batch": 2,
+            "kind": "set",
+            "sourceIndex": 2,
+            "relativePath": "筛选整理2/set/001.png",
+        }
+        mark_batch_duplicates([first, later_set])
+        self.assertTrue(first["accepted"])
+        self.assertFalse(later_set["accepted"])
 
     def test_model_gate_recognizes_nai5_and_rejects_nai45(self) -> None:
         self.assertEqual(model_family("NovelAI Diffusion V5 0ADF9AB7"), "nai5")

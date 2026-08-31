@@ -17,6 +17,8 @@ const TYPE_ICONS = {
   book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H18a1 1 0 0 1 1 1v15H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M8 4v16"/></svg>',
   palette: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.4 0 1.9-1 1.9-1.9 0-.5-.3-.9-.3-1.6 0-.7.6-1.2 1.4-1.2H17a3.5 3.5 0 0 0 3.5-3.5C20.5 6.9 16.7 3.5 12 3.5Z"/><circle cx="8" cy="10.5" r="1"/><circle cx="12" cy="8" r="1"/><circle cx="16" cy="10.5" r="1"/></svg>',
   image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="10" r="1.6"/><path d="m4.5 17 4.8-4.8a1.5 1.5 0 0 1 2.1 0L16.2 17"/><path d="m13.8 14.6 1.4-1.4a1.5 1.5 0 0 1 2.1 0L20 16"/></svg>',
+  /* 构图＝取景框 + 三分线；内线单独收细，17px 下五条线不糊成一块 */
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.2 4.5v15M14.8 4.5v15M3.5 9.5h17M3.5 14.5h17" stroke-width="1.4"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>',
 };
 
@@ -27,13 +29,16 @@ const LOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const DOOR_PLUS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 const DOOR_OUT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4.5"/></svg>';
 
-/* 选择器类型分类法。法典 / 画风串 / 精选图包均可由 codexes.json 按 type 接入。
+/* 选择器类型分类法。法典 / 画风 / 构图 / 图包均可由 codexes.json 按 type 接入。
    某类型在 codexes.json 里没有对应 type 的真法典时，显示其 placeholders（点击只提示「即将上线」，进不去）。
-   将来给某本加 type:"string"/"pack" 即自动变为可加载、该类占位被忽略。 */
+   将来给某本加 type:"string"/"composition"/"pack" 即自动变为可加载、该类占位被忽略。
+   ⚠ 2026-08-31 类型名统一成两字并新增「构图」（装构图/服装/场景，成员曾塞在画风串里）。
+   「构图」这个名字与将来的服装类典存在已知张力，是维护者定案，别改名——见 docs/decisions/法典重归类.md。 */
 const CODEX_TYPES = [
   { id: 'codex', name: '法典', sub: '按分类查词条', icon: 'book' },
-  { id: 'string', name: '画风串', sub: '画风与画师串', icon: 'palette' },
-  { id: 'pack', name: '精选图包', sub: '社区收集原图包', icon: 'image', placeholders: [
+  { id: 'string', name: '画风', sub: '画师词典与画风串', icon: 'palette' },
+  { id: 'composition', name: '构图', sub: '构图 · 服装 · 场景', icon: 'grid' },
+  { id: 'pack', name: '图包', sub: '社区原图与生成参数', icon: 'image', placeholders: [
     { title: '精选构图图包', meta: '原图直出 · 含 NAI 生成参数' },
   ] },
 ];

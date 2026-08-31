@@ -856,8 +856,9 @@ function openCodexManager() {
         <label>类型
           <select id="cxType">
             <option value="codex">法典</option>
-            <option value="string">画风串</option>
-            <option value="pack">精选图包</option>
+            <option value="string">画风</option>
+            <option value="composition">构图</option>
+            <option value="pack">图包</option>
           </select>
         </label>
         <label class="edit-check"><input type="checkbox" id="cxNsfw" ${meta?.nsfw ? 'checked' : ''}> 整本 NSFW</label>
@@ -879,8 +880,9 @@ function openCodexManager() {
         <label>类型
           <select id="cxNewType">
             <option value="codex">法典</option>
-            <option value="string">画风串</option>
-            <option value="pack">精选图包</option>
+            <option value="string">画风</option>
+            <option value="composition">构图</option>
+            <option value="pack">图包</option>
           </select>
         </label>
         <label class="edit-check"><input type="checkbox" id="cxNewNsfw"> 整本 NSFW</label>
