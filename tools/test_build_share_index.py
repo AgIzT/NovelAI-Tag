@@ -79,8 +79,30 @@ class ShareIndexGrading(unittest.TestCase):
         self.assertEqual(index["codexes"]["safe"]["shareCount"], 1)
         self.assertEqual(per_codex["safe"]["shareCount"], 1)
 
-    def test_nsfw_book_exposes_titles_but_never_its_own_name(self):
+    def build_with_flag(self, flag, codexes, books):
+        original = bsi.TITLE_ONLY_NSFW_BOOKS
+        bsi.TITLE_ONLY_NSFW_BOOKS = flag
+        try:
+            return self.build(codexes, books)
+        finally:
+            bsi.TITLE_ONLY_NSFW_BOOKS = original
+
+    def test_nsfw_book_gets_no_card_by_default(self):
+        """默认关闭：整本 NSFW 的书连词条名都不出，退回通用站点卡。
+
+        这些书的词条名本身就是露骨描述，出卡等于把内容摘要贴进聊天窗口。
+        """
+        self.assertIs(bsi.TITLE_ONLY_NSFW_BOOKS, False, "默认必须是关的")
         index, per_codex, _ = self.build(
+            [codex_meta("hidden", nsfw=True)],
+            {"hidden": {"id": "hidden", "entries": [entry("hidden-0001", "露骨词条名")]}},
+        )
+        self.assertNotIn("hidden", per_codex)
+        self.assertEqual(set(index["codexes"]["hidden"]), {"id", "aliases", "shareable"})
+
+    def test_nsfw_book_when_switched_on_exposes_titles_but_never_its_own_name(self):
+        index, per_codex, _ = self.build_with_flag(
+            True,
             [codex_meta("hidden", nsfw=True, title="不该出现的书名")],
             {"hidden": {"id": "hidden", "entries": [entry("hidden-0001", "露骨词条名")]}},
         )
@@ -96,19 +118,6 @@ class ShareIndexGrading(unittest.TestCase):
             {"id": "hidden-0001", "title": "露骨词条名", "shareable": False},
         )
         self.assertNotIn("不该出现的书名", json.dumps(shard, ensure_ascii=False))
-
-    def test_nsfw_books_can_be_switched_back_to_no_card(self):
-        original = bsi.TITLE_ONLY_NSFW_BOOKS
-        bsi.TITLE_ONLY_NSFW_BOOKS = False
-        try:
-            index, per_codex, _ = self.build(
-                [codex_meta("hidden", nsfw=True)],
-                {"hidden": {"id": "hidden", "entries": [entry("hidden-0001", "露骨词条名")]}},
-            )
-        finally:
-            bsi.TITLE_ONLY_NSFW_BOOKS = original
-        self.assertNotIn("hidden", per_codex)
-        self.assertEqual(set(index["codexes"]["hidden"]), {"id", "aliases", "shareable"})
 
     def test_entry_without_title_is_dropped_rather_than_guessed(self):
         _, per_codex, _ = self.build(
