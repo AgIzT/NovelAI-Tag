@@ -16,6 +16,7 @@ import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
+import { pathFromCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
@@ -103,7 +104,11 @@ function renderCodexView(codex, seq, {
   updateCodexPickerState();
   const urlState = resolveUrlState(c);
   applyViewUrlState(urlState, c);
-  const nextPath = normalizeCodexRoutePath(c, urlState?.path || [], urlState?.codex || c.id);
+  // 短码要等法典树到手才能反解；旧的 path= 参数还在的话优先用它，免得老链接改语义。
+  const requestedPath = urlState?.path?.length
+    ? urlState.path
+    : pathFromCode(c.tree, urlState?.pathCode || '');
+  const nextPath = normalizeCodexRoutePath(c, requestedPath, urlState?.codex || c.id);
   state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
   state.query = resolveQuery(urlState);
   state.seenAnimated.clear();

@@ -110,8 +110,9 @@ export function buildFeedbackContext({ source = 'global', entry = null, imageInd
       hash: location.hash,
     },
     route: {
-      codex: params.get('codex') || codex.id || '',
+      codex: params.get('c') || params.get('codex') || codex.id || '',
       path: params.getAll('path'),
+      pathCode: params.get('p') || '',
       q: params.get('q') || state.query || '',
       entry: params.get('entry') || hash.get('entry') || state.lightbox?.entry?.id || '',
       updateFilter: String(state.updateFilter || ''),

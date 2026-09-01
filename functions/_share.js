@@ -1,6 +1,9 @@
 'use strict';
 
-const CACHE_CONTROL = 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400';
+const APP_SHELL_PATH = '/index.html';
+/* 这条路由返回的是 App 外壳本体：浏览器侧必须每次回源校验（跟静态 / 一致），
+   否则发版后有人会拿着旧外壳；边缘留 60 秒只为削抓取器和转发带来的并发峰值。 */
+const APP_SHELL_CACHE_CONTROL = 'public, max-age=0, must-revalidate, s-maxage=60';
 const SITE_NAME = '法典图鉴';
 const SITE_TITLE = '法典图鉴 | NovelAI Tag Atlas';
 const SITE_DESCRIPTION = '按图挑选 NovelAI 提示词、画风串与法典条目。';
@@ -228,7 +231,8 @@ async function resolveShareCard(context) {
     : '';
   const targetUrl = deepLinkUrl(origin, codexId, fallbackEntryId);
 
-  if (codex.shareable !== true) return genericCard(origin, targetUrl);
+  // 分级：shareable 本出完整卡；titleOnly 本（整本 NSFW）只有词条名，书名/简介/图一律不出。
+  if (codex.shareable !== true && codex.titleOnly !== true) return genericCard(origin, targetUrl);
 
   let codexShare;
   try {
@@ -237,16 +241,33 @@ async function resolveShareCard(context) {
     console.warn(ex);
     return genericCard(origin, targetUrl, { transient: isTransientShareDataError(ex) });
   }
-  if (!codexShare || codexShare.id !== codexId || codexShare.shareable !== true) {
-    return genericCard(origin, targetUrl);
-  }
+  if (!codexShare || codexShare.id !== codexId) return genericCard(origin, targetUrl);
+  const fullShard = codexShare.shareable === true;
+  const titleOnlyShard = codexShare.titleOnly === true;
+  if (!fullShard && !titleOnlyShard) return genericCard(origin, targetUrl);
 
   if (path.entryId) {
     const entries = codexShare.entries || {};
     const entry = entryCandidates(path.entryId, path.codexId, codexShare)
       .map(id => entries[id])
       .find(Boolean);
-    if (!entry || !entry.id || entry.shareable !== true) return genericCard(origin, targetUrl);
+    if (!entry || !entry.id) return genericCard(origin, targetUrl);
+    const entryTitle = String(entry.title || '').trim();
+    if (entry.shareable !== true) {
+      // 被门控的词条：只借出词条名，不带法典名/分类/提示词/配图。
+      if (!entryTitle) return genericCard(origin, targetUrl);
+      return {
+        kind: 'entry',
+        title: `${entryTitle} | ${SITE_NAME}`,
+        description: SITE_DESCRIPTION,
+        image: null,
+        canonicalUrl: canonicalShareUrl(origin, codexId, entry.id),
+        targetUrl: deepLinkUrl(origin, codexId, entry.id),
+        safe: false,
+        titleOnly: true,
+      };
+    }
+    if (!fullShard) return genericCard(origin, targetUrl);
     return {
       kind: 'entry',
       title: `${entry.title} · ${codexShare.title} | ${SITE_NAME}`,
@@ -258,6 +279,8 @@ async function resolveShareCard(context) {
     };
   }
 
+  // 法典级卡片只对 shareable 本开放；titleOnly 本连书名都不出。
+  if (!fullShard) return genericCard(origin, targetUrl);
   return {
     kind: 'codex',
     title: `${codexShare.title} | ${SITE_NAME}`,
@@ -269,15 +292,21 @@ async function resolveShareCard(context) {
   };
 }
 
-function renderMeta(card) {
+/* 卡片 head：注入到 App 外壳的 <head> 最前面，所以 charset 必须排第一（否则被 40 行
+   preload 挤出前 1024 字节，中文标题会被猜成别的编码），<base> 必须排在任何相对 URL 之前。
+   itemprop/image_src 是给只认老式标记的国内抓取器留的后路，与 og 同源不冲突。 */
+function renderMeta(card, { forShell = false } = {}) {
   const image = card.image;
   const type = card.kind === 'entry' ? 'article' : 'website';
-  const tags = [
-    ['meta', { charset: 'utf-8' }],
-    ['meta', { name: 'viewport', content: 'width=device-width, initial-scale=1' }],
-    ['meta', { name: 'robots', content: 'noindex' }],
+  const tags = [['meta', { charset: 'utf-8' }]];
+  if (forShell) tags.push(['base', { href: '/' }]);
+  else tags.push(['meta', { name: 'viewport', content: 'width=device-width, initial-scale=1' }]);
+  // 出完整卡的页面就是这条深链的规范地址，允许收录；门控卡（只借词条名）保持不可收录。
+  if (!card.safe) tags.push(['meta', { name: 'robots', content: 'noindex, nofollow' }]);
+  tags.push(
     ['title', {}, card.title],
     ['link', { rel: 'canonical', href: card.canonicalUrl }],
+    ['meta', { name: 'description', content: card.description }],
     ['meta', { property: 'og:site_name', content: SITE_NAME }],
     ['meta', { property: 'og:type', content: type }],
     ['meta', { property: 'og:locale', content: 'zh_CN' }],
@@ -287,7 +316,7 @@ function renderMeta(card) {
     ['meta', { name: 'twitter:card', content: image ? 'summary_large_image' : 'summary' }],
     ['meta', { name: 'twitter:title', content: card.title }],
     ['meta', { name: 'twitter:description', content: card.description }],
-  ];
+  );
   if (image) {
     tags.push(
       ['meta', { property: 'og:image', content: image.url }],
@@ -297,6 +326,8 @@ function renderMeta(card) {
       ['meta', { property: 'og:image:alt', content: image.alt }],
       ['meta', { name: 'twitter:image', content: image.url }],
       ['meta', { name: 'twitter:image:alt', content: image.alt }],
+      ['meta', { itemprop: 'image', content: image.url }],
+      ['link', { rel: 'image_src', href: image.url }],
     );
   }
   return tags.map(tag => {
@@ -305,13 +336,42 @@ function renderMeta(card) {
       .map(([key, value]) => `${key}="${htmlEscape(value)}"`)
       .join(' ');
     if (name === 'title') return `<title>${htmlEscape(text)}</title>`;
-    if (name === 'link') return `<link ${attrText}>`;
+    if (name === 'link' || name === 'base') return `<${name} ${attrText}>`;
     return attrText ? `<${name} ${attrText}>` : `<${name}>`;
   }).join('\n');
 }
 
-function renderHtml(card) {
-  const targetJson = JSON.stringify(card.targetUrl);
+const HEAD_OPEN_RE = /<head\b[^>]*>/i;
+const TITLE_RE = /<title\b[^>]*>[\s\S]*?<\/title>/i;
+
+async function readAppShell(context) {
+  const url = new URL(APP_SHELL_PATH, context.request.url);
+  const req = new Request(url.href, { method: 'GET', headers: { accept: 'text/html' } });
+  const assets = context.env && context.env.ASSETS;
+  let res;
+  try {
+    res = assets && typeof assets.fetch === 'function' ? await assets.fetch(req) : await fetch(req);
+  } catch (ex) {
+    throw shareDataError('share app shell fetch failed', { transient: true, cause: ex });
+  }
+  if (!res || !res.ok) throw shareDataError('share app shell fetch failed', { transient: true });
+  const html = await res.text();
+  if (!HEAD_OPEN_RE.test(html)) throw shareDataError('share app shell has no <head>', { transient: true });
+  return html;
+}
+
+/* 把卡片 head 塞进外壳：先摘掉外壳自带的 <title>（抓取器只认第一个，留着会打架），
+   再整块插到 <head> 之后。真人拿到的是 App 本体，不再有跳转，地址栏就停在这条短链上。 */
+function injectCardHead(shell, card) {
+  const stripped = shell.replace(TITLE_RE, '');
+  const open = stripped.match(HEAD_OPEN_RE);
+  if (!open) return null;
+  const at = stripped.indexOf(open[0]) + open[0].length;
+  return `${stripped.slice(0, at)}\n${renderMeta(card, { forShell: true })}${stripped.slice(at)}`;
+}
+
+// 外壳取不到时的兜底：静态页 + 手动入口。不做自动跳转——那正是分享卡失效的老毛病。
+function renderFallbackHtml(card) {
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -324,20 +384,32 @@ a{color:#7b4cc2}
 </head>
 <body>
 <main>
-<p>正在打开法典图鉴。</p>
-<p><a href="${htmlEscape(card.targetUrl)}">如果没有自动跳转，请点击这里继续。</a></p>
+<p>法典图鉴暂时没能加载。</p>
+<p><a href="${htmlEscape(card.targetUrl)}">点这里继续浏览</a></p>
 </main>
-<script>location.replace(${targetJson});</script>
 </body>
 </html>`;
 }
 
 export async function renderShareResponse(context) {
   const card = await resolveShareCard(context);
+  let body = null;
+  let degraded = false;
+  if (context.request.method !== 'HEAD') {
+    try {
+      body = injectCardHead(await readAppShell(context), card);
+    } catch (ex) {
+      console.warn(ex);
+      body = null;
+    }
+    if (!body) {
+      degraded = true;
+      body = renderFallbackHtml(card);
+    }
+  }
   const headers = {
     'content-type': 'text/html; charset=utf-8',
-    'cache-control': card.transient ? 'no-store' : CACHE_CONTROL,
+    'cache-control': card.transient || degraded ? 'no-store' : APP_SHELL_CACHE_CONTROL,
   };
-  const body = context.request.method === 'HEAD' ? null : renderHtml(card);
   return new Response(body, { status: 200, headers });
 }

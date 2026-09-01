@@ -53,6 +53,7 @@ globalThis.window = {
   performance,
 };
 globalThis.document = {
+  baseURI: 'http://localhost/',
   activeElement: null,
   documentElement: { clientHeight: 800, scrollHeight: 2000, classList: fakeClassList() },
   body: { classList: fakeClassList() },
@@ -689,25 +690,54 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(syncCodexPickerCounts({ id: 'missing', entryCount: 1, imagedCount: 1 }), false);
 }
 
-// 新格式单段 path 用空参数作格式标记；旧 slash 链接继续走 legacy 解码。
+/* 地址栏写的是短链：目录发短码、词条发 /share/。旧的 codex= / path= 链接只读不写。
+   衡量标准就是"用户直接复制地址栏"那条串——中文逐字 percent-encode 会撑到两百字符。 */
 {
   const originalSearch = location.search;
-  const url = atlasUrlForRoute({ codex: 'book', path: ['r18g/重口'] });
+  const originalPathname = location.pathname;
+
+  const url = atlasUrlForRoute({ codex: 'book', path: ['r18g/重口', '二级'] });
   const generated = new URL(url, location.href);
-  assert.deepEqual(generated.searchParams.getAll('path'), ['r18g/重口', '']);
+  assert.deepEqual(generated.searchParams.getAll('path'), [], '不再往 URL 里塞中文目录名');
+  assert.equal(generated.searchParams.get('c'), 'book');
+  assert.match(generated.searchParams.get('p'), /^[0-9a-z]+$/, '短码只用 ASCII');
+  assert.ok(generated.href.length < 60, `短链不该超过 60 字符，实际 ${generated.href.length}`);
   location.search = generated.search;
-  assert.deepEqual(readUrlState().path, ['r18g/重口']);
+  assert.equal(readUrlState().codex, 'book');
+  assert.equal(readUrlState().pathCode, generated.searchParams.get('p'));
+
+  // 词条深链走 /share/<法典>/<词条>：这条路由带 OG 卡
+  const entryUrl = atlasUrlForRoute({ codex: 'book', entry: 'book-0001', path: ['分类'] });
+  assert.equal(entryUrl, '/share/book/book-0001');
+  location.pathname = '/share/book/book-0001';
+  location.search = '';
+  assert.equal(readUrlState().codex, 'book');
+  assert.equal(readUrlState().entry, 'book-0001');
+  location.pathname = originalPathname;
+
+  // 收藏 / 全站搜索是私人视图，换成 /share/ 会把上下文丢给收链接的人
+  const favUrl = atlasUrlForRoute({ codex: 'book', favorites: true, entry: 'book-0001' });
+  assert.equal(new URL(favUrl, location.href).pathname, '/');
+  assert.equal(new URL(favUrl, location.href).searchParams.get('entry'), 'book-0001');
 
   const searchUrl = atlasUrlForRoute({ codex: 'book', siteSearch: true, q: 'x', path: ['一级/分类'] });
-  assert.deepEqual(new URL(searchUrl, location.href).searchParams.getAll('path'), ['一级/分类', '']);
+  assert.deepEqual(new URL(searchUrl, location.href).searchParams.getAll('path'), []);
+  assert.ok(new URL(searchUrl, location.href).searchParams.get('p'));
 
   const updateUrl = atlasUrlForRoute({ codex: 'book', updateFilter: '2026.7.15' });
   assert.equal(new URL(updateUrl, location.href).searchParams.get('update'), '2026.7.15');
   location.search = '?new=1';
   assert.equal(readUrlState().updateFilter, 'latest');
 
+  // 老链接三种形态继续能开
   location.search = '?path=parent%2Fchild';
-  assert.deepEqual(readUrlState().path, ['parent', 'child']);
+  assert.deepEqual(readUrlState().path, ['parent', 'child'], '旧 slash 形态');
+  location.search = '?path=r18g%2F%E9%87%8D%E5%8F%A3&path=';
+  assert.deepEqual(readUrlState().path, ['r18g/重口'], '旧分段形态的空值标记');
+  location.search = '?codex=book&entry=book-0001';
+  assert.equal(readUrlState().codex, 'book', '旧 codex= 参数');
+  assert.equal(readUrlState().entry, 'book-0001');
+
   location.search = originalSearch;
 }
 
