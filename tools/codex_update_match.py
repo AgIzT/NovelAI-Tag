@@ -201,6 +201,173 @@ def _source_entry(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+STANDALONE_ROLE_TITLE_RE = re.compile(
+    r"^(?:char|角色)\s*(?P<number>\d+)\s*[:：]?$", re.IGNORECASE
+)
+
+
+def _standalone_role_label(value: Any) -> str | None:
+    """Normalize a title-only role marker such as ``角色1`` to ``char1``."""
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    match = STANDALONE_ROLE_TITLE_RE.fullmatch(text)
+    if not match:
+        return None
+    number = int(match.group("number"))
+    return f"char{number}" if number > 0 else None
+
+
+def _role_prompt_signature(prompt: Any) -> tuple[str, str] | None:
+    if not isinstance(prompt, dict):
+        return None
+    label = _standalone_role_label(prompt.get("label"))
+    if label is None:
+        label = norm_text(prompt.get("label"))
+    text = prompt.get("prompt")
+    if not label or not isinstance(text, str) or not text.strip():
+        return None
+    return label, norm_tags_value(text)
+
+
+def _merge_standalone_role_cards(
+    entries: list[dict[str, Any]],
+    old_entries: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Repair role prompts split into adjacent title-only pseudo-cards.
+
+    This is deliberately evidence-based.  A run is merged only when the
+    parent has one unique old entry at the same path/title and every adjacent
+    role card matches that old entry's structured character prompt verbatim.
+    A new, legitimate card titled ``角色1`` therefore remains untouched.
+    """
+    old_groups = _group_indices(
+        range(len(old_entries)),
+        old_entries,
+        lambda entry: (norm_path(entry), norm_title(entry)),
+    )
+    merged: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
+    blockers: list[dict[str, Any]] = []
+    i = 0
+    while i < len(entries):
+        parent = dict(entries[i])
+        parent_path = norm_path(parent)
+        role_cards: list[tuple[int, str, dict[str, Any]]] = []
+        j = i + 1
+        while j < len(entries) and norm_path(entries[j]) == parent_path:
+            label = _standalone_role_label(entries[j].get("title"))
+            if label is None:
+                break
+            role_cards.append((j, label, entries[j]))
+            j += 1
+
+        if not role_cards or _standalone_role_label(parent.get("title")) is not None:
+            merged.append(parent)
+            i += 1
+            continue
+
+        structure = (parent_path, norm_title(parent))
+        all_old_candidates = old_groups.get(structure, [])
+        old_candidates = [
+            old_entries[index]
+            for index in all_old_candidates
+            if old_entries[index].get("characterPrompts")
+        ]
+        parent_tags = norm_tags(parent)
+        matching_tag_candidates = [
+            candidate
+            for candidate in old_candidates
+            if norm_tags(candidate) == parent_tags
+        ]
+        if len(old_candidates) == 0:
+            # No prior structured parent is evidence that these are role
+            # prompts; leave the cards alone so a real new card is preserved.
+            merged.append(parent)
+            i += 1
+            continue
+        if len(old_candidates) != 1 or len(matching_tag_candidates) != 1:
+            reason = (
+                "standalone_role_parent_signature_mismatch"
+                if len(old_candidates) == 1 and not matching_tag_candidates
+                else "ambiguous_standalone_role_parent"
+            )
+            blockers.append({
+                "reason": reason,
+                "parentIndex": i,
+                "parentTitle": parent.get("title", ""),
+                "oldIds": [entry.get("id") for entry in old_candidates],
+                "matchingTagOldIds": [
+                    entry.get("id") for entry in matching_tag_candidates
+                ],
+                "parentTags": parent.get("tags", ""),
+                "oldTags": [entry.get("tags", "") for entry in old_candidates],
+                "orphanIndices": [index for index, _, _ in role_cards],
+            })
+            merged.append(parent)
+            i += 1
+            continue
+
+        old_parent = matching_tag_candidates[0]
+        old_prompts = old_parent.get("characterPrompts") or []
+        actual = []
+        malformed = False
+        for _, label, card in role_cards:
+            tags = card.get("tags")
+            if (
+                card.get("characterPrompts")
+                or card.get("image")
+                or card.get("original")
+                or not isinstance(tags, str)
+                or not tags.strip()
+            ):
+                malformed = True
+            actual.append((label, norm_tags_value(tags)))
+        expected = []
+        unsupported_fields = False
+        for prompt in old_prompts:
+            signature = _role_prompt_signature(prompt)
+            if signature is None:
+                malformed = True
+                continue
+            expected.append(signature)
+            if isinstance(prompt, dict) and set(prompt) - {"label", "prompt"}:
+                unsupported_fields = True
+
+        if malformed or unsupported_fields or actual != expected:
+            blockers.append({
+                "reason": "standalone_role_card_mismatch",
+                "parentIndex": i,
+                "parentId": old_parent.get("id"),
+                "parentTitle": parent.get("title", ""),
+                "expected": [list(item) for item in expected],
+                "actual": [list(item) for item in actual],
+                "unsupportedOldPromptFields": unsupported_fields,
+                "orphanIndices": [index for index, _, _ in role_cards],
+            })
+            merged.append(parent)
+            i += 1
+            continue
+
+        parent["characterPrompts"] = [
+            {"label": label, "prompt": card.get("tags", "")}
+            for _, label, card in role_cards
+        ]
+        parent["isNew"] = bool(
+            parent.get("isNew") or any(card.get("isNew") for _, _, card in role_cards)
+        )
+        merged.append(parent)
+        events.append({
+            "parentIndex": i,
+            "parentId": old_parent.get("id"),
+            "parentTitle": parent.get("title", ""),
+            "orphanIndices": [index for index, _, _ in role_cards],
+            "labels": [label for _, label, _ in role_cards],
+            "characterPromptCount": len(role_cards),
+        })
+        i = j
+
+    return merged, {"events": events, "blockers": blockers}
+
+
 def normalize_suozhang_entries(
     entries: list[dict[str, Any]],
     old_entries: list[dict[str, Any]],
@@ -221,7 +388,10 @@ def normalize_suozhang_entries(
         split_inline_char_prompts,
     )
 
-    normalized = [_source_entry(dict(entry)) for entry in entries]
+    merged_entries, standalone_audit = _merge_standalone_role_cards(
+        entries, old_entries
+    )
+    normalized = [_source_entry(dict(entry)) for entry in merged_entries]
     audit: dict[str, Any] = {
         "entries": len(normalized),
         "changedEntries": 0,
@@ -234,7 +404,12 @@ def normalize_suozhang_entries(
         "variantAmbiguities": [],
         "unmatchedVariantOldIds": [],
         "blockers": [],
+        "standaloneRoleCardMerges": standalone_audit["events"],
+        "standaloneRoleCardBoxes": sum(
+            event["characterPromptCount"] for event in standalone_audit["events"]
+        ),
     }
+    audit["blockers"].extend(standalone_audit["blockers"])
 
     old_groups = _group_indices(range(len(old_entries)), old_entries, lambda entry: (
         norm_path(entry), norm_title(entry)

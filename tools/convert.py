@@ -831,6 +831,32 @@ def collect_standard_review_items(items):
     return review
 
 
+def normalize_standard_suozhang_items(items, old_entries):
+    """Collapse proven standalone role pseudo-cards before stable ID matching.
+
+    The regular Word parser can expose a structured parent card followed by
+    title-only ``角色N``/``charN`` cards.  The incremental matcher owns the
+    evidence check (old parent signature plus exact prompt bodies); conversion
+    reuses that check so a normal conversion cannot silently publish orphan
+    pseudo-cards.  Other source-normalization rules remain in the dedicated
+    incremental update command and are intentionally not applied here.
+    """
+    from codex_update_match import _merge_standalone_role_cards
+
+    normalized, audit = _merge_standalone_role_cards(items, old_entries)
+    blockers = audit.get("blockers", [])
+    if blockers:
+        first = blockers[0]
+        reason = first.get("reason", "standalone_role_card_blocked")
+        parent = first.get("parentTitle", "")
+        raise ValueError(
+            "所长常规法典的独立角色卡无法安全合并 "
+            f"({reason}, parent={parent!r}); "
+            "请先运行 codex_update_match.py 查看匹配报告"
+        )
+    return normalized, audit
+
+
 def convert(path, cid):
     stem = os.path.splitext(os.path.basename(path))[0]
     title, ver, author = parse_meta(stem)
@@ -843,8 +869,13 @@ def convert(path, cid):
         return convert_mengshen_docx(path, cid, title, ver, author, doc)
 
     items = parse_standard_docx_items(doc)
+    old_entries = load_existing_entries(cid)
+    if cid == "suozhang":
+        items, _standalone_audit = normalize_standard_suozhang_items(
+            items, old_entries
+        )
 
-    final = assign_stable_ids(cid, items)
+    final = assign_stable_ids(cid, items, old_entries=old_entries)
     review = collect_standard_review_items(final)
 
     tree = build_tree(final)

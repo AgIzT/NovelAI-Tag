@@ -10,8 +10,11 @@ The default mode only audits the historical first-import source and writes
 reports below ``output/``.  ``--apply`` performs that first-import transaction
 and refuses to overwrite existing data or assets.  Numbered 所长 source packs
 use the separately explicit ``--batch-plan`` / ``--batch-apply`` workflow so an
-existing codex is never rebuilt accidentally.  No production upload or release
-command is run by this importer.
+existing codex is never rebuilt accidentally.  Later 梦神 drops use the
+separately explicit ``--dream-plan`` / ``--dream-apply`` workflow, which binds
+existing entries by original-image hash and rejects obviously scrubbed prompt
+values before any write.  No production upload or release command is run by
+this importer.
 """
 from __future__ import annotations
 
@@ -35,22 +38,29 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 RAW_ROOT = ROOT.parent / "新数据" / "N5图包" / "图包型"
 BATCH_RAW_ROOT = ROOT.parent / "新数据" / "N5新图包"
+DREAM_UPDATE_RAW_ROOT = (
+    ROOT.parent / "新数据" / "N5图包" / "图包型" / "n5精选图包(密码梦神)" / "n5"
+)
 DATA_DIR = ROOT / "site" / "data"
 IMAGE_ROOT = ROOT / "site" / "images"
 ORIGINAL_ROOT = ROOT / "originals"
 OUTPUT_DIR = ROOT / "output" / "nai5_community_pack_import"
+DREAM_OUTPUT_DIR = ROOT / "output" / "nai5_dream_increment"
 
 CODEX_ID = "nai5_community_pack"
 TITLE = "NovelAI v5社区精选图包"
 VERSION = "2026.8.26"
-BATCH_VERSION = "2026.8.29"
+BATCH_VERSION = "2026.9.1"
 AUTHOR = "梦神 / 所长"
 PREFERRED_COVER_ENTRY_ID = f"{CODEX_ID}_mengshen_0006"
 
-DREAM_SAFE_PATH = ("梦神 · N5精选图包", "常规")
-DREAM_NSFW_PATH = ("梦神 · N5精选图包", "NSFW")
-SUOZHANG_PATH = ("所长 · N5韩网精选", "NSFW")
-SUOZHANG_ROOT_LABEL = "所长 · N5韩网精选"
+DREAM_ROOT_LABEL = "梦神 · N5社区图包"
+DREAM_LEGACY_SAFE_PATH = (DREAM_ROOT_LABEL, "常规")
+DREAM_LEGACY_NSFW_PATH = (DREAM_ROOT_LABEL, "NSFW")
+DREAM_SAFE_PATH = (DREAM_ROOT_LABEL, "社区整理", "常规")
+DREAM_NSFW_PATH = (DREAM_ROOT_LABEL, "社区整理", "NSFW")
+SUOZHANG_PATH = ("所长·N5韩网图包", "NSFW")
+SUOZHANG_ROOT_LABEL = "所长·N5韩网图包"
 EXPECTED_RATINGS = {
     DREAM_SAFE_PATH: "safe",
     DREAM_NSFW_PATH: "r18",
@@ -60,6 +70,52 @@ EXPECTED_RATINGS = {
 
 def dream_entry_title(number: int) -> str:
     return f"社区精选 {number:03d}"
+
+
+def suozhang_entry_title(kind: str, number: int) -> str:
+    prefix = "整理套图" if kind == "set" else "韩网整理"
+    return f"{prefix} {number:03d}"
+
+
+SUSPICIOUS_PROMPT_URL_RE = re.compile(
+    r"(?i)(?:https?://|www\.|file://|discord\.gg/|t\.me/|"
+    r"(?:pixiv|twitter|x|weibo|bilibili|github)\.com/|"
+    r"\b[a-z0-9][a-z0-9.-]*\.(?:com|net|org|cn|io|gg|me|tv|ai)(?:/\S*)?)"
+)
+SUSPICIOUS_PROMPT_NUMBER_RE = re.compile(r"^[\s\d+.,;:_-]+$")
+SUSPICIOUS_PROMPT_PLACEHOLDERS = {
+    "test", "testing", "prompt", "prompts", "tag", "tags", "none",
+    "null", "unknown", "untitled", "n/a", "na", "xxx", "todo",
+    "placeholder",
+}
+
+# 人工下架的所长原图按内容哈希拦截，避免编号图包增量重跑时回流。
+# 这五张原属 ``nai5_community_pack_suozhang_set_0031`` 后五张，
+# 因 R18G 内容不适合站内展示。
+SUOZHANG_MANUAL_TAKEDOWN_HASHES = {
+    "31bf451c24451f34ab26fa7e5e48f2a068985616d97e5828883f4ef9e9648d1d",
+    "2d89d0cc5835e5244280f867ba5da386d4a8c27593eeb2c82a0f12efa62c5f0f",
+    "0d2e00846440e6b5763bd5e16e9dd96186e210b318971bccdb5e364e0c149e3e",
+    "7c098d31302254e64a6eda8c81269ffad585cf0821ec8618bb4c073b37a428a7",
+    "30425a6341482a2b793a3ad76b198c7eb84c5760e92ff391f74ed48759d476e9",
+}
+
+
+def suspicious_prompt_reason(value: Any) -> str | None:
+    """Return a stable rejection reason for unmistakably scrubbed metadata."""
+    text = clean_text(value).strip()
+    if not text:
+        return None  # the shared metadata gate reports ``no_prompt`` first
+    lower = text.casefold()
+    if SUSPICIOUS_PROMPT_NUMBER_RE.fullmatch(text) and re.search(r"\d", text):
+        return "suspicious_prompt:pure_numeric"
+    if SUSPICIOUS_PROMPT_URL_RE.search(text):
+        return "suspicious_prompt:url"
+    if lower in SUSPICIOUS_PROMPT_PLACEHOLDERS:
+        return "suspicious_prompt:placeholder"
+    return None
+
+
 PATH_ORDER = {path: index for index, path in enumerate(EXPECTED_RATINGS)}
 
 EXPECTED_SOURCE_COUNTS = {
@@ -236,7 +292,7 @@ def source_tasks(source: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any
     for index, image_path in enumerate(loose_files, 1):
         add_group(
             entry_id=f"{CODEX_ID}_suozhang_{index:04d}",
-            title=f"所长精选 {index:04d}",
+            title=suozhang_entry_title("single", index),
             author="所长",
             kind="single",
             path=SUOZHANG_PATH,
@@ -255,7 +311,7 @@ def source_tasks(source: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any
         set_image_total += len(files)
         add_group(
             entry_id=f"{CODEX_ID}_suozhang_set_{index:04d}",
-            title=f"所长套图 {index:03d}",
+            title=suozhang_entry_title("set", len(loose_files) + index),
             author="所长",
             kind="set",
             path=SUOZHANG_PATH,
@@ -1017,6 +1073,20 @@ def mark_batch_duplicates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return removed
 
 
+def mark_suozhang_manual_takedowns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reject explicitly moderated originals before batch binding and dedupe."""
+    removed: list[dict[str, Any]] = []
+    for row in rows:
+        value = str(row.get("sha256") or "")
+        if not row.get("accepted") or value not in SUOZHANG_MANUAL_TAKEDOWN_HASHES:
+            continue
+        row["accepted"] = False
+        row["reason"] = "manual_takedown:r18g"
+        row["duplicateOf"] = ""
+        removed.append(row)
+    return removed
+
+
 def audit_batch_sources(
     source: Path,
     workers: int,
@@ -1024,6 +1094,7 @@ def audit_batch_sources(
     tasks, groups, source_info = batch_source_tasks(source)
     rows = run_parallel("N5 numbered pack metadata", inspect_image_task, tasks, workers)
     classify_scanned_rows(rows)
+    mark_suozhang_manual_takedowns(rows)
     mark_batch_duplicates(rows)
     accepted_groups = finalize_groups(rows, groups)
     batch_summary: dict[str, Any] = {}
@@ -1108,12 +1179,20 @@ def _maximum_id(entries: Iterable[dict[str, Any]], pattern: str) -> int:
     return max(values, default=0)
 
 
-def _maximum_set_title(entries: Iterable[dict[str, Any]]) -> int:
+def _suozhang_title_number(value: Any) -> int | None:
+    match = re.fullmatch(
+        r"(?:韩网整理|整理套图|所长精选|所长套图)\s+(\d+)",
+        clean_text(value),
+    )
+    return int(match.group(1)) if match else None
+
+
+def _maximum_suozhang_title(entries: Iterable[dict[str, Any]]) -> int:
     values = []
     for entry in entries:
-        match = re.fullmatch(r"所长套图\s+(\d+)", clean_text(entry.get("title")))
-        if match:
-            values.append(int(match.group(1)))
+        number = _suozhang_title_number(entry.get("title"))
+        if number is not None:
+            values.append(number)
     return max(values, default=0)
 
 
@@ -1158,7 +1237,7 @@ def bind_batch_groups(
         state["suozhangEntries"],
         rf"{re.escape(CODEX_ID)}_suozhang_set_(\d+)",
     )
-    set_title_number = _maximum_set_title(state["suozhangEntries"])
+    display_number = _maximum_suozhang_title(state["suozhangEntries"])
     removed_ids: list[str] = []
     new_groups: list[str] = []
     regrouped_groups: list[dict[str, Any]] = []
@@ -1182,15 +1261,14 @@ def bind_batch_groups(
             )
             continue
         if not existing_ids:
+            display_number += 1
             if group["kind"] == "single":
                 single_number += 1
                 target_id = f"{CODEX_ID}_suozhang_{single_number:04d}"
-                target_title = f"所长精选 {single_number:04d}"
             else:
                 set_number += 1
-                set_title_number += 1
                 target_id = f"{CODEX_ID}_suozhang_set_{set_number:04d}"
-                target_title = f"所长套图 {set_title_number:03d}"
+            target_title = suozhang_entry_title(group["kind"], display_number)
             new_groups.append(str(group["groupKey"]))
         elif len(existing_ids) == 1:
             target_id = existing_ids[0]
@@ -1203,8 +1281,11 @@ def bind_batch_groups(
                 continue
             first_ref = state["hashRefs"][hashes[0]]
             target_id = str(first_ref["entryId"])
-            set_title_number += 1
-            target_title = f"所长套图 {set_title_number:03d}"
+            target_number = _suozhang_title_number(state["entryById"][target_id].get("title"))
+            if target_number is None:
+                display_number += 1
+                target_number = display_number
+            target_title = suozhang_entry_title("set", target_number)
             group["regroup"] = True
             removed = [entry_id for entry_id in existing_ids if entry_id != target_id]
             removed_ids.extend(removed)
@@ -1732,20 +1813,804 @@ def validate_batch_install(source: Path, workers: int) -> dict[str, Any]:
     return result
 
 
+DREAM_RESERVED_TAKEDOWN_IDS = {
+    f"{CODEX_ID}_mengshen_0003",
+    f"{CODEX_ID}_mengshen_0004",
+    f"{CODEX_ID}_mengshen_0005",
+}
+DREAM_TAKEDOWN_REPORT = ROOT / "output" / "takedown-20260901-011504-nai5_community_pack" / "takedown.json"
+
+
+def dream_takedown_state() -> tuple[set[str], set[str]]:
+    ids = set(DREAM_RESERVED_TAKEDOWN_IDS)
+    hashes: set[str] = set()
+    if DREAM_TAKEDOWN_REPORT.is_file():
+        payload = json.loads(DREAM_TAKEDOWN_REPORT.read_text(encoding="utf-8"))
+        ids.update(str(value) for value in payload.get("removedEntryIds") or [])
+        for asset in payload.get("assets") or []:
+            if str(asset.get("local") or "").startswith("originals/") and asset.get("sha256"):
+                hashes.add(str(asset["sha256"]))
+    return ids, hashes
+
+
+def dream_update_source_tasks(source: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    nsfw_directories = [
+        path for path in source.iterdir()
+        if path.is_dir() and path.name.casefold() == "nsfw"
+    ]
+    layout_issues: list[str] = []
+    if len(nsfw_directories) != 1:
+        raise RuntimeError(f"expected one 梦神 nsfw directory below {source}, found {nsfw_directories}")
+    nsfw_dir = nsfw_directories[0]
+    unexpected_directories = [
+        path for path in source.iterdir()
+        if path.is_dir() and path != nsfw_dir
+    ]
+    layout_issues.extend(f"unexpected 梦神 directory: {path}" for path in unexpected_directories)
+    nested_directories = [path for path in nsfw_dir.iterdir() if path.is_dir()]
+    layout_issues.extend(f"unexpected 梦神 NSFW child directory: {path}" for path in nested_directories)
+
+    safe_files, safe_other = supported_files(source)
+    nsfw_files, nsfw_other = supported_files(nsfw_dir)
+    unsupported = [
+        path.relative_to(source).as_posix()
+        for path in [*safe_other, *nsfw_other]
+    ]
+    tasks: list[dict[str, Any]] = []
+    groups: list[dict[str, Any]] = []
+    seen_numbers: dict[int, str] = {}
+    source_index = 0
+
+    for files, display_path, rating in (
+        (safe_files, DREAM_SAFE_PATH, "safe"),
+        (nsfw_files, DREAM_NSFW_PATH, "r18"),
+    ):
+        for image_path in files:
+            source_index += 1
+            relative = image_path.relative_to(source).as_posix()
+            number = int(image_path.stem) if image_path.stem.isdigit() else None
+            if number is not None:
+                if number in seen_numbers:
+                    layout_issues.append(
+                        f"duplicate 梦神 source number {number}: {seen_numbers[number]} and {relative}"
+                    )
+                else:
+                    seen_numbers[number] = relative
+            group_key = f"dream:{relative}"
+            group = {
+                "groupKey": group_key,
+                "entryOrder": source_index,
+                "kind": "single",
+                "path": list(display_path),
+                "rating": rating,
+                "author": "梦神",
+                "sourceFolder": str(image_path.parent),
+                "sourceNumber": number,
+                "relativePath": relative,
+                "inputImageCount": 1,
+            }
+            groups.append(group)
+            tasks.append({
+                "sourceIndex": source_index,
+                "sourcePath": str(image_path),
+                "relativePath": relative,
+                "groupKey": group_key,
+                "entryOrder": source_index,
+                "imageIndex": 1,
+                "kind": "single",
+                "path": list(display_path),
+                "rating": rating,
+                "author": "梦神",
+                "sourceNumber": number,
+                "accepted": False,
+                "reason": "unscanned",
+                "duplicateOf": "",
+            })
+
+    numbers = sorted(seen_numbers)
+    missing_numbers = (
+        sorted(set(range(numbers[0], numbers[-1] + 1)) - set(numbers))
+        if numbers else []
+    )
+    return tasks, groups, {
+        "source": str(source),
+        "inputImages": len(tasks),
+        "candidateEntries": len(groups),
+        "safeImages": len(safe_files),
+        "nsfwImages": len(nsfw_files),
+        "numericFiles": len(numbers),
+        "nonNumericFiles": len(tasks) - len(numbers),
+        "numericRange": [numbers[0], numbers[-1]] if numbers else None,
+        "numericMissing": missing_numbers,
+        "unsupportedFiles": unsupported,
+        "layoutIssues": layout_issues,
+    }
+
+
+def audit_dream_update_source(
+    source: Path,
+    workers: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    tasks, groups, source_info = dream_update_source_tasks(source)
+    rows = run_parallel("N5 梦神增量元数据", inspect_image_task, tasks, workers)
+    classify_scanned_rows(rows)
+    _reserved_ids, takedown_hashes = dream_takedown_state()
+    for row in rows:
+        if row.get("accepted"):
+            anomaly = suspicious_prompt_reason(row.get("prompt"))
+            if anomaly:
+                row["accepted"] = False
+                row["reason"] = anomaly
+        if row.get("sha256") in takedown_hashes:
+            row["accepted"] = False
+            row["reason"] = "historical_takedown"
+    mark_exact_duplicates(rows)
+    accepted_groups = finalize_groups(rows, groups)
+    source_info.update({
+        "acceptedImages": sum(bool(row.get("accepted")) for row in rows),
+        "acceptedEntries": len(accepted_groups),
+        "rejectedImageReasons": dict(Counter(
+            str(row.get("reason") or "") for row in rows if not row.get("accepted")
+        )),
+        "exactDuplicateExtraCopies": sum(row.get("reason") == "exact_duplicate" for row in rows),
+        "historicalTakedownMatches": sum(row.get("reason") == "historical_takedown" for row in rows),
+        "blockers": list(source_info["layoutIssues"]),
+    })
+    return rows, groups, source_info
+
+
+def current_dream_state(codex: dict[str, Any]) -> dict[str, Any]:
+    entry_by_id: dict[str, dict[str, Any]] = {}
+    entry_order: dict[str, int] = {}
+    all_hash_refs: dict[str, dict[str, Any]] = {}
+    dream_hash_refs: dict[str, dict[str, Any]] = {}
+    dream_entry_hashes: dict[str, list[str]] = {}
+    dream_entries: list[dict[str, Any]] = []
+    other_entries: list[dict[str, Any]] = []
+    original_dir = ORIGINAL_ROOT / CODEX_ID
+    for order, entry in enumerate(codex.get("entries") or []):
+        entry_id = str(entry.get("id") or "")
+        entry_by_id[entry_id] = entry
+        entry_order[entry_id] = order
+        current_path = tuple(entry.get("path") or ())
+        is_dream = current_path in {DREAM_LEGACY_SAFE_PATH, DREAM_LEGACY_NSFW_PATH} or (
+            len(current_path) >= 3
+            and current_path[:2] == (DREAM_ROOT_LABEL, "社区整理")
+        )
+        (dream_entries if is_dream else other_entries).append(entry)
+        images = list(entry.get("images") or [])
+        if not images:
+            images = [{"path": entry.get("image"), "original": entry.get("original")}]
+        hashes: list[str] = []
+        for image_index, image in enumerate(images, 1):
+            original_name = str(image.get("original") or "")
+            original = original_dir / original_name
+            if not original.is_file():
+                raise RuntimeError(f"missing current original: {entry_id}[{image_index}] {original}")
+            value = sha256_file(original)
+            if value in all_hash_refs:
+                other = all_hash_refs[value]
+                raise RuntimeError(f"duplicate current original hash: {entry_id} and {other['entryId']}")
+            reference = {
+                "entryId": entry_id,
+                "entry": entry,
+                "imageIndex": image_index,
+                "image": image,
+                "isDream": is_dream,
+            }
+            all_hash_refs[value] = reference
+            hashes.append(value)
+            if is_dream:
+                dream_hash_refs[value] = reference
+        if is_dream:
+            dream_entry_hashes[entry_id] = hashes
+    return {
+        "entryById": entry_by_id,
+        "entryOrder": entry_order,
+        "allHashRefs": all_hash_refs,
+        "dreamHashRefs": dream_hash_refs,
+        "dreamEntryHashes": dream_entry_hashes,
+        "dreamEntries": dream_entries,
+        "otherEntries": other_entries,
+    }
+
+
+def _dream_id_number(entry_id: str) -> int | None:
+    match = re.fullmatch(rf"{re.escape(CODEX_ID)}_mengshen_(\d+)", entry_id)
+    return int(match.group(1)) if match else None
+
+
+def bind_dream_update_groups(
+    rows: list[dict[str, Any]],
+    groups: list[dict[str, Any]],
+    codex: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    state = current_dream_state(codex)
+    blockers: list[str] = []
+    group_by_key = {str(group["groupKey"]): group for group in groups}
+    cross_branch_duplicates: list[dict[str, str]] = []
+    for row in rows:
+        if not row.get("accepted") or not row.get("sha256"):
+            continue
+        reference = state["allHashRefs"].get(str(row["sha256"]))
+        if reference and not reference["isDream"]:
+            row["accepted"] = False
+            row["reason"] = "exact_duplicate_current_other_branch"
+            row["duplicateOf"] = reference["entryId"]
+            group = group_by_key[str(row["groupKey"])]
+            group["accepted"] = False
+            group["acceptedMembers"] = []
+            group["acceptedImageCount"] = 0
+            group["excludedImages"] = 1
+            group["reason"] = "exact_duplicate_current_other_branch"
+            cross_branch_duplicates.append({
+                "source": str(row.get("relativePath") or ""),
+                "entryId": str(reference["entryId"]),
+            })
+
+    accepted_groups = sorted(
+        (group for group in groups if group.get("accepted")),
+        key=lambda group: int(group["entryOrder"]),
+    )
+    source_hashes = {
+        str(group["acceptedMembers"][0]["sha256"])
+        for group in accepted_groups
+    }
+    current_hashes = set(state["dreamHashRefs"])
+    missing_current = sorted(current_hashes - source_hashes)
+    if missing_current:
+        blockers.append(f"{len(missing_current)} current 梦神 originals are absent from the accepted update source")
+
+    reserved_ids, _takedown_hashes = dream_takedown_state()
+    used_ids = set(state["entryById"]) | reserved_ids
+    used_numbers = {
+        value for value in (_dream_id_number(entry_id) for entry_id in used_ids)
+        if value is not None
+    }
+    source_numbers = {
+        int(group["sourceNumber"])
+        for group in accepted_groups if group.get("sourceNumber") is not None
+    }
+    next_extra = max(used_numbers | source_numbers | {0}) + 1
+    new_group_keys: list[str] = []
+    path_changes: list[dict[str, Any]] = []
+
+    for group in accepted_groups:
+        row = group["acceptedMembers"][0]
+        value = str(row["sha256"])
+        current = state["dreamHashRefs"].get(value)
+        if current:
+            target_id = str(current["entryId"])
+            target_title = clean_text(current["entry"].get("title"))
+            target_number = _dream_id_number(target_id)
+            group["new"] = False
+            group["existingEntryIds"] = [target_id]
+        else:
+            source_number = group.get("sourceNumber")
+            if source_number is None:
+                while f"{CODEX_ID}_mengshen_{next_extra:04d}" in used_ids:
+                    next_extra += 1
+                target_number = next_extra
+                next_extra += 1
+            else:
+                target_number = int(source_number)
+            target_id = f"{CODEX_ID}_mengshen_{target_number:04d}"
+            target_title = dream_entry_title(target_number)
+            if target_id in reserved_ids:
+                blockers.append(f"source would reuse reserved takedown ID: {target_id}")
+            elif target_id in state["entryById"]:
+                blockers.append(f"source number collides with a different current entry: {target_id}")
+            used_ids.add(target_id)
+            group["new"] = True
+            group["existingEntryIds"] = []
+            new_group_keys.append(str(group["groupKey"]))
+        group["targetEntryId"] = target_id
+        group["targetTitle"] = target_title
+        group["targetNumber"] = target_number
+        row["targetEntryId"] = target_id
+        row["outputPosition"] = 1
+        if current:
+            row["outputThumb"] = current["image"].get("path", "")
+            row["outputOriginal"] = current["image"].get("original", "")
+            old_entry = current["entry"]
+            old_path = list(old_entry.get("path") or [])
+            if old_path != group["path"] or old_entry.get("rating") != group["rating"]:
+                path_changes.append({
+                    "entryId": target_id,
+                    "from": old_path,
+                    "to": group["path"],
+                    "ratingFrom": old_entry.get("rating"),
+                    "ratingTo": group["rating"],
+                })
+        else:
+            thumb, original = expected_output_names(target_id, 1, str(row["extension"]))
+            row["outputThumb"] = thumb
+            row["outputOriginal"] = original
+
+    target_ids = [str(group.get("targetEntryId") or "") for group in accepted_groups]
+    if len(target_ids) != len(set(target_ids)):
+        blockers.append("multiple accepted 梦神 source images resolve to the same target entry ID")
+    meta_changes = []
+    if codex.get("version") != BATCH_VERSION:
+        meta_changes.append({"field": "version", "from": codex.get("version"), "to": BATCH_VERSION})
+    old_dream_images = len(current_hashes)
+    final_dream_images = len(accepted_groups)
+    plan = {
+        "codexId": CODEX_ID,
+        "old": {
+            "entries": len(codex.get("entries") or []),
+            "dreamEntries": len(state["dreamEntries"]),
+            "dreamImages": old_dream_images,
+            "version": codex.get("version"),
+        },
+        "new": {
+            "entries": len(state["otherEntries"]) + len(accepted_groups),
+            "dreamEntries": len(accepted_groups),
+            "dreamImages": final_dream_images,
+            "version": BATCH_VERSION,
+        },
+        "coverage": {
+            "currentDreamHashes": len(current_hashes),
+            "acceptedSourceHashes": len(source_hashes),
+            "currentMissingFromSource": len(current_hashes - source_hashes),
+            "acceptedSourceMissingFromCurrent": len(source_hashes - current_hashes),
+        },
+        "changes": {
+            "newEntries": len(new_group_keys),
+            "newImages": len(new_group_keys),
+            "pathOrRatingChanges": path_changes,
+            "crossBranchDuplicatesExcluded": cross_branch_duplicates,
+            "metadataChanges": meta_changes,
+        },
+        "pathSummary": {
+            " / ".join(path): {
+                "entries": sum(tuple(group["path"]) == path for group in accepted_groups),
+                "images": sum(tuple(group["path"]) == path for group in accepted_groups),
+                "rating": EXPECTED_RATINGS[path],
+            }
+            for path in (DREAM_SAFE_PATH, DREAM_NSFW_PATH)
+        },
+        "blockers": blockers,
+    }
+    plan["wouldChange"] = bool(
+        blockers or new_group_keys or path_changes or meta_changes
+        or plan["old"]["dreamEntries"] != plan["new"]["dreamEntries"]
+        or plan["old"]["dreamImages"] != plan["new"]["dreamImages"]
+    )
+    return state, plan
+
+
+def write_dream_update_reports(
+    rows: list[dict[str, Any]],
+    groups: list[dict[str, Any]],
+    source_info: dict[str, Any],
+    plan: dict[str, Any],
+) -> dict[str, str]:
+    DREAM_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = DREAM_OUTPUT_DIR / "update_report.json"
+    manifest_path = DREAM_OUTPUT_DIR / "source_manifest.json"
+    entries_path = DREAM_OUTPUT_DIR / "entries.csv"
+    write_json(report_path, {
+        "auditDate": date.today().isoformat(),
+        "sourceAudit": source_info,
+        "plan": plan,
+    })
+    write_json(manifest_path, [
+        {
+            "source": row.get("relativePath"),
+            "sourceNumber": row.get("sourceNumber"),
+            "classification": "NSFW" if row.get("rating") == "r18" else "常规",
+            "sourceSha256": row.get("sha256", ""),
+            "sourceModel": row.get("sourceModel", ""),
+            "sourceType": row.get("sourceType", ""),
+            "modelFamily": row.get("modelFamily", ""),
+            "prompt": row.get("prompt", ""),
+            "negative": row.get("negative", ""),
+            "characterPrompts": clean_character_prompts(row.get("characterPrompts")),
+            "decision": row.get("reason", ""),
+            "duplicateOf": row.get("duplicateOf", ""),
+            "targetEntryId": row.get("targetEntryId", ""),
+            "outputThumb": row.get("outputThumb", ""),
+            "outputOriginal": row.get("outputOriginal", ""),
+        }
+        for row in rows
+    ])
+    with entries_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        fields = [
+            "source", "sourceNumber", "displayPath", "rating", "sourceImages",
+            "acceptedImages", "targetEntryId", "targetTitle", "existingEntryIds", "decision",
+        ]
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for group in groups:
+            writer.writerow({
+                "source": group["relativePath"],
+                "sourceNumber": group.get("sourceNumber", ""),
+                "displayPath": " / ".join(group["path"]),
+                "rating": group["rating"],
+                "sourceImages": group["inputImageCount"],
+                "acceptedImages": group.get("acceptedImageCount", 0),
+                "targetEntryId": group.get("targetEntryId", ""),
+                "targetTitle": group.get("targetTitle", ""),
+                "existingEntryIds": " | ".join(group.get("existingEntryIds") or []),
+                "decision": group.get("reason", ""),
+            })
+    return {
+        "report": str(report_path),
+        "manifest": str(manifest_path),
+        "entries": str(entries_path),
+    }
+
+
+def run_dream_update_plan(
+    source: Path,
+    workers: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    data_path = DATA_DIR / f"{CODEX_ID}.json"
+    if not data_path.is_file():
+        raise RuntimeError(f"installed codex is missing: {data_path}")
+    codex = json.loads(data_path.read_text(encoding="utf-8"))
+    rows, groups, source_info = audit_dream_update_source(source, workers)
+    state, plan = bind_dream_update_groups(rows, groups, codex)
+    source_info.update({
+        "acceptedImages": sum(bool(row.get("accepted")) for row in rows),
+        "acceptedEntries": sum(bool(group.get("accepted")) for group in groups),
+        "rejectedImageReasons": dict(Counter(
+            str(row.get("reason") or "") for row in rows if not row.get("accepted")
+        )),
+    })
+    source_info["blockers"] = list(dict.fromkeys([
+        *(source_info.get("blockers") or []),
+        *(plan.get("blockers") or []),
+    ]))
+    plan["blockers"] = source_info["blockers"]
+    files = write_dream_update_reports(rows, groups, source_info, plan)
+    return rows, groups, source_info, state, plan, {"codex": codex, "files": files}
+
+
+def _new_dream_entry(group: dict[str, Any], asset: dict[str, Any]) -> dict[str, Any]:
+    row = group["acceptedMembers"][0]
+    note = clean_text(row.get("note"))
+    return {
+        "title": group["targetTitle"],
+        "path": list(group["path"]),
+        "tags": clean_text(row.get("prompt")),
+        **({"negative": clean_text(row.get("negative"))} if clean_text(row.get("negative")) else {}),
+        **({"characterPrompts": clean_character_prompts(row.get("characterPrompts"))} if row.get("characterPrompts") else {}),
+        **({"note": note} if note else {}),
+        "rating": group["rating"],
+        "isNew": True,
+        "id": group["targetEntryId"],
+        **{key: value for key, value in asset.items() if key != "entryId"},
+    }
+
+
+def updated_dream_payload(
+    old_codex: dict[str, Any],
+    groups: list[dict[str, Any]],
+    state: dict[str, Any],
+    new_assets: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    accepted_groups = sorted(
+        (group for group in groups if group.get("accepted")),
+        key=lambda group: (
+            PATH_ORDER[tuple(group["path"])],
+            int(group.get("targetNumber") or 10**9),
+            int(group["entryOrder"]),
+        ),
+    )
+    entries: list[dict[str, Any]] = []
+    for group in accepted_groups:
+        target_id = str(group["targetEntryId"])
+        if group.get("new"):
+            entry = _new_dream_entry(group, new_assets[target_id])
+        else:
+            entry = copy.deepcopy(state["entryById"][target_id])
+            entry["path"] = list(group["path"])
+            entry["rating"] = group["rating"]
+        entries.append(entry)
+    entries.extend(copy.deepcopy(entry) for entry in state["otherEntries"])
+    cover = next((entry for entry in entries if entry.get("id") == PREFERRED_COVER_ENTRY_ID), None)
+    if not cover:
+        raise RuntimeError(f"preferred safe cover entry is missing: {PREFERRED_COVER_ENTRY_ID}")
+    codex = copy.deepcopy(old_codex)
+    codex.update({
+        "version": BATCH_VERSION,
+        "entryCount": len(entries),
+        "imagedCount": len(entries),
+        "source": "梦神 · N5精选图包 / 所长 · 韩网N5作品筛选整理1–4",
+        "contributors": [
+            {"name": "梦神", "role": "N5精选图包 · 原图与参数整理 / 常规与 NSFW 分类"},
+            {"name": "所长", "role": "韩网N5作品筛选整理1–4 · 原图与参数整理 / 套图归组"},
+        ],
+        "cover": cover["image"],
+        "coverRev": cover["assetRev"],
+        "tree": build_tree(entries),
+        "entries": entries,
+    })
+    codex.pop("nsfw", None)
+    return codex
+
+
+def validate_dream_payload(codex: dict[str, Any], groups: list[dict[str, Any]]) -> dict[str, Any]:
+    issues: list[str] = []
+    accepted_groups = [group for group in groups if group.get("accepted")]
+    expected_by_id = {str(group["targetEntryId"]): group for group in accepted_groups}
+    entries = list(codex.get("entries") or [])
+    dream_entries = [
+        entry for entry in entries
+        if tuple(entry.get("path") or ())[:2] == (DREAM_ROOT_LABEL, "社区整理")
+    ]
+    if "nsfw" in codex:
+        issues.append("unexpected_codex_nsfw")
+    if codex.get("version") != BATCH_VERSION:
+        issues.append("version")
+    if codex.get("entryCount") != len(entries) or codex.get("imagedCount") != len(entries):
+        issues.append("entry_counts")
+    if set(expected_by_id) != {str(entry.get("id") or "") for entry in dream_entries}:
+        issues.append("dream_entry_ids")
+    thumb_dir = IMAGE_ROOT / CODEX_ID
+    original_dir = ORIGINAL_ROOT / CODEX_ID
+    all_images = [image for entry in entries for image in (entry.get("images") or [])]
+    all_thumbs = [str(image.get("path") or "") for image in all_images]
+    all_originals = [str(image.get("original") or "") for image in all_images]
+    if len(all_thumbs) != len(set(all_thumbs)) or len(all_originals) != len(set(all_originals)):
+        issues.append("cross_entry_asset_name_duplicate")
+    if set(all_thumbs) != {path.name for path in thumb_dir.iterdir() if path.is_file()}:
+        issues.append("thumb_directory_reference_set")
+    if set(all_originals) != {path.name for path in original_dir.iterdir() if path.is_file()}:
+        issues.append("original_directory_reference_set")
+
+    all_hashes: set[str] = set()
+    for entry in entries:
+        issues.extend(validate_asset(entry, thumb_dir, original_dir))
+        for position, image in enumerate(entry.get("images") or [], 1):
+            original = original_dir / str(image.get("original") or "")
+            value = sha256_file(original) if original.is_file() else ""
+            if value in all_hashes:
+                issues.append(f"{entry.get('id')}[{position}]:duplicate_hash")
+            all_hashes.add(value)
+
+    seen_dream_hashes: set[str] = set()
+    for entry in dream_entries:
+        entry_id = str(entry.get("id") or "")
+        group = expected_by_id.get(entry_id)
+        if not group:
+            continue
+        row = group["acceptedMembers"][0]
+        if list(entry.get("path") or []) != list(group["path"]) or entry.get("rating") != group["rating"]:
+            issues.append(f"{entry_id}:path_or_rating")
+        if clean_text(entry.get("tags")) != clean_text(row.get("prompt")):
+            issues.append(f"{entry_id}:prompt")
+        if clean_text(entry.get("negative")) != clean_text(row.get("negative")):
+            issues.append(f"{entry_id}:negative")
+        if clean_character_prompts(entry.get("characterPrompts")) != clean_character_prompts(row.get("characterPrompts")):
+            issues.append(f"{entry_id}:character_prompts")
+        images = list(entry.get("images") or [])
+        if len(images) != 1:
+            issues.append(f"{entry_id}:image_count")
+            continue
+        original = original_dir / str(images[0].get("original") or "")
+        value = sha256_file(original) if original.is_file() else ""
+        seen_dream_hashes.add(value)
+        if value != row.get("sha256"):
+            issues.append(f"{entry_id}:source_hash")
+        try:
+            metadata = extract_image_metadata(original)
+        except Exception as exc:
+            issues.append(f"{entry_id}:metadata:{type(exc).__name__}")
+            continue
+        if clean_text(metadata.prompt) != clean_text(row.get("prompt")):
+            issues.append(f"{entry_id}:original_prompt")
+        if clean_text(metadata.negative) != clean_text(row.get("negative")):
+            issues.append(f"{entry_id}:original_negative")
+        if clean_character_prompts(metadata.character_prompts) != clean_character_prompts(row.get("characterPrompts")):
+            issues.append(f"{entry_id}:original_character_prompts")
+    expected_hashes = {
+        str(group["acceptedMembers"][0]["sha256"])
+        for group in accepted_groups
+    }
+    if seen_dream_hashes != expected_hashes:
+        issues.append("dream_source_hash_set")
+    if codex.get("tree") != build_tree(entries):
+        issues.append("tree")
+    cover_entry = next((entry for entry in entries if entry.get("image") == codex.get("cover")), None)
+    if (
+        not cover_entry
+        or cover_entry.get("id") != PREFERRED_COVER_ENTRY_ID
+        or cover_entry.get("rating") != "safe"
+        or tuple(cover_entry.get("path") or ()) != DREAM_SAFE_PATH
+    ):
+        issues.append("unsafe_cover")
+    if issues:
+        raise RuntimeError("\n".join(issues[:100]))
+    return {
+        "codexId": CODEX_ID,
+        "entries": len(entries),
+        "images": len(all_images),
+        "dreamEntries": len(dream_entries),
+        "dreamImages": len(seen_dream_hashes),
+        "safeDreamEntries": sum(entry.get("rating") == "safe" for entry in dream_entries),
+        "nsfwDreamEntries": sum(entry.get("rating") == "r18" for entry in dream_entries),
+        "sourceHashMismatches": 0,
+        "promptMismatches": 0,
+        "negativeMismatches": 0,
+        "characterPromptMismatches": 0,
+        "missingAssets": 0,
+    }
+
+
+def apply_dream_update(
+    groups: list[dict[str, Any]],
+    source_info: dict[str, Any],
+    state: dict[str, Any],
+    plan: dict[str, Any],
+    old_codex: dict[str, Any],
+    workers: int,
+) -> dict[str, Any]:
+    blockers = list(dict.fromkeys([
+        *(source_info.get("blockers") or []),
+        *(plan.get("blockers") or []),
+    ]))
+    if blockers:
+        raise RuntimeError("dream update has blockers:\n" + "\n".join(blockers))
+    DREAM_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    write_json(DREAM_OUTPUT_DIR / "applied_plan.json", {
+        "auditDate": date.today().isoformat(),
+        "sourceAudit": source_info,
+        "plan": plan,
+    })
+    data_path = DATA_DIR / f"{CODEX_ID}.json"
+    index_path = DATA_DIR / "codexes.json"
+    thumb_dir = IMAGE_ROOT / CODEX_ID
+    original_dir = ORIGINAL_ROOT / CODEX_ID
+    if not data_path.is_file() or not index_path.is_file() or not thumb_dir.is_dir() or not original_dir.is_dir():
+        raise RuntimeError("installed codex data/assets are incomplete")
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir = DREAM_OUTPUT_DIR / "backups" / stamp
+    backup_dir.mkdir(parents=True, exist_ok=False)
+    shutil.copy2(data_path, backup_dir / data_path.name)
+    shutil.copy2(index_path, backup_dir / index_path.name)
+    thumb_stage = make_staging_directory(IMAGE_ROOT, f".{CODEX_ID}-dream-")
+    original_stage = make_staging_directory(ORIGINAL_ROOT, f".{CODEX_ID}-dream-")
+    data_temp = DATA_DIR / f".{CODEX_ID}.dream.tmp"
+    index_temp = DATA_DIR / f".codexes.json.{CODEX_ID}.dream.tmp"
+    moved_files: list[Path] = []
+    data_replaced = False
+    index_replaced = False
+    try:
+        asset_tasks = [
+            {
+                "entryId": group["targetEntryId"],
+                "thumbDir": str(thumb_stage),
+                "originalDir": str(original_stage),
+                "sources": [{
+                    "sourcePath": group["acceptedMembers"][0]["sourcePath"],
+                    "sha256": group["acceptedMembers"][0]["sha256"],
+                    "imageFields": {},
+                }],
+            }
+            for group in groups if group.get("accepted") and group.get("new")
+        ]
+        assets = run_parallel("N5 梦神增量资产", write_asset_bundle_from_paths, asset_tasks, workers)
+        new_assets = {str(asset["entryId"]): asset for asset in assets}
+        expected_new_ids = {
+            str(group["targetEntryId"])
+            for group in groups if group.get("accepted") and group.get("new")
+        }
+        if set(new_assets) != expected_new_ids:
+            raise RuntimeError("new dream asset task result set mismatch")
+        for stage, final in ((thumb_stage, thumb_dir), (original_stage, original_dir)):
+            for source_file in sorted(stage.iterdir(), key=lambda path: natural_key(path.name)):
+                destination = final / source_file.name
+                if destination.exists():
+                    raise RuntimeError(f"new asset would overwrite existing file: {destination}")
+                source_file.rename(destination)
+                moved_files.append(destination)
+
+        codex = updated_dream_payload(old_codex, groups, state, new_assets)
+        validation = validate_dream_payload(codex, groups)
+        index = updated_batch_index(codex)
+        write_json(data_temp, codex, compact=True)
+        write_json(index_temp, index)
+        data_temp.replace(data_path)
+        data_replaced = True
+        index_temp.replace(index_path)
+        index_replaced = True
+        result = {
+            **validation,
+            "addedEntries": plan["changes"]["newEntries"],
+            "addedImages": plan["changes"]["newImages"],
+            "excludedImages": sum(not row.get("accepted") for group in groups for row in group.get("members") or []),
+            "backup": str(backup_dir),
+            "thumbFiles": len(list(thumb_dir.iterdir())),
+            "originalFiles": len(list(original_dir.iterdir())),
+        }
+        write_json(DREAM_OUTPUT_DIR / "applied_result.json", result)
+        return result
+    except Exception:
+        if data_replaced:
+            shutil.copy2(backup_dir / data_path.name, data_path)
+        if index_replaced or data_replaced:
+            shutil.copy2(backup_dir / index_path.name, index_path)
+        for path in reversed(moved_files):
+            path.unlink(missing_ok=True)
+        raise
+    finally:
+        shutil.rmtree(thumb_stage, ignore_errors=True)
+        shutil.rmtree(original_stage, ignore_errors=True)
+        data_temp.unlink(missing_ok=True)
+        index_temp.unlink(missing_ok=True)
+
+
+def validate_dream_install(source: Path, workers: int) -> dict[str, Any]:
+    _rows, groups, source_info, _state, plan, context = run_dream_update_plan(source, workers)
+    if source_info.get("blockers"):
+        raise RuntimeError("dream validation blockers:\n" + "\n".join(source_info["blockers"][:100]))
+    if plan.get("wouldChange"):
+        raise RuntimeError("dream update is not idempotent:\n" + json.dumps(plan, ensure_ascii=False, indent=2))
+    codex = context["codex"]
+    validation = validate_dream_payload(codex, groups)
+    index = json.loads((DATA_DIR / "codexes.json").read_text(encoding="utf-8"))
+    meta = next((item for item in index if item.get("id") == CODEX_ID), None)
+    if meta != index_meta(codex):
+        raise RuntimeError("codex index metadata differs from installed book")
+    result = {
+        **validation,
+        "dreamPaths": plan["pathSummary"],
+        "rejectedImageReasons": source_info["rejectedImageReasons"],
+        "idempotentChanges": 0,
+        "indexMetadataMismatches": 0,
+        "reports": context["files"],
+    }
+    write_json(DREAM_OUTPUT_DIR / "validation.json", result)
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=RAW_ROOT)
     parser.add_argument("--batch-source", type=Path, default=BATCH_RAW_ROOT)
+    parser.add_argument("--dream-source", type=Path, default=DREAM_UPDATE_RAW_ROOT)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--apply", action="store_true")
     mode.add_argument("--validate", action="store_true")
     mode.add_argument("--batch-plan", action="store_true")
     mode.add_argument("--batch-apply", action="store_true")
     mode.add_argument("--batch-validate", action="store_true")
+    mode.add_argument("--dream-plan", action="store_true")
+    mode.add_argument("--dream-apply", action="store_true")
+    mode.add_argument("--dream-validate", action="store_true")
     parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     args = parser.parse_args()
     if args.workers < 1:
         raise SystemExit("--workers must be at least 1")
+    if args.dream_plan or args.dream_apply or args.dream_validate:
+        dream_source = args.dream_source.resolve()
+        if not dream_source.is_dir():
+            raise SystemExit(f"dream source folder not found: {dream_source}")
+        if args.dream_validate:
+            print(json.dumps(validate_dream_install(dream_source, args.workers), ensure_ascii=False, indent=2))
+            return 0
+        _rows, groups, source_info, state, plan, context = run_dream_update_plan(dream_source, args.workers)
+        output: dict[str, Any] = {
+            "sourceAudit": source_info,
+            "plan": plan,
+            "reports": context["files"],
+        }
+        if args.dream_apply:
+            output["apply"] = apply_dream_update(
+                groups,
+                source_info,
+                state,
+                plan,
+                context["codex"],
+                args.workers,
+            )
+            output["validation"] = validate_dream_install(dream_source, args.workers)
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 0
     if args.batch_plan or args.batch_apply or args.batch_validate:
         batch_source = args.batch_source.resolve()
         if not batch_source.is_dir():

@@ -71,6 +71,36 @@ MANUAL_MATCH_RULES = (
             "保留旧主卡 ID 与图片，两个旧变体仍删除。"
         ),
     },
+    {
+        "key": "upper_face_closeup_831_rewrite",
+        "oldId": "codex_6e699406-5475",
+        "newHalf": "upper",
+        "newPath": ["基础涩涩", "各种体位", "后入/背后位"],
+        "newTitle": "脸部特写掐脸压身后入",
+        "decision": (
+            "2026.8.31 将“脸部特写全压身掐脸后入”改名，并把原 char1/char2 "
+            "正文并回主串；提示词主体、目录和前后位置均连续，保留旧 ID 与图片。"
+        ),
+    },
+)
+
+KNOWN_SOURCE_TITLE_CORRECTIONS = (
+    {
+        "key": "upper_swapped_title_corrupted_after",
+        "formalId": "codex_6e699406-4863",
+        "half": "upper",
+        "path": ["各种涩涩", "2+girl/+1boy系列", "协作侍奉"],
+        "sourceTitle": "被胁迫预备摄影学生少女",
+        "correctedTitle": "恶堕之后",
+    },
+    {
+        "key": "upper_swapped_title_coerced_students",
+        "formalId": "codex_6e699406-4864",
+        "half": "upper",
+        "path": ["各种涩涩", "2+girl/+1boy系列", "协作侍奉"],
+        "sourceTitle": "恶堕之后",
+        "correctedTitle": "被胁迫预备摄影学生少女",
+    },
 )
 
 
@@ -229,6 +259,80 @@ def partition_formal_entries(entries: list[dict[str, Any]]) -> dict[str, list[di
     if unknown:
         raise ValueError(f"Unknown merged-book ID namespaces: {unknown[:20]}")
     return result
+
+
+def apply_known_source_title_corrections(
+    entries: list[dict[str, Any]],
+    formal_entries: list[dict[str, Any]],
+    *,
+    half: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Replay narrowly audited local title fixes still absent from source Word.
+
+    The correction is allowed only when the formal stable ID, path, corrected
+    title and normalized tags all identify the same unique source card.  This
+    prevents a title-only rule from swallowing a real later edit.
+    """
+    corrected_entries = [dict(entry) for entry in entries]
+    audit: list[dict[str, Any]] = []
+    for rule in KNOWN_SOURCE_TITLE_CORRECTIONS:
+        if rule["half"] != half:
+            continue
+
+        formal_hits = [
+            entry
+            for entry in formal_entries
+            if entry.get("id") == rule["formalId"]
+        ]
+        if len(formal_hits) != 1:
+            raise ValueError(
+                f"known source title correction {rule['key']} expected one formal ID "
+                f"{rule['formalId']}, found {len(formal_hits)}"
+            )
+        formal = formal_hits[0]
+        if (
+            norm_path(formal) != tuple(rule["path"])
+            or norm_title(formal) != norm_title({"title": rule["correctedTitle"]})
+        ):
+            raise ValueError(
+                f"known source title correction {rule['key']} no longer matches the "
+                "formal path/title"
+            )
+
+        source_hits = [
+            index
+            for index, entry in enumerate(corrected_entries)
+            if norm_path(entry) == tuple(rule["path"])
+            and str(entry.get("title", ""))
+            in {rule["sourceTitle"], rule["correctedTitle"]}
+            and norm_tags(entry) == norm_tags(formal)
+        ]
+        if len(source_hits) != 1:
+            raise ValueError(
+                f"known source title correction {rule['key']} expected one source "
+                f"card with stable tags, found {len(source_hits)}"
+            )
+
+        source_index = source_hits[0]
+        original_title = str(corrected_entries[source_index].get("title", ""))
+        status = "already_correct"
+        if original_title != rule["correctedTitle"]:
+            corrected_entries[source_index] = {
+                **corrected_entries[source_index],
+                "title": rule["correctedTitle"],
+            }
+            status = "applied"
+        audit.append(
+            {
+                "key": rule["key"],
+                "formalId": rule["formalId"],
+                "sourceIndex": source_index,
+                "sourceTitle": original_title,
+                "correctedTitle": rule["correctedTitle"],
+                "status": status,
+            }
+        )
+    return corrected_entries, audit
 
 
 def resolve_manual_match_overrides(
@@ -1100,6 +1204,12 @@ def main() -> int:
         new_raw[half], character_normalization["new"][half] = (
             normalize_suozhang_entries(parsed_new[half], normalized_formal[half])
         )
+        new_raw[half], correction_audit = apply_known_source_title_corrections(
+            new_raw[half], normalized_formal[half], half=half
+        )
+        character_normalization["new"][half][
+            "knownSourceTitleCorrections"
+        ] = correction_audit
     new_merge = merge_source_halves(new_raw["upper"], new_raw["lower"])
 
     if has_baseline_docs:
@@ -1121,6 +1231,12 @@ def main() -> int:
                     parsed_baseline[half], normalized_formal[half]
                 )
             )
+            baseline_raw[half], correction_audit = apply_known_source_title_corrections(
+                baseline_raw[half], normalized_formal[half], half=half
+            )
+            character_normalization["baseline"][half][
+                "knownSourceTitleCorrections"
+            ] = correction_audit
         old_merge = merge_source_halves(
             baseline_raw["upper"], baseline_raw["lower"]
         )
@@ -1142,6 +1258,29 @@ def main() -> int:
                     snapshot_merge[half], normalized_formal[half]
                 )
             )
+            normalized_snapshot_halves[half], correction_audit = (
+                apply_known_source_title_corrections(
+                    normalized_snapshot_halves[half],
+                    normalized_formal[half],
+                    half=half,
+                )
+            )
+            character_normalization["baseline"][half][
+                "knownSourceTitleCorrections"
+            ] = correction_audit
+        normalized_snapshot_stats = {
+            **snapshot_merge["stats"],
+            "upperParsed": len(normalized_snapshot_halves["upper"]),
+            "lowerParsed": (
+                len(normalized_snapshot_halves["lower"])
+                + int(snapshot_merge["stats"].get("lowerArtistCardsRemoved") or 0)
+            ),
+            "lowerKept": len(normalized_snapshot_halves["lower"]),
+            "mergedCount": sum(
+                len(normalized_snapshot_halves[half])
+                for half in ("upper", "lower")
+            ),
+        }
         old_merge = {
             **snapshot_merge,
             "upper": normalized_snapshot_halves["upper"],
@@ -1150,6 +1289,7 @@ def main() -> int:
                 normalized_snapshot_halves["upper"]
                 + normalized_snapshot_halves["lower"]
             ),
+            "stats": normalized_snapshot_stats,
         }
         baseline_structures = {
             "upper": snapshot_structure(snapshot_path),

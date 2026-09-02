@@ -7,6 +7,7 @@ import unittest
 
 from codex_update_match import match_entries
 from suozhang_r18_merge_match import (
+    apply_known_source_title_corrections,
     build_applied_codex,
     build_summary_payload,
     build_updated_codex_index,
@@ -101,6 +102,65 @@ class SuozhangR18MergeMatchTests(unittest.TestCase):
         self.assertEqual(result["summary"]["matched"], 1)
         self.assertEqual(result["matches"][0]["old"]["id"], "codex_6e699406-0042")
         self.assertEqual(result["matches"][0]["changes"], ["path"])
+
+    def test_known_swapped_title_correction_replays_local_fix(self):
+        path = ["各种涩涩", "2+girl/+1boy系列", "协作侍奉"]
+        formal = [
+            item(
+                "恶堕之后",
+                path,
+                "corrupted,expression,condom,hair,",
+                entry_id="codex_6e699406-4863",
+            ),
+            item(
+                "被胁迫预备摄影学生少女",
+                path,
+                "student,school uniform,coerced,",
+                entry_id="codex_6e699406-4864",
+            ),
+        ]
+        source = [
+            item("被胁迫预备摄影学生少女", path, "corrupted,expression,condom,hair,"),
+            item("恶堕之后", path, "student,school uniform,coerced,"),
+        ]
+
+        corrected, audit = apply_known_source_title_corrections(
+            source, formal, half="upper"
+        )
+
+        self.assertEqual(
+            [entry["title"] for entry in corrected],
+            ["恶堕之后", "被胁迫预备摄影学生少女"],
+        )
+        self.assertEqual([record["status"] for record in audit], ["applied", "applied"])
+        self.assertTrue(match_entries(formal, corrected)["summary"]["strictReplayPass"])
+
+    def test_audited_face_closeup_override_keeps_stable_id(self):
+        path = ["基础涩涩", "各种体位", "后入/背后位"]
+        old = [
+            item(
+                "脸部特写全压身掐脸后入",
+                path,
+                "scene,stable,",
+                entry_id="codex_6e699406-5475",
+            )
+        ]
+        new = [item("脸部特写掐脸压身后入", path, "rewritten,scene,")]
+
+        forced_pairs, audit = resolve_manual_match_overrides(
+            old, new, context="upper"
+        )
+        result = match_entries(old, new, forced_pairs=forced_pairs)
+        record = next(
+            record
+            for record in audit
+            if record["key"] == "upper_face_closeup_831_rewrite"
+        )
+
+        self.assertTrue(record["applied"])
+        self.assertEqual(result["summary"]["matched"], 1)
+        self.assertEqual(result["matches"][0]["old"]["id"], "codex_6e699406-5475")
+        self.assertEqual(result["matches"][0]["method"], "manual_override")
 
     def test_audited_desk_override_collapses_three_cards_and_keeps_main_asset(self):
         path = ["各种涩涩", "1girl系列", "自慰"]

@@ -11,13 +11,17 @@ from import_nai5_community_pack import (  # noqa: E402
     DREAM_NSFW_PATH,
     DREAM_SAFE_PATH,
     SUOZHANG_PATH,
+    SUOZHANG_MANUAL_TAKEDOWN_HASHES,
     codex_payload,
     batch_number_from_name,
     dream_entry_title,
     finalize_groups,
     mark_batch_duplicates,
+    mark_suozhang_manual_takedowns,
     model_family,
+    suspicious_prompt_reason,
     suozhang_batch_path,
+    suozhang_entry_title,
 )
 
 
@@ -74,16 +78,20 @@ class Nai5CommunityPackTests(unittest.TestCase):
         self.assertEqual(dream_entry_title(76), "社区精选 076")
 
     def test_current_first_level_directory_names(self) -> None:
-        self.assertEqual(DREAM_SAFE_PATH, ("梦神 · N5精选图包", "常规"))
-        self.assertEqual(DREAM_NSFW_PATH, ("梦神 · N5精选图包", "NSFW"))
-        self.assertEqual(SUOZHANG_PATH, ("所长 · N5韩网精选", "NSFW"))
+        self.assertEqual(DREAM_SAFE_PATH, ("梦神 · N5社区图包", "社区整理", "常规"))
+        self.assertEqual(DREAM_NSFW_PATH, ("梦神 · N5社区图包", "社区整理", "NSFW"))
+        self.assertEqual(SUOZHANG_PATH, ("所长·N5韩网图包", "NSFW"))
 
     def test_numbered_batch_paths_use_the_requested_directory_names(self) -> None:
-        self.assertEqual(suozhang_batch_path(1), ("所长 · N5韩网精选", "筛选整理1"))
-        self.assertEqual(suozhang_batch_path(4), ("所长 · N5韩网精选", "筛选整理4"))
+        self.assertEqual(suozhang_batch_path(1), ("所长·N5韩网图包", "筛选整理1"))
+        self.assertEqual(suozhang_batch_path(4), ("所长·N5韩网图包", "筛选整理4"))
         self.assertEqual(batch_number_from_name("（1984）韩网N5作品筛选整理"), 1)
         self.assertEqual(batch_number_from_name("（1984）韩网N5作品筛选整理4"), 4)
         self.assertIsNone(batch_number_from_name("unrelated"))
+
+    def test_suozhang_titles_share_one_display_sequence(self) -> None:
+        self.assertEqual(suozhang_entry_title("single", 1), "韩网整理 001")
+        self.assertEqual(suozhang_entry_title("set", 2), "整理套图 002")
 
     def test_same_batch_duplicate_prefers_the_set_folder_copy(self) -> None:
         loose = {
@@ -128,9 +136,40 @@ class Nai5CommunityPackTests(unittest.TestCase):
         self.assertTrue(first["accepted"])
         self.assertFalse(later_set["accepted"])
 
+    def test_manual_suozhang_r18g_takedown_is_hash_stable(self) -> None:
+        removed_hash = next(iter(SUOZHANG_MANUAL_TAKEDOWN_HASHES))
+        removed = {
+            "accepted": True,
+            "reason": "accepted",
+            "sha256": removed_hash,
+            "duplicateOf": "source",
+        }
+        kept = {
+            "accepted": True,
+            "reason": "accepted",
+            "sha256": "not-moderated",
+            "duplicateOf": "",
+        }
+        result = mark_suozhang_manual_takedowns([removed, kept])
+        self.assertEqual(result, [removed])
+        self.assertFalse(removed["accepted"])
+        self.assertEqual(removed["reason"], "manual_takedown:r18g")
+        self.assertEqual(removed["duplicateOf"], "")
+        self.assertTrue(kept["accepted"])
+
     def test_model_gate_recognizes_nai5_and_rejects_nai45(self) -> None:
         self.assertEqual(model_family("NovelAI Diffusion V5 0ADF9AB7"), "nai5")
         self.assertEqual(model_family("NovelAI Diffusion V4.5 4BDE2A90"), "nai45")
+
+    def test_dream_increment_rejects_unmistakably_scrubbed_prompt_values(self) -> None:
+        self.assertEqual(suspicious_prompt_reason("1"), "suspicious_prompt:pure_numeric")
+        self.assertEqual(
+            suspicious_prompt_reason("https://www.pixiv.net/users/23611513"),
+            "suspicious_prompt:url",
+        )
+        self.assertEqual(suspicious_prompt_reason("unknown"), "suspicious_prompt:placeholder")
+        self.assertIsNone(suspicious_prompt_reason("artist:kz oji"))
+        self.assertIsNone(suspicious_prompt_reason("1girl, solo, outdoors"))
 
     def test_partial_source_set_keeps_valid_members_together(self) -> None:
         entry_id = f"{CODEX_ID}_suozhang_set_0001"

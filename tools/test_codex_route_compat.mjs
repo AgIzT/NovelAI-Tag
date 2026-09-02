@@ -14,6 +14,16 @@ const packs = {
   id: 'nai45_community_pack',
   tree: [node('梦神 · 社区图包', [node('人物')]), node('社区 · AI杂图', [node('人物')])],
 };
+const nai5Packs = {
+  id: 'nai5_community_pack',
+  tree: [
+    node('梦神 · N5社区图包', [
+      node('社区整理', [node('常规'), node('NSFW')]),
+      node('韩网整理', [node('常规'), node('NSFW')]),
+    ]),
+    node('所长·N5韩网图包', [node('筛选整理1'), node('R18G')]),
+  ],
+};
 const normalize = (codex, source, path) => normalizeCodexRoutePath(codex, path, source);
 
 assert.deepEqual(normalize(artists, 'artist_nai45_strings', ['W.O.F_画风', '复古']), ['画师串词典', 'W.O.F_画风', '复古']);
@@ -23,6 +33,34 @@ assert.deepEqual(normalize(artists, 'artist_300', ['画师/A']), ['单画师词�
 assert.deepEqual(normalize(packs, 'mengshen_pack', ['人物']), ['梦神 · 社区图包', '人物']);
 assert.deepEqual(normalize(packs, 'community_ai_misc', ['人物']), ['社区 · AI杂图', '人物']);
 assert.deepEqual(normalize(packs, 'nai45_community_pack', ['人物']), [], '来源未知时不能猜同名目录');
+assert.deepEqual(
+  normalize(nai5Packs, 'nai5_community_pack', ['所长 · N5韩网精选', '筛选整理1']),
+  ['所长·N5韩网图包', '筛选整理1'],
+);
+assert.deepEqual(
+  normalize(nai5Packs, 'nai5_community_pack', ['所长·N5韩网精选', 'R18G']),
+  ['所长·N5韩网图包', 'R18G'],
+);
+assert.deepEqual(
+  normalize(nai5Packs, 'nai5_community_pack', ['所长·N5韩网图包', '筛选整理1']),
+  ['所长·N5韩网图包', '筛选整理1'],
+);
+assert.deepEqual(
+  normalize(nai5Packs, 'nai5_community_pack', ['梦神 · N5社区图包', '常规']),
+  ['梦神 · N5社区图包', '社区整理', '常规'],
+);
+assert.deepEqual(
+  normalize(nai5Packs, 'nai5_community_pack', ['梦神 · N5精选图包', 'NSFW']),
+  ['梦神 · N5社区图包', '社区整理', 'NSFW'],
+);
+assert.deepEqual(
+  normalize(nai5Packs, 'nai5_community_pack', ['梦神 · N5精选图包']),
+  ['梦神 · N5社区图包'],
+);
+assert.deepEqual(
+  normalize(nai5Packs, 'nai5_community_pack', ['梦神 · N5社区图包', '韩网整理', '常规']),
+  ['梦神 · N5社区图包', '韩网整理', '常规'],
+);
 assert.deepEqual(normalize(artists, 'artist_nai45_personal', []), [], '当前书的全部不变');
 assert.deepEqual(normalize(artists, 'artist_nai45_strings', []), ['画师串词典'], '旧分书首页进入对应分区');
 assert.deepEqual(normalize(artists, 'unknown', ['W.O.F_画风']), []);
@@ -60,6 +98,28 @@ if (hasData) {
         checked += 1;
       }
     }
+  }
+  const nai5Book = JSON.parse(await readFile(new URL('nai5_community_pack.json', dataDir), 'utf8'));
+  for (const rating of ['常规', 'NSFW']) {
+    const current = ['梦神 · N5社区图包', '社区整理', rating];
+    assert.deepEqual(
+      normalize(nai5Book, nai5Book.id, ['梦神 · N5社区图包', rating]),
+      current,
+      `moved path:${rating}`,
+    );
+    assert.deepEqual(
+      normalize(nai5Book, nai5Book.id, ['梦神 · N5精选图包', rating]),
+      current,
+      `renamed and moved path:${rating}`,
+    );
+    checked += 2;
+  }
+  for (const entry of nai5Book.entries) {
+    if (entry.path[0] !== '所长·N5韩网图包') continue;
+    const legacy = ['所长 · N5韩网精选', ...entry.path.slice(1)];
+    assert.deepEqual(normalize(nai5Book, nai5Book.id, legacy), entry.path, `renamed path:${entry.id}`);
+    assert.deepEqual(normalize(nai5Book, nai5Book.id, entry.path), entry.path);
+    checked += 1;
   }
   console.log(`codex route compatibility: ${checked} real legacy category paths OK`);
 }

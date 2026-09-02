@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import convert as convert_module
 from codex_update_match import (
     apply_current_update_batch,
     apply_audited_source_new_overrides,
@@ -59,6 +60,67 @@ def entry(
 
 
 class CodexUpdateMatchTests(unittest.TestCase):
+    def test_convert_normalizes_standalone_role_cards_before_assigning_ids(self):
+        prompts = [
+            {"label": "char1", "prompt": "cat,chibi,target#being held,"},
+            {"label": "char2", "prompt": "girl,upper body,source#holding another under armpits,"},
+        ]
+        old = [
+            entry(
+                "suozhang-2699",
+                "拉长猫猫（n4限定）",
+                ["各式场景", "场景", "表情包/搞怪"],
+                "1girl,1other,longcat (meme),",
+                character_prompts=prompts,
+            )
+        ]
+        raw = [
+            entry(
+                None,
+                "拉长猫猫（n4限定）",
+                ["各式场景", "场景", "表情包/搞怪"],
+                "1girl,1other,longcat (meme),",
+            ),
+            entry(
+                None,
+                "角色1",
+                ["各式场景", "场景", "表情包/搞怪"],
+                prompts[0]["prompt"],
+            ),
+            entry(
+                None,
+                "角色2",
+                ["各式场景", "场景", "表情包/搞怪"],
+                prompts[1]["prompt"],
+            ),
+        ]
+        assigned = {}
+
+        def fake_assign(cid, items, old_entries=None):
+            assigned["cid"] = cid
+            assigned["items"] = items
+            assigned["old_entries"] = old_entries
+            return [
+                {**item, "id": f"{cid}-0001", "image": None}
+                for item in items
+            ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "所长常规NovelAI个人法典（2026.8.31版）.docx"
+            source.write_bytes(b"placeholder")
+            with patch.object(convert_module, "Document", return_value=object()), \
+                patch.object(convert_module, "parse_standard_docx_items", return_value=raw), \
+                patch.object(convert_module, "load_existing_entries", return_value=old), \
+                patch.object(convert_module, "assign_stable_ids", side_effect=fake_assign), \
+                patch.object(convert_module, "DATA_DIR", directory):
+                result = convert_module.convert(str(source), "suozhang")
+
+        self.assertEqual(result["entryCount"], 1)
+        self.assertEqual(assigned["cid"], "suozhang")
+        self.assertIs(assigned["old_entries"], old)
+        self.assertEqual(len(assigned["items"]), 1)
+        self.assertEqual(assigned["items"][0]["characterPrompts"], prompts)
+
     def test_codex_identity_rejects_explicitly_mismatched_data_file(self):
         validate_codex_identity({"id": "suozhang"}, "suozhang")
         with self.assertRaisesRegex(ValueError, "codex ID mismatch"):
@@ -470,6 +532,141 @@ class CodexUpdateMatchTests(unittest.TestCase):
         self.assertEqual(audit["standardChangedEntries"], 1)
         self.assertFalse(audit["blockers"])
         self.assertTrue(result["summary"]["strictReplayPass"])
+
+    def test_suozhang_source_normalization_merges_adjacent_standalone_role_cards(self):
+        prompts = [
+            {"label": "char1", "prompt": "cat,chibi,target#being held,"},
+            {"label": "char2", "prompt": "girl,upper body,source#holding another under armpits,"},
+        ]
+        old = [
+            entry(
+                "suozhang-2699",
+                "拉长猫猫（n4限定）",
+                ["各式场景", "场景", "表情包/搞怪"],
+                "1girl,1other,longcat (meme),",
+                character_prompts=prompts,
+            ),
+            entry(
+                "suozhang-2702",
+                "后续词条",
+                ["各式场景", "场景", "表情包/搞怪"],
+                "next,stable,",
+            ),
+        ]
+        raw = [
+            entry(
+                None,
+                "拉长猫猫（n4限定）",
+                ["各式场景", "场景", "表情包/搞怪"],
+                "1girl,1other,longcat (meme),",
+            ),
+            entry(
+                None,
+                "角色1",
+                ["各式场景", "场景", "表情包/搞怪"],
+                prompts[0]["prompt"],
+            ),
+            entry(
+                None,
+                "char2:",
+                ["各式场景", "场景", "表情包/搞怪"],
+                prompts[1]["prompt"],
+            ),
+            entry(
+                None,
+                "后续词条",
+                ["各式场景", "场景", "表情包/搞怪"],
+                "next,stable,",
+            ),
+        ]
+
+        normalized, audit = normalize_suozhang_entries(raw, old)
+
+        self.assertEqual(len(normalized), 2)
+        self.assertEqual(normalized[0]["title"], "拉长猫猫（n4限定）")
+        self.assertEqual(normalized[0]["characterPrompts"], prompts)
+        self.assertEqual(normalized[1]["title"], "后续词条")
+        self.assertEqual(len(audit["standaloneRoleCardMerges"]), 1)
+        self.assertEqual(audit["standaloneRoleCardBoxes"], 2)
+        self.assertFalse(audit["blockers"])
+
+        result = match_entries(old, normalized)
+        self.assertTrue(result["summary"]["strictReplayPass"])
+
+    def test_suozhang_source_normalization_leaves_unproven_role_card_titles_alone(self):
+        old = [
+            entry(
+                "suozhang-0001",
+                "普通主卡",
+                ["分类"],
+                "scene,",
+            )
+        ]
+        raw = [
+            entry(None, "普通主卡", ["分类"], "scene,"),
+            entry(None, "角色1", ["分类"], "girl,"),
+        ]
+
+        normalized, audit = normalize_suozhang_entries(raw, old)
+
+        self.assertEqual(len(normalized), 2)
+        self.assertNotIn("characterPrompts", normalized[0])
+        self.assertEqual(normalized[1]["title"], "角色1")
+        self.assertFalse(audit["standaloneRoleCardMerges"])
+        self.assertFalse(audit["blockers"])
+
+    def test_suozhang_source_normalization_blocks_mismatched_standalone_role_cards(self):
+        old = [
+            entry(
+                "suozhang-0001",
+                "主卡",
+                ["分类"],
+                "scene,",
+                character_prompts=[{"label": "char1", "prompt": "girl,"}],
+            )
+        ]
+        raw = [
+            entry(None, "主卡", ["分类"], "scene,"),
+            entry(None, "角色1", ["分类"], "boy,"),
+        ]
+
+        normalized, audit = normalize_suozhang_entries(raw, old)
+
+        self.assertEqual(len(normalized), 2)
+        self.assertEqual(normalized[1]["title"], "角色1")
+        self.assertEqual(len(audit["blockers"]), 1)
+        self.assertEqual(
+            audit["blockers"][0]["reason"],
+            "standalone_role_card_mismatch",
+        )
+
+    def test_suozhang_source_normalization_blocks_ambiguous_old_role_parents(self):
+        prompts = [{"label": "char1", "prompt": "girl,"}]
+        old = [
+            entry(
+                "suozhang-0001", "主卡", ["分类"], "scene,",
+                character_prompts=prompts,
+            ),
+            entry(
+                "suozhang-0002", "主卡", ["分类"], "different,",
+                character_prompts=prompts,
+            ),
+        ]
+        raw = [
+            entry(None, "主卡", ["分类"], "scene,"),
+            entry(None, "角色1", ["分类"], "girl,"),
+        ]
+
+        normalized, audit = normalize_suozhang_entries(raw, old)
+
+        self.assertEqual(len(normalized), 2)
+        self.assertEqual(
+            audit["blockers"][0]["reason"],
+            "ambiguous_standalone_role_parent",
+        )
+        self.assertEqual(audit["blockers"][0]["oldIds"], [
+            "suozhang-0001", "suozhang-0002",
+        ])
 
     def test_suozhang_source_normalization_reports_invalid_standard_split(self):
         raw = [entry(None, "坏角色词", ["分类"], "scene,\nchar1：")]
