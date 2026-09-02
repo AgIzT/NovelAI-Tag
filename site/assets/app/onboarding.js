@@ -121,7 +121,9 @@ function renderOnboardingStep() {
 function hasRouteStateInUrl() {
   const params = new URLSearchParams(location.search);
   const hash = new URLSearchParams(String(location.hash || '').replace(/^#/, ''));
-  return ['codex', 'path', 'q', 'entry'].some(key => {
+  // c/p 是短链形态，codex/path 是旧形态，/share/ 是词条深链——任何一种都算"有人给了目标"。
+  if (location.pathname.split('/').filter(Boolean)[0] === 'share') return true;
+  return ['c', 'codex', 'p', 'path', 'q', 'entry'].some(key => {
     if (key === 'path') return params.getAll('path').some(Boolean);
     return Boolean(params.get(key));
   }) || Boolean(hash.get('entry'));

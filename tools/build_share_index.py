@@ -14,6 +14,14 @@ SHARE_INDEX = DATA_DIR / "share-index.json"
 BLOCKED_RATINGS = {"restricted", "r18", "r18g", "nsfw"}
 DESC_LIMIT = 180
 
+# 整本 NSFW 的书（suozhang_r18 / mengshen_r18 等）是否也出「只给标题」的分享卡。
+# ⚠ 关着。这些书的词条名本身就是露骨描述（"骑乘口交""夫目前犯"…），出卡等于把内容
+#   摘要贴进聊天窗口给全群看，点都不用点；而且新版每条词条的地址栏 URL 都自带卡，
+#   不再需要主动点分享，曝光面比以前大得多。维护者 2026-09-02 看过实际标题后决定关闭。
+#   安全本里的门控词条不同，标题是"R18 0261"这类编号，不受此开关影响、始终只给标题。
+#   真要开，改成 True 后重建索引——后端 functions/_share.js 的 titleOnly 分支一直在。
+TITLE_ONLY_NSFW_BOOKS = False
+
 
 def read_json(path: Path, default: Any = None) -> Any:
     try:
@@ -32,6 +40,12 @@ def write_json(path: Path, data: Any) -> None:
 
 def clean_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
+
+
+def normalized_aliases(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    return [alias for raw in value if (alias := clean_text(raw))]
 
 
 def to_int(value: Any, default: int = 0) -> int:
@@ -98,22 +112,41 @@ def asset_url(kind: str, entry: dict[str, Any], codex: dict[str, Any], media: di
 
 
 def is_r18g_name(value: Any) -> bool:
-    text = str(value or "").lower()
+    text = clean_text(value).lower()
     return "r18g" in text or "\u91cd\u53e3" in text
 
 
 def is_nsfw_path_segment(value: Any) -> bool:
-    return str(value or "").lower() == "nsfw"
+    return clean_text(value).lower() == "nsfw"
 
 
-def entry_rating(entry: dict[str, Any]) -> str:
-    return str(entry.get("rating") or entry.get("level") or "").lower()
+def entry_ratings(entry: dict[str, Any]) -> list[str]:
+    """Return every declared rating marker, preserving a conservative gate.
+
+    Some imported records use ``rating`` while older records use ``level``;
+    checking them with ``or`` lets a benign value in one field mask a blocked
+    value in the other.  Treat both fields as independent claims instead.
+    """
+    values: list[str] = []
+    for key in ("rating", "level"):
+        raw = entry.get(key)
+        items = raw if isinstance(raw, (list, tuple, set)) else [raw]
+        for item in items:
+            marker = clean_text(item).lower()
+            if marker:
+                values.append(marker)
+    return values
 
 
 def is_safe_entry(entry: dict[str, Any]) -> bool:
-    if entry_rating(entry) in BLOCKED_RATINGS:
+    if any(marker in BLOCKED_RATINGS for marker in entry_ratings(entry)):
         return False
-    path = entry.get("path") if isinstance(entry.get("path"), list) else []
+    raw_path = entry.get("path")
+    # 缺失 path 的旧条目仍按无目录处理；但非数组值说明数据形状损坏，
+    # 不能把字符串 "NSFW" 当成空路径而生成完整分享卡。
+    if raw_path is not None and not isinstance(raw_path, list):
+        return False
+    path = raw_path or []
     if any(is_r18g_name(part) or is_nsfw_path_segment(part) for part in path):
         return False
     return True
@@ -129,7 +162,7 @@ def normalize_codex(data: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any
         "version": meta.get("version") or data.get("version") or "",
         "author": meta.get("author") or data.get("author") or "",
         "nsfw": bool(meta.get("nsfw") or data.get("nsfw")),
-        "aliases": meta.get("aliases") or data.get("aliases") or [],
+        "aliases": normalized_aliases(meta.get("aliases") or data.get("aliases")),
         "assetBaseUrl": normalize_base(meta.get("assetBaseUrl") or meta.get("baseUrl") or data.get("assetBaseUrl") or ""),
         "assetPathMode": meta.get("assetPathMode") or data.get("assetPathMode") or ("relative" if meta.get("dataUrl") else "codex"),
         "entryCount": meta.get("entryCount") or data.get("entryCount") or len(data.get("entries") or []),
@@ -202,6 +235,19 @@ def codex_description(codex: dict[str, Any], share_count: int) -> str:
     return truncate(f"{title} - " + " / ".join(bits))
 
 
+def build_title_only_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """被门控的词条只借出词条名——不带法典名、分类、提示词、配图。
+
+    维护者 2026-09-01 定的分享策略：R18/受限词条也要出预览卡，但卡上只有标题。
+    这里刻意不复用 build_entry，避免以后往那边加字段时顺手漏进门控词条。
+    """
+    entry_id = clean_text(entry.get("id"))
+    title = clean_text(entry.get("title"))
+    if not entry_id or not title:
+        return None
+    return {"id": entry_id, "title": title, "shareable": False}
+
+
 def build_entry(entry: dict[str, Any], codex: dict[str, Any], media: dict[str, Any], warnings: list[str]) -> dict[str, Any] | None:
     entry_id = clean_text(entry.get("id"))
     if not entry_id:
@@ -251,7 +297,7 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         if not codex_id:
             warnings.append("codex metadata skipped: missing id")
             continue
-        aliases = [clean_text(alias) for alias in (meta.get("aliases") or []) if clean_text(alias)]
+        aliases = normalized_aliases(meta.get("aliases"))
         for alias in aliases:
             index["aliases"][alias] = codex_id
 
@@ -266,20 +312,45 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
             "aliases": aliases,
             "shareable": not nsfw,
         }
-        if nsfw:
+        raw_entries = data.get("entries") if isinstance(data.get("entries"), list) else []
+        if not raw_entries:
+            warnings.append(f"codex has no entries: {codex_id}")
+
+        if nsfw and not TITLE_ONLY_NSFW_BOOKS:
             index["codexes"][codex_id] = base_index
+            continue
+
+        if nsfw:
+            # 整本门控：索引里依旧不放书名/简介/封面，只多一张按 id 查词条名的表。
+            title_only = {}
+            for raw_entry in raw_entries:
+                if not isinstance(raw_entry, dict):
+                    continue
+                item = build_title_only_entry(raw_entry)
+                if item:
+                    title_only[item["id"]] = item
+            index["codexes"][codex_id] = {**base_index, "titleOnly": True}
+            per_codex[codex_id] = {
+                "schema": 1,
+                "id": codex_id,
+                "aliases": aliases,
+                "shareable": False,
+                "titleOnly": True,
+                "entries": title_only,
+            }
             continue
 
         entries: dict[str, Any] = {}
         safe_with_image: dict[str, Any] | None = None
-        raw_entries = data.get("entries") if isinstance(data.get("entries"), list) else []
-        if not raw_entries:
-            warnings.append(f"codex has no entries: {codex_id}")
         for raw_entry in raw_entries:
             if not isinstance(raw_entry, dict):
                 warnings.append(f"entry skipped in {codex_id}: not an object")
                 continue
             if not is_safe_entry(raw_entry):
+                # 安全本里的门控词条同样只留词条名，其余字段一概不进索引。
+                gated = build_title_only_entry(raw_entry)
+                if gated:
+                    entries[gated["id"]] = gated
                 continue
             share_entry = build_entry(raw_entry, codex, media, warnings)
             if not share_entry:
@@ -289,7 +360,8 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
                 safe_with_image = share_entry
 
         cover = safe_with_image.get("image") if safe_with_image else None
-        share_count = len(entries)
+        # 只数出完整卡的词条；门控词条虽然也在 entries 里，但不算"可分享"。
+        share_count = sum(1 for item in entries.values() if item.get("shareable") is True)
         index["codexes"][codex_id] = {
             **base_index,
             "title": clean_text(codex.get("title") or codex_id),

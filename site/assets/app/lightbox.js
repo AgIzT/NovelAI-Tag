@@ -5,7 +5,7 @@ import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
 import { naiToSd } from './nai-sd.js';
 import { recordRecentEntry } from './history.js';
-import { syncUrlState } from './router.js';
+import { atlasUrlForRoute, syncUrlState } from './router.js';
 import { findCodexMeta } from './data.js';
 import { entryImages, hasEntryImage, imageItemUrl } from './media.js';
 import {
@@ -209,27 +209,23 @@ export function resolvedUrl(url) {
   }
 }
 
-function canonicalShareEntryId(entry, meta, sourceId) {
+function canonicalShareEntryId(entry) {
   const entryId = String(entry?.id || '').trim();
-  if (!entryId) return '';
-  for (const alias of [sourceId, ...(meta?.aliases || [])].filter(Boolean)) {
-    if (alias !== meta.id && entryId.startsWith(`${alias}-`)) {
-      return meta.id + entryId.slice(alias.length);
-    }
-  }
+  // 合并册故意保留旧来源前缀（如 community_ai_misc-0001）的 entry id；
+  // 分享分片也按这个真实 id 建键。法典 alias 只用于书级归一，不能改写词条 id。
   return entryId;
 }
 
-function shareUrlForEntry(entry) {
+export function shareUrlForEntry(entry) {
   if (!entry?.id) return '';
   const isVirtual = state.favoritesView || state.siteSearchView;
   const sourceId = isVirtual ? entry._srcCodexId : (entry._srcCodexId || state.codex?.id);
   if (!sourceId) return '';
   const meta = findCodexMeta(sourceId);
   if (!meta?.id) return '';
-  const entryId = canonicalShareEntryId(entry, meta, sourceId);
+  const entryId = canonicalShareEntryId(entry);
   if (!entryId) return '';
-  return `${location.origin}/share/${encodeURIComponent(meta.id)}/${encodeURIComponent(entryId)}`;
+  return new URL(atlasUrlForRoute({ codex: meta.id, entry: entryId }), location.href).href;
 }
 
 export function flyIn(sourceEl) {
