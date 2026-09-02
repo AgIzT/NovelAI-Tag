@@ -608,6 +608,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
   suppressBrowseStateSave(2000);
   try {
     state.searchReturnPath = Array.isArray(route.searchReturnPath) ? [...route.searchReturnPath] : [];
+    let effectiveTargetEntry = targetEntry;
 
     if (route.favorites) {
       if (!state.browseCodex || state.browseCodex.id !== targetId || (!state.favoritesView && state.codex?.id !== targetId)) {
@@ -646,22 +647,24 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
     }
     const lightboxOpen = $('#lightbox')?.classList.contains('is-open');
     if (targetEntry && (state.lightbox.entry?.id !== targetEntry || !lightboxOpen)) {
-      const opened = openEntryDeepLink(targetEntry, { imageIndex: Math.max(0, Number(route.imageIndex) || 0) });
-      if (!opened) {
+      const openedEntryId = openEntryDeepLink(targetEntry, { imageIndex: Math.max(0, Number(route.imageIndex) || 0) });
+      if (!openedEntryId) {
         return targetLocked
           ? captureAtlasRoute('')
           : { ...route, entry: '', imageIndex: 0 };
       }
+      effectiveTargetEntry = String(openedEntryId);
     }
     state.searchReturnPath = route.searchReturnPath?.length
       ? normalizeCodexRoutePath(state.browseCodex || state.codex, route.searchReturnPath, urlState.codex)
       : [];
-    const normalizedRoute = captureAtlasRoute(targetEntry);
+    const normalizedRoute = captureAtlasRoute(effectiveTargetEntry);
     const pathChanged = !targetEntry && JSON.stringify(normalizedRoute.path) !== JSON.stringify(urlState.path);
     if (
       targetLocked
       || targetUnknown
       || pathChanged
+      || effectiveTargetEntry !== targetEntry
       || historyRouteNeedsCanonicalization(route, normalizedRoute)
     ) {
       return normalizedRoute;

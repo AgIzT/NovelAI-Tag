@@ -42,6 +42,12 @@ def clean_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
 
 
+def normalized_aliases(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    return [alias for raw in value if (alias := clean_text(raw))]
+
+
 def to_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -106,22 +112,41 @@ def asset_url(kind: str, entry: dict[str, Any], codex: dict[str, Any], media: di
 
 
 def is_r18g_name(value: Any) -> bool:
-    text = str(value or "").lower()
+    text = clean_text(value).lower()
     return "r18g" in text or "\u91cd\u53e3" in text
 
 
 def is_nsfw_path_segment(value: Any) -> bool:
-    return str(value or "").lower() == "nsfw"
+    return clean_text(value).lower() == "nsfw"
 
 
-def entry_rating(entry: dict[str, Any]) -> str:
-    return str(entry.get("rating") or entry.get("level") or "").lower()
+def entry_ratings(entry: dict[str, Any]) -> list[str]:
+    """Return every declared rating marker, preserving a conservative gate.
+
+    Some imported records use ``rating`` while older records use ``level``;
+    checking them with ``or`` lets a benign value in one field mask a blocked
+    value in the other.  Treat both fields as independent claims instead.
+    """
+    values: list[str] = []
+    for key in ("rating", "level"):
+        raw = entry.get(key)
+        items = raw if isinstance(raw, (list, tuple, set)) else [raw]
+        for item in items:
+            marker = clean_text(item).lower()
+            if marker:
+                values.append(marker)
+    return values
 
 
 def is_safe_entry(entry: dict[str, Any]) -> bool:
-    if entry_rating(entry) in BLOCKED_RATINGS:
+    if any(marker in BLOCKED_RATINGS for marker in entry_ratings(entry)):
         return False
-    path = entry.get("path") if isinstance(entry.get("path"), list) else []
+    raw_path = entry.get("path")
+    # 缺失 path 的旧条目仍按无目录处理；但非数组值说明数据形状损坏，
+    # 不能把字符串 "NSFW" 当成空路径而生成完整分享卡。
+    if raw_path is not None and not isinstance(raw_path, list):
+        return False
+    path = raw_path or []
     if any(is_r18g_name(part) or is_nsfw_path_segment(part) for part in path):
         return False
     return True
@@ -137,7 +162,7 @@ def normalize_codex(data: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any
         "version": meta.get("version") or data.get("version") or "",
         "author": meta.get("author") or data.get("author") or "",
         "nsfw": bool(meta.get("nsfw") or data.get("nsfw")),
-        "aliases": meta.get("aliases") or data.get("aliases") or [],
+        "aliases": normalized_aliases(meta.get("aliases") or data.get("aliases")),
         "assetBaseUrl": normalize_base(meta.get("assetBaseUrl") or meta.get("baseUrl") or data.get("assetBaseUrl") or ""),
         "assetPathMode": meta.get("assetPathMode") or data.get("assetPathMode") or ("relative" if meta.get("dataUrl") else "codex"),
         "entryCount": meta.get("entryCount") or data.get("entryCount") or len(data.get("entries") or []),
@@ -272,7 +297,7 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         if not codex_id:
             warnings.append("codex metadata skipped: missing id")
             continue
-        aliases = [clean_text(alias) for alias in (meta.get("aliases") or []) if clean_text(alias)]
+        aliases = normalized_aliases(meta.get("aliases"))
         for alias in aliases:
             index["aliases"][alias] = codex_id
 

@@ -3,11 +3,14 @@
 """分享索引的分级断言：门控词条只借出词条名，别的字段一个都不许漏。"""
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-import build_share_index as bsi
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import build_share_index as bsi  # noqa: E402
 
 
 MEDIA = {"baseUrl": "https://assets.example.com", "imagePrefix": "images"}
@@ -78,6 +81,60 @@ class ShareIndexGrading(unittest.TestCase):
         # shareCount 只数出完整卡的词条，门控词条不许把它顶上去
         self.assertEqual(index["codexes"]["safe"]["shareCount"], 1)
         self.assertEqual(per_codex["safe"]["shareCount"], 1)
+
+    def test_gating_normalizes_whitespace_in_rating_and_path(self):
+        index, per_codex, _ = self.build(
+            [codex_meta("safe")],
+            {
+                "safe": {
+                    "id": "safe",
+                    "entries": [
+                        entry("safe-0001", "带空白的 R18", rating="  R18  "),
+                        entry("safe-0002", "带空白的 NSFW", path=["分类", " NSFW "]),
+                        entry("safe-0003", "带空白的 R18G", path=["分类", " R18G "]),
+                    ],
+                }
+            },
+        )
+        entries = per_codex["safe"]["entries"]
+        for gated_id in ("safe-0001", "safe-0002", "safe-0003"):
+            self.assertEqual(entries[gated_id]["shareable"], False)
+            self.assertEqual(set(entries[gated_id]), {"id", "title", "shareable"})
+        self.assertEqual(index["codexes"]["safe"]["shareCount"], 0)
+
+    def test_rating_and_level_are_independent_gates(self):
+        _, per_codex, _ = self.build(
+            [codex_meta("safe")],
+            {
+                "safe": {
+                    "id": "safe",
+                    "entries": [
+                        entry("safe-0001", "level masks rating", rating="safe", level=" R18 "),
+                        entry("safe-0002", "rating masks level", rating=" R18G ", level="safe"),
+                        entry("safe-0003", "both safe", rating="safe", level="sfw"),
+                    ],
+                }
+            },
+        )
+        entries = per_codex["safe"]["entries"]
+        self.assertEqual(entries["safe-0001"]["shareable"], False)
+        self.assertEqual(entries["safe-0002"]["shareable"], False)
+        self.assertEqual(entries["safe-0003"]["shareable"], True)
+
+    def test_malformed_path_is_gated_instead_of_treated_as_empty(self):
+        _, per_codex, _ = self.build(
+            [codex_meta("safe")],
+            {
+                "safe": {
+                    "id": "safe",
+                    "entries": [entry("safe-0001", "坏形状路径", path="NSFW")],
+                }
+            },
+        )
+        self.assertEqual(
+            per_codex["safe"]["entries"]["safe-0001"],
+            {"id": "safe-0001", "title": "坏形状路径", "shareable": False},
+        )
 
     def build_with_flag(self, flag, codexes, books):
         original = bsi.TITLE_ONLY_NSFW_BOOKS

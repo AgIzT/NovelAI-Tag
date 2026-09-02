@@ -100,6 +100,7 @@ const {
   lightboxOriginalCopy,
   preloadImage,
   preloadLightboxNeighbors,
+  shareUrlForEntry,
   setLightboxScrollLocked,
 } = await import('../site/assets/app/lightbox.js');
 const { entryImages, imageItemHasOriginal } = await import('../site/assets/app/media.js');
@@ -129,7 +130,14 @@ const {
 const { nextDensity } = await import('../site/assets/app/ui.js');
 const { buildFeedbackContext, feedbackTimeoutSignal, setupReport } = await import('../site/assets/app/report.js');
 const { safeHttpUrl } = await import('../site/assets/app/utils.js');
-const { atlasUrlForRoute, readUrlState } = await import('../site/assets/app/router.js');
+const {
+  atlasUrlForRoute,
+  documentTitleForRoute,
+  openEntryDeepLink,
+  readUrlState,
+  setRouterActions,
+  syncUrlState,
+} = await import('../site/assets/app/router.js');
 const { loadAnnouncements } = await import('../site/assets/app/announcements.js');
 
 // 法典选择器与详情横幅共用 cover 元数据；首条词条只作为无封面时的兜底。
@@ -695,6 +703,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 {
   const originalSearch = location.search;
   const originalPathname = location.pathname;
+  const originalBaseURI = document.baseURI;
 
   const url = atlasUrlForRoute({ codex: 'book', path: ['r18g/重口', '二级'] });
   const generated = new URL(url, location.href);
@@ -713,6 +722,21 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   location.search = '';
   assert.equal(readUrlState().codex, 'book');
   assert.equal(readUrlState().entry, 'book-0001');
+  location.pathname = originalPathname;
+
+  // 静态子路径没有 /share Function；必须退回可刷新、可直接分享的查询参数路由。
+  document.baseURI = 'http://localhost/NovelAI-Tag/';
+  const subpathEntryUrl = atlasUrlForRoute({ codex: 'book', entry: 'book-0001', path: ['分类'] });
+  const subpathEntry = new URL(subpathEntryUrl, location.href);
+  assert.equal(subpathEntry.pathname, '/NovelAI-Tag/');
+  assert.equal(subpathEntry.searchParams.get('c'), 'book');
+  assert.equal(subpathEntry.searchParams.get('entry'), 'book-0001');
+  assert.match(subpathEntry.searchParams.get('p'), /^[0-9a-z]+$/);
+  location.pathname = subpathEntry.pathname;
+  location.search = subpathEntry.search;
+  assert.equal(readUrlState().codex, 'book');
+  assert.equal(readUrlState().entry, 'book-0001');
+  document.baseURI = originalBaseURI;
   location.pathname = originalPathname;
 
   // 收藏 / 全站搜索是私人视图，换成 /share/ 会把上下文丢给收链接的人
@@ -739,6 +763,97 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(readUrlState().entry, 'book-0001');
 
   location.search = originalSearch;
+}
+
+// 灯箱切词条、关闭以及 history restore 期间都要刷新标题；不能沿用 Function 注入的首条标题。
+{
+  const previous = {
+    codex: state.codex,
+    browseCodex: state.browseCodex,
+    lightbox: state.lightbox,
+    favoritesView: state.favoritesView,
+    siteSearchView: state.siteSearchView,
+    suppressUrlSync: state.suppressUrlSync,
+    title: document.title,
+  };
+  const first = { id: 'book-0001', title: '第一条' };
+  const second = { id: 'book-0002', title: '第二条' };
+  state.codex = { id: 'book', title: '测试法典', entries: [first, second] };
+  state.lightbox = { entry: first, images: [], index: 0 };
+  state.favoritesView = false;
+  state.siteSearchView = false;
+  state.suppressUrlSync = true;
+  document.title = '服务端注入的旧标题';
+
+  syncUrlState({ entry: first.id, historyMode: 'none', saveBrowse: false });
+  assert.equal(document.title, '第一条 · 测试法典 | 法典图鉴');
+  syncUrlState({ entry: second.id, historyMode: 'none', saveBrowse: false });
+  assert.equal(document.title, '第二条 · 测试法典 | 法典图鉴');
+  syncUrlState({ entry: '', historyMode: 'none', saveBrowse: false });
+  assert.equal(document.title, '法典图鉴 · NovelAI 提示词');
+
+  // 收藏/全站搜索是合成法典，详情标题必须沿用词条的真实来源书名。
+  const virtualEntry = {
+    id: 'community_ai_misc-0001',
+    title: '来源词条',
+    _srcCodexId: 'community_ai_misc',
+    _srcCodexTitle: '社区 AI 杂图',
+  };
+  const virtualCodex = { id: 'favorites', title: '全部收藏', entries: [virtualEntry] };
+  assert.equal(
+    documentTitleForRoute({ codex: 'nai45_community_pack', favorites: true, entry: virtualEntry.id }, virtualCodex),
+    '来源词条 · 社区 AI 杂图 | 法典图鉴',
+  );
+
+  Object.assign(state, {
+    codex: previous.codex,
+    browseCodex: previous.browseCodex,
+    lightbox: previous.lightbox,
+    favoritesView: previous.favoritesView,
+    siteSearchView: previous.siteSearchView,
+    suppressUrlSync: previous.suppressUrlSync,
+  });
+  document.title = previous.title;
+}
+
+// 显式分享按钮与地址栏共用同一生成器：根部署发 /share，子路径部署发查询参数链接。
+{
+  const previousCodexes = state.codexes;
+  const previousCodex = state.codex;
+  const previousBrowseCodex = state.browseCodex;
+  const previousFavoritesView = state.favoritesView;
+  const previousSiteSearchView = state.siteSearchView;
+  const originalBaseURI = document.baseURI;
+  state.codexes = [{ id: 'book', aliases: [] }];
+  state.codex = { id: 'book', entries: [] };
+  state.browseCodex = state.codex;
+  state.favoritesView = false;
+  state.siteSearchView = false;
+
+  document.baseURI = 'http://localhost/';
+  assert.equal(shareUrlForEntry({ id: 'book-0001' }), 'http://localhost/share/book/book-0001');
+  document.baseURI = 'http://localhost/NovelAI-Tag/';
+  const subpathShare = new URL(shareUrlForEntry({ id: 'book-0001' }));
+  assert.equal(subpathShare.pathname, '/NovelAI-Tag/');
+  assert.equal(subpathShare.searchParams.get('c'), 'book');
+  assert.equal(subpathShare.searchParams.get('entry'), 'book-0001');
+
+  // 合并册规范化书级 alias，但真实来源词条 ID（旧前缀）不能被改写。
+  state.codexes = [{ id: 'nai45_community_pack', aliases: ['community_ai_misc'] }];
+  state.codex = { id: 'nai45_community_pack', entries: [] };
+  state.browseCodex = state.codex;
+  document.baseURI = 'http://localhost/';
+  assert.equal(
+    shareUrlForEntry({ _srcCodexId: 'community_ai_misc', id: 'community_ai_misc-0001' }),
+    'http://localhost/share/nai45_community_pack/community_ai_misc-0001',
+  );
+
+  state.codexes = previousCodexes;
+  state.codex = previousCodex;
+  state.browseCodex = previousBrowseCodex;
+  state.favoritesView = previousFavoritesView;
+  state.siteSearchView = previousSiteSearchView;
+  document.baseURI = originalBaseURI;
 }
 
 // 外链仅允许绝对 HTTP(S)，反馈超时在旧浏览器没有 timeout() 时自然降级。
@@ -1081,6 +1196,88 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     composeSource,
     /function draftFromInspector\(\)[\s\S]*return \{[\s\S]*function preserveOrphanedDraft\(\)[\s\S]*orphanedDraft = draft;[\s\S]*function renderCompose\(\)[\s\S]*if \(editorTargetGone\) \{[\s\S]*preserveOrphanedDraft\(\);[\s\S]*renderOrphanedDraft\(\);/,
   );
+}
+
+// 合并册旧分享链接：alias 前缀可正向归一；旧 canonical 前缀只有唯一来源时反解，
+// 多来源同号必须拒绝，且成功结果返回真实 entry id 供 history 规范化。
+{
+  const previous = {
+    codex: state.codex,
+    list: state.list,
+    placements: state.placements,
+    nodes: state.nodes,
+    lightbox: state.lightbox,
+    activePath: state.activePath,
+    query: state.query,
+    suppressUrlSync: state.suppressUrlSync,
+    favoritesView: state.favoritesView,
+    siteSearchView: state.siteSearchView,
+  };
+  const opened = [];
+  const uniqueEntry = {
+    id: 'community_ai_misc-0001',
+    title: '旧链接唯一来源',
+    path: [],
+    image: 'community.jpg',
+  };
+  state.codex = {
+    id: 'nai45_community_pack',
+    aliases: ['community_ai_misc'],
+    entries: [uniqueEntry],
+  };
+  state.list = [];
+  state.placements = [];
+  state.nodes = new Map();
+  state.lightbox = { entry: null, images: [], index: 0 };
+  state.activePath = [];
+  state.query = '';
+  state.suppressUrlSync = true;
+  state.favoritesView = false;
+  state.siteSearchView = false;
+  setRouterActions({
+    openLightbox: entry => {
+      opened.push(entry);
+      state.lightbox = { entry, images: [{ path: entry.image }], index: 0 };
+    },
+    renderTree: () => {},
+    applyFilter: () => {},
+    updateVirtualCards: () => {},
+  });
+  assert.equal(openEntryDeepLink('nai45_community_pack-0001'), 'community_ai_misc-0001');
+  assert.equal(opened.at(-1), uniqueEntry);
+
+  state.codex.aliases = ['mengshen_pack', 'community_ai_misc'];
+  state.codex.entries = [
+    uniqueEntry,
+    { ...uniqueEntry, id: 'mengshen_pack-0001', title: '另一个来源' },
+  ];
+  opened.length = 0;
+  assert.equal(openEntryDeepLink('nai45_community_pack-0001'), false, '歧义旧链接不得猜来源');
+  assert.equal(opened.length, 0);
+
+  state.codex = {
+    id: 'nai45_community_pack',
+    aliases: ['community_ai_misc'],
+    entries: [{ id: 'nai45_community_pack-0001', title: '规范来源', path: [], image: 'canonical.jpg' }],
+  };
+  assert.equal(openEntryDeepLink('community_ai_misc-0001'), 'nai45_community_pack-0001');
+
+  state.codex = previous.codex;
+  state.list = previous.list;
+  state.placements = previous.placements;
+  state.nodes = previous.nodes;
+  state.lightbox = previous.lightbox;
+  state.activePath = previous.activePath;
+  state.query = previous.query;
+  state.suppressUrlSync = previous.suppressUrlSync;
+  state.favoritesView = previous.favoritesView;
+  state.siteSearchView = previous.siteSearchView;
+  setRouterActions({
+    openLightbox: () => {},
+    renderTree: () => {},
+    applyFilter: () => {},
+    updateVirtualCards: () => {},
+  });
 }
 
 console.log('render UI regressions: PASS');

@@ -22,12 +22,16 @@ const routerActions = {
   restoreHistoryScroll: async () => {},
 };
 
+const DEFAULT_DOCUMENT_TITLE = '法典图鉴 · NovelAI 提示词';
+const SITE_NAME = '法典图鉴';
+
 export function setRouterActions(actions = {}) {
   Object.assign(routerActions, actions);
 }
 
-/* /share/<法典>/<词条> 是词条深链的规范地址：这条路由由 Pages Function 渲染 OG 卡，
+/* 根部署的 /share/<法典>/<词条> 是词条深链的规范地址：这条路由由 Pages Function 渲染 OG 卡，
    再把 App 外壳原样交付（注入 <base href="/">），所以地址栏停在它上面、复制即可分享。
+   静态子路径部署没有这条 Function，写 URL 时会退回查询参数；读取端继续只认根级 /share。
    词条 id 里可能带 '/'，与后端 functions/_share.js 的 parseSharePath 保持同一种兜法。 */
 export function readSharePathname(pathname) {
   const parts = String(pathname || '').split('/').filter(Boolean);
@@ -91,13 +95,31 @@ function appBasePath() {
   }
 }
 
+export function documentTitleForRoute(route, codex = state.codex) {
+  const entryId = String(route?.entry || '');
+  if (entryId && codex) {
+    const activeEntry = state.lightbox?.entry?.id === entryId ? state.lightbox.entry : null;
+    const entry = activeEntry || codex.entries?.find(candidate => candidate.id === entryId);
+    const entryTitle = String(entry?.title || '').trim();
+    // 收藏/全站搜索使用合成法典；词条上的来源标题才是用户真正打开的那本书。
+    // 没有来源标记时再退回当前视图标题，兼容旧数据和普通法典。
+    const codexTitle = String(entry?._srcCodexTitle || codex.title || '').trim();
+    if (entryTitle && codexTitle) return `${entryTitle} · ${codexTitle} | ${SITE_NAME}`;
+  }
+  return DEFAULT_DOCUMENT_TITLE;
+}
+
+function syncDocumentTitle(route) {
+  if (typeof document !== 'undefined') document.title = documentTitleForRoute(route);
+}
+
 export function atlasUrlForRoute(route) {
   const base = appBasePath();
   const virtualView = Boolean(route.favorites || route.siteSearch);
-  /* 开着灯箱就把地址栏换成 /share/<法典>/<词条>——那条路由带 OG 卡，用户直接复制地址栏
-     也能在群里出预览图。收藏 / 全站搜索是私人视图，换过去会把上下文丢给收链接的人，
-     所以维持查询串形态（本来就是短 ASCII）。 */
-  if (route.entry && route.codex && !virtualView) {
+  /* 根部署开着灯箱就把地址栏换成 /share/<法典>/<词条>——那条路由带 OG 卡，用户直接复制
+     也能出预览图。非根静态部署没有 Function，只能用下方查询串保证刷新可达。收藏 / 全站搜索
+     是私人视图，换过去会把上下文丢给收链接的人，所以同样维持查询串形态。 */
+  if (route.entry && route.codex && !virtualView && base === '/') {
     return `${base}share/${encodeURIComponent(route.codex)}/${encodeURIComponent(route.entry)}`;
   }
 
@@ -144,15 +166,19 @@ export function syncUrlState(options = {}) {
     parentScrollY,
   } = options;
   const historyMode = options.historyMode || 'replace';
-  if (state.suppressUrlSync || !state.codex) return;
+  if (!state.codex) return;
   const entryId = entry === undefined ? (state.lightbox.entry?.id || '') : entry;
+  const route = captureAtlasRoute(entryId);
+  // history restore 会暂时禁止 URL 写入，但灯箱仍在开合；标题不能因此停在上一条词条。
+  syncDocumentTitle(route);
+  if (state.suppressUrlSync) return;
   commitHistoryRoute({
     mode: historyMode,
     transition,
     sessionId,
     consumeLayer,
     parentScrollY,
-    route: captureAtlasRoute(entryId),
+    route,
   });
   if (saveBrowse) routerActions.onUrlSync(entryId);
 }
@@ -176,17 +202,37 @@ function decodeLegacyPathParam(value) {
 
 export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
   if (!state.codex || !entryId) return false;
-  const candidates = [entryId];
-  for (const alias of state.codex.aliases || []) {
-    if (entryId.startsWith(`${alias}-`)) {
-      candidates.push(`${state.codex.id}${entryId.slice(alias.length)}`);
+  const rawId = String(entryId);
+  const aliases = Array.isArray(state.codex.aliases)
+    ? state.codex.aliases.map(alias => String(alias || '').trim()).filter(Boolean)
+    : [];
+  const uniqueMatches = ids => {
+    const matches = [];
+    for (const id of ids) {
+      const entry = state.codex.entries.find(candidate => candidate.id === id);
+      if (entry && !matches.some(item => item.id === entry.id)) matches.push(entry);
     }
+    return matches;
+  };
+  let matches = uniqueMatches([rawId]);
+  if (!matches.length) {
+    const forwardIds = aliases
+      .filter(alias => rawId.startsWith(`${alias}-`) && alias !== state.codex.id)
+      .map(alias => `${state.codex.id}${rawId.slice(alias.length)}`);
+    matches = uniqueMatches(forwardIds);
   }
-  const entry = state.codex.entries.find(e => candidates.includes(e.id));
-  if (!entry) {
+  if (!matches.length && rawId.startsWith(`${state.codex.id}-`)) {
+    // 兼容短链修复前生成的 canonical 前缀 ID；来源信息丢失时多候选必须拒绝。
+    const reverseIds = aliases
+      .filter(alias => alias !== state.codex.id)
+      .map(alias => `${alias}${rawId.slice(state.codex.id.length)}`);
+    matches = uniqueMatches(reverseIds);
+  }
+  if (matches.length !== 1) {
     syncUrlState({ historyMode: 'replace', entry: '' });
     return false;
   }
+  const [entry] = matches;
   if (isR18gBlocked(entry)) {
     showR18gLockedHint();
     syncUrlState({ entry: '' });
@@ -216,7 +262,7 @@ export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
       historyMode: 'none',
       recordRecent: !isRestoringHistory(),
     });
-    return true;
+    return entry.id;
   } else {
     toast('这个词条还没有例图');
     syncUrlState({ entry: '' });

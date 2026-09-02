@@ -2104,6 +2104,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         legacy_id_js = js_string(legacy_id)
         canonical_path_js = json.dumps(legacy_artist_path, ensure_ascii=False)
         entry_id_js = js_string(str(legacy_artist_entry["id"]))
+        canonical_share_path_js = js_string(
+            "/share/"
+            + urllib.parse.quote(canonical_id, safe="")
+            + "/"
+            + urllib.parse.quote(str(legacy_artist_entry["id"]), safe="")
+        )
         legacy_pairs = [("codex", legacy_id)]
         legacy_pairs.extend(("path", segment) for segment in legacy_artist_source_path)
         legacy_pairs.append(("path", ""))
@@ -2115,7 +2121,10 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp,
             "history.state?.page === 'atlas'"
             + " && history.state.route.codex === " + canonical_id_js
-            + " && new URL(location.href).searchParams.get('codex') === " + canonical_id_js
+            + " && new URL(location.href).searchParams.get('c') === " + canonical_id_js
+            + " && new URL(location.href).searchParams.has('p')"
+            + " && !new URL(location.href).searchParams.has('codex')"
+            + " && !new URL(location.href).searchParams.has('path')"
             + " && JSON.stringify(history.state.route.path) === JSON.stringify(" + canonical_path_js + ")"
             + " && document.querySelectorAll('.card').length > 0",
             "legacy codex bookmark canonicalized",
@@ -2131,7 +2140,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             "document.querySelector('#lightbox')?.classList.contains('is-open')"
             + " && history.state?.route?.entry === " + entry_id_js
             + " && history.state.route.codex === " + canonical_id_js
-            + " && new URL(location.href).searchParams.get('codex') === " + canonical_id_js
+            + " && location.pathname === " + canonical_share_path_js
+            + " && location.search === ''"
             + " && JSON.stringify(history.state.route.path) === JSON.stringify(" + canonical_path_js + ")",
             "legacy codex entry deep link canonicalized",
             timeout=15,
@@ -2173,14 +2183,17 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp,
             "history.state?.id === " + js_string(adopted["id"])
             + " && history.state.route.codex === " + canonical_id_js
-            + " && new URL(location.href).searchParams.get('codex') === " + canonical_id_js
+            + " && new URL(location.href).searchParams.get('c') === " + canonical_id_js
+            + " && new URL(location.href).searchParams.has('p')"
+            + " && !new URL(location.href).searchParams.has('codex')"
+            + " && !new URL(location.href).searchParams.has('path')"
             + " && JSON.stringify(history.state.route.path) === JSON.stringify(" + canonical_path_js + ")"
             + " && document.querySelectorAll('.card').length > 0",
             "legacy codex Back record canonicalized",
             timeout=15,
         )
         back_record = cdp.eval("({url:location.href,codex:history.state.route.codex,path:history.state.route.path})")
-        if cdp.eval("new URL(location.href).searchParams.get('codex') === " + legacy_id_js):
+        if cdp.eval("new URL(location.href).searchParams.get('c') === " + legacy_id_js):
             raise CheckFailed("Legacy codex alias remained in the address bar")
         check_no_errors(cdp)
         return {
