@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]  # tools/attic/ 比 tools/ 深一层
 DATA_DIR = ROOT / "site" / "data"
 SHARE_DIR = DATA_DIR / "share"
 BACKUP_ROOT = ROOT / "output" / "edit-backups"
