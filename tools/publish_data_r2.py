@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from .program_compatibility import DEFAULT_SITE_ORIGIN, ProgramCompatibilityError, ensure_program_ready, required_program_files
     from .sync_r2 import (
         DEFAULT_RETRY_BASE_DELAY,
         DEFAULT_UPLOAD_RETRIES,
@@ -24,7 +23,6 @@ try:
         request_config,
     )
 except ImportError:
-    from program_compatibility import DEFAULT_SITE_ORIGIN, ProgramCompatibilityError, ensure_program_ready, required_program_files
     from sync_r2 import (
         DEFAULT_RETRY_BASE_DELAY,
         DEFAULT_UPLOAD_RETRIES,
@@ -38,6 +36,9 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "site" / "data"
 SCHEMA_VERSION = 1
+DEFAULT_SITE_ORIGIN = "https://novelai.quicktagcloud.com"
+# 选择器认识的类型；多出来的只提示、不拦发布。
+KNOWN_CODEX_TYPES = {"codex", "string", "composition", "pack"}
 DEFAULT_DATA_PREFIX = "data"
 RELEASE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 POINTER_CACHE_CONTROL = "no-store"
@@ -137,7 +138,10 @@ def collect_release_files(data_dir=DATA_DIR):
     index = parsed.get("codexes.json")
     if not isinstance(index, list):
         raise ValueError("codexes.json must contain an array")
-    required_program_files(index)  # 未注册的新类型不能静默发布后从选择器消失。
+    unknown_types = sorted({str(item.get("type") or "codex") for item in index if isinstance(item, dict)} - KNOWN_CODEX_TYPES)
+    if unknown_types:
+        # 只提示不拦：选择器不认识的类型会让那本书哪一栏都不显示，但发不发由维护者决定。
+        print("WARNING: 选择器未注册的类型 " + ", ".join(unknown_types) + "；这些书在前端不会出现在任何分类下", file=sys.stderr)
     seen = set()
     for item in index:
         cid = str(item.get("id") or "") if isinstance(item, dict) else ""
@@ -314,19 +318,7 @@ def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30):
         raise RuntimeError("public manifest does not match the release just uploaded")
 
 
-def plan_program_files(plan):
-    item = next(item for item in plan.files if item.relative_path == "codexes.json")
-    body = item.path.read_bytes()
-    if sha256_bytes(body) != item.sha256:
-        raise RuntimeError("codexes.json changed after planning; rebuild the release plan")
-    return required_program_files(json.loads(body.decode("utf-8")))
-
-
-def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None, program_check=None):
-    program_check = program_check or ensure_program_ready
-    program_files = plan_program_files(plan)
-    if program_files:
-        program_check(program_files)  # 在任何 R2 上传之前拦住未部署/对不上的旧程序。
+def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None):
     data_prefix = normalize_prefix(data_prefix)
     release_prefix = f"{data_prefix}/releases/{plan.release}"
     uploaded = 0
@@ -352,9 +344,6 @@ def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=
 
     if public_check:
         public_check(plan)
-
-    if program_files:
-        program_check(plan_program_files(plan))  # 上传可能耗时；切指针前再确认程序仍兼容。
 
     current_key = f"{data_prefix}/current.json"
     previous = client.get_json(current_key) or {}
@@ -384,19 +373,12 @@ def verify_manifest_files(client, data_prefix, release, manifest):
         verify_object(client, key, int(meta.get("size") or 0), str(meta.get("sha256") or ""))
 
 
-def activate_release(client, data_prefix, release, program_check=None):
+def activate_release(client, data_prefix, release):
     data_prefix = normalize_prefix(data_prefix)
     manifest = load_remote_manifest(client, data_prefix, release)
     if "codexes.json" not in manifest["files"]:
         raise RuntimeError("release manifest is missing codexes.json")
-    index = client.get_json(f"{data_prefix}/releases/{release}/codexes.json")
-    program_files = required_program_files(index)
-    program_check = program_check or ensure_program_ready
-    if program_files:
-        program_check(program_files)
     verify_manifest_files(client, data_prefix, release, manifest)
-    if program_files:
-        program_check(program_files)
     current_key = f"{data_prefix}/current.json"
     current = client.get_json(current_key) or {}
     pointer = build_pointer(manifest, previous_release=previous_release_for(current, release))
@@ -424,18 +406,10 @@ def main(argv=None):
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--publish", action="store_true", help="Upload and activate the local JSON release.")
     actions.add_argument("--check-current", action="store_true", help="Verify the active remote release.")
-    actions.add_argument("--check-program", action="store_true", help="Check that production runs this exact program; no R2 writes. The browser-cache wait is manual.")
     actions.add_argument("--activate-release", metavar="RELEASE", help="Activate an existing release after validation.")
     actions.add_argument("--rollback", action="store_true", help="Activate current.json previousRelease.")
     parser.add_argument("--skip-public-check", action="store_true", help="Skip public custom-domain CORS verification.")
     args = parser.parse_args(argv)
-
-    if args.check_program:
-        index = json.loads((DATA_DIR / "codexes.json").read_text(encoding="utf-8"))
-        cfg = load_config(required=False)
-        ensure_program_ready(required_program_files(index), site_origin=cfg.get("site_origin") or DEFAULT_SITE_ORIGIN)
-        print("program compatibility OK; data may be published")
-        return 0
 
     local_action = args.publish or not any((args.check_current, args.activate_release, args.rollback))
     plan = build_release_plan() if local_action else None
@@ -444,16 +418,12 @@ def main(argv=None):
         print(f"release: {plan.release}")
         print(f"files: {len(plan.files)}")
         print(f"bytes: {total_size}")
-        program_files = plan_program_files(plan)
-        if program_files:
-            print(f"program compatibility guard: {len(program_files)} files must already be deployed; the 4h browser-cache wait is manual (see docs/运维/R2数据发布与回滚.md)")
     if not any((args.publish, args.check_current, args.activate_release, args.rollback)):
         print("plan only; pass --publish to upload and activate")
         return 0
 
     cfg = load_config(required=True)
     site_origin = str(cfg.get("site_origin") or DEFAULT_SITE_ORIGIN).rstrip("/")
-    program_check = lambda files: ensure_program_ready(files, site_origin=site_origin)
     data_prefix = normalize_prefix(cfg.get("data_prefix") or DEFAULT_DATA_PREFIX)
     client = R2DataClient(cfg)
     if args.check_current:
@@ -461,7 +431,7 @@ def main(argv=None):
         print(f"active release OK: {pointer['release']} ({len(manifest['files'])} files)")
         return 0
     if args.activate_release:
-        pointer = activate_release(client, data_prefix, args.activate_release, program_check=program_check)
+        pointer = activate_release(client, data_prefix, args.activate_release)
         print(f"activated release: {pointer['release']}")
         return 0
     if args.rollback:
@@ -469,7 +439,7 @@ def main(argv=None):
         target = current.get("previousRelease") or ""
         if not target:
             raise SystemExit("current pointer has no previousRelease")
-        pointer = activate_release(client, data_prefix, target, program_check=program_check)
+        pointer = activate_release(client, data_prefix, target)
         print(f"rolled back to: {pointer['release']}")
         return 0
 
@@ -479,7 +449,7 @@ def main(argv=None):
         public_check = lambda release_plan: check_public_release(
             base_url, site_origin, data_prefix, release_plan
         )
-    result = publish_release(client, plan, data_prefix, public_check=public_check, program_check=program_check)
+    result = publish_release(client, plan, data_prefix, public_check=public_check)
     print(f"uploaded: {result['uploaded']}")
     print(f"skipped: {result['skipped']}")
     print(f"activated: {result['pointer']['release']}")
@@ -489,9 +459,6 @@ def main(argv=None):
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except ProgramCompatibilityError as ex:
-        print(f"PROGRAM COMPATIBILITY: {ex}", file=sys.stderr)
-        sys.exit(2)
     except (ValueError, RuntimeError) as ex:
         print(f"ERROR: {ex}", file=sys.stderr)
         sys.exit(1)

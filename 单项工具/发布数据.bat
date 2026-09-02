@@ -39,13 +39,6 @@ if not exist r2_config.json (
   exit /b 1
 )
 
-echo == Checking deployed program compatibility before any upload ==
-call %PY% "tools\publish_data_r2.py" --check-program
-if errorlevel 1 (
-  echo [STOP] No images or data were uploaded. Follow the compatibility message above and rerun later.
-  exit /b 1
-)
-
 echo == Syncing images and JSON metadata to Cloudflare R2 ==
 call %PY% "tools\sync_r2.py"
 set "RC=%ERRORLEVEL%"
