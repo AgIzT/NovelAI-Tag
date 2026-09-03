@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""提交信息闸门：三条纯客观检查（标题字数 / 正文体量 / 禁词表）。
+"""提交信息闸门：四条纯客观检查（标题字数 / 正文体量 / 禁词表 / AI 署名）。
 
 规则、正反例、正文允许写的三种情况，一律见 AGENTS.md「提交信息规范」。
 本脚本只做机器判得准的部分；文风靠规范约束，不在这里用词表猜。
@@ -21,6 +21,12 @@ SCISSORS = "# ------------------------ >8"
 
 # 连续的英文/数字串整体算一个字：去除Turnstile=3、share短链=3、R2桶地址修改=6
 WORD_RUN = re.compile(r"[A-Za-z0-9_.+#/@-]+")
+
+# AI 署名：AGENTS.md 硬约束第一条。纯字符串匹配，属于「机器判得准」的那部分。
+# 仓库自己会正常提到 CLAUDE.md / .claude/ / claude版，先摘掉这些再匹配，只认署名痕迹。
+AI_ALLOW = re.compile(r"CLAUDE\.md|AGENTS\.md|\.claude/|claude版", re.I)
+AI_MARKS = re.compile(r"co-?authored-by|generated with|claude\.ai|claude[- ]code|"
+                      r"anthropic|chatgpt|copilot|codex cli|🤖", re.I)
 
 
 def size(text):
@@ -51,6 +57,23 @@ def load_blocklist(here):
             if ln.strip() and not ln.startswith("#")]
 
 
+def check_sensitive(lines, blocklist):
+    """禁词表 + AI 署名。合并/回滚这类 git 自动生成的信息也要过这两条。"""
+    bad = []
+    text = "\n".join(lines)
+
+    hit = [w for w in blocklist if w in text]
+    if hit:
+        bad.append("命中禁词表 tools/githooks/blocklist.local.txt（%d 处）。"
+                   "仓库公开、git 历史不可撤销，换中性说法。" % len(hit))
+
+    if AI_MARKS.search(AI_ALLOW.sub("", text)):
+        bad.append("提交信息里有 AI 署名/痕迹。见 AGENTS.md「不能做什么」第一条，"
+                   "任何形式一律禁止——删掉那行再提交。")
+
+    return bad
+
+
 def check(lines, blocklist):
     bad = []
     subject = lines[0]
@@ -75,10 +98,7 @@ def check(lines, blocklist):
             bad.append("正文这行 %d 字，超过 %d：%s" % (size(ln), MAX_BODY_LINE, ln[:24]))
             break
 
-    hit = [w for w in blocklist if w in "\n".join(lines)]
-    if hit:
-        bad.append("命中禁词表 tools/githooks/blocklist.local.txt（%d 处）。"
-                   "仓库公开、git 历史不可撤销，换中性说法。" % len(hit))
+    bad += check_sensitive(lines, blocklist)
 
     return bad
 
@@ -97,10 +117,13 @@ def main():
     if len(sys.argv) < 2:
         return 0
     lines = strip_comments(Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace"))
-    if not lines or lines[0].startswith(SKIP_PREFIXES):
+    if not lines:
         return 0
 
-    bad = check(lines, load_blocklist(Path(__file__).resolve().parent))
+    blocklist = load_blocklist(Path(__file__).resolve().parent)
+    # 合并/回滚信息由 git 生成，标题形状不归我们管；禁词与 AI 署名仍要查
+    bad = (check_sensitive(lines, blocklist) if lines[0].startswith(SKIP_PREFIXES)
+           else check(lines, blocklist))
     if not bad:
         return 0
 
