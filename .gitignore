@@ -53,3 +53,6 @@ docs/
 .dev.vars
 .wrangler/
 node_modules/
+
+# 提交信息禁词表：只在本地生效，绝不能进公开仓库
+tools/githooks/blocklist.local.txt

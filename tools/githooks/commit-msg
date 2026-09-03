@@ -1,0 +1,11 @@
+#!/bin/sh
+# 提交信息闸门。规则见同目录 check_commit_msg.py 与 AGENTS.md「提交信息规范」。
+# 激活方式：git config core.hooksPath tools/githooks
+dir=$(dirname "$0")
+for py in python python3 py; do
+  if command -v "$py" >/dev/null 2>&1; then
+    exec "$py" "$dir/check_commit_msg.py" "$1"
+  fi
+done
+echo "[commit-msg] 未找到 python，跳过提交信息检查" >&2
+exit 0
