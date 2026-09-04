@@ -51,6 +51,10 @@ echo [ERROR] R2 asset sync failed with code %RC%.
 exit /b %RC%
 
 :sync_ok
+echo == Building cross-codex update index ==
+call %PY% "tools\build_updates_index.py"
+if errorlevel 1 exit /b 1
+
 echo == Building share card index ==
 call %PY% "tools\build_share_index.py"
 if errorlevel 1 exit /b 1

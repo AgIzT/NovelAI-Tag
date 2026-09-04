@@ -107,7 +107,7 @@ export function renderCodexChips(c = {}) {
 /* 选择器封面：codexes.json 的 `cover` 字段（本站书＝该书图片目录下的缩略图文件名，
    外部源书＝对方站上的相对路径，两者都由 thumbUrl 按该书的 assetPathMode 解析）。
    没写就退化成占位块（渐变 + 类型图标），不会显示成坏图；换封面＝改这一行数据，不用动代码。 */
-function codexCoverUrl(c) {
+export function codexCoverUrl(c) {
   if (!c?.cover) return '';
   // coverCodexId：封面借用别本的图片前缀时才需要写（如合并册沿用的历史资源目录）
   return thumbUrl({ image: c.cover, assetRev: c.coverRev || '', assetCodexId: c.coverCodexId || '' }, c);

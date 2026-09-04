@@ -2,21 +2,33 @@ import { $, esc, safeJsonParse } from './utils.js';
 import { openMask, closeMask, trapFocus } from './modal.js';
 import { formatRecentTime } from './history.js';
 import { fetchDataJson } from '../data-source.js';
+import {
+  loadUpdates, updatesDigest, renderUpdatesList, markUpdatesRead, handleUpdateRowClick,
+} from './updates.js';
 
 const READ_STORAGE_KEY = 'fadian-ann-read-ids';
+const TABS = ['updates', 'announcements', 'feedback'];
 
 let announcements = [];
 let loaded = false;
 let loadingPromise = null;
+let activeTab = 'announcements';
 
+/* 面板由顶栏气泡的三个入口驱动，气泡自己不渲染内容——它只回答「有没有」，
+   点开哪一栏由 openAnnouncementsPanel 的 tab 参数决定。 */
 export function setupAnnouncements({ closeMore = () => {}, trigger = null, historyMode = () => 'push' } = {}) {
   const mask = $('#announcementsPanel');
   const btn = $('#announcementsBtn');
   if (!mask || !btn) return;
-  btn.addEventListener('click', async () => {
-    closeMore();
-    await loadAnnouncements();
-    openAnnouncementsPanel(trigger || btn, { historyMode: historyMode() });
+  mask.addEventListener('click', event => {
+    const tabBtn = event.target.closest?.('[data-announcements-tab]');
+    if (tabBtn && mask.contains(tabBtn)) {
+      selectAnnouncementsTab(String(tabBtn.dataset.announcementsTab || ''));
+      return;
+    }
+    /* 不手动 closeMask：那会发一次异步 history.back()，和随后的换书 push 抢历史栈，
+       结果是路由到了、面板还开着。交给 openBatch 的 consumeLayer 顶掉这一层。 */
+    handleUpdateRowClick(event, { consumeLayer: true });
   });
   $('#announcementsClose')?.addEventListener('click', () => closeMask(mask));
   mask.addEventListener('click', ev => { if (ev.target === mask) closeMask(mask); });
@@ -28,7 +40,8 @@ export function setupAnnouncements({ closeMore = () => {}, trigger = null, histo
     }
     trapFocus(ev, mask);
   });
-  loadAnnouncements().then(updateAnnouncementBadge).catch(() => updateAnnouncementBadge());
+  /* 两条流各自失败互不牵连：公告挂了不该让更新页签也空着，反之亦然。 */
+  Promise.allSettled([loadAnnouncements(), loadUpdates()]).then(updateAnnouncementBadge);
 }
 
 export async function loadAnnouncements() {
@@ -49,22 +62,76 @@ export async function loadAnnouncements() {
   return loadingPromise;
 }
 
-export function openAnnouncementsPanel(trigger = document.activeElement, { historyMode = 'push' } = {}) {
+export function openAnnouncementsPanel(trigger = document.activeElement, { historyMode = 'push', tab = '' } = {}) {
   const mask = $('#announcementsPanel');
   if (!mask) return;
   renderAnnouncements();
-  markVisibleAnnouncementsRead();
-  updateAnnouncementBadge();
+  selectAnnouncementsTab(tab || defaultTab());
   openMask(mask, trigger, { historyMode });
 }
 
+/* 未读优先：有更新就先开更新页，其次公告，都读完了回到公告。 */
+function defaultTab() {
+  if (updatesDigest().entries > 0) return 'updates';
+  if (hasUnreadAnnouncements()) return 'announcements';
+  return 'announcements';
+}
+
+export function selectAnnouncementsTab(value) {
+  const tab = TABS.includes(value) ? value : 'announcements';
+  activeTab = tab;
+  document.querySelectorAll('[data-announcements-tab]').forEach(button => {
+    const active = button.dataset.announcementsTab === tab;
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+    button.tabIndex = active ? 0 : -1;
+  });
+  const views = {
+    updates: $('#announcementsUpdatesView'),
+    announcements: $('#announcementsNoticeView'),
+    feedback: $('#announcementsFeedbackView'),
+  };
+  for (const [key, view] of Object.entries(views)) {
+    if (view) view.hidden = key !== tab;
+  }
+  /* 只把当前这一栏标记为已读——用户没翻到的那栏不该被顺手清掉红点。 */
+  if (tab === 'updates') {
+    renderUpdatesList($('#updatesList'));
+    markUpdatesRead();
+  } else if (tab === 'announcements') {
+    markVisibleAnnouncementsRead();
+  }
+  updateAnnouncementBadge();
+}
+
+/* 顶栏一枚按钮同时代表两条流：有数字就显示数字（更新条数），
+   只有公告未读时退回一个小红点，避免为「1 条公告」打出一个大数字。 */
 export function updateAnnouncementBadge() {
   const dot = $('#announcementsDot');
-  if (!dot) return;
-  const unread = activeAnnouncements().some(item => !readIds().has(item.id));
-  dot.hidden = !unread;
+  const count = $('#updatesCount');
+  const digest = updatesDigest();
+  const annUnread = hasUnreadAnnouncements();
+  const unread = annUnread || digest.batches > 0;
+  if (count) {
+    count.textContent = digest.batches > 0 ? String(digest.batches) : '';
+    count.hidden = digest.batches <= 0;
+  }
+  if (dot) dot.hidden = !annUnread || digest.batches > 0;
   const btn = $('#announcementsBtn');
   if (btn) btn.classList.toggle('has-unread', unread);
+  const tabDots = {
+    updates: digest.entries > 0,
+    announcements: annUnread,
+  };
+  document.querySelectorAll('[data-tab-dot]').forEach(node => {
+    node.hidden = !tabDots[node.dataset.tabDot];
+  });
+  const popDot = document.querySelector('[data-updates-ann-dot]');
+  if (popDot) popDot.hidden = !annUnread;
+}
+
+function hasUnreadAnnouncements() {
+  const ids = readIds();
+  return activeAnnouncements().some(item => !ids.has(item.id));
 }
 
 function renderAnnouncements() {

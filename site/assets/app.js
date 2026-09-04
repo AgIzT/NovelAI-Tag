@@ -20,6 +20,7 @@ import { pathFromCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
+import { setUpdatesActions } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
@@ -713,5 +714,22 @@ setMasonryActions({
 });
 
 setUiActions({ loadCodex, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch });
+
+/* 更新时间线的行点击：换书 + 落到该批次的筛选，等于替用户按了一次结果栏里的
+   「NEW x.xx更新」。换书本身会重置 updateFilter，所以必须在 loadCodex 之后再写。 */
+setUpdatesActions({
+  openBatch: async ({ codexId, batchId, consumeLayer = false }) => {
+    if (!codexId || !batchId) return;
+    const sameCodex = state.codex?.id === codexId && !state.favoritesView && !state.siteSearchView;
+    if (!sameCodex) {
+      await loadCodex(codexId, { historyMode: 'push', transition: 'route', consumeLayer });
+    }
+    state.updateFilter = batchId;
+    applyFilter({ resetScroll: true, transition: 'filter' });
+    syncUrlState(sameCodex
+      ? { historyMode: 'push', transition: 'route', consumeLayer }
+      : { historyMode: 'replace' });
+  },
+});
 
 init();

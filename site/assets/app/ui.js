@@ -10,7 +10,8 @@ import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirt
 import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
 import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
-import { setupAnnouncements } from './announcements.js';
+import { setupAnnouncements, openAnnouncementsPanel, updateAnnouncementBadge } from './announcements.js';
+import { loadUpdates, renderUpdatesDigest, handleUpdateRowClick } from './updates.js';
 import { setupReport, openReportDialog } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
 import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
@@ -407,6 +408,63 @@ export function bindUI() {
     closeMore: () => closeMore({ historyMode: 'none' }),
     historyMode: () => mobileQuery.matches ? 'replace' : 'push',
   });
+
+  /* 顶栏动态气泡：只回答「有没有更新、多少条」，重内容一律交给下面的三页签面板。
+     故意不进 openMask/history 层——它是轻量 popover，移动端点一下就该直接进面板。 */
+  const announceBtn = $('#announcementsBtn');
+  const updatesPopover = $('#updatesPopover');
+  if (announceBtn && updatesPopover) {
+    const closePopover = ({ focusButton = false } = {}) => {
+      if (updatesPopover.hidden) return;
+      updatesPopover.hidden = true;
+      announceBtn.classList.remove('open');
+      announceBtn.setAttribute('aria-expanded', 'false');
+      if (focusButton) announceBtn.focus({ preventScroll: true });
+    };
+    const openPanelAt = tab => {
+      closePopover();
+      openAnnouncementsPanel(announceBtn, {
+        historyMode: mobileQuery.matches ? 'replace' : 'push',
+        tab,
+      });
+    };
+    announceBtn.onclick = async ev => {
+      ev.stopPropagation();
+      closeMore({ historyMode: 'none' });
+      if (!updatesPopover.hidden) {
+        closePopover({ focusButton: true });
+        return;
+      }
+      /* 移动端没有"轻量悬浮"的空间，直接进面板，省一次点击。 */
+      if (mobileQuery.matches) {
+        await loadUpdates();
+        openPanelAt('');
+        return;
+      }
+      await loadUpdates();
+      renderUpdatesDigest(updatesPopover);
+      updateAnnouncementBadge();
+      updatesPopover.hidden = false;
+      announceBtn.classList.add('open');
+      announceBtn.setAttribute('aria-expanded', 'true');
+    };
+    updatesPopover.onclick = ev => {
+      const open = ev.target.closest?.('[data-updates-open]');
+      if (open && updatesPopover.contains(open)) {
+        openPanelAt(String(open.dataset.updatesOpen || ''));
+        return;
+      }
+      if (handleUpdateRowClick(ev, { consumeLayer: false })) closePopover();
+    };
+    updatesPopover.onkeydown = ev => {
+      if (ev.key === 'Escape') { ev.preventDefault(); closePopover({ focusButton: true }); }
+    };
+    document.addEventListener('click', ev => {
+      if (!updatesPopover.hidden && !updatesPopover.contains(ev.target) && !announceBtn.contains(ev.target)) {
+        closePopover();
+      }
+    });
+  }
   setupOnboarding();
   setupHomeShortcutGuide();
   const globalReportBtn = $('#globalReportBtn');
@@ -421,15 +479,21 @@ export function bindUI() {
     };
   }
 
-  /* 公告面板底部的常驻入口：从「站方在干什么」的语境顺势跳到反馈处理进度。
-     沿用灯箱→反馈的既有做法（叠层打开、不手动关公告），保持历史栈一致。 */
-  const announcementsFeedbackLink = $('#announcementsFeedbackLink');
-  if (announcementsFeedbackLink) {
-    announcementsFeedbackLink.onclick = () => {
+  /* 动态面板「反馈」页签里的两个入口：原先是公告列表上方的一条横幅，
+     2026-09 提成独立页签。沿用灯箱→反馈的既有做法（叠层打开、不手动关动态面板），
+     保持历史栈一致。 */
+  const feedbackEntries = [
+    ['#announcementsFeedbackLink', 'progress'],
+    ['#announcementsFeedbackSubmit', 'submit'],
+  ];
+  for (const [selector, tab] of feedbackEntries) {
+    const node = $(selector);
+    if (!node) continue;
+    node.onclick = () => {
       openReportDialog({
         source: 'announcement',
-        tab: 'progress',
-        trigger: announcementsFeedbackLink,
+        tab,
+        trigger: node,
         historyMode: mobileQuery.matches ? 'replace' : 'push',
       });
     };
