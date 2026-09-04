@@ -8,13 +8,13 @@ import threading
 import tempfile
 import types
 import unittest
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
 
-from tools import imgserver, strings_server, sync_r2
+from tools import imgserver, retire_r2_assets, strings_server, sync_r2, takedown_pack_entries
 
 
 @contextmanager
@@ -177,6 +177,31 @@ class ImportSafetyTests(unittest.TestCase):
         with patch("os.makedirs") as makedirs:
             runpy.run_path(str(convert_path))
         makedirs.assert_not_called()
+
+
+class TakedownToolSafetyTests(unittest.TestCase):
+    def test_local_takedown_apply_is_blocked_before_reading_or_writing_data(self):
+        with redirect_stdout(io.StringIO()), \
+                patch.object(takedown_pack_entries, "load_json") as load_json:
+            result = takedown_pack_entries.main([
+                "--entry-id", "demo-0001",
+                "--reason", "test",
+                "--apply",
+            ])
+
+        self.assertEqual(result, 2)
+        load_json.assert_not_called()
+
+    def test_r2_retire_apply_is_blocked_before_config_or_network_access(self):
+        with redirect_stdout(io.StringIO()), \
+                patch.object(retire_r2_assets, "load_config") as load_config:
+            result = retire_r2_assets.main([
+                "--report", "output/missing/takedown.json",
+                "--apply",
+            ])
+
+        self.assertEqual(result, 2)
+        load_config.assert_not_called()
 
 
 class AtomicJsonWriteTests(unittest.TestCase):

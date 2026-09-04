@@ -1,70 +1,79 @@
 # tools 目录台账
 
-这里放维护站点用的本地工具（非前端运行时代码）。**本文件是全量台账：目录里每个工具都必须在下面出现，写明状态。**
+> 本文件是维护工具的**状态与副作用唯一台账**，不是操作教程。`tools/` 根目录每个 `.py` / `.mjs` 工具都必须按原文件名登记；子目录里的可执行钩子和归档工具也要登记。实际参数以脚本 `--help` 为准，重复任务的完整流程从本地私有文档 `docs/经验/README.md` 按需进入。
 
-> ⚠ **铁律：重跑任何 `import_*` / `migrate_*` 前，先查本台账的状态列**；涉及 `type:"pack"` 图包的还必须先读 `docs/经验/统一图包类导入规范.md`。状态含义：
-> **现役** = 随时可跑（注意默认是否改数据）；**⚠ 条件** = 只有特定模式安全，别裸跑 `--apply`；**🔒 已用完** = 历史一次性工具，重跑会复活旧数据/覆盖现状，**禁止直接重跑**；**🧪 测试** = 配套测试。
+## 怎么使用本台账
+
+1. 日常动作优先双击 `单项工具/<动作>.bat`；这里查它最终调用的脚本、默认副作用和限制。
+2. AI 或维护者准备直接运行脚本时，先搜索**完整文件名**并读所在行。
+3. 任何 `import_*` / `migrate_*` 都必须先确认状态；涉及 `type:"pack"` 的任务还必须读本地私有文档 `docs/经验/统一图包类导入规范.md`。
+4. `--apply`、上传、第三方 API、生产 binding、删除输出等有副作用动作，仍需服从项目授权规则；“现役”不等于已获授权。
+
+状态含义：**现役** = 仍在维护链路中；**⚠ 条件** = 只有具名模式安全；**🔒 已用完** = 历史一次性工具，禁止直接重跑；**库文件** = 只供其它工具导入；**🧪 测试** = 对应回归。
 
 ## 现役 · 主链路
 
-| 文件 | 用途 | 默认是否改数据 |
+| 文件 | 用途 | 默认副作用 |
 | --- | --- | --- |
-| `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 会改 JSON |
-| `codex_update_match.py` | 新旧法典增量匹配、基线回放与门禁应用（详见下文） | 默认只读；`--apply` 才写 |
-| `suozhang_r18_merge_match.py` | 所长色色上下册合并+全局匹配专用流程（详见下文） | 默认只读；`--apply` 才写 |
+| `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 默认重写法典 JSON / 总索引；处理梦神内嵌图时还写 `originals/`、`site/images/`，并可能创建或删除待复核 TXT；`--archive-sources` 再移动源 DOCX，源文件被锁定时改为复制并写归档清单 |
+| `codex_update_match.py` | 新旧法典增量匹配、基线回放与门禁应用；流程见本地私有文档 `docs/经验/Word法典增量更新.md` | 默认不改正式数据，但会创建或覆盖 `output/` 匹配报告；`--apply` 才另写正式数据 |
+| `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
 | `import_docx_codex.py` | 导入结构特殊、带内嵌图片的 Word 法典（解构原典用） | 默认只出报告；`--apply` 才写 |
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
-| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走总控台菜单 4 | 默认上传；`--dry-run`/`--check-only` 只检查 |
+| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
 | `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
 | `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。安全本里的门控词条只入词条名；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
-| `preview_server.py` | 本地预览 site/（:8766，带 no-store + /originals/ 映射；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读 |
+| `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`） | 只读，写测试输出 |
 | `benchmark_search_v1.mjs` | 搜索 V1 与旧匹配逻辑的本地中位耗时对比；数据缺失时明确 SKIP | 只读 |
-| `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率（详见下文）；**图片参数解析的唯一公共入口** | 只读；审计写 CSV |
+| `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率；**图片参数解析的唯一公共入口**，格式与审计流程见下方“操作说明去向” | 只读；审计写 CSV |
 | `cleanup_output.py` | 按保留策略清理 `output/`（详见文件头；`单项工具/清理输出.bat` 的内核） | 默认 dry-run；`--apply` 才删 |
 
 ## 现役 · 辅助
 
-| 文件 | 用途 | 默认是否改数据 |
+| 文件 | 用途 | 默认副作用 |
 | --- | --- | --- |
-| `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器（:18769）：主站"编辑模式"的写后端，词条/分类/图片编辑，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
-| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器（:18767）。⚠ 别和法典编辑器同时开 | 页面操作才写 |
-| `strings_server.py` + `strings_editor.html` | 画师串编辑器（:18768） | 页面操作才写 |
+| `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器：主站“编辑模式”的写后端，词条/分类/图片编辑，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
+| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器。⚠ 别和法典编辑器同时开 | 页面操作才写 |
+| `strings_server.py` + `strings_editor.html` | `画师串编辑.bat` 背后的画师串编辑器 | 页面操作才写 |
+| `takedown_pack_entries.py` | **计划器已纳入版本，执行端未上线**：按稳定词条 ID 生成图包下架计划；设计中的应用步骤会同步收口法典、总索引和本地同步清单，不直接操作 R2 | 默认预演也会写 `output/` 计划；跨文件事务、正式资产隔离与失败回滚门闭合前，`--apply` 被代码硬阻断 |
+| `retire_r2_assets.py` | **只读预演已纳入版本，执行端未上线**：消费下架报告中的精确对象键，计划退役或删除已不再被发布数据引用的 R2 资源；无通配删除 | 默认计划会对 R2 发带鉴权的只读 HEAD；历史 release / 激活隔离、clean rollback、失败恢复与逐次授权门闭合前，`--apply` 被代码硬阻断 |
 | `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
-| `build_local_edition.py` | `单项工具/打包本地版.bat` / 总控台菜单 7 的内核：按白名单生成独立本地发行包 + zip（见 docs/decisions/独立本地发行版.md） | 不改仓库数据；默认写 `output/local-edition/` |
-| `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 仓库内不单独运行 |
-| `backfill_pack_character_prompts.py` | 从原图幂等回填图包的 NAI V4 角色提示词（2026-08-31 两本并册后默认只跑合并册；逐条取原图本来就走 `assetCodexId`） | 默认预演；`--apply` 才写 |
-| `lint_docs.py` | **文档体检**：索引完整性 / 死链 / 脚本与模块引用 / 写死的数字与端口 / 字节预算 / 孤儿文档。报告写 `output/docs-lint-report.txt`（UTF-8，避开控制台 GBK）。定期规整流程见 `docs/经验/文档规整.md` | 只读 |
-| `migrate_suozhang_char_prompts.py` | 把所长两本 `tags` 里内联的 `char1：xxx` 拆进 `characterPrompts`。**幂等，是所长法典更新链路的固定收尾**——每次 `convert.py` / `suozhang_r18_merge_match.py --apply` 之后都要再跑一次，否则角色词回到正面串（详见 `docs/经验/Word法典增量更新.md`） | 默认预演；`--apply` 才写（先自动备份） |
+| `build_local_edition.py` | `单项工具/打包本地版.bat` 的内核：按白名单生成独立本地发行包 + ZIP（见本地私有文档 `docs/decisions/独立本地发行版.md`） | 不改仓库数据；默认写 `output/local-edition/` |
+| `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 启动即补建发行根目录及缺失的 `codexes.json` / `media.json`，随后开启可写编辑服务并默认打开浏览器；源码直跑会以仓库根为发行根，仓库内禁止日常直接运行 |
+| `backfill_pack_character_prompts.py` | 从原图幂等回填图包的 NAI V4 角色提示词（2026-08-31 两本并册后默认只跑合并册；逐条取原图本来就走 `assetCodexId`） | 默认不改正式数据，但会覆盖写 `output/pack_character_prompts/report.json`；`--apply` 才另写正式 JSON |
+| `lint_docs.py` | **文档体检**：索引、死链、引用、台账、易漂数字/端口、预算和孤儿文档；流程见本地私有文档 `docs/经验/文档规整.md` | 读取项目；覆盖写 `output/docs-lint-report.txt` |
+| `migrate_suozhang_char_prompts.py` | 把所长两本 `tags` 中的内联角色词拆入 `characterPrompts`；是两条 Word 更新链的固定幂等收尾，详见本地私有文档 `docs/经验/Word法典增量更新.md` | 默认不改正式数据，但会覆盖写 `output/` 报告 JSON/TXT；`--apply` 才先备份并另写正式 JSON |
+| `githooks/commit-msg` + `githooks/check_commit_msg.py` | Git 提交信息闸门；检查标题/正文体量、禁词和 AI 署名。完整规范见本地私有文档 `docs/经验/提交信息规范.md` | 有 Python 时违规则阻止提交；找不到 Python 会警告并跳过，不能代替人工遵守 |
 
-> 本地写工具使用 `18767–18769`，刻意避开曾被 Windows HNS/WSL 动态保留的 `8767–8866`。若启动时报 `WinError 10013`，先用 `netsh interface ipv4 show excludedportrange protocol=tcp` 检查系统排除范围；不要把 PNG 解析代码里的 EXIF 标准字段 `0x8769` 当成端口修改。
+> 本地服务端口以各脚本的 `PORT` / `DEFAULT_PORT` 和工作区 `.claude/launch.json` 为准，不在台账复制第二份数字。配图工具与 NAI 候选审核服务默认可能占用同一端口；启动前确认没有冲突。端口被 Windows 排除时按命中的本地工具 Playbook 排查，不要把 EXIF 字段常量误认成端口。
 
 ## 现役 · NAI API 基础兼容工具
 
 完整的多画风批量生成、审核、舍弃重跑、入库和复验套件已迁至仓库外
-`D:\program\NOVEL\工具箱\NAI法典批量配图\`；先读其 `AGENTS.md` 和 `使用说明和事项.md`。
+`D:\program\NOVEL\工具箱\NAI法典批量配图\`；先读其 `AGENTS.md` / `README.md`，再按需读 `使用说明和事项.md`。
 项目内只保留同时服务其它维护流程的基础工具。密钥不落盘，发往第三方前必须用户明确授权。
 
-| 文件 | 用途 |
-| --- | --- |
-| `nai_api_test_generate.py` | 小规模试跑与 V4 角色框请求/元数据验证（只生成审阅用测试批） |
-| `nai_api_batch_generate.py` | 正式批量双候选生成（断点续跑） |
-| `nai_api_review_server.py` | 1–8 候选人工审核页，四画风显示模板名（默认 :18767；四画风入口用 :18768） |
-| `nai_api_verify_batch.py` | 独立复验暂存批次（重开每张图核对真实 PNG 元数据） |
-| `nai_api_apply_selections.py` | 把人工选择正式导入法典（默认 dry-run；`--apply` 才写） |
-| `nai_api_verify_applied.py` | 正式导入后的独立复验 |
+| 文件 | 用途 | 默认副作用 |
+| --- | --- | --- |
+| `nai_api_test_generate.py` | 小规模试跑与 V4 角色框请求/元数据验证 | 调第三方 API；只写 `output/` 审阅批次 |
+| `nai_api_batch_generate.py` | 可恢复批次的计划与候选生成 | `plan` 只写 `output/`；`generate` 调第三方 API 并续写批次 |
+| `nai_api_review_server.py` | 1–8 候选人工审核页 | 本地服务；启动时可能初始化或更新批次 `selections.json`，页面操作也会原子写该文件 |
+| `nai_api_verify_batch.py` | 独立复验暂存批次，不信任既有 verified 状态 | 只读图片与清单；写复验报告 |
+| `nai_api_apply_selections.py` | 把已审核选择导入正式法典 | 默认不改正式数据，但会写批次目录下的 `apply-dry-run.json`；`--apply` 才另写正式 JSON 与图片 |
+| `nai_api_verify_applied.py` | 正式导入后的独立复验 | 读取正式数据；写复验报告 |
 
 ## ⚠ 条件 · 来源专用图片导入器（图包改动前先读统一图包类导入规范）
 
-| 文件 | 状态说明 |
-| --- | --- |
-| `import_mengshen_pack.py` | 梦神图包历史来源适配器。**画风章节已迁出、整片又于 2026-08-31 并进 `nai45_community_pack`；`--apply` 有两道主动中止**（合并册存在 / 画风章节仍在画师词典）——别绕过它 |
-| `import_community_ai_misc.py` | 社区AI杂图（现为合并册 `nai45_community_pack` 里 id 前缀 `community_ai_misc-` 的那一片）。`--apply` 仅限首次导入；现役安全模式只有 `--validate`（验证现状）和 `--sync-manual-classification-overrides`（幂等同步具名人工分级纠正）。⚠ 两个模式都只操作自己那一片，`BOOK_ID`（数据落点）与 `CODEX_ID`（系列身份）别混用 |
-| `import_nai5_artist_dictionary.py` | N5 四份来源 → `artist_nai5_personal`。默认只审计；`--apply` 仅限首次导入且现状已存在会拒绝覆盖，日常跑 `--validate`。具名 PDF 标签纠错用 `--correct-existing` 预演、再加 `--apply` 幂等落地，只改登记 ID 的 `title/tags`；见 `docs/decisions/NovelAI5画师词典.md` |
-| `import_nai5_community_pack.py` | 梦神 / 所长 N5 图包 → `nai5_community_pack`。默认与 `--apply` 仍只用于历史首次导入且拒绝覆盖；编号所长包用 `--batch-plan` / `--batch-apply` / `--batch-validate`，梦神后续包用 `--dream-plan` / `--dream-apply` / `--dream-validate`。两种增量都按原图 hash 保留稳定 ID；梦神模式还会排除纯数字、网址和占位符式假 prompt，并永久保留已下架 ID，所长模式也会按原图 hash 永久排除具名人工下架图。所长模式同文件夹保成一条套图，从 `新数据/N5新图包` 自动识别连续的“筛选整理1…N”；见 `docs/decisions/NovelAI5社区精选图包.md` |
-| `import_mengshen_korean_pack.py` | 梦神已分级韩网图包的跨版本增量适配器：N5 写入 `nai5_community_pack / 梦神 · N5社区图包 / 韩网整理`，并把既有梦神 N5 分支降入 `社区整理`；少量 N4.5 直接追加到 `nai45_community_pack / 梦神 · 社区图包 / 个人精选韩国图包`。默认只计划，`--apply` 才把源内确认重复移入可恢复备份并原子更新两本，`--validate` 独立逐图复验；套图按文件夹保组，资源写入复用 `pack_import_core.py` |
-| `import_wof_artist_strings.py` | W.O.F PNG 元数据 → 合并册 `artist_nai45_personal`（`--book-id`）里 `["画师串词典","W.O.F_画风"]` 那一枝；词条 id 前缀 / 图片目录 / `assetCodexId` 仍走系列身份 `artist_nai45_strings`（`--codex-id`），⚠ 两个身份别混用。默认只扫描；全量更新先加 `--update-existing` 预演，再加 `--apply` 落盘。按提示词 / 文件哈希 / PNG 视觉哈希保稳定 ID，只替换 W.O.F 分区，梦神分区与作者信息原样保留；源包漏掉的旧串或旧例图默认保留并进审计报告，写前自动备份。`--validate` 复验资源、prompt、assetRev、目录计数与索引一致性 |
+| 文件 | 当前用途与边界 | 安全查看 / 实际写入 |
+| --- | --- | --- |
+| `import_mengshen_pack.py` | 梦神图包历史来源适配器。画风章节已迁出，整片也已并进 `nai45_community_pack`；现行数据不再由它重建 | 默认只出审计；`--apply` 现有两道主动中止，**不得绕过** |
+| `import_community_ai_misc.py` | 只维护合并册里 `community_ai_misc-` 前缀那一片；`BOOK_ID` 是数据落点，`CODEX_ID` 是系列身份 | 默认扫描不改正式数据，但会覆盖写 `output/` 审计；`--validate` 只读；⚠ `--sync-manual-classification-overrides` **不需要 `--apply`，会直接写正式 JSON**；裸 `--apply` 只属历史首次导入 |
+| `import_nai5_artist_dictionary.py` | N5 四份来源对应 `artist_nai5_personal`；具名 PDF 标签纠错只改登记 ID 的 `title/tags`，见本地私有文档 `docs/decisions/NovelAI5画师词典.md` | 默认审计和 `--correct-existing` 预演不改正式数据，但会覆盖写 `output/` 报告；`--validate` 只读；纠错另加 `--apply` 才先备份并写正式 JSON；首次导入 `--apply` 会拒绝覆盖现状 |
+| `import_nai5_community_pack.py` | N5 社区图包；编号所长包走 `--batch-plan/apply/validate`，梦神后续包走 `--dream-plan/apply/validate`，均按原图 hash 保持稳定 ID，见本地私有文档 `docs/decisions/NovelAI5社区精选图包.md` | `--batch-plan` / `--dream-plan` / `--batch-validate` / `--dream-validate` 不改正式数据，但会覆盖写 `output/` 审计或复验报告；`--batch-apply` / `--dream-apply` 会备份并写正式数据；裸 `--apply` 仅属首次导入且拒绝覆盖 |
+| `import_mengshen_korean_pack.py` | 韩网图包跨 N5 与 N4.5 两本增量；套图保组并复用 `pack_import_core.py` | 默认计划和 `--validate` 均不改正式数据/资产，但都会覆盖写 `output/` 报告，校验还会写 `validation.json`；`--apply` 会先备份并隔离确认重复源图，再写新增资产、逐个临时替换两本法典与总索引，普通异常时尝试回滚，整体不是崩溃安全的跨文件原子事务 |
+| `import_wof_artist_strings.py` | W.O.F 分区写入合并册 `artist_nai45_personal`，系列身份和媒体仍用 `artist_nai45_strings`；只替换 W.O.F 分区 | 默认扫描和 `--update-existing` 预演不改正式数据，但会覆盖写 `output/` 报告；`--validate` 只读；更新另加 `--apply` 才先备份并写正式数据/资产 |
 
 ## 🔒 已用完 · 一次性历史导入（禁止直接重跑）
 
@@ -72,76 +81,39 @@
 
 | 文件 | 当年用途 | 为什么不能重跑 |
 | --- | --- | --- |
-| `import_artist_excel_strings.py` | 多卷画师 Excel → 旧「Nai4.5Full个人单画师收藏」 | 三册已合并为 `artist_nai45_personal`（见 decisions/合并NovelAI4.5单画师词典.md），重跑会加回独立旧册 |
+| `import_artist_excel_strings.py` | 多卷画师 Excel → 旧「Nai4.5Full个人单画师收藏」 | 三册已合并为 `artist_nai45_personal`（见本地私有文档 `docs/decisions/合并NovelAI4.5单画师词典.md`），重跑会加回独立旧册 |
 | `import_wps_artist_excel_strings.py` | WPS DISPIMG 画师工作簿 → 旧「4.5画师收录」 | 同上 |
 | `import_composition_style_excel.py` | 构图风格工作簿 → `composition_style` | 一次性导入已完成，现状手工维护 |
-| `attic/migrate_asset_prefix.py` | suozhang_r18 图片前缀统一迁移 | 已用完（见 decisions/合并版与图片前缀.md），仅留档 |
-| `attic/merge_nai45_artist_books.py` | 画师串词典并入 v4.5 画师词典 | 已用完（2026-08-31 跑过一次，见 decisions/法典重归类.md），重跑会报「已经合并过」并退出；仅留档 |
+| `attic/migrate_asset_prefix.py` | suozhang_r18 图片前缀统一迁移 | 已用完（见本地私有文档 `docs/decisions/合并版与图片前缀.md`），仅留档 |
+| `attic/merge_nai45_artist_books.py` | 画师串词典并入 v4.5 画师词典 | 已用完（见本地私有文档 `docs/decisions/法典重归类.md`），重跑会报「已经合并过」并退出；仅留档 |
 | `attic/merge_nai45_community_packs.py` | 两本 4.5 社区图包并成 `nai45_community_pack` | 已用完（同上），重跑自动退出；收藏兼容靠 `ATLAS_FAVORITE_OWNER_MIGRATIONS`，不是 aliases；仅留档 |
 
 ## 🧪 测试
 
-`test_import_docx_codex.py` · `test_import_nai5_artist_dictionary.py` · `test_import_nai5_community_pack.py` · `test_import_mengshen_korean_pack.py` · `test_import_wof_artist_strings.py` · `test_pack_import_core.py` · `test_codex_update_match.py` · `test_suozhang_r18_merge_match.py` · `test_suozhang_char_prompts.py` · `test_pack_character_prompts.py` · `test_nai_api_review_server.py` · `test_edit_server.py` · `test_publish_data_r2.py` · `test_favorites_origin_migration_browser.py` · `test_python_tool_safety.py`（Python）；`test_admin_community_backend.mjs` · `test_admin_feedback_backend.mjs` · `test_community_backend_low_risk.mjs` · `test_community_frontend.mjs` · `test_community_frontend_low_risk.mjs` · `test_community_likes_backend.mjs` · `test_community_submit_backend.mjs` · `test_browser_history.mjs` · `test_history_storage.mjs` · `test_data_source.mjs` · `test_data_proxy.mjs` · `test_r2_proxy.mjs` · `test_edit_client.mjs` · `test_share_backend.mjs` · `test_search_data.mjs` · `test_search_directories.mjs` · `test_render_ui.mjs` · `test_copy.mjs` · `test_favorites_backup.mjs` · `test_favorites_runtime.mjs` · `test_favorites_origin_migration.mjs` · `test_beta_banner.mjs` · `test_community_router_url.mjs` · `test_favorites_transfer.mjs` · `test_home_shortcut.mjs` · `test_local_ownership.mjs` · `test_resume_prompt.mjs` · `test_tag_relay_access.mjs` · `test_tag_relay_core.mjs` · `test_tag_relay_store.mjs` · `test_masonry_viewport.mjs` · `test_skeleton_transition.mjs` · `test_404_page.mjs` · `test_path_code.mjs`（Node）；`test_build_share_index.py`（Python）。
+测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
-兼容升级专项：`test_publish_entrypoints.py`（Python，用真实 bat + 假命令钉住两条发布链的顺序）、`test_codex_route_compat.mjs`（Node，旧目录路径与现行真实数据审计）。
+- Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
+- Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
+- Python · 发布与安全：`test_build_share_index.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
+- Node · 数据与路由：`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
+- Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。
+- Node · 主站状态与交互：`test_browser_history.mjs`、`test_history_storage.mjs`、`test_edit_client.mjs`、`test_search_data.mjs`、`test_search_directories.mjs`、`test_render_ui.mjs`、`test_copy.mjs`、`test_beta_banner.mjs`、`test_home_shortcut.mjs`、`test_local_ownership.mjs`、`test_resume_prompt.mjs`、`test_masonry_viewport.mjs`、`test_skeleton_transition.mjs`。
+- Node · 收藏与中转站：`test_favorites_backup.mjs`、`test_favorites_runtime.mjs`、`test_favorites_origin_migration.mjs`、`test_favorites_transfer.mjs`、`test_tag_relay_access.mjs`、`test_tag_relay_core.mjs`、`test_tag_relay_store.mjs`。
 
 `__pycache__/` 是 Python 缓存，忽略。
 
----
+## 操作说明去向
 
-## 法典增量匹配预演
-
-更新已有 Word 法典前，先用旧版 Word 做回放基线，再审计新版。旧 Word 已归档或遗失时，可用上轮完整源快照，或可按 `matches[].new + unmatchedNew` 重建的旧匹配报告作为基线：
-
-```bat
-python tools\codex_update_match.py "D:\path\新版本.docx" --codex-id suozhang --baseline-docx "D:\path\旧版本.docx" --out-dir "output\所长常规-匹配测试"
-python tools\codex_update_match.py "D:\path\新版本.docx" --codex-id suozhang --baseline-json "output\上轮匹配测试\new-version-match.json" --out-dir "output\所长常规-匹配测试"
-python tools\test_codex_update_match.py
-```
-
-报告会把完全一致、tag / 角色词修改、标题/目录变动、明确新增、明确减少和待人工复核分开。只有基线完整回放、歧义为 0，才应给同一命令追加 `--apply`。应用会保留匹配项的稳定 ID、全部图片元数据与既有 `updateBatches`，新增 ID 从历史最大值及本地孤儿资源号之后分配，不复用已减少条目的 ID；当次源书里 `isNew:true` 的条目会追加当前版本到 `updateBatches`，索引同步保留旧 `updateFilters` 并把当前版本标成唯一 `latest`。`isNew` / `newFilterLabel` 继续作为“最新一次更新”兼容字段，不承担历史批次存储。
-
-### 所长色色合并版
-
-色色版不能分别完成上下册匹配后再拼接；条目可能跨册移动，必须先合并候选，再做一次全局匹配：
-
-```bat
-python tools\suozhang_r18_merge_match.py "D:\path\新版上册.docx" "D:\path\新版下册.docx" --baseline-upper "D:\path\旧版上册.docx" --baseline-lower "D:\path\旧版下册.docx" --out-dir "output\所长色色-匹配测试"
-python tools\suozhang_r18_merge_match.py "D:\path\新版上册.docx" "D:\path\新版下册.docx" --baseline-merged-json "output\上轮匹配测试\merged-source.json" --out-dir "output\所长色色-匹配测试"
-python tools\test_suozhang_r18_merge_match.py
-```
-
-⚠ 两条链（常规版 `codex_update_match.py` / 合并版 `suozhang_r18_merge_match.py`）都会在匹配前按现行角色词规则规范化候选，避免把结构化 `characterPrompts` 误报成 tag 漂移；**跑完 `--apply` 仍要再跑一次 `migrate_suozhang_char_prompts.py --apply`**，把它当作幂等收尾门禁。
-
-历史合并规则固定为：完整保留上册；仅移除下册与上册重复的「编纂者常用画师组」；保留下册「编纂者oc二则」。工具会先验证下册画师组确实是上册画师组的精确子集，并把两种 OC 标题下没有独立中文标题的本体/服装块拆成独立卡片。最终门禁以合并后的全局报告为准；分册报告只作诊断。默认命令不会改写正式数据；确认报告后给同一命令追加 `--apply`，才会写入 `site/data/suozhang_r18.json`，同时保留词条历史 `updateBatches`，并刷新 `codexes.json` 中该书的版本、计数和 `updateFilters` 最新批次。
-
-## sd_metadata_inspector.py
-
-这个工具用于检查图片原始参数，尤其是"法典词条 tag 是否能在原图 prompt 中找到"。
-
-示例：
-
-```bat
-python tools\sd_metadata_inspector.py inspect originals\suozhang\suozhang-0001.png --json
-python tools\sd_metadata_inspector.py audit-codex --codex-id suozhang_r18 --max-coverage 0.35
-```
-
-目前支持的读取方式：
-
-- PNG `tEXt` / `iTXt` / `zTXt`
-- NovelAI `Description` / `Comment`
-- NovelAI v4 `Comment.v4_prompt.caption`
-- WebUI `parameters`
-- JPG / WebP / AVIF 的 EXIF `UserComment`
-- `stealth_pngcomp` 隐写参数：读取 alpha 通道最低位，识别 `stealth_pngcomp` magic，解 gzip JSON
-
-`stealth_pngcomp` 是 Akegarasu/stable-diffusion-inspector 也支持的一类隐藏参数。它不在普通 PNG 文本块里，所以普通元数据读取会显示"没参数"，但 NovelAI 或 inspector 仍可能读得到。
+- `codex_update_match.py` / `suozhang_r18_merge_match.py` 的基线回放、全局匹配、角色词收尾和应用门禁：读本地私有文档 `docs/经验/Word法典增量更新.md`。
+- `sd_metadata_inspector.py` 的支持格式、隐写提取、tag 对照和图包公共契约：一般配图读本地私有文档 `docs/经验/配图与图包导入.md`，图包读 `docs/经验/统一图包类导入规范.md`。
+- 其它脚本：先看本台账状态，再运行 `python tools/<脚本>.py --help`；没有对应 Playbook 且风险不明时只做预演或停止确认。
 
 ## 安全建议
 
-- 不确定时先跑 `--dry-run` 或不带 `--apply`。
-- 跑 `sync_r2.py` 前确认 `r2_config.json` 存在且配置正确。
-- 跑会写数据的工具前先看 `git status --short`，避免把自己的手工修改混进工具输出。
-- 图片文件通常不进 git；上传到线上需要走 R2 同步流程。
+- 不确定时先查本行的准确边界，再选明确标为只读的模式；不能从文件名、`plan`、`validate`、`check-only` 或“不带 `--apply`”猜默认副作用。
+- `sync_r2.py` 的严格本地不写模式只有 `--dry-run`；配置完整时即便 dry-run 也会读取 R2。`--check-only` 只禁止上传与同步清单更新，仍可能回写法典 JSON 和 `media.json`；其退出码目前忽略 `strings_counts["upload"]`，所以仅 strings 图片缺失或变化时可能仍为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail`，不得把 exit 0 当作全部 R2 对象齐全。默认模式会联系并写入 R2；运行前必须核对 `r2_config.json`，生产上传仍需明确授权。
+- 写数据前先检查工作树和工具自己的差异报告；`site/data/`、`site/images/`、`originals/` 被 Git 忽略，不能只靠 `git status` 判断是否混入旧改动。
+- 一次性导入器即使自带中止保护也不得绕过；需要复用时先把它改造成针对现行 schema 的新流程并重新审核。
+- 工具生成 `output/` 不等于正式数据已应用，更不等于 R2 或 Pages 已发布。
 
-> 归档脚本的配套测试跟着脚本一起进了 `tools/attic/`（直接 `python tools/attic/test_*.py` 跑），不在上面的现役清单里。
+> 归档脚本的配套测试跟着脚本一起进了 `tools/attic/`：`attic/test_merge_nai45_artist_books.py`、`attic/test_merge_nai45_community_packs.py`。它们不在上面的现役清单里，必须逐文件运行，不能把通配符当成台账登记。

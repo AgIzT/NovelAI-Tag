@@ -1817,13 +1817,27 @@ DREAM_RESERVED_TAKEDOWN_IDS = {
     f"{CODEX_ID}_mengshen_0003",
     f"{CODEX_ID}_mengshen_0004",
     f"{CODEX_ID}_mengshen_0005",
+    # 2026-09-04 作者要求下架（本人不知情被收录）；原图哈希见下方常量。
+    f"{CODEX_ID}_mengshen_0323",
+    f"{CODEX_ID}_mengshen_0334",
+}
+
+# 人工下架的梦神原图按内容哈希拦截，语义同 ``SUOZHANG_MANUAL_TAKEDOWN_HASHES``：
+# 换个编号重新出现也进不来。**写死在这里而不是只依赖下面的报告文件**——报告在
+# git-ignored 的 ``output/`` 下，被清理或换机器就没了，名单会静默失效。
+# 以后再下架梦神词条：把原图 SHA-256 加到这里，ID 加到上面，两处都补。
+DREAM_MANUAL_TAKEDOWN_HASHES = {
+    # nai5_community_pack_mengshen_0323
+    "51ac7d83442f4e6becfc23d738a8b6a06e7db09b681a4d84f407548e4c83e2eb",
+    # nai5_community_pack_mengshen_0334
+    "8aa33515da4814fc9ddc90e21586da1f6c38147deacade86e9cf2a891f6b0ede",
 }
 DREAM_TAKEDOWN_REPORT = ROOT / "output" / "takedown-20260901-011504-nai5_community_pack" / "takedown.json"
 
 
 def dream_takedown_state() -> tuple[set[str], set[str]]:
     ids = set(DREAM_RESERVED_TAKEDOWN_IDS)
-    hashes: set[str] = set()
+    hashes: set[str] = set(DREAM_MANUAL_TAKEDOWN_HASHES)
     if DREAM_TAKEDOWN_REPORT.is_file():
         payload = json.loads(DREAM_TAKEDOWN_REPORT.read_text(encoding="utf-8"))
         ids.update(str(value) for value in payload.get("removedEntryIds") or [])
