@@ -8,13 +8,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from import_nai5_community_pack import (  # noqa: E402
     CODEX_ID,
+    DREAM_MANUAL_TAKEDOWN_HASHES,
     DREAM_NSFW_PATH,
+    DREAM_RESERVED_TAKEDOWN_IDS,
     DREAM_SAFE_PATH,
     SUOZHANG_PATH,
     SUOZHANG_MANUAL_TAKEDOWN_HASHES,
     codex_payload,
     batch_number_from_name,
     dream_entry_title,
+    dream_takedown_state,
     finalize_groups,
     mark_batch_duplicates,
     mark_suozhang_manual_takedowns,
@@ -73,6 +76,22 @@ def asset(entry_id: str, prompts: list[str]) -> dict:
 
 
 class Nai5CommunityPackTests(unittest.TestCase):
+    def test_dream_takedown_guard_survives_without_ignored_report(self) -> None:
+        expected_ids = {
+            f"{CODEX_ID}_mengshen_0323",
+            f"{CODEX_ID}_mengshen_0334",
+        }
+        expected_hashes = {
+            "51ac7d83442f4e6becfc23d738a8b6a06e7db09b681a4d84f407548e4c83e2eb",
+            "8aa33515da4814fc9ddc90e21586da1f6c38147deacade86e9cf2a891f6b0ede",
+        }
+
+        self.assertLessEqual(expected_ids, DREAM_RESERVED_TAKEDOWN_IDS)
+        self.assertLessEqual(expected_hashes, DREAM_MANUAL_TAKEDOWN_HASHES)
+        active_ids, active_hashes = dream_takedown_state()
+        self.assertLessEqual(expected_ids, active_ids)
+        self.assertLessEqual(expected_hashes, active_hashes)
+
     def test_dream_branch_uses_community_entry_titles(self) -> None:
         self.assertEqual(dream_entry_title(1), "社区精选 001")
         self.assertEqual(dream_entry_title(76), "社区精选 076")
