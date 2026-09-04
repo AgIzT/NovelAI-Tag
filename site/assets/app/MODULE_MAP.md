@@ -66,14 +66,15 @@
 | `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效 | 动作注入、布局缓存、虚拟窗口、重排与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js` | 注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`；不静态导入 `lightbox.js` 或 `report.js` |
 | `lightbox.js` | 灯箱开关、跨词条步进、预载、原图 / 分享 / 收藏 / 反馈与 FLIP 辅助 | 当前序号、关闭计时、焦点与缩略图身份、预载缓存 | `state.js`、`utils.js`、`masonry.js`、`search.js`、`copy.js`、`nai-sd.js`、`history.js`、`router.js`、`data.js`、`media.js`、`original-capability.js`、`access.js`、`report.js`、`browser-history.js`、`favorites.js` | 灯箱动效维护方式见本地私有文档 `docs/经验/前端灯箱FLIP动效.md` |
 | `report.js` | 反馈提交、上下文打包、公开进度列表和兜底复制 | 当前提交上下文、触发点、公开列表 / 筛选状态 | `state.js`、`utils.js`、`feedback.js`、`modal.js`、`media.js`、`original-capability.js`、`feedback-progress.js`、`local-ownership.js`、`clipboard.js`、`clipboard-fallback.js` | 拥有反馈业务；由瀑布流动作注入调用，不反向依赖瀑布流 |
-| `announcements.js` | 公告加载、面板和未读角标 | 公告数据、加载状态与在途 Promise | `utils.js`、`modal.js`、`history.js`、`../data-source.js` | 数据读取走统一数据源，不自行拼发布路径 |
+| `announcements.js` | 动态面板：公告 / 更新 / 反馈三页签切换、公告加载与未读角标 | 公告数据、加载状态与在途 Promise、当前页签 | `utils.js`、`modal.js`、`history.js`、`updates.js`、`../data-source.js` | 数据读取走统一数据源，不自行拼发布路径；只把当前打开的那一栏标记为已读，未翻到的栏保留红点 |
+| `updates.js` | 跨书更新时间线：`loadUpdates`、`updatesDigest`、面板列表与顶栏气泡渲染、已读标记、行点击派发 | 批次数据、加载状态与在途 Promise；已读集合存 `localStorage` | `utils.js`、`data.js`、`codex-ui.js`、`../data-source.js` | 注入 `openBatch`（`app.js` 提供：换书 + 落到该批次筛选）。条数口径必须与 `data.js` 的 `updateFilterDefinitions` / `entryMatchesUpdateFilter` 以及 `tools/build_updates_index.py` 三处一致；行点击的 `consumeLayer` 由调用方声明，本模块不推断 |
 | `onboarding.js` | 首次引导的设置、判断和手动打开 | 初始路由、步骤与本次提示标记 | `utils.js`、`modal.js` | 初始深链不强插引导；历史行为交给共享模态层 |
 | `resume-prompt.js` | 是否提示恢复上次浏览、一次会话提示与永久拒绝 | 当前提示节点与计时器 | `state.js`、`history.js` | 只判断和呈现，真正恢复委托给 `history.js` |
 | `intro.js` | 开场显影状态机、数据就绪门、跳过与 settle 事件 | settle / data-ready Promise、计时器、计数动画和跳过绑定 | `utils.js` | 尊重 reduced motion；实现细节见本地私有文档 `docs/经验/前端页面动效.md` |
 | `copy-fx.js` | 复制采样提示、收入中转站的抛入反馈 | 单例节点、动画句柄、计时器、代次与最近指针位置 | — | 仅在复制成功后由 `copy.js` 触发；动画数值留在代码和动效经验，不写死在地图 |
 | `home-shortcut.js` | 平台 / WebView 判断与添加主屏幕指引 | 延迟创建的指引面板 | `modal.js`、`utils.js` | 只提供快捷方式说明，不承诺离线能力 |
 | `original-capability.js` | 还原真实来源法典并判断某张图能否向用户暴露原图 | — | `state.js`、`data.js`、`media.js` | 与“资源有没有原图”分层；调用方不得只看 URL 存在性 |
-| `ui.js` | 全局事件绑定、主题 / 密度 / 搜索范围 / 中文筛选 / 分级开关与页面级编排 | `uiActions`、主题图标表、首次搜索历史意图跟踪器 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`codex-ui.js`、`router.js`、`search.js`、`search-ui.js`、`history.js`、`masonry.js`、`lightbox.js`、`clipboard-fallback.js`、`modal.js`、`announcements.js`、`report.js`、`onboarding.js`、`tag-relay-rail.js`、`tag-relay.js`、`home-shortcut.js`、`resume-prompt.js`、`browser-history.js` | 注入 `loadCodex`、两个虚拟视图入口、`exitSiteSearchView`、`applySearch`、`applyFilter`、`openRelatedDirectory`；输入法组合期间不解析或写历史 |
+| `ui.js` | 全局事件绑定、主题 / 密度 / 搜索范围 / 中文筛选 / 分级开关、顶栏动态气泡开合与页面级编排 | `uiActions`、主题图标表、首次搜索历史意图跟踪器 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`codex-ui.js`、`router.js`、`search.js`、`search-ui.js`、`history.js`、`masonry.js`、`lightbox.js`、`clipboard-fallback.js`、`modal.js`、`announcements.js`、`updates.js`、`report.js`、`onboarding.js`、`tag-relay-rail.js`、`tag-relay.js`、`home-shortcut.js`、`resume-prompt.js`、`browser-history.js` | 注入 `loadCodex`、两个虚拟视图入口、`exitSiteSearchView`、`applySearch`、`applyFilter`、`openRelatedDirectory`；输入法组合期间不解析或写历史 |
 
 ## Tag 中转站
 

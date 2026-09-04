@@ -51,6 +51,7 @@ REQUIRED_FILES = {
     "share-index.json",
     "strings.json",
     "strings_index.json",
+    "updates.json",
 }
 
 
