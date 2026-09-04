@@ -5,15 +5,12 @@ import { dismissToast, toast } from './feedback.js';
 import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, updateCodexPickerState } from './codex-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
-import { parseSearchFilter, parseSearchQuery, serializeSearchFilter } from './search.js';
-import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
 import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
-import { setupAnnouncements, openAnnouncementsPanel, updateAnnouncementBadge } from './announcements.js';
-import { loadUpdates, renderUpdatesDigest, handleUpdateRowClick } from './updates.js';
+import { setupAnnouncements } from './announcements.js';
 import { setupReport, openReportDialog } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
 import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
@@ -43,7 +40,6 @@ const uiActions = {
   exitSiteSearchView: () => {},
   applyFilter: () => {},
   applySearch: async () => {},
-  openRelatedDirectory: async () => {},
 };
 
 export function setUiActions(actions = {}) {
@@ -56,34 +52,6 @@ export function nextDensity(value) {
   const current = normalizeDensity(value);
   const index = DENSITY_ORDER.indexOf(current);
   return DENSITY_ORDER[(index + 1) % DENSITY_ORDER.length];
-}
-
-/* 首次搜索可能要等全站法典异步汇总后才真正写入历史。把“首条记录是否仍待写”
-   收在一个小状态机里，确保输入、chip 和范围切换共用同一份 push/replace 语义。 */
-export function createSearchHistoryIntentTracker() {
-  let pending = false;
-  return {
-    begin({ previous, next, mobileLayered = false } = {}) {
-      if (!next) pending = false;
-      if (next && !previous) pending = true;
-      const needsInitialHistory = Boolean(next && pending);
-      const layered = Boolean(needsInitialHistory && mobileLayered);
-      return {
-        needsInitialHistory,
-        layered,
-        historyMode: needsInitialHistory ? (layered ? 'none' : 'push') : 'replace',
-      };
-    },
-    settle({ needsInitialHistory, layered, sessionMatches, siteViewReady = true, beginLayeredSearch } = {}) {
-      if (needsInitialHistory && layered && pending && sessionMatches && siteViewReady) {
-        if (beginLayeredSearch?.()) pending = false;
-      } else if (needsInitialHistory && !layered && sessionMatches) {
-        pending = false;
-      }
-      return !pending;
-    },
-    get pending() { return pending; },
-  };
 }
 
 export function updateDensityControls() {
@@ -139,23 +107,9 @@ export function bindUI() {
   const searchScopeBtn = $('#searchScopeBtn');
   const mobileSearchBtn = $('#mobileSearchBtn');
   const mobileQuery = window.matchMedia('(max-width:600px)');
-  const mobileSearchInertState = new Map();
-  const setMobileSearchSiblingsInert = inert => {
-    if (inert) {
-      document.querySelectorAll('.topbar > :not(.search-wrap)').forEach(node => {
-        if (mobileSearchInertState.has(node)) return;
-        mobileSearchInertState.set(node, Boolean(node.inert));
-        node.inert = true;
-      });
-      return;
-    }
-    mobileSearchInertState.forEach((wasInert, node) => { node.inert = wasInert; });
-    mobileSearchInertState.clear();
-  };
   const applySearchMode = (on, { focus = false, restoreButton = false } = {}) => {
     const shouldOpen = on && mobileQuery.matches;
     document.body.classList.toggle('search-mode', shouldOpen);
-    setMobileSearchSiblingsInert(shouldOpen);
     if (shouldOpen) {
       setTopbarHidden(false);
       if (focus) requestAnimationFrame(() => searchInput.focus());
@@ -167,10 +121,7 @@ export function bindUI() {
   registerHistoryLayer('mobile-search', {
     isOpen: () => document.body.classList.contains('search-mode'),
     open: () => applySearchMode(true),
-    close: () => {
-      closeSearchFilterPanel();
-      applySearchMode(false, { restoreButton: mobileQuery.matches });
-    },
+    close: () => applySearchMode(false),
   });
   const setSearchMode = (on, { focus = false, restoreButton = false, historyMode = on ? 'push' : 'back' } = {}) => {
     if (!mobileQuery.matches) {
@@ -186,66 +137,25 @@ export function bindUI() {
     else forgetHistoryLayer('mobile-search');
   };
   const nextSearchSessionId = () => `search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const searchHistoryIntent = createSearchHistoryIntentTracker();
-  const searchIsActive = () => Boolean(state.query.trim() || state.searchFilterValues.length);
-  const compileSearchState = (query, filterValues, { canonicalize = true } = {}) => {
-    const plan = parseSearchQuery(query, filterValues);
-    state.query = canonicalize && plan.canCanonicalize ? plan.canonicalQuery : String(query || '');
-    state.searchDraft = state.query;
-    state.searchFilters = [...plan.filters];
-    state.searchFilterValues = [...plan.filterValues];
-    state.searchIssues = [...plan.issues];
-    state.searchPlan = plan;
-    return plan;
-  };
-  const applySearchConditions = async ({ query = state.query, filterValues = state.searchFilterValues } = {}, { canonicalize = true } = {}) => {
+  const applySearchInput = async value => {
     const parentScrollY = Math.max(0, window.scrollY || 0);
-    const previous = searchIsActive();
-    const plan = compileSearchState(query, filterValues, { canonicalize });
-    const next = plan.hasActiveSearch;
-    searchInput.value = state.query;
-    updateSearchClear();
+    const previous = state.query.trim();
+    state.query = String(value || '');
+    const next = state.query.trim();
+    if (!next && previous && !mobileQuery.matches && goBackFrom('search')) return;
     const firstQuery = Boolean(next && !previous);
-    if (firstQuery) {
-      state.searchHistorySessionId = nextSearchSessionId();
-    }
-    // 全站法典异步汇总期间，较早查询可能被更新查询取消。直到某一轮真正写入首条
-    // search 记录前，后续查询也必须保留 push 意图，不能提前退化成 replace。
-    const historyIntent = searchHistoryIntent.begin({
-      previous,
-      next,
-      mobileLayered: mobileQuery.matches && topHistoryLayerId() === 'mobile-search',
-    });
-    const { needsInitialHistory, layered, historyMode } = historyIntent;
-    if (!next && previous && !mobileQuery.matches && goBackFrom('search')) return plan;
-    const sessionId = state.searchHistorySessionId || getManagedHistoryEntry()?.sessionId || undefined;
+    if (firstQuery) state.searchHistorySessionId = nextSearchSessionId();
+    const layered = firstQuery && mobileQuery.matches && topHistoryLayerId() === 'mobile-search';
+    const historyMode = firstQuery ? (layered ? 'none' : 'push') : 'replace';
     await uiActions.applySearch({
       resetScroll: true,
       transition: next ? 'search' : 'route',
       historyMode,
-      sessionId,
+      sessionId: state.searchHistorySessionId || getManagedHistoryEntry()?.sessionId || undefined,
       parentScrollY,
     });
-    searchHistoryIntent.settle({
-      ...historyIntent,
-      sessionMatches: layered
-        ? sessionId === state.searchHistorySessionId
-        : getManagedHistoryEntry()?.sessionId === sessionId,
-      siteViewReady: state.searchScope !== 'site' || state.siteSearchView || state.favoritesView,
-      beginLayeredSearch: () => beginAtlasLayeredSearch(sessionId),
-    });
+    if (layered) beginAtlasLayeredSearch(state.searchHistorySessionId);
     if (!next && !getManagedHistoryEntry()?.sessionId) state.searchHistorySessionId = '';
-    return plan;
-  };
-  const pendingSyntax = value => {
-    const raw = String(value || '').replace(/[：]/g, ':').replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
-    if (!raw || /\s$/.test(raw)) return false;
-    const plan = parseSearchQuery(raw, state.searchFilterValues);
-    if (plan.issues.some(issue => issue.code === 'unclosed_quote')) return true;
-    const field = '(?:title|标题|prompt|prompts|tag|tags|标签|正向|提示词|negative|neg|负面|负面词|note|备注|raw|rawtag|rawtags|原始|原始词|author|作者|codex|book|source|法典|书|type|类型|path|路径|目录|has|image|图片|fav|favorite|favourite|收藏|dir|directory)';
-    const valuePattern = '(?:"[^"]*"|\'[^\']*\'|[^\\s]*)';
-    return new RegExp(`(?:^|\\s)-?${field}:${valuePattern}$`, 'i').test(raw)
-      || /(?:^|\s)-(?:"[^"]*"|'[^']*'|[^\s]+)$/.test(raw);
   };
   updateSearchScopeControl();
   if (searchScopeBtn) {
@@ -253,8 +163,13 @@ export function bindUI() {
       state.searchScope = normalizeSearchScope(state.searchScope === 'site' ? 'codex' : 'site');
       localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, state.searchScope);
       updateSearchScopeControl();
-      if (searchIsActive()) {
-        void applySearchConditions();
+      if (state.query.trim()) {
+        void uiActions.applySearch({
+          resetScroll: true,
+          transition: 'search',
+          historyMode: 'replace',
+          sessionId: state.searchHistorySessionId || getManagedHistoryEntry()?.sessionId || undefined,
+        });
       } else {
         syncUrlState({ historyMode: 'replace' });
       }
@@ -265,35 +180,23 @@ export function bindUI() {
   searchExit?.addEventListener('click', () => setSearchMode(false, { restoreButton: true }));
   if (mobileQuery.addEventListener) {
     mobileQuery.addEventListener('change', ev => {
-      if (ev.matches) {
-        if (document.body.classList.contains('search-filters-open')) {
-          setSearchMode(true, { historyMode: 'push' });
-        }
-      } else {
-        const searchWasOpen = document.body.classList.contains('search-mode');
-        closeSearchFilterPanel();
+      if (!ev.matches) {
         applySearchMode(false);
-        if (searchWasOpen) closeHistoryLayer('mobile-search');
-        else forgetHistoryLayer('mobile-search');
+        forgetHistoryLayer('mobile-search');
         forgetHistoryLayer('mobile-sidebar');
       }
     });
   }
   let searchComposing = false;
-  const scheduleSearchInput = (value, { commitSyntax = /\s$/.test(String(value || '')) } = {}) => {
+  const scheduleSearchInput = value => {
     clearTimeout(st);
     st = setTimeout(() => {
-      if (!commitSyntax && pendingSyntax(value)) {
-        state.searchDraft = String(value || '');
-        renderSearchStatus({ kind: 'info', message: '继续输入，或按 Enter 添加筛选条件' });
-        return;
-      }
       if (value.trim()) {
         if (!state.siteSearchView) document.querySelectorAll('.tree-row.active').forEach(r => r.classList.remove('active'));   // 全站搜索保留目录收窄的高亮
       } else if (!state.siteSearchView) {
         renderTree();
       }
-      void applySearchConditions({ query: value }, { canonicalize: commitSyntax || !pendingSyntax(value) });
+      void applySearchInput(value);
     }, 180);
   };
   searchInput.addEventListener('compositionstart', () => {
@@ -313,97 +216,16 @@ export function bindUI() {
     }
     scheduleSearchInput(e.target.value);
   };
-  searchInput.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' || searchComposing || event.isComposing) return;
-    event.preventDefault();
-    clearTimeout(st);
-    void applySearchConditions({ query: searchInput.value }, { canonicalize: true });
-  });
-  searchInput.addEventListener('blur', () => {
-    if (searchComposing || searchInput.value === state.query) return;
-    clearTimeout(st);
-    void applySearchConditions({ query: searchInput.value }, { canonicalize: true });
-  });
-  searchInput.addEventListener('paste', () => {
-    clearTimeout(st);
-    setTimeout(() => {
-      clearTimeout(st); // input 事件会安排一次防抖；粘贴完成后只提交这一轮，避免重复 replace/render
-      if (!searchComposing) void applySearchConditions({ query: searchInput.value }, { canonicalize: true });
-    }, 0);
-  });
   if (searchClear) {
     searchClear.onclick = () => {
       if (!searchInput.value) return;
       clearTimeout(st);
       searchInput.value = '';
       updateSearchClear();
-      void applySearchConditions({ query: '' });
+      void applySearchInput('');
       searchInput.focus();
     };
   }
-
-  const normalizedFilterValue = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
-  const addSearchFilter = async candidate => {
-    const parsed = parseSearchFilter(candidate);
-    if (!parsed.filter) throw new Error(parsed.issues[0]?.message || '筛选条件无效');
-    const nextFilter = parsed.filter;
-    const serialized = serializeSearchFilter(nextFilter);
-    let values = [...state.searchFilterValues];
-    const parsedValues = values.map(value => parseSearchFilter(value));
-    if (parsedValues.some(item => item.filter && serializeSearchFilter(item.filter) === serialized)) return true;
-    const singleValueFields = new Set(['directory', 'has', 'fav', 'codex', 'type']);
-    if (singleValueFields.has(nextFilter.field)) {
-      values = values.filter((value, index) => parsedValues[index].filter?.field !== nextFilter.field);
-    } else {
-      const conflict = parsedValues.some(item => item.filter
-        && item.filter.field === nextFilter.field
-        && item.filter.op !== nextFilter.op
-        && normalizedFilterValue(item.filter.value) === normalizedFilterValue(nextFilter.value));
-      if (conflict) throw new Error('同一个条件不能同时包含和排除');
-    }
-    values.push(serialized);
-    await applySearchConditions({ filterValues: values });
-    return true;
-  };
-  const removeSearchFilter = async (_filter, index) => {
-    const values = [...state.searchFilterValues];
-    if (!Number.isInteger(index) || index < 0 || index >= values.length) return;
-    values.splice(index, 1);
-    await applySearchConditions({ filterValues: values });
-  };
-  const clearAllSearch = async () => {
-    clearTimeout(st);
-    searchInput.value = '';
-    await applySearchConditions({ query: '', filterValues: [] });
-    closeSearchFilterPanel();
-  };
-  setSearchUiActions({
-    addFilter: addSearchFilter,
-    removeFilter: removeSearchFilter,
-    clearAll: clearAllSearch,
-    useExample: async query => {
-      const combined = [searchInput.value.trim(), String(query || '').trim()].filter(Boolean).join(' ');
-      searchInput.value = combined;
-      await applySearchConditions({ query: combined }, { canonicalize: true });
-    },
-    openRelatedDirectory: async item => {
-      closeSearchFilterPanel();
-      await uiActions.openRelatedDirectory(item);
-    },
-    runStatusAction: async action => {
-      if (action?.id === 'clear-filters') {
-        await applySearchConditions({ filterValues: [] });
-      } else if (action?.id === 'clear-all') {
-        await clearAllSearch();
-      } else if (action?.id === 'scope-site') {
-        state.searchScope = 'site';
-        localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, state.searchScope);
-        updateSearchScopeControl();
-        await applySearchConditions();
-      }
-    },
-  });
-  setupSearchUi();
 
   const updateFilterControls = $('#updateFilterControls');
   if (updateFilterControls) {
@@ -585,63 +407,6 @@ export function bindUI() {
     closeMore: () => closeMore({ historyMode: 'none' }),
     historyMode: () => mobileQuery.matches ? 'replace' : 'push',
   });
-
-  /* 顶栏动态气泡：只回答「有没有更新、多少条」，重内容一律交给下面的三页签面板。
-     故意不进 openMask/history 层——它是轻量 popover，移动端点一下就该直接进面板。 */
-  const announceBtn = $('#announcementsBtn');
-  const updatesPopover = $('#updatesPopover');
-  if (announceBtn && updatesPopover) {
-    const closePopover = ({ focusButton = false } = {}) => {
-      if (updatesPopover.hidden) return;
-      updatesPopover.hidden = true;
-      announceBtn.classList.remove('open');
-      announceBtn.setAttribute('aria-expanded', 'false');
-      if (focusButton) announceBtn.focus({ preventScroll: true });
-    };
-    const openPanelAt = tab => {
-      closePopover();
-      openAnnouncementsPanel(announceBtn, {
-        historyMode: mobileQuery.matches ? 'replace' : 'push',
-        tab,
-      });
-    };
-    announceBtn.onclick = async ev => {
-      ev.stopPropagation();
-      closeMore({ historyMode: 'none' });
-      if (!updatesPopover.hidden) {
-        closePopover({ focusButton: true });
-        return;
-      }
-      /* 移动端没有"轻量悬浮"的空间，直接进面板，省一次点击。 */
-      if (mobileQuery.matches) {
-        await loadUpdates();
-        openPanelAt('');
-        return;
-      }
-      await loadUpdates();
-      renderUpdatesDigest(updatesPopover);
-      updateAnnouncementBadge();
-      updatesPopover.hidden = false;
-      announceBtn.classList.add('open');
-      announceBtn.setAttribute('aria-expanded', 'true');
-    };
-    updatesPopover.onclick = ev => {
-      const open = ev.target.closest?.('[data-updates-open]');
-      if (open && updatesPopover.contains(open)) {
-        openPanelAt(String(open.dataset.updatesOpen || ''));
-        return;
-      }
-      if (handleUpdateRowClick(ev, { consumeLayer: false })) closePopover();
-    };
-    updatesPopover.onkeydown = ev => {
-      if (ev.key === 'Escape') { ev.preventDefault(); closePopover({ focusButton: true }); }
-    };
-    document.addEventListener('click', ev => {
-      if (!updatesPopover.hidden && !updatesPopover.contains(ev.target) && !announceBtn.contains(ev.target)) {
-        closePopover();
-      }
-    });
-  }
   setupOnboarding();
   setupHomeShortcutGuide();
   const globalReportBtn = $('#globalReportBtn');
@@ -656,21 +421,15 @@ export function bindUI() {
     };
   }
 
-  /* 动态面板「反馈」页签里的两个入口：原先是公告列表上方的一条横幅，
-     2026-09 提成独立页签。沿用灯箱→反馈的既有做法（叠层打开、不手动关动态面板），
-     保持历史栈一致。 */
-  const feedbackEntries = [
-    ['#announcementsFeedbackLink', 'progress'],
-    ['#announcementsFeedbackSubmit', 'submit'],
-  ];
-  for (const [selector, tab] of feedbackEntries) {
-    const node = $(selector);
-    if (!node) continue;
-    node.onclick = () => {
+  /* 公告面板底部的常驻入口：从「站方在干什么」的语境顺势跳到反馈处理进度。
+     沿用灯箱→反馈的既有做法（叠层打开、不手动关公告），保持历史栈一致。 */
+  const announcementsFeedbackLink = $('#announcementsFeedbackLink');
+  if (announcementsFeedbackLink) {
+    announcementsFeedbackLink.onclick = () => {
       openReportDialog({
         source: 'announcement',
-        tab,
-        trigger: node,
+        tab: 'progress',
+        trigger: announcementsFeedbackLink,
         historyMode: mobileQuery.matches ? 'replace' : 'push',
       });
     };
@@ -978,7 +737,6 @@ export function bindUI() {
     scheduleBrowseStateSave();
     scheduleHistoryScrollCheckpoint();
     if (Math.abs(dy) < 4) return;
-    if (document.body.classList.contains('search-filters-open')) { setTopbarHidden(false); return; }
     if (document.activeElement === searchInput) { setTopbarHidden(false); return; }
     if (mobileQuery.matches && !sidebar.classList.contains('closed')) { setTopbarHidden(false); return; }
     setTopbarHidden(dy > 0 && y > 120);

@@ -48,8 +48,7 @@ class PublishBatchTests(unittest.TestCase):
     def test_data_entrypoint_preserves_the_upload_order(self):
         code, calls = self.run_batch("发布数据.bat")
         self.assertEqual(code, 0)
-        positions = [calls.index(action) for action in
-                     ("sync_r2.py", "build_updates_index.py", "build_share_index.py", "--publish")]
+        positions = [calls.index(action) for action in ("sync_r2.py", "build_share_index.py", "--publish")]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("git", calls)
 

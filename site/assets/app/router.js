@@ -1,7 +1,6 @@
 import { state } from './state.js';
 import { $ } from './utils.js';
 import { encodePathCode } from './path-code.js';
-import { serializeSearchFilters } from './search.js';
 import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
@@ -9,7 +8,6 @@ import {
   beginLayeredSearch,
   commitHistoryRoute,
   configureBrowserHistory,
-  getManagedHistoryEntry,
   initializeBrowserHistory,
   isRestoringHistory,
 } from './browser-history.js';
@@ -66,8 +64,6 @@ export function readUrlState() {
     // 目录短码；旧的 path= 参数仍然照读，读到就优先用它，短码只是没有 path 时的来源。
     pathCode: params.get('p') || '',
     q: params.get('q') || '',
-    // f 允许重复；空值和非法值也必须原样交给搜索解析器，才能显示错误而不是退化成宽泛搜索。
-    searchFilters: params.getAll('f'),
     entry: share.entry || params.get('entry') || hash.get('entry') || '',
     updateFilter: params.get('update') || (params.get('new') === '1' ? 'latest' : ''),
   };
@@ -83,45 +79,10 @@ export function captureAtlasRoute(entryOverride) {
     path: [...(state.activePath || [])],
     searchReturnPath: [...(state.searchReturnPath || [])],
     q: state.query.trim(),
-    searchFilters: captureSearchFilterValues(),
     entry: entryOverride === undefined ? (state.lightbox.entry?.id || '') : String(entryOverride || ''),
     imageIndex: Math.max(0, Number(state.lightbox.index) || 0),
     updateFilter: String(state.updateFilter || ''),
   };
-}
-
-function captureSearchFilterValues() {
-  if (Array.isArray(state.searchFilterValues)) return state.searchFilterValues.map(value => String(value ?? ''));
-  if (Array.isArray(state.searchPlan?.filterValues)) return state.searchPlan.filterValues.map(value => String(value ?? ''));
-  return serializeSearchFilters(state.searchPlan?.filters || []);
-}
-
-export function hasActiveSearchRoute(route) {
-  return Boolean(
-    String(route?.q || '').trim()
-    || (Array.isArray(route?.searchFilters) && route.searchFilters.length),
-  );
-}
-
-/* 全站搜索首次构建要异步加载多本法典：首个 push 请求可能被后续输入取消，而后续
-   输入按常规只请求 replace。这里根据历史事实补回“第一次进入搜索必须 push”的不变量；
-   移动搜索已有自己的 layered 结构，有浮层时绝不能在这里额外加一层。 */
-export function resolveAtlasHistoryMode(requestedMode, route, {
-  transition,
-  sessionId,
-  currentEntry = getManagedHistoryEntry(),
-} = {}) {
-  const mode = requestedMode || 'replace';
-  const layers = Array.isArray(currentEntry?.layers) ? currentEntry.layers : [];
-  const startsUnrecordedSearch = mode === 'replace'
-    && transition === 'search'
-    && Boolean(String(sessionId || ''))
-    && Boolean(currentEntry?.id)
-    && currentEntry.sessionId !== sessionId
-    && layers.length === 0
-    && !hasActiveSearchRoute(currentEntry.route)
-    && hasActiveSearchRoute(route);
-  return startsUnrecordedSearch ? 'push' : mode;
 }
 
 /* App 可能被 Function 挂在 /share/... 下交付，那时 location.pathname 不是站点根。
@@ -167,15 +128,11 @@ export function atlasUrlForRoute(route) {
   if (route.favorites) params.set('fav', '1');
   if (route.updateFilter) params.set('update', route.updateFilter);
   const q = String(route.q || '').trim();
-  const searchFilters = Array.isArray(route.searchFilters)
-    ? route.searchFilters.map(value => String(value ?? ''))
-    : [];
-  if (q) params.set('q', q);
-  for (const filter of searchFilters) params.append('f', filter);
-  if (hasActiveSearchRoute({ q, searchFilters })) {
+  if (q) {
+    params.set('q', q);
     params.set('scope', route.siteSearch || route.scope === 'site' ? 'site' : 'codex');
   }
-  const path = route.path || [];
+  const path = q && !route.siteSearch ? [] : (route.path || []);
   // 中文目录名逐字 percent-encode 是 9 个字符一个汉字，改发短码，反解在 path-code.js。
   const code = encodePathCode(path);
   if (code) params.set('p', code);
@@ -191,7 +148,7 @@ export function configureAtlasHistory() {
     urlForRoute: atlasUrlForRoute,
     applyRoute: (route, context) => routerActions.applyHistoryRoute(route, context),
     restoreScroll: (top, context) => routerActions.restoreHistoryScroll(top, context),
-    isEmptySearchRoute: route => !hasActiveSearchRoute(route),
+    isEmptySearchRoute: route => !String(route?.q || '').trim(),
   });
 }
 
@@ -208,11 +165,10 @@ export function syncUrlState(options = {}) {
     consumeLayer = false,
     parentScrollY,
   } = options;
-  const requestedHistoryMode = options.historyMode || 'replace';
+  const historyMode = options.historyMode || 'replace';
   if (!state.codex) return;
   const entryId = entry === undefined ? (state.lightbox.entry?.id || '') : entry;
   const route = captureAtlasRoute(entryId);
-  const historyMode = resolveAtlasHistoryMode(requestedHistoryMode, route, { transition, sessionId });
   // history restore 会暂时禁止 URL 写入，但灯箱仍在开合；标题不能因此停在上一条词条。
   syncDocumentTitle(route);
   if (state.suppressUrlSync) return;
@@ -287,8 +243,7 @@ export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
     syncUrlState({ entry: '' });
     return false;
   }
-  if (!hasActiveSearchRoute({ q: state.query, searchFilters: state.searchFilterValues })
-      && !state.activePath.length && entry.path?.length) {
+  if (!state.query && !state.activePath.length && entry.path?.length) {
     state.activePath = entry.path;
     routerActions.renderTree();
     routerActions.applyFilter({ resetScroll: true });

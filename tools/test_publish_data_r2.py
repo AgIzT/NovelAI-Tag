@@ -72,7 +72,6 @@ def make_data(root):
     write_json(root / "media.json", {})
     write_json(root / "strings_index.json", {})
     write_json(root / "strings.json", {})
-    write_json(root / "updates.json", {"schema": 1, "batches": []})
     write_json(root / "share-index.json", {"codexes": {"demo": {"id": "demo", "shareable": True}}})
     write_json(root / "share" / "demo.json", {"id": "demo"})
 

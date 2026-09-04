@@ -82,8 +82,7 @@ function configure(page = 'atlas', applyRoute = async () => undefined) {
     captureRoute: () => route,
     applyRoute,
     restoreScroll: async top => { window.scrollY = top; },
-    isEmptySearchRoute: value => !String(value?.q || '').trim()
-      && !(Array.isArray(value?.searchFilters) && value.searchFilters.length),
+    isEmptySearchRoute: value => !String(value?.q || '').trim(),
   });
   return {
     window,
@@ -616,33 +615,6 @@ assert.equal(replaced.parentId, entry.parentId);
   assert.equal(env.window.history.entries[1].state.id, forward.id);
   assert.equal(getManagedHistoryEntry().id, parent.id);
   assert.deepEqual(getManagedHistoryEntry().layers, []);
-}
-
-// A filter-only search is still an active search session. Closing the mobile
-// layer keeps its latest chips; only the following Back restores pre-search.
-{
-  const env = configure();
-  let searchOpen = false;
-  registerHistoryLayer('mobile-filter-search', {
-    isOpen: () => searchOpen,
-    open: () => { searchOpen = true; },
-    close: () => { searchOpen = false; },
-  });
-  const initial = initializeBrowserHistory();
-  searchOpen = true;
-  openHistoryLayer('mobile-filter-search');
-  env.route = { view: 'all', q: '', searchFilters: ['has:image'] };
-  beginLayeredSearch('mobile-filter-search', 'filter-only-search');
-
-  env.window.history.back();
-  await tick();
-  assert.equal(searchOpen, false);
-  assert.deepEqual(getManagedHistoryEntry().route.searchFilters, ['has:image']);
-
-  env.window.history.back();
-  await tick();
-  assert.equal(getManagedHistoryEntry().id, initial.id);
-  assert.deepEqual(getManagedHistoryEntry().route.searchFilters, undefined);
 }
 
 console.log('browser history tests passed');

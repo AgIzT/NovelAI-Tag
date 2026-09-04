@@ -3,9 +3,7 @@ import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from '
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
 import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
-import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults } from './app/search.js';
-import { findRelatedDirectories, listSearchDirectories } from './app/search-directories.js';
-import { renderRelatedDirectories, renderSearchFilters, renderSearchStatus } from './app/search-ui.js';
+import { parseSearchQuery, matchSearchPlan } from './app/search.js';
 import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
 import { isFav, setFavoritesActions, toggleFav } from './app/favorites.js';
 import { ATLAS_FAVORITES_STORAGE_KEY, readStoredFavorites } from './app/favorites-backup-core.js';
@@ -16,13 +14,12 @@ import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from 
 import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
-import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
+import { captureAtlasRoute, configureAtlasHistory, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { pathFromCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
-import { setUpdatesActions } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
@@ -31,7 +28,6 @@ import { setupTagRelay } from './app/tag-relay.js';
 
 let codexLoadSeq = 0;
 let favoritesBackupBound = false;
-let searchDirectoryOptionCache = { directories: null, sourceView: false, options: [] };
 const codexPickerTitle = c => c?.selectorTitle || c?.title || '';
 const setOnlyFavControl = checked => {
   state.onlyFav = Boolean(checked);
@@ -39,20 +35,6 @@ const setOnlyFavControl = checked => {
   if (onlyFav) onlyFav.checked = state.onlyFav;
 };
 const virtualView = () => state.favoritesView || state.siteSearchView;
-const searchFilterValues = route => Array.isArray(route?.searchFilters)
-  ? route.searchFilters.map(value => String(value ?? ''))
-  : [];
-const hasActiveSearchState = () => Boolean(state.query.trim() || state.searchFilterValues.length);
-const compileSearchState = (rawQuery = state.query, filters = state.searchFilterValues) => {
-  const plan = parseSearchQuery(rawQuery, filters);
-  state.query = plan.canCanonicalize ? plan.canonicalQuery : String(rawQuery || '');
-  state.searchDraft = state.query;
-  state.searchFilters = [...plan.filters];
-  state.searchFilterValues = [...plan.filterValues];
-  state.searchIssues = [...plan.issues];
-  state.searchPlan = plan;
-  return plan;
-};
 const requestedUpdateFilter = route => String(route?.updateFilter || (route?.onlyNew ? 'latest' : ''));
 const hasOwnRouteField = (route, key) => Object.prototype.hasOwnProperty.call(route || {}, key);
 const canonicalListContext = route => {
@@ -72,8 +54,6 @@ const historyRouteNeedsCanonicalization = (route, normalizedRoute) => Boolean(
   hasOwnRouteField(route, 'onlyImaged')
   || hasOwnRouteField(route, 'onlyNew')
   || requestedUpdateFilter(route) !== String(normalizedRoute?.updateFilter || '')
-  || String(route?.q || '').trim() !== String(normalizedRoute?.q || '').trim()
-  || JSON.stringify(searchFilterValues(route)) !== JSON.stringify(searchFilterValues(normalizedRoute))
   // 旧 id 只用于判定并册前的目录来源；一旦迁移完成，历史记录与地址栏都写回正式 id。
   || Boolean(route?.codex && route.codex !== normalizedRoute?.codex)
 );
@@ -84,7 +64,7 @@ const historyModeFor = (options, fallback = 'push') => options.historyMode || fa
 const urlSearchScope = urlState => {
   if (!urlState) return state.searchScope;
   if (urlState.scope) return normalizeSearchScope(urlState.scope);
-  return hasActiveSearchRoute(urlState) ? 'codex' : state.searchScope;  // 旧搜索链接继续按当前法典搜索解释
+  return urlState.q ? 'codex' : state.searchScope;  // 旧 q 链接继续按当前法典搜索解释
 };
 const applyUrlSearchScope = urlState => {
   if (!urlState) return;
@@ -92,8 +72,8 @@ const applyUrlSearchScope = urlState => {
   updateSearchScopeControl();
 };
 const siteSearchStillWanted = options => Boolean(
-  hasActiveSearchRoute(options.urlState)
-  || (state.searchScope === 'site' && hasActiveSearchState()),
+  options.urlState?.q?.trim()
+  || (state.searchScope === 'site' && state.query.trim()),
 );
 
 function renderCodexView(codex, seq, {
@@ -108,7 +88,6 @@ function renderCodexView(codex, seq, {
   resolveUrlState,
   applyViewUrlState,
   resolveQuery,
-  resolveFilters = urlState => searchFilterValues(urlState),
 }) {
   if (seq !== codexLoadSeq) return;
   primeResourceHints({ codexes: primeCodexes });
@@ -132,8 +111,6 @@ function renderCodexView(codex, seq, {
   const nextPath = normalizeCodexRoutePath(c, requestedPath, urlState?.codex || c.id);
   state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
   state.query = resolveQuery(urlState);
-  state.searchFilterValues = resolveFilters(urlState);
-  compileSearchState();
   state.seenAnimated.clear();
   state.recentRandomIds = [];
   $('#search').value = state.query;
@@ -145,7 +122,6 @@ function renderCodexView(codex, seq, {
   syncUrlState({
     historyMode: historyModeFor(options),
     transition: options.transition || 'route',
-    sessionId: options.sessionId,
     consumeLayer: Boolean(options.consumeLayer),
     parentScrollY,
     entry: urlState?.entry || '',
@@ -217,7 +193,7 @@ export async function init() {
     bindFavoritesBackup();
     state.pendingUrlState = readUrlState();
     const wantsFavorites = state.pendingUrlState.favorites || state.pendingUrlState.codex === FAVORITES_CODEX_ID;
-    const wantsSiteSearch = !wantsFavorites && state.pendingUrlState.scope === 'site' && hasActiveSearchRoute(state.pendingUrlState);
+    const wantsSiteSearch = !wantsFavorites && state.pendingUrlState.scope === 'site' && state.pendingUrlState.q.trim();
     const initialMeta = findCodexMeta(state.pendingUrlState.codex);
     const initialId = initialMeta && !isCodexLocked(initialMeta)
       ? initialMeta.id
@@ -230,7 +206,7 @@ export async function init() {
       beginIntroReveal();
       const initialUrlState = wantsFavorites
         ? null
-        : (wantsSiteSearch ? { ...state.pendingUrlState, q: '', searchFilters: [] } : state.pendingUrlState);
+        : (wantsSiteSearch ? { ...state.pendingUrlState, q: '' } : state.pendingUrlState);
       await loadCodex(initialId, { urlState: initialUrlState, historyMode: 'none', saveBrowse: false });
       if (wantsFavorites) {
         await openFavoritesView({ urlState: state.pendingUrlState, historyMode: 'none', saveBrowse: false });
@@ -306,7 +282,6 @@ async function syncAtlasFavoritesFromStorage(detail = {}) {
         favorites: true,
         path: state.activePath.slice(),
         q: state.query,
-        searchFilters: [...state.searchFilterValues],
         scope: state.searchScope,
       },
       historyMode: 'replace',
@@ -473,7 +448,6 @@ export async function openSiteSearchView(options = {}) {
         updateSearchScopeControl();
       },
       resolveQuery: urlState => urlState?.q ?? state.query,
-      resolveFilters: urlState => urlState ? searchFilterValues(urlState) : [...state.searchFilterValues],
     });
     await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
   } catch (ex) {
@@ -522,38 +496,6 @@ export function exitSiteSearchView(options = {}) {
   });
 }
 
-export async function openRelatedDirectory(item, options = {}) {
-  const codexId = String(item?.codexId || '').trim();
-  const path = Array.isArray(item?.path) ? item.path.map(part => String(part || '').trim()).filter(Boolean) : [];
-  if (!codexId || !path.length) return;
-  state.query = '';
-  state.searchDraft = '';
-  state.searchFilters = [];
-  state.searchFilterValues = [];
-  state.searchIssues = [];
-  state.searchPlan = parseSearchQuery('');
-  state.relatedDirectories = [];
-  state.relatedDirectoryCount = 0;
-  state.searchScope = 'codex';
-  state.updateFilter = '';
-  setOnlyFavControl(false);
-  localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, state.searchScope);
-  updateSearchScopeControl();
-  await loadCodex(codexId, {
-    urlState: { codex: codexId, path, q: '', searchFilters: [], scope: 'codex' },
-    historyMode: options.historyMode || 'push',
-    transition: 'route',
-    consumeLayer: options.consumeLayer !== false,
-    parentScrollY: options.parentScrollY ?? Math.max(0, window.scrollY || 0),
-  });
-  requestAnimationFrame(() => {
-    const result = $('#resultInfo');
-    if (!result) return;
-    result.tabIndex = -1;
-    result.focus({ preventScroll: true });
-  });
-}
-
 export async function applySearch(options = {}) {
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (state.favoritesView) {
@@ -561,7 +503,7 @@ export async function applySearch(options = {}) {
     syncUrlState({ historyMode: historyModeFor(options, 'replace'), transition: options.transition, sessionId: options.sessionId, parentScrollY, saveBrowse: options.saveBrowse !== false });
     return;
   }
-  if (state.searchScope === 'site' && hasActiveSearchState()) {
+  if (state.searchScope === 'site' && state.query.trim()) {
     if (!state.siteSearchView) await openSiteSearchView(options);
     else {
       applyFilter(options);
@@ -577,120 +519,25 @@ export async function applySearch(options = {}) {
   syncUrlState({ historyMode: historyModeFor(options, 'replace'), transition: options.transition, sessionId: options.sessionId, parentScrollY, saveBrowse: options.saveBrowse !== false });
 }
 
-function searchDirectoryOptions(directories) {
-  const sourceView = Boolean(virtualView());
-  if (searchDirectoryOptionCache.directories === directories
-    && searchDirectoryOptionCache.sourceView === sourceView) {
-    return searchDirectoryOptionCache.options;
-  }
-  const options = directories.map(item => ({
-    ...item,
-    value: item.id,
-    label: sourceView ? `${item.codexTitle} · ${item.breadcrumb}` : item.breadcrumb,
-  }));
-  searchDirectoryOptionCache = { directories, sourceView, options };
-  return options;
-}
-
-function searchFilterViewModels(directoryOptions) {
-  return state.searchFilterValues.map(rawValue => {
-    const parsed = parseSearchFilter(rawValue);
-    if (!parsed.filter) {
-      const raw = String(rawValue ?? '');
-      return {
-        field: 'invalid',
-        invalid: true,
-        issue: parsed.issues[0],
-        label: `无效条件：${raw || '（空值）'}`,
-        value: raw,
-      };
-    }
-    const filter = { ...parsed.filter };
-    if (filter.field === 'directory') {
-      const option = directoryOptions.find(item => item.codexId === filter.codexId && item.pathCode === filter.pathCode);
-      if (option) filter.valueLabel = option.label;
-    }
-    return filter;
-  });
-}
-
-function renderSearchExperience(plan, directoryOptions) {
-  const active = Boolean(plan?.hasActiveSearch);
-  renderSearchFilters({
-    filters: searchFilterViewModels(directoryOptions),
-    issues: state.searchIssues,
-    activeCount: state.searchFilterValues.length,
-    hasActiveSearch: active,
-    directoryOptions,
-  });
-  renderRelatedDirectories(state.relatedDirectories, { totalCount: state.relatedDirectoryCount });
-  if (plan?.hasErrors) {
-    renderSearchStatus({
-      kind: 'error',
-      message: '查询条件有误，未执行宽泛搜索。',
-      detail: state.searchIssues.map(issue => issue.message).filter(Boolean).join('；'),
-      actions: [{ id: 'clear-all', label: '清空整个搜索', primary: true }],
-    });
-  } else if (active && state.list.length === 0) {
-    const count = state.relatedDirectoryCount;
-    const actions = [];
-    if (state.searchFilterValues.length) actions.push({ id: 'clear-filters', label: '清除筛选条件' });
-    actions.push({ id: 'clear-all', label: '清空整个搜索', primary: true });
-    if (state.searchScope === 'codex' && !state.siteSearchView) actions.push({ id: 'scope-site', label: '切换到全站搜索' });
-    renderSearchStatus({
-      kind: 'empty',
-      message: `0 条图片结果，找到 ${count} 个相关目录。`,
-      detail: count ? '目录命中单独列出，不会把其中图片混入结果。' : '请调整关键词或减少筛选条件。',
-      actions,
-    });
-  } else {
-    renderSearchStatus(null);
-  }
-}
-
 export function applyFilter(options = {}) {
-  const plan = compileSearchState();
-  const sourceEntries = state.codex?.entries || [];
-  const visibleEntries = sourceEntries.filter(entry => !isEntryAccessBlocked(entry));
-  // 目录节点与查询词无关，按法典 entries 引用和权限态缓存；一轮过滤内同时复用于
-  // 精确目录构造器与相关目录，避免全站 3 万余词条每次输入都重复扫两遍。
-  const directoryNodes = listSearchDirectories({ entries: sourceEntries, codex: state.codex, sourceView: virtualView() });
-  const directoryOptions = searchDirectoryOptions(directoryNodes);
-  const unavailableDirectory = plan.filters.find(filter => filter.field === 'directory'
-    && !directoryOptions.some(item => item.codexId === filter.codexId && item.pathCode === filter.pathCode));
-  if (unavailableDirectory) {
-    const issue = { code: 'directory_unavailable', message: '所选目录不存在、已改名或当前无权访问' };
-    plan.issues = [...plan.issues, issue];
-    plan.hasErrors = true;
-    state.searchIssues = [...plan.issues];
-  }
-  let list = visibleEntries;
+  const plan = parseSearchQuery(state.query);
+  state.searchPlan = plan;
+  let list = state.codex.entries;
   const byActivePath = l => {
     const p = state.activePath;
     return p.length ? l.filter(e => p.every((seg, i) => e.path[i] === seg)) : l;
   };
-  if (plan.hasActiveSearch) {
+  if (plan.raw) {
     list = list.filter(e => matchSearchPlan(e, plan));
+    if (state.siteSearchView) list = byActivePath(list);   // 全站搜索：搜索词 + 目录收窄并存
+  } else if (state.activePath.length) {
+    list = byActivePath(list);
   }
-  // 普通本书/收藏搜索沿用既有语义：搜索整本，而不是被搜索前浏览过的目录暗中收窄。
-  // 只有全站搜索允许搜索词与当前来源目录并存；严格目录交集由 dir: 筛选承担。
-  if (state.activePath.length && (state.siteSearchView || !plan.hasActiveSearch)) list = byActivePath(list);
   const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
   if (state.favoritesView) list = list.filter(isFav);   // 收藏视图里取消收藏即时消卡
-  state.list = rankSearchResults(list, plan);
-  const relatedDirectories = !plan.hasErrors && plan.positiveTerms.length
-    ? findRelatedDirectories({
-      codex: state.codex,
-      siteSearchView: virtualView(),
-      directories: directoryNodes,
-      positiveTerms: plan.positiveTerms,
-      queryText: plan.text,
-    })
-    : [];
-  state.relatedDirectories = relatedDirectories;
-  state.relatedDirectoryCount = Number(relatedDirectories.totalCount) || relatedDirectories.length;
-  renderSearchExperience(plan, directoryOptions);
+  list = list.filter(e => !isEntryAccessBlocked(e));  // NSFW/R18G 条目级访问控制
+  state.list = list;
   updateResultBar();
   renderList(options);
 }
@@ -753,7 +600,6 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
     scope: route.siteSearch ? 'site' : (route.scope || 'codex'),
     path: Array.isArray(route.path) ? route.path : [],
     q: String(route.q || ''),
-    searchFilters: searchFilterValues(route),
     entry: '',
     updateFilter: requestedUpdateFilter(route),
   };
@@ -788,8 +634,6 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
       const nextPath = normalizeCodexRoutePath(state.codex, urlState.path, urlState.codex);
       state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
       state.query = urlState.q;
-      state.searchFilterValues = searchFilterValues(urlState);
-      compileSearchState();
       const search = $('#search');
       if (search) search.value = state.query;
       updateSearchClear();
@@ -868,23 +712,6 @@ setMasonryActions({
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 
-setUiActions({ loadCodex, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory });
-
-/* 更新时间线的行点击：换书 + 落到该批次的筛选，等于替用户按了一次结果栏里的
-   「NEW x.xx更新」。换书本身会重置 updateFilter，所以必须在 loadCodex 之后再写。 */
-setUpdatesActions({
-  openBatch: async ({ codexId, batchId, consumeLayer = false }) => {
-    if (!codexId || !batchId) return;
-    const sameCodex = state.codex?.id === codexId && !state.favoritesView && !state.siteSearchView;
-    if (!sameCodex) {
-      await loadCodex(codexId, { historyMode: 'push', transition: 'route', consumeLayer });
-    }
-    state.updateFilter = batchId;
-    applyFilter({ resetScroll: true, transition: 'filter' });
-    syncUrlState(sameCodex
-      ? { historyMode: 'push', transition: 'route', consumeLayer }
-      : { historyMode: 'replace' });
-  },
-});
+setUiActions({ loadCodex, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch });
 
 init();

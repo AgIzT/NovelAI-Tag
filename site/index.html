@@ -55,8 +55,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/access.js">
 <link rel="modulepreload" href="assets/app/data.js">
 <link rel="modulepreload" href="assets/app/search.js">
-<link rel="modulepreload" href="assets/app/search-directories.js">
-<link rel="modulepreload" href="assets/app/search-ui.js">
 <link rel="modulepreload" href="assets/app/router.js">
 <link rel="modulepreload" href="assets/app/media.js">
 <link rel="modulepreload" href="assets/app/original-capability.js">
@@ -150,62 +148,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
   <div class="search-wrap">
     <button id="searchScopeBtn" class="search-scope" type="button" aria-label="搜索范围：全站" title="当前搜索范围：全站。点击切到当前法典">全站</button>
-    <input id="search" type="search" placeholder="搜索标题或标签，空格表示同时满足" autocomplete="off" aria-describedby="searchHelp">
-    <span id="searchHelp" class="sr-only">默认搜索标题、标签和角色正向提示词。多个词用空格分开，结果需要同时满足。</span>
+    <input id="search" type="search" placeholder="搜索词条或 tag（中 / 英）…" autocomplete="off" aria-describedby="searchSyntaxHint">
+    <span id="searchSyntaxHint" class="search-syntax-hint" role="note">高级示例：<code>path:构图</code> · <code>has:image</code> · <code>fav:true</code></span>
     <button id="searchClear" class="search-clear" type="button" aria-label="清空搜索" title="清空搜索" hidden>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
-    </button>
-    <button id="searchFilterBtn" class="search-filter-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="searchFilterPanel">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
-      <span>筛选</span>
-      <b id="searchFilterCount" class="search-filter-count" aria-hidden="true" hidden>0</b>
     </button>
     <button id="searchExit" class="search-exit" type="button" aria-label="退出搜索" title="退出搜索">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
     </button>
-    <section id="searchFilterPanel" class="search-filter-panel" role="dialog" aria-modal="false" aria-labelledby="searchFilterTitle" hidden>
-      <header class="search-filter-head">
-        <div>
-          <strong id="searchFilterTitle">筛选搜索结果</strong>
-          <p>普通搜索只查标题、标签和角色正向提示词；需要查目录、备注或负面词时在这里添加条件。</p>
-        </div>
-        <button id="searchFilterClose" class="search-filter-close" type="button" aria-label="关闭筛选面板" title="关闭筛选面板">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
-        </button>
-      </header>
-      <form id="searchFilterForm" class="search-filter-form" novalidate>
-        <label>
-          <span>字段</span>
-          <select id="searchFilterField" name="field" aria-label="筛选字段"></select>
-        </label>
-        <label>
-          <span>条件</span>
-          <select id="searchFilterOperator" name="operator" aria-label="筛选条件"></select>
-        </label>
-        <label class="search-filter-value-wrap">
-          <span>值</span>
-          <input id="searchFilterValue" name="value" type="text" autocomplete="off" placeholder="输入筛选内容">
-          <select id="searchFilterValueSelect" name="valueOption" aria-label="筛选值" hidden></select>
-        </label>
-        <button id="searchFilterAdd" class="search-filter-add" type="submit">添加条件</button>
-      </form>
-      <div id="searchSyntaxHint" class="search-filter-examples" aria-labelledby="searchExamplesTitle">
-        <span id="searchExamplesTitle">试试这些写法</span>
-        <div>
-          <button type="button" data-search-example="猫 蓝眼睛"><code>猫 蓝眼睛</code><small>同时包含</small></button>
-          <button type="button" data-search-example="&quot;blue eyes&quot;"><code>"blue eyes"</code><small>完整短语</small></button>
-          <button type="button" data-search-example="-男性"><code>-男性</code><small>排除内容</small></button>
-          <button type="button" data-search-example="path:构图"><code>path:构图</code><small>目录文字</small></button>
-          <button type="button" data-search-example="has:image"><code>has:image</code><small>只看有图</small></button>
-          <button type="button" data-search-example="fav:true"><code>fav:true</code><small>只看收藏</small></button>
-        </div>
-      </div>
-      <p id="searchFilterFeedback" class="search-filter-feedback" role="status" aria-live="polite"></p>
-      <footer class="search-filter-footer">
-        <span>多个条件会同时生效</span>
-        <button id="searchFilterClearAll" type="button">清除全部</button>
-      </footer>
-    </section>
   </div>
 
   <button id="mobileSearchBtn" class="icon-btn mobile-search-btn" type="button" title="搜索" aria-label="搜索">
@@ -222,14 +172,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   </label>
   <div class="topbar-actions">
     <button id="sdBadge" class="sd-badge" type="button" title="正在以 Stable Diffusion 格式复制 · 点此关闭" hidden>SD权重开启</button>
-    <div class="announce-wrap">
-      <button id="announcementsBtn" class="icon-btn announce-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="updatesPopover" title="动态：更新 · 公告 · 反馈" aria-label="动态">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5a2 2 0 0 1 4 0v1a5 5 0 0 1 4 4.9v3.2l1.4 2.4A1 1 0 0 1 18.5 18h-13a1 1 0 0 1-.9-1.5L6 14.1v-3.2A5 5 0 0 1 10 6z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg>
-        <i id="announcementsDot" class="announce-dot" hidden></i>
-        <b id="updatesCount" class="announce-count" hidden></b>
-      </button>
-      <div id="updatesPopover" class="updates-popover" role="dialog" aria-label="最近动态" hidden></div>
-    </div>
+    <button id="announcementsBtn" class="icon-btn announce-btn" type="button" title="公告" aria-label="公告">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5a2 2 0 0 1 4 0v1a5 5 0 0 1 4 4.9v3.2l1.4 2.4A1 1 0 0 1 18.5 18h-13a1 1 0 0 1-.9-1.5L6 14.1v-3.2A5 5 0 0 1 10 6z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg>
+      <i id="announcementsDot" class="announce-dot" hidden></i>
+    </button>
     <button id="themeBtn" class="icon-btn theme-btn" type="button" title="深色 / 浅色" aria-label="切换深色模式"></button>
     <button id="settingsBtn" class="icon-btn settings-top-btn" type="button" title="设置" aria-label="设置">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -312,30 +258,12 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div id="chipRail" class="chip-rail"></div>
     <div class="result-bar">
       <span id="resultInfo"></span>
-      <div id="searchFilterSummary" class="search-filter-summary" hidden>
-        <div id="searchFilterChips" class="search-filter-chips" role="list" aria-label="当前搜索筛选"></div>
-        <button id="searchClearAllBtn" class="search-clear-all" type="button">清除全部</button>
-      </div>
       <div id="updateFilterControls" class="update-filter-controls" hidden></div>
       <button id="favoritesViewBackupBtn" class="favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
         <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
         <span>备份与恢复</span>
       </button>
     </div>
-    <section id="searchStatus" class="search-status" hidden>
-      <p id="searchStatusLive" role="status" aria-live="polite"></p>
-      <div id="searchStatusActions" class="search-status-actions"></div>
-    </section>
-    <section id="searchRelatedDirectories" class="search-related" aria-labelledby="searchRelatedTitle" hidden>
-      <header>
-        <div>
-          <strong id="searchRelatedTitle">相关目录</strong>
-          <span id="searchRelatedCount"></span>
-        </div>
-        <small>目录命中不会混入图片结果</small>
-      </header>
-      <ul id="searchRelatedList"></ul>
-    </section>
     <div id="loading" class="loading" hidden></div>
     <div id="skeletonGrid" class="skeleton-grid" aria-hidden="true" hidden>
       <div class="skeleton-card"><i class="skeleton-thumb"></i><i class="skeleton-line title"></i><i class="skeleton-line"></i><i class="skeleton-line short"></i></div>
@@ -805,37 +733,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <button id="announcementsClose" class="settings-close" type="button" aria-label="关闭">×</button>
     <div class="panel-kicker">
       <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 5a2 2 0 0 1 4 0v1a5 5 0 0 1 4 4.9v3.2l1.4 2.4A1 1 0 0 1 18.5 18h-13a1 1 0 0 1-.9-1.5L6 14.1v-3.2A5 5 0 0 1 10 6z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg></span>
-      <h2 class="settings-title">动态</h2>
+      <h2 class="settings-title">公告</h2>
     </div>
-    <div class="announcements-tabs" role="tablist" aria-label="动态分类">
-      <button class="announcements-tab" type="button" role="tab" aria-selected="false" aria-controls="announcementsUpdatesView" tabindex="-1" data-announcements-tab="updates" id="announcementsUpdatesTab">更新<i class="announcements-tab-dot" data-tab-dot="updates" hidden></i></button>
-      <button class="announcements-tab" type="button" role="tab" aria-selected="true" aria-controls="announcementsNoticeView" tabindex="0" data-announcements-tab="announcements" id="announcementsNoticeTab">公告<i class="announcements-tab-dot" data-tab-dot="announcements" hidden></i></button>
-      <button class="announcements-tab" type="button" role="tab" aria-selected="false" aria-controls="announcementsFeedbackView" tabindex="-1" data-announcements-tab="feedback" id="announcementsFeedbackTab">反馈</button>
-    </div>
-    <section id="announcementsUpdatesView" class="announcements-view" role="tabpanel" aria-labelledby="announcementsUpdatesTab" hidden>
-      <p class="announcements-view-note">法典与图包的内容更新，按日期倒序。点任意一行直达该书这批新增的词条。</p>
-      <div id="updatesList" class="updates-list"></div>
-    </section>
-    <section id="announcementsNoticeView" class="announcements-view" role="tabpanel" aria-labelledby="announcementsNoticeTab">
-      <div id="announcementsList" class="announcements-list"></div>
-    </section>
-    <section id="announcementsFeedbackView" class="announcements-view" role="tabpanel" aria-labelledby="announcementsFeedbackTab" hidden>
-      <p class="announcements-view-note">每条反馈都会被认真查看，处理进度与回复公开可查。</p>
-      <button id="announcementsFeedbackLink" class="announcements-foot" type="button">
-        <span class="announcements-foot-ico" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="m9 11 2 2 4-4"/></svg>
-        </span>
-        <span class="announcements-foot-copy"><b>反馈处理进度</b><small>看看大家提的反馈都得到了怎样的回复与处理</small></span>
-        <svg class="announcements-foot-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </button>
-      <button id="announcementsFeedbackSubmit" class="announcements-foot" type="button">
-        <span class="announcements-foot-ico" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
-        </span>
-        <span class="announcements-foot-copy"><b>我要反馈</b><small>卡片内容、图片、复制问题，或者功能建议</small></span>
-        <svg class="announcements-foot-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </button>
-    </section>
+    <button id="announcementsFeedbackLink" class="announcements-foot" type="button">
+      <span class="announcements-foot-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="m9 11 2 2 4-4"/></svg>
+      </span>
+      <span class="announcements-foot-copy"><b>反馈处理进度</b><small>看看大家提的反馈都得到了怎样的回复与处理</small></span>
+      <svg class="announcements-foot-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </button>
+    <div id="announcementsList" class="announcements-list"></div>
   </div>
 </div>
 

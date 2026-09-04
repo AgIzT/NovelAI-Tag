@@ -1705,13 +1705,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const input = document.querySelector('#search');
   input.value = 'author:戒红所';
   input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'author:戒红所' }));
-  input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', code: 'Enter' }));
   return true;
 })()
 """)
-        wait_for(cdp, "history.state?.route?.q === '' && history.state?.route?.searchFilters?.includes('author:戒红所') && document.querySelectorAll('.card').length > 0", "author filter chip result")
+        wait_for(cdp, "document.querySelector('#resultInfo')?.textContent.includes('author:戒红所')", "author search result")
         settle(cdp, 350)
-        data = cdp.eval("({result: document.querySelector('#resultInfo')?.textContent || '', filters: history.state?.route?.searchFilters || [], chips: document.querySelector('#searchFilterChips')?.textContent || '', cards: document.querySelectorAll('.card').length, marks: document.querySelectorAll('mark').length})")
+        data = cdp.eval("({result: document.querySelector('#resultInfo')?.textContent || '', cards: document.querySelectorAll('.card').length, marks: document.querySelectorAll('mark').length})")
         if data["cards"] <= 0:
             raise CheckFailed("Author search returned no cards")
         check_no_errors(cdp)
@@ -2451,13 +2450,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   input.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:'has:image '}));
 })()
 """)
-        wait_for(cdp, "history.state?.route?.q === 'hair long' && history.state?.route?.searchFilters?.includes('has:image')", "continuous mobile image filter chip")
+        wait_for(cdp, "history.state?.route?.q === 'has:image hair long'", "continuous mobile image syntax filter")
         if cdp.eval("history.length") != search_length:
             raise CheckFailed("Continuous search/filtering increased atlas history depth")
         cdp.eval("history.back()")
-        wait_for(cdp, "!document.body.classList.contains('search-mode') && history.state?.route?.q === 'hair long' && history.state?.route?.searchFilters?.includes('has:image')", "first search back")
+        wait_for(cdp, "!document.body.classList.contains('search-mode') && history.state?.route?.q === 'has:image hair long'", "first search back")
         cdp.eval("history.back()")
-        wait_for(cdp, "history.state?.route?.q === '' && !(history.state?.route?.searchFilters || []).length", "second search back")
+        wait_for(cdp, "history.state?.route?.q === ''", "second search back")
 
         # Reload adopts the persisted managed record: identity and scroll
         # position survive pull-to-refresh instead of resetting to the top.

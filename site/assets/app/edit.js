@@ -9,7 +9,6 @@ import { setCodexUiActions, closeCodexPicker, invalidateAccessViewMemo, syncCode
 import { openMask, closeMask, trapFocus } from './modal.js';
 import { fetchDataJson } from '../data-source.js';
 import { invalidateSearchableText } from './search.js';
-import { invalidateSearchDirectories } from './search-directories.js';
 import { invalidateBodyMetrics } from './masonry.js';
 import { invalidateSiteSearchCodex } from './site-search.js';
 import {
@@ -384,7 +383,6 @@ async function saveEntry(entry) {
     mergeEntryInPlace(entry, res.entry);
     invalidateAccessViewMemo();
     invalidateSearchableText(entry);
-    invalidateSearchDirectories(state.codex?.entries);
     invalidateBodyMetrics(entry);   // 标题/tag 改了，卡片估高缓存必须跟着失效，否则新文案还按旧高度排
     invalidateSiteSearchCodex();
     applyServerCounts(res);
@@ -426,7 +424,6 @@ async function structuralRefresh({
     codex: id,
     path: [...(state.activePath || [])],
     q: state.query || '',
-    searchFilters: [...(state.searchFilterValues || [])],
     scope: state.searchScope || '',
     updateFilter: String(state.updateFilter || ''),
   };

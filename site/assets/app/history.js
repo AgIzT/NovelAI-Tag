@@ -29,22 +29,6 @@ function normalizeHistoryPath(value) {
   return parts.map(part => String(part || '').trim()).filter(Boolean);
 }
 
-function normalizeSearchFilterValues(value) {
-  return (Array.isArray(value) ? value : [])
-    .map(item => String(item ?? ''));
-}
-
-function hasSnapshotSearch(snapshot) {
-  return Boolean(String(snapshot?.q || '').trim() || normalizeSearchFilterValues(snapshot?.searchFilters).length);
-}
-
-function snapshotSearchDesc(snapshot) {
-  const q = String(snapshot?.q || '').trim();
-  if (q) return `搜索 “${q}”`;
-  const count = normalizeSearchFilterValues(snapshot?.searchFilters).length;
-  return count ? `筛选 ${count} 项` : '';
-}
-
 function isHistoryNsfw(item) {
   return isEntryNsfw(item) || normalizeHistoryPath(item?.path).some(part => (
     isNsfwPathSegment(part) || part.toLowerCase().includes('nsfw')
@@ -82,7 +66,6 @@ export function normalizeLastBrowse(value) {
     codexTitle: String(value.codexTitle || value.codexId),
     path: normalizeHistoryPath(value.path),
     q: String(value.q || ''),
-    searchFilters: normalizeSearchFilterValues(value.searchFilters),
     updateFilter: String(value.updateFilter || (value.onlyNew ? 'latest' : '')),
     onlyFav: Boolean(value.onlyFav),
     favoritesView: Boolean(value.favoritesView || value.favMode || value.onlyFav || value.codexId === FAVORITES_CODEX_ID),
@@ -170,7 +153,6 @@ export function currentBrowseSnapshot(entryId = state.lightbox.entry?.id || '', 
     searchScope: state.searchScope,
     path: state.activePath || [],
     q: state.query.trim(),
-    searchFilters: normalizeSearchFilterValues(state.searchFilterValues),
     updateFilter: String(state.updateFilter || ''),
     onlyFav: favoritesView,
     entryId,
@@ -220,12 +202,12 @@ export function browseDesc(snapshot) {
   if (locked === 'r18g') return '上次位置包含 R18G / 重口内容，已隐藏';
   if (locked === 'nsfw') return '上次位置包含限制级内容，已隐藏';
   if (snapshot.favoritesView) {
-    if (hasSnapshotSearch(snapshot)) return `全部收藏 · ${snapshotSearchDesc(snapshot)}`;
+    if (snapshot.q) return `全部收藏 · 搜索 “${snapshot.q}”`;
     if (snapshot.path?.length) return `全部收藏 · ${snapshot.path.join(' › ')}`;
     return `全部收藏 · ${formatRecentTime(snapshot.at)}`;
   }
-  if (snapshot.siteSearchView || (snapshot.searchScope === 'site' && hasSnapshotSearch(snapshot))) {
-    if (hasSnapshotSearch(snapshot)) return `全站搜索 · ${snapshotSearchDesc(snapshot)}`;
+  if (snapshot.siteSearchView || (snapshot.searchScope === 'site' && snapshot.q)) {
+    if (snapshot.q) return `全站搜索 · “${snapshot.q}”`;
     if (snapshot.path?.length) return `全站搜索 · ${snapshot.path.join(' › ')}`;
     return `全站搜索 · ${formatRecentTime(snapshot.at)}`;
   }
@@ -233,7 +215,7 @@ export function browseDesc(snapshot) {
   const requested = String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : ''));
   const updateFilter = updateFilterDefinitions(meta).find(filter => requested === 'latest' ? filter.latest : filter.id === requested);
   const codexContext = `${snapshot.codexTitle}${updateFilter ? ` · ${updateFilter.label}` : ''}`;
-  if (hasSnapshotSearch(snapshot)) return `${codexContext} · ${snapshotSearchDesc(snapshot)}`;
+  if (snapshot.q) return `${codexContext} · 搜索 “${snapshot.q}”`;
   if (snapshot.path?.length) return `${codexContext} · ${snapshot.path.join(' › ')}`;
   return `${codexContext} · ${formatRecentTime(snapshot.at)}`;
 }
@@ -326,15 +308,12 @@ export function applyBrowseControls(snapshot) {
 export function applyBrowseState(snapshot, options = {}) {
   state.activePath = normalizeCodexRoutePath(state.codex, snapshot.path || [], snapshot.codexId);
   state.query = snapshot.q || '';
-  state.searchFilterValues = normalizeSearchFilterValues(snapshot.searchFilters);
   const search = $('#search');
   if (search) search.value = state.query;
   updateSearchClear();
   historyActions.renderTree();
   suppressBrowseStateSave();
   historyActions.applyFilter({ resetScroll: true });
-  if (search) search.value = state.query;
-  updateSearchClear();
   syncUrlState({
     historyMode: options.historyMode || 'replace',
     transition: options.transition || (snapshot.entryId ? 'detail' : 'route'),
@@ -386,7 +365,7 @@ export async function resumeLastBrowse(options = {}) {
     return;
   }
   const wantsFavorites = Boolean(snapshot.favoritesView || snapshot.onlyFav || snapshot.codexId === FAVORITES_CODEX_ID);
-  const wantsSiteSearch = Boolean(snapshot.siteSearchView || (!wantsFavorites && snapshot.searchScope === 'site' && hasSnapshotSearch(snapshot)));
+  const wantsSiteSearch = Boolean(snapshot.siteSearchView || (!wantsFavorites && snapshot.searchScope === 'site' && snapshot.q));
   const requestedCodexId = snapshot.codexId === FAVORITES_CODEX_ID
     ? (state.browseCodex?.id || firstUnlockedCodex()?.id || '')
     : (snapshot.codexId === SITE_SEARCH_CODEX_ID ? (state.browseCodex?.id || firstUnlockedCodex()?.id || '') : snapshot.codexId);
@@ -408,7 +387,7 @@ export async function resumeLastBrowse(options = {}) {
     }
     applyBrowseControls({ ...snapshot, favoritesView: true });
     await historyActions.openFavoritesView({
-      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', searchFilters: normalizeSearchFilterValues(snapshot.searchFilters), entry: snapshot.entryId || '', favorites: true },
+      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', favorites: true },
       ...finalHistory,
     });
   } else if (wantsSiteSearch) {
@@ -417,13 +396,13 @@ export async function resumeLastBrowse(options = {}) {
     }
     applyBrowseControls({ ...snapshot, favoritesView: false, onlyFav: false });
     await historyActions.openSiteSearchView({
-      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', searchFilters: normalizeSearchFilterValues(snapshot.searchFilters), entry: snapshot.entryId || '', scope: 'site' },
+      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', scope: 'site' },
       ...finalHistory,
     });
   } else if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
     applyBrowseControls(snapshot);
     await historyActions.loadCodex(targetId, {
-      urlState: { codex: requestedCodexId, path: snapshot.path || [], q: snapshot.q || '', searchFilters: normalizeSearchFilterValues(snapshot.searchFilters), entry: snapshot.entryId || '', updateFilter: String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : '')) },
+      urlState: { codex: requestedCodexId, path: snapshot.path || [], q: snapshot.q || '', entry: snapshot.entryId || '', updateFilter: String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : '')) },
       ...finalHistory,
     });
   } else {
@@ -466,9 +445,6 @@ export async function openRecentEntry(item, options = {}) {
     await historyActions.loadCodex(targetId, { urlState, ...finalHistory });
   } else {
     state.query = '';
-    state.searchFilters = [];
-    state.searchFilterValues = [];
-    state.searchIssues = [];
     state.activePath = normalizeCodexRoutePath(state.codex, item.path || [], item.codexId);
     state.onlyFav = false;
     applyBrowseControls({ onlyFav: false });

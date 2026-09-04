@@ -31,7 +31,6 @@ export function isDefaultResumeRoute(route = {}) {
     || route.favorites
     || route.scope
     || route.q
-    || (Array.isArray(route.searchFilters) && route.searchFilters.length)
     || route.entry
     || route.updateFilter
     || route.onlyNew
