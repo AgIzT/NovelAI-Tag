@@ -12,6 +12,7 @@ const {
   parseSearchFilters,
   parseSearchQuery,
   rankSearchResults,
+  removeSearchQueryTerm,
   renderHighlightedText,
   searchRelevanceTier,
   searchableText,
@@ -27,6 +28,95 @@ const {
 } = await import(moduleUrl('site-search.js'));
 const { buildFavoritesCodex } = await import(moduleUrl('fav-codex.js'));
 const { state } = await import(moduleUrl('state.js'));
+const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(moduleUrl('search-ui.js'));
+
+// 普通词和短语显示为可移除条件，但仍属于 q；删除时保留字段筛选和未完成输入。
+{
+  const query = '猫 蓝眼睛 "blue eyes"';
+  const plan = parseSearchQuery(query, ['-default:男性']);
+  assert.deepEqual(plan.queryConditions, [
+    { value: '猫', label: '猫', quoted: false },
+    { value: '蓝眼睛', label: '蓝眼睛', quoted: false },
+    { value: 'blue eyes', label: 'blue eyes', quoted: true },
+  ]);
+  assert.equal(removeSearchQueryTerm(query, '蓝眼睛'), '猫 "blue eyes"');
+  assert.deepEqual(parseSearchQuery(removeSearchQueryTerm(query, '猫'), plan.filterValues).positiveTerms, ['蓝眼睛', 'blue eyes']);
+  assert.deepEqual(plan.filterValues, ['-default:男性'], '展示 q chips 不得把关键词转成 f');
+  assert.equal(removeSearchQueryTerm('猫 猫 蓝眼睛', '猫'), '蓝眼睛', '删除去重条件必须移除所有等值词');
+  assert.equal(parseSearchQuery('猫 猫').queryConditions.length, 1);
+  assert.equal(removeSearchQueryTerm('猫,蓝眼睛', '猫'), '蓝眼睛');
+  assert.equal(removeSearchQueryTerm('猫 “Blue Eyes”', '猫'), '"Blue Eyes"');
+  assert.equal(removeSearchQueryTerm('猫 "path:服装"', '猫'), '"path:服装"');
+  const escapedRemainder = parseSearchQuery(removeSearchQueryTerm('artist:foo,has:image', 'artist:foo'));
+  assert.deepEqual(escapedRemainder.positiveTerms, ['has:image']);
+  assert.deepEqual(escapedRemainder.filters, [], '逗号拆词后不能把剩余普通词误认成字段');
+  for (const invalid of ['title:', 'has:other', '"blue eyes']) {
+    const next = removeSearchQueryTerm(`猫 ${invalid}`, '猫');
+    assert.equal(next, invalid);
+    assert.equal(parseSearchQuery(next).hasErrors, true, '移除普通词不能抹掉错误使查询放宽');
+  }
+  assert.deepEqual(parseSearchQuery('猫 "blue eyes').queryConditions.map(item => item.value), ['猫']);
+  assert.equal(removeSearchQueryTerm('猫', '猫'), '');
+  const eleven = Array.from({ length: 11 }, (_, index) => `词${index}`).join(' ');
+  assert.equal(parseSearchQuery(eleven).hasErrors, true);
+  assert.equal(parseSearchQuery(removeSearchQueryTerm(eleven, '词0')).hasErrors, false);
+  assert.equal(parseSearchQuery(removeSearchQueryTerm(eleven.replaceAll(' ', ','), '词0')).hasErrors, false);
+
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const originalFrame = globalThis.requestAnimationFrame;
+  const makeNode = () => ({
+    children: [], dataset: {}, attributes: {}, hidden: false, listeners: new Map(),
+    classList: { toggle() {} },
+    append(child) { this.children.push(child); },
+    replaceChildren() { this.children = []; },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener(type, listener) { this.listeners.set(type, listener); },
+    focus() { this.onFocus?.(); },
+  });
+  const nodes = new Map(['searchFilterSummary', 'searchFilterChips', 'searchClearAllBtn', 'searchFilterClearAll',
+    'searchFilterBtn', 'searchFilterCount', 'searchFilterFeedback', 'searchFilterPanel', 'searchFilterForm'].map(id => [id, makeNode()]));
+  globalThis.document = { getElementById: id => nodes.get(id), createElement: makeNode, addEventListener() {} };
+  globalThis.window = { addEventListener() {} };
+  globalThis.requestAnimationFrame = () => {};
+  try {
+    renderSearchFilters({ queryConditions: plan.queryConditions, filters: plan.filters, hasActiveSearch: true });
+    assert.deepEqual(nodes.get('searchFilterChips').children.map(chip => chip.children[0].textContent),
+      ['关键词 猫', '关键词 蓝眼睛', '完整短语 blue eyes', '关键词 排除 男性']);
+    assert.equal(nodes.get('searchFilterCount').textContent, '4', '正向词与字段 chips 合并计数');
+    assert.equal(nodes.get('searchFilterSummary').hidden, false);
+    renderSearchFilters({ hasActiveSearch: true });
+    assert.equal(nodes.get('searchFilterSummary').hidden, true, '无可显示条件时不能留下空行');
+    assert.equal(nodes.get('searchClearAllBtn').hidden, false, '错误查询仍可从固定入口清除');
+    renderSearchFilters({ hasActiveSearch: false });
+    assert.equal(nodes.get('searchClearAllBtn').hidden, true);
+
+    // 新输入尚在防抖期时点旧 chip，pointerdown 不能先触发 blur 使 click 目标被销毁。
+    setupSearchUi();
+    const chips = nodes.get('searchFilterChips');
+    const display = query => renderSearchFilters({ queryConditions: parseSearchQuery(query).queryConditions });
+    let draft = '猫 蓝眼睛';
+    display(draft);
+    const oldRemove = chips.children[0].children[1];
+    const target = { closest: () => oldRemove };
+    draft = '猫 蓝眼睛 白色';
+    let prevented = false;
+    chips.listeners.get('pointerdown')({ button: 0, target, preventDefault() { prevented = true; } });
+    if (!prevented) display(draft);
+    assert.strictEqual(chips.children[0].children[1], oldRemove, '按下时保留目标，不能因输入框 blur 重建它');
+    nodes.get('searchFilterBtn').onFocus = () => display(draft);
+    setSearchUiActions({ removeQueryTerm(value) { draft = removeSearchQueryTerm(draft, value); display(draft); } });
+    chips.listeners.get('click')({ target });
+    assert.equal(draft, '蓝眼睛 白色', '第一次点击既删除旧条件，也保留最新输入');
+    const keyboardRemove = chips.children[0].children[1];
+    chips.listeners.get('click')({ target: { closest: () => keyboardRemove } });
+    assert.equal(draft, '白色', '键盘 click 无 pointerdown 也可删除');
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+    globalThis.requestAnimationFrame = originalFrame;
+  }
+}
 
 // 引号短语保持整体匹配，高亮词与匹配词必须来自同一份 terms。
 {

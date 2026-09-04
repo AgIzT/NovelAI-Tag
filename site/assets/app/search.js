@@ -176,7 +176,10 @@ function scanQuery(input) {
   let quoted = false;
   let quotedAtStart = false;
   let quotePrefix = '';
-  for (const ch of source) {
+  let tokenStart = -1;
+  for (let index = 0; index < source.length; index++) {
+    const ch = source[index];
+    if (tokenStart === -1 && !/\s/.test(ch)) tokenStart = index;
     if (quote) {
       if (ch === quote) quote = '';
       else buf += ch;
@@ -193,17 +196,18 @@ function scanQuery(input) {
     }
     if (/\s/.test(ch)) {
       if (buf || quoted) {
-        tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix });
+        tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix, raw: source.slice(tokenStart, index) });
         buf = '';
         quoted = false;
         quotedAtStart = false;
         quotePrefix = '';
       }
+      tokenStart = -1;
       continue;
     }
     buf += ch;
   }
-  if (buf || quoted) tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix });
+  if (buf || quoted) tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix, raw: source.slice(tokenStart), unclosed: Boolean(quote) });
   return {
     tokens,
     issue: quote
@@ -443,6 +447,16 @@ function queryTermsFromToken(token) {
     .filter(Boolean);
 }
 
+function queryConditionsFromToken(token) {
+  if (token.unclosed) return [];
+  const values = token.quoted ? [token.value] : String(token.value || '').split(/[\s,，、;；]+/);
+  return values.map(value => ({
+    value: normalizeSearchText(value),
+    label: String(value).trim(),
+    quoted: token.quoted,
+  })).filter(condition => condition.value);
+}
+
 function uniqueTerms(terms) {
   const seen = new Set();
   return terms.filter(term => {
@@ -500,6 +514,8 @@ export function parseSearchQuery(raw, filterValues = []) {
   const { tokens, issue: quoteIssue } = scanQuery(input);
   if (quoteIssue) issues.push(quoteIssue);
   const positiveTerms = [];
+  const queryConditions = [];
+  const seenQueryConditions = new Set();
   const plainTokens = [];
   let extractedFilterCount = 0;
   let recognizedQuerySyntax = false;
@@ -536,6 +552,11 @@ export function parseSearchQuery(raw, filterValues = []) {
     }
     plainTokens.push(token);
     positiveTerms.push(...queryTermsFromToken(token));
+    for (const condition of queryConditionsFromToken(token)) {
+      if (seenQueryConditions.has(condition.value)) continue;
+      seenQueryConditions.add(condition.value);
+      queryConditions.push(condition);
+    }
   }
 
   const uniquePositiveTerms = uniqueTerms(positiveTerms);
@@ -566,6 +587,7 @@ export function parseSearchQuery(raw, filterValues = []) {
     text: uniquePositiveTerms.join(' '),
     terms,
     positiveTerms: uniquePositiveTerms,
+    queryConditions,
     filters,
     filterValues: normalizedFilterValues,
     issues,
@@ -577,6 +599,25 @@ export function parseSearchQuery(raw, filterValues = []) {
     canCanonicalize: extractedFilterCount > 0 && issues.length === 0,
   };
   return applyLegacyPlanFields(plan);
+}
+
+/** 删除一个正向条件，保留其余原始字段语法与未完成输入，不能借删除 chip 放宽错误查询。 */
+export function removeSearchQueryTerm(raw, value) {
+  const needle = normalizeSearchText(value);
+  const { tokens } = scanQuery(raw);
+  return tokens.flatMap(token => {
+    const plan = parseSearchQuery(token.raw);
+    const syntaxError = plan.issues.some(issue => issue.code !== 'too_many_text_conditions');
+    if (token.unclosed || syntaxError || !plan.positiveTerms.includes(needle)) return [token.raw];
+    return queryConditionsFromToken(token)
+      .filter(condition => condition.value !== needle)
+      .map(condition => {
+        const single = parseSearchQuery(condition.label);
+        const needsQuotes = condition.quoted || single.hasErrors || single.filters.length
+          || single.positiveTerms.length !== 1 || single.positiveTerms[0] !== condition.value;
+        return formatQueryToken({ value: condition.label, quoted: needsQuotes });
+      });
+  }).join(' ').trim();
 }
 
 function fieldText(entry, field) {

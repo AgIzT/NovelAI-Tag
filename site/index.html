@@ -194,7 +194,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div>
           <button type="button" data-search-example="猫 蓝眼睛"><code>猫 蓝眼睛</code><small>同时包含</small></button>
           <button type="button" data-search-example="&quot;blue eyes&quot;"><code>"blue eyes"</code><small>完整短语</small></button>
-          <button type="button" data-search-example="-男性"><code>-男性</code><small>排除内容</small></button>
+          <button type="button" data-search-example="-背景"><code>-背景</code><small>排除内容</small></button>
           <button type="button" data-search-example="path:构图"><code>path:构图</code><small>目录文字</small></button>
           <button type="button" data-search-example="has:image"><code>has:image</code><small>只看有图</small></button>
           <button type="button" data-search-example="fav:true"><code>fav:true</code><small>只看收藏</small></button>
@@ -311,10 +311,12 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div id="codexBanner" class="codex-banner"></div>
     <div id="chipRail" class="chip-rail"></div>
     <div class="result-bar">
-      <span id="resultInfo"></span>
+      <div class="result-bar-head">
+        <span id="resultInfo"></span>
+        <button id="searchClearAllBtn" class="search-clear-all" type="button" hidden>清除全部</button>
+      </div>
       <div id="searchFilterSummary" class="search-filter-summary" hidden>
         <div id="searchFilterChips" class="search-filter-chips" role="list" aria-label="当前搜索筛选"></div>
-        <button id="searchClearAllBtn" class="search-clear-all" type="button">清除全部</button>
       </div>
       <div id="updateFilterControls" class="update-filter-controls" hidden></div>
       <button id="favoritesViewBackupBtn" class="favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>

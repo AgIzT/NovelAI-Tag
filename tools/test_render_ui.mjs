@@ -1117,6 +1117,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(uiSource, /action\?\.id === 'scope-site'[\s\S]*await applySearchConditions\(\)/, '零结果范围动作也必须复用统一搜索历史入口');
   assert.match(appSource, /syncUrlState\(\{\s*historyMode: historyModeFor\(options\),\s*transition: options\.transition \|\| 'route',\s*sessionId: options\.sessionId,/, '冷全站首次提交必须保留搜索 session');
   assert.match(stylesSource, /\.search-filter-panel\{[\s\S]*position:absolute[\s\S]*overflow:auto/);
+  const searchPanelStyle = stylesSource.match(/\.search-filter-panel\{[^}]+\}/)?.[0] || '';
+  assert.match(searchPanelStyle, /animation:searchFilterIn/, '筛选入场不能复用覆盖横向居中的 settingsIn');
+  assert.match(stylesSource, /@keyframes searchFilterIn\{from\{[^}]*translate:0 6px\}to\{[^}]*translate:0 0\}\}/);
+  assert.match(indexSource, /class="result-bar-head">\s*<span id="resultInfo"><\/span>\s*<button id="searchClearAllBtn"/, '清除全部固定在结果首行，不独占空条件行');
   assert.match(stylesSource, /@media \(max-width:600px\)\{[\s\S]*\.search-filter-panel\{[\s\S]*100dvh/);
   assert.match(uiSource, /searchInput\.addEventListener\('compositionstart'/);
   assert.match(uiSource, /searchInput\.addEventListener\('compositionend'/);
@@ -1132,7 +1136,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(searchUiSource, /el\('searchFilterBtn'\)\?\.focus\(\{ preventScroll: true \}\)/);
   assert.match(searchUiSource, /pendingFilterFocusIndex = index/);
   assert.match(searchUiSource, /pendingFilterFocusIndex !== null[\s\S]*focusFilterAfterRemoval\(focusIndex\)/);
-  assert.match(stylesSource, /@media \(max-width:420px\)\{[\s\S]*#search\{padding-left:96px;padding-right:96px\}/);
+  assert.match(stylesSource, /@media \(max-width:420px\)\{[\s\S]*#search\{padding-left:98px;padding-right:92px\}/);
   assert.match(stylesSource, /body\.dark \.search-filter-feedback\{color:#ff9e97\}/);
   assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)\{[\s\S]*\.search-filter-panel/);
   assert.match(indexSource, /id="sidebar"[\s\S]*id="sidebarBackdrop"[\s\S]*id="main"/);

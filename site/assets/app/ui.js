@@ -5,7 +5,7 @@ import { dismissToast, toast } from './feedback.js';
 import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, updateCodexPickerState } from './codex-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
-import { parseSearchFilter, parseSearchQuery, serializeSearchFilter } from './search.js';
+import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
@@ -371,6 +371,12 @@ export function bindUI() {
     values.splice(index, 1);
     await applySearchConditions({ filterValues: values });
   };
+  const removeQueryTerm = async value => {
+    if (searchComposing) return;
+    clearTimeout(st);
+    const query = removeSearchQueryTerm(searchInput.value, value);
+    await applySearchConditions({ query });
+  };
   const clearAllSearch = async () => {
     clearTimeout(st);
     searchInput.value = '';
@@ -380,8 +386,11 @@ export function bindUI() {
   setSearchUiActions({
     addFilter: addSearchFilter,
     removeFilter: removeSearchFilter,
+    removeQueryTerm,
     clearAll: clearAllSearch,
     useExample: async query => {
+      if (searchComposing) return;
+      clearTimeout(st);
       const combined = [searchInput.value.trim(), String(query || '').trim()].filter(Boolean).join(' ');
       searchInput.value = combined;
       await applySearchConditions({ query: combined }, { canonicalize: true });

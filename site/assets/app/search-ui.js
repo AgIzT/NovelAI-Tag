@@ -1,6 +1,7 @@
 const searchUiActions = {
   addFilter: async () => true,
   removeFilter: async () => {},
+  removeQueryTerm: async () => {},
   clearAll: async () => {},
   useExample: async () => {},
   openRelatedDirectory: async () => {},
@@ -231,7 +232,7 @@ function renderFilterChips(filters, hasActiveSearch) {
     chip.append(remove);
     chips.append(chip);
   });
-  summary.hidden = !hasActiveSearch;
+  summary.hidden = filters.length === 0;
   if (clear) clear.hidden = !hasActiveSearch;
   if (panelClear) panelClear.disabled = !hasActiveSearch;
   if (pendingFilterFocusIndex !== null) {
@@ -270,6 +271,7 @@ function renderFilterIssues(issues) {
 
 export function renderSearchFilters({
   filters = [],
+  queryConditions = [],
   issues = [],
   activeCount,
   hasActiveSearch,
@@ -288,7 +290,14 @@ export function renderSearchFilters({
     if (directoryOptions) renderedDirectoryOptions = directoryOptions;
     renderBuilderFields();
   }
-  renderedFilters = Array.isArray(filters) ? [...filters] : [];
+  const terms = (Array.isArray(queryConditions) ? queryConditions : []).map(condition => ({
+    queryValue: condition.value,
+    label: `${condition.quoted ? '完整短语' : '关键词'} ${condition.label}`,
+  }));
+  renderedFilters = [
+    ...terms,
+    ...(Array.isArray(filters) ? filters : []).map((filter, filterIndex) => ({ ...filter, filterIndex })),
+  ];
   const active = hasActiveSearch === undefined ? Boolean(renderedFilters.length) : Boolean(hasActiveSearch);
   const count = activeCount === undefined ? renderedFilters.length : activeCount;
   updateFilterCount(count);
@@ -464,6 +473,11 @@ export function setupSearchUi() {
   el('searchFilterClearAll')?.addEventListener('click', clearAll);
   el('searchClearAllBtn')?.addEventListener('click', clearAll);
 
+  el('searchFilterChips')?.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || !event.target.closest?.('[data-search-filter-index]')) return;
+    // 默认抢焦点会先让输入框失焦并重画 chips，导致随后 click 丢失；在 click 内再显式交接焦点。
+    event.preventDefault();
+  });
   el('searchFilterChips')?.addEventListener('click', event => {
     const remove = event.target.closest?.('[data-search-filter-index]');
     if (!remove) return;
@@ -473,7 +487,10 @@ export function setupSearchUi() {
     // 先把焦点交给不会随结果重绘销毁的触发按钮；下一轮渲染再优先落到相邻 chip。
     el('searchFilterBtn')?.focus({ preventScroll: true });
     pendingFilterFocusIndex = index;
-    void Promise.resolve(searchUiActions.removeFilter(filter, index)).catch(error => {
+    const removeAction = filter.queryValue === undefined
+      ? searchUiActions.removeFilter(filter, filter.filterIndex)
+      : searchUiActions.removeQueryTerm(filter.queryValue);
+    void Promise.resolve(removeAction).catch(error => {
       pendingFilterFocusIndex = null;
       el('searchFilterFeedback').textContent = clean(error?.message) || '暂时无法移除这个条件。';
     });

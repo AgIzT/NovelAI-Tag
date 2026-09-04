@@ -618,8 +618,9 @@ function renderSearchExperience(plan, directoryOptions) {
   const active = Boolean(plan?.hasActiveSearch);
   renderSearchFilters({
     filters: searchFilterViewModels(directoryOptions),
+    queryConditions: plan?.queryConditions,
     issues: state.searchIssues,
-    activeCount: state.searchFilterValues.length,
+    activeCount: (plan?.queryConditions?.length || 0) + state.searchFilterValues.length,
     hasActiveSearch: active,
     directoryOptions,
   });
