@@ -961,7 +961,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   ] = await Promise.all(paths.map(path => readFile(new URL(path, import.meta.url), 'utf8')));
 
   assert.doesNotMatch(dataSource, /export async function load(?:CodexIndex|Media|About)\b/);
-  assert.match(moduleMap, /\| `data\.js` \| atomic bootstrap, codex loading, normalization/);
+  assert.match(moduleMap, /\| `data\.js` \| 引导数据、法典加载、规范化/);
   assert.match(masonrySource, /import \{ updateReadingSpy \} from '\.\/codex-ui\.js';/);
   assert.match(lightboxSource, /const reuseThumbs = lbThumbEntry === e[\s\S]*if \(!reuseThumbs\) \{\s*thumbs\.innerHTML = '';/);
   assert.match(lightboxSource, /&& lbThumbState === lb/);
