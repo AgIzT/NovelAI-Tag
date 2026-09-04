@@ -180,7 +180,7 @@ export function closeSearchFilterPanel({ restoreFocus = false } = {}) {
 function filterLabel(filter) {
   if (clean(filter?.label)) return clean(filter.label);
   const definition = fieldDefinitions.find(item => item.field === filter?.field);
-  const field = definition?.label || clean(filter?.field) || '条件';
+  const field = definition?.label || (filter?.field === 'default' ? '关键词' : clean(filter?.field)) || '条件';
   const choice = filter?.field === 'directory'
     ? definition?.values?.find(item => item.codexId === filter?.codexId && item.pathCode === filter?.pathCode)
     : definition?.values?.find(item => item.value === clean(filter?.value));
