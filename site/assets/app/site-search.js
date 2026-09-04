@@ -146,6 +146,10 @@ async function buildSiteSearchCodexFresh() {
       contributors: [],
       links: [],
       hasOriginal: sources.some(s => s.codex?.hasOriginal),
+      // 相关目录排序必须沿用每本真实法典的 preorder；合成 tree 含书名虚拟分组，不能用于此处。
+      _sourceDirectoryTrees: sources
+        .filter(source => source.codex)
+        .map(source => ({ codexId: source.codex.id, tree: source.codex.tree })),
       entries,
       entryCount: entries.length,
       imagedCount: entries.filter(hasEntryImage).length,

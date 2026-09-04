@@ -127,6 +127,7 @@ export function codexBannerCoverEntry(c = {}) {
 }
 const pickerActiveCodex = () => (state.favoritesView || state.siteSearchView) ? state.browseCodex : state.codex;
 const pickerActiveCodexId = () => pickerActiveCodex()?.id || '';
+const hasActiveSearch = () => Boolean(state.searchPlan?.hasActiveSearch || state.query.trim() || state.searchFilterValues?.length);
 const EMPTY_ACCESS_ENTRIES = Object.freeze([]);
 const EMPTY_ACCESS_PATHS = Object.freeze([]);
 let accessViewMemo = null;
@@ -645,7 +646,7 @@ export function renderTree() {
   nav.innerHTML = '';   // 同时清掉了 .tree-spy 指示条，下面 reset 后由下次滚动更新重建
   resetTreeSpy();
   nav.dataset.codexId = state.codex?.id || '';
-  const searching = state.query.trim();
+  const searching = hasActiveSearch();
   const allActive = (!searching || state.siteSearchView) && !state.activePath.length;
   const all = document.createElement('div');
   all.className = 'tree-row' + (allActive ? ' active' : '');
@@ -838,7 +839,7 @@ export function buildNodes(nodes, parent, prefix, depth) {
     const path = prefix.concat(nd.name);
     const item = document.createElement('div');
     const locked = Boolean(nd.locked && !state.allowNsfw);
-    const active = !locked && (!state.query.trim() || state.siteSearchView) && samePath(path, state.activePath);
+    const active = !locked && (!hasActiveSearch() || state.siteSearchView) && samePath(path, state.activePath);
     const activeAncestor = pathStartsWith(state.activePath, path);
     item.className = 'tree-item' + (depth >= 1 && !activeAncestor ? ' collapsed' : '');
     const row = document.createElement('div');
@@ -877,7 +878,7 @@ export function buildNodes(nodes, parent, prefix, depth) {
 export function selectPath(path, rowEl) {
   const parentScrollY = Math.max(0, window.scrollY || 0);
   const isMobile = window.innerWidth <= 600;
-  const routeChanged = !samePath(state.activePath, path) || (!state.siteSearchView && Boolean(state.query.trim()));
+  const routeChanged = !samePath(state.activePath, path) || (!state.siteSearchView && hasActiveSearch());
   if (!routeChanged) {
     if (isMobile && closeHistoryLayer('mobile-sidebar')) return;
     if (isMobile) {
@@ -902,6 +903,13 @@ export function selectPath(path, rowEl) {
   }
   state.activePath = path;
   state.query = '';
+  state.searchDraft = '';
+  state.searchFilters = [];
+  state.searchFilterValues = [];
+  state.searchIssues = [];
+  state.searchPlan = null;
+  state.relatedDirectories = [];
+  state.relatedDirectoryCount = 0;
   $('#search').value = '';
   updateSearchClear();
   codexUiActions.applyFilter({ resetScroll: true, transition: 'filter' });
@@ -981,6 +989,7 @@ export function updateResultBar() {
   updateFilterControls();
   box.innerHTML = '';
   const q = state.query.trim();
+  const searching = hasActiveSearch();
 
   const crumbs = document.createElement('span');
   crumbs.className = 'crumbs';
@@ -1000,7 +1009,7 @@ export function updateResultBar() {
     s.textContent = '›';
     crumbs.appendChild(s);
   };
-  if (q && !state.siteSearchView) {
+  if (searching && !state.siteSearchView) {
     addChip('全部', [], false);
   } else {
     addChip('全部', [], state.activePath.length === 0);
@@ -1013,9 +1022,13 @@ export function updateResultBar() {
 
   const count = document.createElement('span');
   let t;
-  if (q) {
-    const scope = state.siteSearchView ? '全站' : (state.searchScope === 'codex' ? '本书' : '');
-    t = `${scope}${state.searchPlan?.isSyntax ? '筛选' : '搜索'} “${esc(q)}”：<b>${n}</b> 条结果`;
+  if (searching) {
+    const scope = state.favoritesView ? '收藏内' : (state.siteSearchView ? '全站' : '本书');
+    const queryLabel = q ? ` “${esc(q)}”` : '';
+    const filterCount = state.searchFilterValues?.length || 0;
+    const filterLabel = filterCount ? `${q ? ' · ' : ' · '}${filterCount} 个筛选` : '';
+    const relatedLabel = state.relatedDirectoryCount ? ` · ${state.relatedDirectoryCount} 个相关目录` : '';
+    t = `${scope}搜索${queryLabel}${filterLabel}：<b>${n}</b> 条图片结果${relatedLabel}`;
   }
   else if (state.favoritesView) t = `收藏：<b>${n}</b> 条`;
   else if (activeUpdateFilter()) t = `${esc(activeUpdateFilter().label)}：<b>${n}</b> 条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
@@ -1052,6 +1065,10 @@ export function updateResultBar() {
 export function updateEmptyState(n) {
   const empty = $('#empty');
   if (!empty) return;
+  if (hasActiveSearch()) {
+    empty.hidden = true;
+    return;
+  }
   empty.hidden = n > 0;
   if (n > 0) return;
 
@@ -1115,6 +1132,12 @@ export function handleEmptyAction(action) {
   }
   if (action === 'clear-search') {
     state.query = '';
+    state.searchDraft = '';
+    state.searchFilters = [];
+    state.searchFilterValues = [];
+    state.searchIssues = [];
+    state.searchPlan = null;
+    state.relatedDirectories = [];
     const search = $('#search');
     if (search) search.value = '';
     updateSearchClear();
@@ -1126,6 +1149,12 @@ export function handleEmptyAction(action) {
     state.updateFilter = '';
   } else if (action === 'show-all') {
     state.query = '';
+    state.searchDraft = '';
+    state.searchFilters = [];
+    state.searchFilterValues = [];
+    state.searchIssues = [];
+    state.searchPlan = null;
+    state.relatedDirectories = [];
     state.activePath = [];
     state.onlyFav = false;
     const search = $('#search');
@@ -1258,7 +1287,7 @@ export function renderCategoryRail({ animate = true } = {}) {
 export function updateRailActive() {
   const rail = $('#chipRail');
   if (!rail) return;
-  const head = (state.query.trim() && !state.siteSearchView) ? null : (state.activePath[0] || '');
+  const head = (hasActiveSearch() && !state.siteSearchView) ? null : (state.activePath[0] || '');
   let activeChip = null;
   rail.querySelectorAll('.rail-chip').forEach(ch => {
     const active = head !== null && (ch.dataset.path || '') === head;
