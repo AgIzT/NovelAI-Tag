@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+from urllib.parse import unquote, urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPORT = os.path.join(ROOT, 'output', 'docs-lint-report.txt')
@@ -229,16 +230,36 @@ def check_budget(mds):
 
 
 # ── 8. 孤儿：谁也不引用、任何索引都没收 ─────────────────────────────────
+_MARKDOWN_LINK_RE = re.compile(r'\]\(\s*(?:<([^>]+)>|([^\s)]+))')
+
+
+def markdown_link_targets(source: str, body: str) -> set[str]:
+    """返回正文中指向仓库内 Markdown 文件的规范化相对路径。"""
+    targets: set[str] = set()
+    source_dir = os.path.dirname(source)
+    for angle_target, plain_target in _MARKDOWN_LINK_RE.findall(body):
+        raw = unquote(angle_target or plain_target).replace('\\', '/')
+        parsed = urlsplit(raw)
+        if parsed.scheme or parsed.netloc or not parsed.path.lower().endswith('.md'):
+            continue
+        path = parsed.path.lstrip('/') if parsed.path.startswith('/') else parsed.path
+        target = os.path.normpath(os.path.join(source_dir, path)).replace('\\', '/')
+        targets.add(target)
+    return targets
+
+
 def check_orphans(mds):
-    corpus = '\n'.join(read(m) for m in mds)
+    referenced_by: dict[str, set[str]] = {}
+    for source in mds:
+        for target in markdown_link_targets(source, read(source)):
+            referenced_by.setdefault(target, set()).add(source)
     roots = {'AGENTS.md', 'CLAUDE.md', 'HANDOFF.md', 'README.md', 'tools/README.md',
              'docs/architecture.md', 'docs/roadmap.md',
              'site/assets/app/MODULE_MAP.md'}
     for m in mds:
         if m in roots or m.endswith('/README.md'):
             continue
-        name = os.path.basename(m)
-        if corpus.count(name) <= 1:      # 只在自己文件里出现过
+        if not any(source != m for source in referenced_by.get(m, ())):
             warns.append(f'[孤儿] {m} 没有被任何文档或索引引用——它实际上永远不会被读到')
 
 

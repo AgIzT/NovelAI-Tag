@@ -55,6 +55,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/access.js">
 <link rel="modulepreload" href="assets/app/data.js">
 <link rel="modulepreload" href="assets/app/search.js">
+<link rel="modulepreload" href="assets/app/search-directories.js">
+<link rel="modulepreload" href="assets/app/search-ui.js">
 <link rel="modulepreload" href="assets/app/router.js">
 <link rel="modulepreload" href="assets/app/media.js">
 <link rel="modulepreload" href="assets/app/original-capability.js">
@@ -148,14 +150,62 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
   <div class="search-wrap">
     <button id="searchScopeBtn" class="search-scope" type="button" aria-label="搜索范围：全站" title="当前搜索范围：全站。点击切到当前法典">全站</button>
-    <input id="search" type="search" placeholder="搜索词条或 tag（中 / 英）…" autocomplete="off" aria-describedby="searchSyntaxHint">
-    <span id="searchSyntaxHint" class="search-syntax-hint" role="note">高级示例：<code>path:构图</code> · <code>has:image</code> · <code>fav:true</code></span>
+    <input id="search" type="search" placeholder="搜索标题或标签，空格表示同时满足" autocomplete="off" aria-describedby="searchHelp">
+    <span id="searchHelp" class="sr-only">默认搜索标题、标签和角色正向提示词。多个词用空格分开，结果需要同时满足。</span>
     <button id="searchClear" class="search-clear" type="button" aria-label="清空搜索" title="清空搜索" hidden>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
+    </button>
+    <button id="searchFilterBtn" class="search-filter-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="searchFilterPanel">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+      <span>筛选</span>
+      <b id="searchFilterCount" class="search-filter-count" aria-hidden="true" hidden>0</b>
     </button>
     <button id="searchExit" class="search-exit" type="button" aria-label="退出搜索" title="退出搜索">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
     </button>
+    <section id="searchFilterPanel" class="search-filter-panel" role="dialog" aria-modal="false" aria-labelledby="searchFilterTitle" hidden>
+      <header class="search-filter-head">
+        <div>
+          <strong id="searchFilterTitle">筛选搜索结果</strong>
+          <p>普通搜索只查标题、标签和角色正向提示词；需要查目录、备注或负面词时在这里添加条件。</p>
+        </div>
+        <button id="searchFilterClose" class="search-filter-close" type="button" aria-label="关闭筛选面板" title="关闭筛选面板">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
+        </button>
+      </header>
+      <form id="searchFilterForm" class="search-filter-form" novalidate>
+        <label>
+          <span>字段</span>
+          <select id="searchFilterField" name="field" aria-label="筛选字段"></select>
+        </label>
+        <label>
+          <span>条件</span>
+          <select id="searchFilterOperator" name="operator" aria-label="筛选条件"></select>
+        </label>
+        <label class="search-filter-value-wrap">
+          <span>值</span>
+          <input id="searchFilterValue" name="value" type="text" autocomplete="off" placeholder="输入筛选内容">
+          <select id="searchFilterValueSelect" name="valueOption" aria-label="筛选值" hidden></select>
+        </label>
+        <button id="searchFilterAdd" class="search-filter-add" type="submit">添加条件</button>
+      </form>
+      <div id="searchSyntaxHint" class="search-filter-examples" aria-labelledby="searchExamplesTitle">
+        <span id="searchExamplesTitle">试试这些写法</span>
+        <div>
+          <button type="button" data-search-example="猫 蓝眼睛"><code>猫 蓝眼睛</code><small>同时包含</small></button>
+          <button type="button" data-search-example="&quot;blue eyes&quot;"><code>"blue eyes"</code><small>完整短语</small></button>
+          <button type="button" data-search-example="-男性"><code>-男性</code><small>排除内容</small></button>
+          <button type="button" data-search-example="path:构图"><code>path:构图</code><small>目录文字</small></button>
+          <button type="button" data-search-example="has:image"><code>has:image</code><small>只看有图</small></button>
+          <button type="button" data-search-example="fav:true"><code>fav:true</code><small>只看收藏</small></button>
+        </div>
+      </div>
+      <p id="searchFilterFeedback" class="search-filter-feedback" role="status" aria-live="polite"></p>
+      <footer class="search-filter-footer">
+        <span>多个条件会同时生效</span>
+        <button id="searchFilterClearAll" type="button">清除全部</button>
+      </footer>
+    </section>
   </div>
 
   <button id="mobileSearchBtn" class="icon-btn mobile-search-btn" type="button" title="搜索" aria-label="搜索">
@@ -262,12 +312,30 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div id="chipRail" class="chip-rail"></div>
     <div class="result-bar">
       <span id="resultInfo"></span>
+      <div id="searchFilterSummary" class="search-filter-summary" hidden>
+        <div id="searchFilterChips" class="search-filter-chips" role="list" aria-label="当前搜索筛选"></div>
+        <button id="searchClearAllBtn" class="search-clear-all" type="button">清除全部</button>
+      </div>
       <div id="updateFilterControls" class="update-filter-controls" hidden></div>
       <button id="favoritesViewBackupBtn" class="favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
         <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
         <span>备份与恢复</span>
       </button>
     </div>
+    <section id="searchStatus" class="search-status" hidden>
+      <p id="searchStatusLive" role="status" aria-live="polite"></p>
+      <div id="searchStatusActions" class="search-status-actions"></div>
+    </section>
+    <section id="searchRelatedDirectories" class="search-related" aria-labelledby="searchRelatedTitle" hidden>
+      <header>
+        <div>
+          <strong id="searchRelatedTitle">相关目录</strong>
+          <span id="searchRelatedCount"></span>
+        </div>
+        <small>目录命中不会混入图片结果</small>
+      </header>
+      <ul id="searchRelatedList"></ul>
+    </section>
     <div id="loading" class="loading" hidden></div>
     <div id="skeletonGrid" class="skeleton-grid" aria-hidden="true" hidden>
       <div class="skeleton-card"><i class="skeleton-thumb"></i><i class="skeleton-line title"></i><i class="skeleton-line"></i><i class="skeleton-line short"></i></div>

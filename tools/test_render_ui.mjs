@@ -127,18 +127,67 @@ const {
   visibleEntryCount,
   visibleTree,
 } = await import('../site/assets/app/codex-ui.js');
-const { nextDensity } = await import('../site/assets/app/ui.js');
+const { createSearchHistoryIntentTracker, nextDensity } = await import('../site/assets/app/ui.js');
 const { buildFeedbackContext, feedbackTimeoutSignal, setupReport } = await import('../site/assets/app/report.js');
 const { safeHttpUrl } = await import('../site/assets/app/utils.js');
 const {
   atlasUrlForRoute,
   documentTitleForRoute,
+  hasActiveSearchRoute,
   openEntryDeepLink,
   readUrlState,
+  resolveAtlasHistoryMode,
   setRouterActions,
   syncUrlState,
 } = await import('../site/assets/app/router.js');
 const { loadAnnouncements } = await import('../site/assets/app/announcements.js');
+
+// 冷全站搜索尚在异步汇总时切回当前法典，范围切换会抢先写下本 session 的首条记录；
+// 之后继续输入只能 replace。较早的全站请求即使稍后才退出，也不得让 pending 复活。
+{
+  const tracker = createSearchHistoryIntentTracker();
+  let releaseColdSearch;
+  const coldSearchGate = new Promise(resolve => { releaseColdSearch = resolve; });
+  const sessionId = 'search-delayed-scope';
+  const records = [{ id: 'before-search', sessionId: null, route: { q: '' }, layers: [] }];
+  let currentEntry = records[0];
+  const commit = (intent, route) => {
+    const mode = resolveAtlasHistoryMode(intent.historyMode, route, {
+      transition: 'search',
+      sessionId,
+      currentEntry,
+    });
+    const nextEntry = {
+      id: mode === 'push' ? `entry-${records.length}` : currentEntry.id,
+      sessionId,
+      route,
+      layers: [],
+    };
+    if (mode === 'push') records.push(nextEntry);
+    else records[records.length - 1] = nextEntry;
+    currentEntry = nextEntry;
+    tracker.settle({ ...intent, sessionMatches: true });
+  };
+
+  const coldIntent = tracker.begin({ previous: false, next: true });
+  const coldSearch = (async () => {
+    await coldSearchGate;
+    tracker.settle({ ...coldIntent, sessionMatches: true });
+  })();
+
+  const scopeIntent = tracker.begin({ previous: true, next: true });
+  commit(scopeIntent, { q: '猫', scope: 'codex' });
+
+  const typingIntent = tracker.begin({ previous: true, next: true });
+  commit(typingIntent, { q: '猫耳', scope: 'codex' });
+
+  releaseColdSearch();
+  await coldSearch;
+  assert.equal(records.length, 2, '同一搜索 session 只能新增一条历史记录');
+  assert.equal(records.filter(entry => entry.sessionId === sessionId).length, 1);
+  assert.deepEqual(currentEntry.route, { q: '猫耳', scope: 'codex' });
+  assert.equal(tracker.pending, false);
+}
 
 // 法典选择器与详情横幅共用 cover 元数据；首条词条只作为无封面时的兜底。
 {
@@ -748,6 +797,51 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.deepEqual(new URL(searchUrl, location.href).searchParams.getAll('path'), []);
   assert.ok(new URL(searchUrl, location.href).searchParams.get('p'));
 
+  // q、重复 f 与目录短码可以在当前法典或全站范围内同时表达；过滤器为空时仍是显式错误态。
+  const codexSearchUrl = new URL(atlasUrlForRoute({
+    codex: 'book',
+    scope: 'codex',
+    q: '猫',
+    searchFilters: ['title:猫', '-default:男性'],
+    path: ['角色', '女性'],
+  }), location.href);
+  assert.equal(codexSearchUrl.searchParams.get('q'), '猫');
+  assert.deepEqual(codexSearchUrl.searchParams.getAll('f'), ['title:猫', '-default:男性']);
+  assert.equal(codexSearchUrl.searchParams.get('scope'), 'codex');
+  assert.ok(codexSearchUrl.searchParams.get('p'), '当前法典搜索也保留目录交集');
+
+  const filterOnlyUrl = new URL(atlasUrlForRoute({
+    codex: 'book',
+    siteSearch: true,
+    searchFilters: ['has:image', 'fav:true'],
+    path: ['角色'],
+  }), location.href);
+  assert.equal(filterOnlyUrl.searchParams.has('q'), false);
+  assert.deepEqual(filterOnlyUrl.searchParams.getAll('f'), ['has:image', 'fav:true']);
+  assert.equal(filterOnlyUrl.searchParams.get('scope'), 'site');
+  assert.ok(filterOnlyUrl.searchParams.get('p'), 'filter-only 全站搜索也保留目录交集');
+  assert.equal(hasActiveSearchRoute({ q: '', searchFilters: ['has:image'] }), true);
+  assert.equal(hasActiveSearchRoute({ q: '', searchFilters: [''] }), true, 'f= 是待修正的搜索错误态');
+  assert.equal(hasActiveSearchRoute({ q: '', searchFilters: [] }), false);
+
+  const preSearchEntry = { id: 'before-search', sessionId: null, route: { q: '', searchFilters: [] }, layers: [] };
+  const nextSearchRoute = { q: '猫', searchFilters: [] };
+  assert.equal(resolveAtlasHistoryMode('replace', nextSearchRoute, {
+    transition: 'search', sessionId: 'search-cold-build', currentEntry: preSearchEntry,
+  }), 'push', '异步首次全站搜索即使只剩 replace 请求，也必须保留搜索前父记录');
+  assert.equal(resolveAtlasHistoryMode('replace', nextSearchRoute, {
+    transition: 'search', sessionId: 'search-cold-build', currentEntry: { ...preSearchEntry, layers: [{ id: 'mobile-search' }] },
+  }), 'replace', '移动 layered search 自己建双层，路由不得额外 push');
+  assert.equal(resolveAtlasHistoryMode('replace', nextSearchRoute, {
+    transition: 'search', sessionId: 'search-cold-build', currentEntry: { ...preSearchEntry, route: nextSearchRoute },
+  }), 'replace', '已经进入搜索后继续输入只 replace');
+
+  location.search = '?c=book&q=artist%3Afoo&f=fav%3Afalse&f=&fav=1';
+  const repeatedFilters = readUrlState();
+  assert.equal(repeatedFilters.q, 'artist:foo', '未知 q 前缀必须留给普通文本搜索');
+  assert.deepEqual(repeatedFilters.searchFilters, ['fav:false', ''], '重复 f 连同非法空值原样读取');
+  assert.equal(repeatedFilters.favorites, true, 'fav=1 与 f=fav:false 各自表达视图和筛选');
+
   const updateUrl = atlasUrlForRoute({ codex: 'book', updateFilter: '2026.7.15' });
   assert.equal(new URL(updateUrl, location.href).searchParams.get('update'), '2026.7.15');
   location.search = '?new=1';
@@ -929,6 +1023,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     '../site/assets/app/codex-ui.js',
     '../site/assets/app/modal.js',
     '../site/assets/app/ui.js',
+    '../site/assets/app/search-ui.js',
     '../site/assets/app/history.js',
     '../site/assets/app/onboarding.js',
     '../site/assets/app/announcements.js',
@@ -948,6 +1043,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     codexUiSource,
     modalSource,
     uiSource,
+    searchUiSource,
     historySource,
     onboardingSource,
     announcementsSource,
@@ -961,7 +1057,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   ] = await Promise.all(paths.map(path => readFile(new URL(path, import.meta.url), 'utf8')));
 
   assert.doesNotMatch(dataSource, /export async function load(?:CodexIndex|Media|About)\b/);
-  assert.match(moduleMap, /\| `data\.js` \| atomic bootstrap, codex loading, normalization/);
+  assert.match(moduleMap, /\| `data\.js` \| 引导数据、法典加载、规范化/);
   assert.match(masonrySource, /import \{ updateReadingSpy \} from '\.\/codex-ui\.js';/);
   assert.match(lightboxSource, /const reuseThumbs = lbThumbEntry === e[\s\S]*if \(!reuseThumbs\) \{\s*thumbs\.innerHTML = '';/);
   assert.match(lightboxSource, /&& lbThumbState === lb/);
@@ -1011,11 +1107,34 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(reportSource, /image && entryImageCanUseOriginal\(entry, image\)/);
   assert.match(lightboxSource, /return entryImageCanUseOriginal\(entry, item\);/);
   assert.match(indexSource, /rel="modulepreload" href="assets\/app\/original-capability\.js"/);
-  assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*path:构图[\s\S]*has:image[\s\S]*fav:true/);
-  assert.match(stylesSource, /\.search-wrap:focus-within #search:placeholder-shown~\.search-syntax-hint/);
+  assert.match(indexSource, /placeholder="搜索标题或标签，空格表示同时满足"/);
+  assert.match(indexSource, /id="searchFilterBtn"[\s\S]*aria-haspopup="dialog"[\s\S]*aria-controls="searchFilterPanel"/);
+  assert.match(indexSource, /id="searchFilterPanel"[^>]*role="dialog"[^>]*aria-modal="false"[^>]*hidden/);
+  assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*猫 蓝眼睛[\s\S]*path:构图[\s\S]*has:image[\s\S]*fav:true/);
+  const scopeButtonHandler = uiSource.match(/searchScopeBtn\.onclick = \(\) => \{[\s\S]*?\n    \};/)?.[0] || '';
+  assert.match(scopeButtonHandler, /void applySearchConditions\(\)/, '范围切换必须复用统一搜索历史入口');
+  assert.doesNotMatch(scopeButtonHandler, /uiActions\.applySearch/, '范围切换不得绕过 searchHistory pending 状态');
+  assert.match(uiSource, /action\?\.id === 'scope-site'[\s\S]*await applySearchConditions\(\)/, '零结果范围动作也必须复用统一搜索历史入口');
+  assert.match(appSource, /syncUrlState\(\{\s*historyMode: historyModeFor\(options\),\s*transition: options\.transition \|\| 'route',\s*sessionId: options\.sessionId,/, '冷全站首次提交必须保留搜索 session');
+  assert.match(stylesSource, /\.search-filter-panel\{[\s\S]*position:absolute[\s\S]*overflow:auto/);
+  assert.match(stylesSource, /@media \(max-width:600px\)\{[\s\S]*\.search-filter-panel\{[\s\S]*100dvh/);
   assert.match(uiSource, /searchInput\.addEventListener\('compositionstart'/);
   assert.match(uiSource, /searchInput\.addEventListener\('compositionend'/);
   assert.match(uiSource, /if \(searchComposing \|\| e\.isComposing\)/);
+  assert.match(uiSource, /const mobileSearchInertState = new Map\(\)/);
+  assert.match(uiSource, /document\.querySelectorAll\('\.topbar > :not\(\.search-wrap\)'\)[\s\S]*node\.inert = true/);
+  assert.match(uiSource, /close: \(\) => \{[\s\S]*applySearchMode\(false, \{ restoreButton: mobileQuery\.matches \}\)/);
+  assert.match(uiSource, /const searchWasOpen = document\.body\.classList\.contains\('search-mode'\);[\s\S]*if \(searchWasOpen\) closeHistoryLayer\('mobile-search'\)/);
+  assert.match(uiSource, /classList\.contains\('search-filters-open'\)[\s\S]*setTopbarHidden\(false\)/);
+  assert.match(searchUiSource, /builderInput\?\.addEventListener\('compositionstart'/);
+  assert.match(searchUiSource, /event\.keyCode === 229/);
+  assert.match(searchUiSource, /function focusFilterAfterRemoval\(index\)/);
+  assert.match(searchUiSource, /el\('searchFilterBtn'\)\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(searchUiSource, /pendingFilterFocusIndex = index/);
+  assert.match(searchUiSource, /pendingFilterFocusIndex !== null[\s\S]*focusFilterAfterRemoval\(focusIndex\)/);
+  assert.match(stylesSource, /@media \(max-width:420px\)\{[\s\S]*#search\{padding-left:96px;padding-right:96px\}/);
+  assert.match(stylesSource, /body\.dark \.search-filter-feedback\{color:#ff9e97\}/);
+  assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)\{[\s\S]*\.search-filter-panel/);
   assert.match(indexSource, /id="sidebar"[\s\S]*id="sidebarBackdrop"[\s\S]*id="main"/);
   assert.match(stylesSource, /\.sidebar:not\(\.closed\)\+\.sidebar-backdrop\{[\s\S]*z-index:24[\s\S]*touch-action:none/);
   assert.match(stylesSource, /\.tree\{overscroll-behavior:contain\}/);
@@ -1026,7 +1145,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(railActiveSource, /rail\.scrollTo\(\{[\s\S]*left,[\s\S]*top: rail\.scrollTop/);
   assert.doesNotMatch(railActiveSource, /window\.scroll|scrollIntoView/);
   assert.match(indexSource, /id="updateFilterControls"[^>]*hidden/);
-  assert.doesNotMatch(indexSource, /onlyImaged|只看有图/);
+  assert.doesNotMatch(indexSource, /onlyImaged/);
   assert.match(codexUiSource, /className = `update-filter-btn\$\{filter\.latest \? ' is-latest' : ''\}`/);
   assert.match(codexUiSource, /if \(filter\.latest\) \{[\s\S]*mark\.textContent = 'NEW'/);
   assert.match(uiSource, /closest\?\.\('\[data-update-filter\]'\)/);
@@ -1196,6 +1315,58 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     composeSource,
     /function draftFromInspector\(\)[\s\S]*return \{[\s\S]*function preserveOrphanedDraft\(\)[\s\S]*orphanedDraft = draft;[\s\S]*function renderCompose\(\)[\s\S]*if \(editorTargetGone\) \{[\s\S]*preserveOrphanedDraft\(\);[\s\S]*renderOrphanedDraft\(\);/,
   );
+}
+
+// filter-only 搜索仍是完整搜索上下文；详情深链不得因为 q 为空就擅自附加词条目录。
+{
+  const previous = {
+    codex: state.codex,
+    list: state.list,
+    placements: state.placements,
+    nodes: state.nodes,
+    lightbox: state.lightbox,
+    activePath: state.activePath,
+    query: state.query,
+    searchFilterValues: state.searchFilterValues,
+    suppressUrlSync: state.suppressUrlSync,
+    favoritesView: state.favoritesView,
+    siteSearchView: state.siteSearchView,
+  };
+  const entry = { id: 'book-0001', title: '筛选深链', path: ['角色', '女性'], image: 'entry.jpg' };
+  let filterApplications = 0;
+  state.codex = { id: 'book', aliases: [], entries: [entry] };
+  state.list = [entry];
+  state.placements = [];
+  state.nodes = new Map();
+  state.lightbox = { entry: null, images: [], index: 0 };
+  state.activePath = [];
+  state.query = '';
+  state.searchFilterValues = ['has:image'];
+  state.suppressUrlSync = true;
+  state.favoritesView = false;
+  state.siteSearchView = false;
+  setRouterActions({
+    openLightbox: () => {},
+    renderTree: () => {},
+    applyFilter: () => { filterApplications += 1; },
+    updateVirtualCards: () => {},
+  });
+  assert.equal(openEntryDeepLink(entry.id), entry.id);
+  assert.deepEqual(state.activePath, [], 'filter-only 深链必须保留未选目录的搜索列表');
+  assert.equal(filterApplications, 0);
+
+  state.searchFilterValues = [];
+  assert.equal(openEntryDeepLink(entry.id), entry.id);
+  assert.deepEqual(state.activePath, entry.path, '无搜索深链仍按原行为定位词条目录');
+  assert.equal(filterApplications, 1);
+
+  Object.assign(state, previous);
+  setRouterActions({
+    openLightbox: () => {},
+    renderTree: () => {},
+    applyFilter: () => {},
+    updateVirtualCards: () => {},
+  });
 }
 
 // 合并册旧分享链接：alias 前缀可正向归一；旧 canonical 前缀只有唯一来源时反解，
