@@ -12,7 +12,7 @@ const maskOpeners = new WeakMap();
 export function focusableIn(root) {
   if (!root) return [];
   return [...root.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
-    .filter(el => el.offsetParent !== null || el === document.activeElement);
+    .filter(el => !el.closest('[inert]') && (el.offsetParent !== null || el === document.activeElement));
 }
 
 export function focusFirstIn(root) {

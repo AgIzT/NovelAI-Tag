@@ -131,6 +131,10 @@ export async function buildFavoritesCodex() {
     contributors: [],
     links: [],
     hasOriginal: sources.some(s => s.codex?.hasOriginal),
+    // 收藏墙同样是虚拟书名分组；目录建议须回到各来源法典的真实 preorder。
+    _sourceDirectoryTrees: sources
+      .filter(source => source.codex)
+      .map(source => ({ codexId: source.codex.id, tree: source.codex.tree })),
     entries,
     entryCount: entries.length,
     imagedCount: entries.filter(hasEntryImage).length,
