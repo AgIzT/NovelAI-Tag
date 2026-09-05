@@ -1240,7 +1240,7 @@ body.density-compact .copy-hint{display:none}
 
 /* ---------- 设置悬浮框 ---------- */
 .settings-mask{
-  position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:20px;
+  position:fixed;inset:0;z-index:70;display:grid;grid-template-columns:minmax(0,1fr);place-items:center;padding:20px;
   background:rgba(15,18,30,.45);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
   opacity:0;transition:opacity .2s ease;
   pointer-events:none;   /* 仅 .show 时接管交互；淡出/异常半开态不拦截页面，避免卡死整页 */
@@ -1248,7 +1248,7 @@ body.density-compact .copy-hint{display:none}
 .settings-mask.show{opacity:1;pointer-events:auto}
 #feedbackPanel{z-index:100}
 .settings-panel{
-  position:relative;width:min(560px,94vw);max-height:min(660px,90vh);overflow-y:auto;
+  position:relative;width:min(560px,100%);max-height:min(660px,90vh);overflow-y:auto;
   background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-hover);
   padding:22px 24px 14px;
@@ -1465,7 +1465,7 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
 .announcements-foot-copy b{font-size:13px}
 .announcements-foot-copy small{color:var(--muted);font-size:11px;line-height:1.5}
 .announcements-foot-arrow{flex:none;width:16px;height:16px;fill:none;stroke:var(--accent);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-.feedback-panel{width:min(700px,94vw);max-width:700px;padding-bottom:16px}
+.feedback-panel{width:min(700px,100%);max-width:700px;padding-bottom:16px}
 .feedback-kicker{padding-right:38px}
 .feedback-kicker>div{min-width:0}
 .feedback-kicker .settings-title{margin:0}
