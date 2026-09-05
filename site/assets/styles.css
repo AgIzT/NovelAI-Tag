@@ -487,7 +487,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   max-height:min(72vh,620px);overflow:auto;overscroll-behavior:contain;
   transform:translateX(-50%);border:1px solid var(--popover-line);border-radius:14px;padding:14px;
   background:var(--panel);
-  box-shadow:var(--popover-shadow);color:var(--text);animation:searchFilterIn .16s ease;
+  box-shadow:var(--popover-shadow);color:var(--text);
 }
 /* 横向居中由 transform 负责；入场只移动独立 translate，避免结束时横跳。 */
 @keyframes searchFilterIn{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
@@ -1396,13 +1396,24 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
   border:1px dashed var(--line);border-radius:14px;background:var(--tagbg);
 }
 /* 动态面板三页签：更新 / 公告 / 反馈。与反馈面板内那对页签同构，样式刻意保持一致 */
-.announcements-tabs{display:flex;gap:4px;background:var(--tagbg);padding:3px;border-radius:12px;margin-bottom:14px}
+.announcements-tabs{
+  --ann-tab-index:1;position:relative;isolation:isolate;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:4px;background:var(--tagbg);padding:3px;border-radius:12px;margin-bottom:14px;
+}
+.announcements-tabs::before{
+  content:"";position:absolute;z-index:-1;top:3px;bottom:3px;left:3px;
+  width:calc((100% - 14px)/3);border-radius:10px;background:var(--panel);box-shadow:var(--shadow);
+  translate:calc(var(--ann-tab-index) * (100% + 4px)) 0;
+  transition:translate .24s cubic-bezier(.22,1,.36,1);pointer-events:none;
+}
+.announcements-views{position:relative;display:flow-root;min-width:0}
+.announcements-panel{scrollbar-gutter:stable}
 .announcements-tab{
   flex:1;border:0;background:transparent;color:var(--muted);font-weight:600;font-size:13px;
   padding:8px;border-radius:10px;cursor:pointer;position:relative;
   transition:background .15s,color .15s;
 }
-.announcements-tab[aria-selected="true"]{background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
+.announcements-tab[aria-selected="true"]{color:var(--text)}
 .announcements-tab-dot{
   display:inline-block;width:6px;height:6px;border-radius:999px;background:var(--new);
   margin-left:5px;vertical-align:1px;font-style:normal;
@@ -2550,4 +2561,40 @@ html.motion-off{scroll-behavior:auto!important}
   }
   .resume-prompt{transition:none}
   ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
+}
+
+/* 搜索与动态：状态立即更新，display 只为可见退场留出时间。位移不占用定位 transform。 */
+.search-filter-panel,.updates-popover{
+  opacity:1;translate:0 0;
+  transition:opacity .18s ease,translate .22s cubic-bezier(.22,1,.36,1),display .22s allow-discrete;
+}
+.updates-popover{
+  scale:1;transform-origin:top right;
+  transition:opacity .18s ease,translate .22s cubic-bezier(.22,1,.36,1),scale .22s cubic-bezier(.22,1,.36,1),display .22s allow-discrete;
+}
+.search-filter-panel[hidden],.updates-popover[hidden]{opacity:0;translate:0 -7px;pointer-events:none}
+.updates-popover[hidden]{scale:.98}
+@starting-style{
+  .search-filter-panel:not([hidden]),.updates-popover:not([hidden]){opacity:0;translate:0 -7px}
+  .updates-popover:not([hidden]){scale:.98}
+}
+.search-filter-close,.search-filter-add,.search-filter-examples button,.search-filter-footer button,
+.search-filter-chip-remove,.update-pop-more,.update-pop-links button,.announcements-tab,.update-row{
+  transition:background .16s,color .16s,border-color .16s,box-shadow .16s,scale .16s ease,filter .16s;
+}
+.search-filter-form :is(input,select){transition:border-color .16s,box-shadow .16s,background .16s}
+.search-filter-close:active,.search-filter-add:active:not(:disabled),.search-filter-examples button:active,
+.search-filter-footer button:active:not(:disabled),.search-filter-chip-remove:active,
+.update-pop-more:active,.update-pop-links button:active,.announcements-tab:active{scale:.96}
+.update-row:active{scale:.985}
+.update-row-cover,.announcements-foot-arrow{transition:translate .2s cubic-bezier(.22,1,.36,1)}
+.update-row:hover .update-row-cover{translate:0 -1px}
+.announcements-foot:hover .announcements-foot-arrow{translate:3px 0}
+@media (prefers-reduced-motion: reduce){
+  .search-filter-panel,.updates-popover,.announcements-tabs::before,
+  .search-filter-close,.search-filter-add,.search-filter-examples button,.search-filter-footer button,
+  .search-filter-chip-remove,.search-filter-form :is(input,select),.update-pop-more,.update-pop-links button,
+  .announcements-tab,.update-row,.update-row-cover,.announcements-foot,.announcements-foot-arrow{
+    animation:none!important;transition:none!important;
+  }
 }

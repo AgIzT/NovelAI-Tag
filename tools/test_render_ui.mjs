@@ -1118,8 +1118,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(appSource, /syncUrlState\(\{\s*historyMode: historyModeFor\(options\),\s*transition: options\.transition \|\| 'route',\s*sessionId: options\.sessionId,/, '冷全站首次提交必须保留搜索 session');
   assert.match(stylesSource, /\.search-filter-panel\{[\s\S]*position:absolute[\s\S]*overflow:auto/);
   const searchPanelStyle = stylesSource.match(/\.search-filter-panel\{[^}]+\}/)?.[0] || '';
-  assert.match(searchPanelStyle, /animation:searchFilterIn/, '筛选入场不能复用覆盖横向居中的 settingsIn');
-  assert.match(stylesSource, /@keyframes searchFilterIn\{from\{[^}]*translate:0 6px\}to\{[^}]*translate:0 0\}\}/);
+  assert.match(searchPanelStyle, /transform:translateX\(-50%\)/, '筛选横向居中由定位 transform 独占');
+  assert.doesNotMatch(searchPanelStyle, /animation:settingsIn/, '筛选动效不得覆盖横向定位');
   assert.match(indexSource, /class="result-bar-head">\s*<span id="resultInfo"><\/span>\s*<button id="searchClearAllBtn"/, '清除全部固定在结果首行，不独占空条件行');
   assert.match(stylesSource, /@media \(max-width:600px\)\{[\s\S]*\.search-filter-panel\{[\s\S]*100dvh/);
   assert.match(uiSource, /searchInput\.addEventListener\('compositionstart'/);

@@ -1,3 +1,5 @@
+import { animateUi, cancelUiMotion } from './ui-motion.js';
+
 const searchUiActions = {
   addFilter: async () => true,
   removeFilter: async () => {},
@@ -52,6 +54,8 @@ let renderedDirectoryOptions = null;
 let renderedStatusActions = [];
 let builderComposing = false;
 let pendingFilterFocusIndex = null;
+let renderedChipRecords = [];
+const pendingFilterRemovalChips = new Set();
 
 const el = id => document.getElementById(id);
 
@@ -125,6 +129,7 @@ function updateBuilderValueControl() {
   if (!definition || !operator || !input || !select) return;
 
   replaceOptions(operator, definition.operators, operator.value);
+  const previousControl = select.hidden ? input : select;
   const usesChoices = Boolean(definition.values.length);
   input.hidden = usesChoices;
   select.hidden = !usesChoices;
@@ -134,6 +139,11 @@ function updateBuilderValueControl() {
   if (usesChoices) replaceOptions(select, definition.values, select.value);
   input.removeAttribute('aria-invalid');
   select.removeAttribute('aria-invalid');
+  const nextControl = usesChoices ? select : input;
+  if (previousControl !== nextControl && panelIsOpen()) {
+    cancelUiMotion(previousControl);
+    animateUi(nextControl, [{ opacity: 0, translate: '0 4px' }, { opacity: 1, translate: '0 0' }]);
+  }
 }
 
 function renderBuilderFields() {
@@ -162,10 +172,13 @@ export function openSearchFilterPanel({ focus = true } = {}) {
   const trigger = el('searchFilterBtn');
   if (!panel || !trigger) return;
   panel.hidden = false;
+  panel.inert = false;
   trigger.setAttribute('aria-expanded', 'true');
   document.body.classList.add('search-filters-open');
   document.body.classList.remove('tb-hidden');
-  if (focus) requestAnimationFrame(() => el('searchFilterField')?.focus({ preventScroll: true }));
+  if (focus) requestAnimationFrame(() => {
+    if (!panel.hidden) el('searchFilterField')?.focus({ preventScroll: true });
+  });
 }
 
 export function closeSearchFilterPanel({ restoreFocus = false } = {}) {
@@ -173,6 +186,7 @@ export function closeSearchFilterPanel({ restoreFocus = false } = {}) {
   const trigger = el('searchFilterBtn');
   if (!panel || panel.hidden) return;
   panel.hidden = true;
+  panel.inert = true;
   trigger?.setAttribute('aria-expanded', 'false');
   document.body.classList.remove('search-filters-open');
   if (restoreFocus) trigger?.focus({ preventScroll: true });
@@ -199,10 +213,79 @@ function updateFilterCount(count) {
   const badge = el('searchFilterCount');
   if (!trigger || !badge) return;
   const value = Math.max(0, Number.isFinite(Number(count)) ? Number(count) : 0);
-  badge.textContent = value > 99 ? '99+' : String(value);
+  const text = value > 99 ? '99+' : String(value);
+  const changed = badge.hidden || badge.textContent !== text;
+  badge.textContent = text;
   badge.hidden = value === 0;
+  if (!value) cancelUiMotion(badge);
+  else if (changed) animateUi(badge, [{ opacity: .4, scale: '.8' }, { opacity: 1, scale: '1' }]);
   trigger.classList.toggle('has-filters', value > 0);
   trigger.setAttribute('aria-label', value ? `筛选，已启用 ${value} 个条件` : '筛选搜索结果');
+}
+
+function chipKey(filter) {
+  return JSON.stringify(filter.queryValue === undefined
+    ? ['filter', filter.field, filter.op, filter.value, filter.codexId, filter.pathCode]
+    : ['query', filter.queryValue]);
+}
+
+function createFilterChip() {
+  const chip = document.createElement('span');
+  chip.className = 'search-filter-chip';
+  chip.setAttribute('role', 'listitem');
+  const label = document.createElement('span');
+  label.className = 'search-filter-chip-label';
+  const remove = document.createElement('button');
+  remove.className = 'search-filter-chip-remove';
+  remove.type = 'button';
+  remove.textContent = '×';
+  chip.append(label, remove);
+  return chip;
+}
+
+function leaveFilterChip(chip, snapshot) {
+  pendingFilterRemovalChips.delete(chip);
+  cancelUiMotion(chip);
+  if (!snapshot?.rect.width || !snapshot.rect.height) {
+    chip.remove();
+    return;
+  }
+  // 退场离开文档流；搜索和最后一个条件的占位立即更新，残影不参与焦点或点击。
+  const { rect, opacity } = snapshot;
+  chip.inert = true;
+  chip.setAttribute('aria-hidden', 'true');
+  chip.removeAttribute('role');
+  chip.dataset.searchChipExit = '';
+  const remove = chip.querySelector('button');
+  delete remove.dataset.searchFilterIndex;
+  remove.disabled = true;
+  remove.tabIndex = -1;
+  Object.assign(chip.style, {
+    position: 'absolute', left: `${rect.left + window.scrollX}px`, top: `${rect.top + window.scrollY}px`,
+    width: `${rect.width}px`, height: `${rect.height}px`, maxWidth: 'none', margin: '0',
+    boxSizing: 'border-box', pointerEvents: 'none', zIndex: '20',
+  });
+  document.body.append(chip);
+  const animation = animateUi(chip, [
+    { opacity, translate: '0 0', scale: '1' },
+    { opacity: 0, translate: '0 -4px', scale: '.97' },
+  ], { duration: 160 });
+  if (!animation) {
+    chip.remove();
+    return;
+  }
+  let removed = false;
+  let timer;
+  const finish = () => {
+    if (removed) return;
+    removed = true;
+    clearTimeout(timer);
+    cancelUiMotion(chip);
+    chip.remove();
+  };
+  // 隐藏标签页的动画时间轴可能暂停，仍保证短暂残影被回收。
+  timer = setTimeout(finish, 240);
+  animation.finished.then(finish, finish);
 }
 
 function renderFilterChips(filters, hasActiveSearch) {
@@ -211,27 +294,78 @@ function renderFilterChips(filters, hasActiveSearch) {
   const clear = el('searchClearAllBtn');
   const panelClear = el('searchFilterClearAll');
   if (!summary || !chips) return;
-  chips.replaceChildren();
-  filters.forEach((filter, index) => {
-    const chip = document.createElement('span');
-    chip.className = `search-filter-chip${filter?.invalid || filter?.issue ? ' is-error' : ''}`;
-    chip.setAttribute('role', 'listitem');
-
-    const label = document.createElement('span');
-    label.className = 'search-filter-chip-label';
-    label.textContent = filterLabel(filter);
-    chip.append(label);
-
-    const remove = document.createElement('button');
-    remove.className = 'search-filter-chip-remove';
-    remove.type = 'button';
-    remove.dataset.searchFilterIndex = String(index);
-    remove.setAttribute('aria-label', `移除筛选：${label.textContent}`);
-    remove.title = `移除筛选：${label.textContent}`;
-    remove.textContent = '×';
-    chip.append(remove);
-    chips.append(chip);
+  const keys = filters.map(chipKey);
+  const labels = filters.map(filterLabel);
+  const changed = filters.length !== renderedChipRecords.length || filters.some((filter, index) => {
+    const previous = renderedChipRecords[index];
+    return previous?.key !== keys[index]
+      || previous.chip.firstElementChild.textContent !== labels[index]
+      || previous.chip.classList.contains('is-error') !== Boolean(filter?.invalid || filter?.issue);
   });
+  if (changed) {
+    // 只在条件变化时测量；同一次搜索的重复渲染复用节点，不重播、不吞第一次点击。
+    const snapshots = new Map(renderedChipRecords.map(({ chip }) => [chip, {
+      rect: chip.getBoundingClientRect(), opacity: Number(getComputedStyle(chip).opacity),
+    }]));
+    const available = new Map();
+    for (const record of renderedChipRecords) {
+      const group = available.get(record.key) || [];
+      group.push(record);
+      available.set(record.key, group);
+      cancelUiMotion(record.chip);
+    }
+    const counts = new Map();
+    keys.forEach(key => counts.set(key, (counts.get(key) || 0) + 1));
+    for (const [key, group] of available) {
+      let removedCount = group.length - (counts.get(key) || 0);
+      // 重复条件删除时，优先让用户实际点中的节点退场。
+      available.set(key, group.filter(record => {
+        if (removedCount > 0 && pendingFilterRemovalChips.has(record.chip)) {
+          removedCount -= 1;
+          return false;
+        }
+        return true;
+      }));
+    }
+    const nextRecords = filters.map((filter, index) => {
+      const record = available.get(keys[index])?.shift() || { key: keys[index], chip: createFilterChip() };
+      const { chip } = record;
+      const label = chip.firstElementChild;
+      const remove = chip.lastElementChild;
+      chip.classList.toggle('is-error', Boolean(filter?.invalid || filter?.issue));
+      if (label.textContent !== labels[index]) label.textContent = labels[index];
+      remove.dataset.searchFilterIndex = String(index);
+      remove.setAttribute('aria-label', `移除筛选：${labels[index]}`);
+      remove.title = `移除筛选：${labels[index]}`;
+      return record;
+    });
+    const retained = new Set(nextRecords.map(record => record.chip));
+    for (const { chip } of renderedChipRecords) {
+      if (!retained.has(chip)) leaveFilterChip(chip, snapshots.get(chip));
+    }
+    nextRecords.forEach(({ chip }, index) => {
+      if (chips.children[index] !== chip) chips.insertBefore(chip, chips.children[index] || null);
+    });
+    renderedChipRecords = nextRecords;
+    summary.hidden = filters.length === 0;
+    // 批量读取最终布局，再用独立 translate 做 FLIP，不碰瀑布流定位或结果提交时序。
+    const positions = nextRecords.map(({ chip }) => chip.getBoundingClientRect());
+    nextRecords.forEach(({ chip }, index) => {
+      const previous = snapshots.get(chip);
+      if (!previous) {
+        animateUi(chip, [{ opacity: 0, translate: '0 5px' }, { opacity: 1, translate: '0 0' }]);
+        return;
+      }
+      const x = previous.rect.left - positions[index].left;
+      const y = previous.rect.top - positions[index].top;
+      if (Math.abs(x) > .5 || Math.abs(y) > .5 || previous.opacity < .99) {
+        animateUi(chip, [
+          { opacity: previous.opacity, translate: `${x}px ${y}px` },
+          { opacity: 1, translate: '0 0' },
+        ]);
+      }
+    });
+  }
   summary.hidden = filters.length === 0;
   if (clear) clear.hidden = !hasActiveSearch;
   if (panelClear) panelClear.disabled = !hasActiveSearch;
@@ -260,13 +394,21 @@ function focusFilterAfterRemoval(index) {
   });
 }
 
-function renderFilterIssues(issues) {
+function setFilterFeedback(message) {
   const feedback = el('searchFilterFeedback');
-  if (!feedback) return;
-  feedback.textContent = (Array.isArray(issues) ? issues : [])
+  if (!feedback || feedback.textContent === message) return;
+  cancelUiMotion(feedback);
+  feedback.textContent = message;
+  if (message && panelIsOpen()) {
+    animateUi(feedback, [{ opacity: 0, translate: '0 3px' }, { opacity: 1, translate: '0 0' }]);
+  }
+}
+
+function renderFilterIssues(issues) {
+  setFilterFeedback((Array.isArray(issues) ? issues : [])
     .map(issue => clean(issue?.message || issue))
     .filter(Boolean)
-    .join('；');
+    .join('；'));
 }
 
 export function renderSearchFilters({
@@ -400,7 +542,8 @@ function builderPayload() {
   const value = clean(valueControl?.value);
   if (!field || !operator || !valueControl || !value) {
     valueControl?.setAttribute('aria-invalid', 'true');
-    el('searchFilterFeedback').textContent = '请先填写筛选值。';
+    setFilterFeedback('请先填写筛选值。');
+    animateUi(valueControl, [{ opacity: .55, translate: '0 2px' }, { opacity: 1, translate: '0 0' }], { duration: 180 });
     valueControl?.focus();
     return null;
   }
@@ -421,12 +564,12 @@ async function submitBuilder(event) {
   if (!payload) return;
   const add = el('searchFilterAdd');
   if (add) add.disabled = true;
-  el('searchFilterFeedback').textContent = '';
+  setFilterFeedback('');
   try {
     const accepted = await searchUiActions.addFilter(payload);
     if (accepted !== false && !el('searchFilterValue')?.hidden) el('searchFilterValue').value = '';
   } catch (error) {
-    el('searchFilterFeedback').textContent = clean(error?.message) || '暂时无法添加这个条件。';
+    setFilterFeedback(clean(error?.message) || '暂时无法添加这个条件。');
   } finally {
     if (add) add.disabled = false;
   }
@@ -439,6 +582,7 @@ export function setupSearchUi() {
   const form = el('searchFilterForm');
   if (!panel || !trigger || !form) return;
   setupDone = true;
+  panel.inert = panel.hidden;
   renderBuilderFields();
   updateFilterCount(0);
 
@@ -480,20 +624,22 @@ export function setupSearchUi() {
   });
   el('searchFilterChips')?.addEventListener('click', event => {
     const remove = event.target.closest?.('[data-search-filter-index]');
-    if (!remove) return;
+    const chip = remove?.closest('.search-filter-chip');
+    if (!remove || pendingFilterRemovalChips.has(chip)) return;
     const index = Number(remove.dataset.searchFilterIndex);
     const filter = renderedFilters[index];
     if (!filter) return;
     // 先把焦点交给不会随结果重绘销毁的触发按钮；下一轮渲染再优先落到相邻 chip。
     el('searchFilterBtn')?.focus({ preventScroll: true });
     pendingFilterFocusIndex = index;
+    pendingFilterRemovalChips.add(chip);
     const removeAction = filter.queryValue === undefined
       ? searchUiActions.removeFilter(filter, filter.filterIndex)
       : searchUiActions.removeQueryTerm(filter.queryValue);
     void Promise.resolve(removeAction).catch(error => {
       pendingFilterFocusIndex = null;
-      el('searchFilterFeedback').textContent = clean(error?.message) || '暂时无法移除这个条件。';
-    });
+      setFilterFeedback(clean(error?.message) || '暂时无法移除这个条件。');
+    }).finally(() => pendingFilterRemovalChips.delete(chip));
   });
 
   el('searchRelatedList')?.addEventListener('click', event => {

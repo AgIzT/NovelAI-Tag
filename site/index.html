@@ -49,6 +49,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/app/state.js">
 <link rel="modulepreload" href="assets/app/utils.js">
+<link rel="modulepreload" href="assets/app/ui-motion.js">
 <link rel="modulepreload" href="assets/app/modal.js">
 <link rel="modulepreload" href="assets/app/feedback.js">
 <link rel="modulepreload" href="assets/app/feedback-progress.js">
@@ -814,6 +815,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <button class="announcements-tab" type="button" role="tab" aria-selected="true" aria-controls="announcementsNoticeView" tabindex="0" data-announcements-tab="announcements" id="announcementsNoticeTab">公告<i class="announcements-tab-dot" data-tab-dot="announcements" hidden></i></button>
       <button class="announcements-tab" type="button" role="tab" aria-selected="false" aria-controls="announcementsFeedbackView" tabindex="-1" data-announcements-tab="feedback" id="announcementsFeedbackTab">反馈</button>
     </div>
+    <div class="announcements-views">
     <section id="announcementsUpdatesView" class="announcements-view" role="tabpanel" aria-labelledby="announcementsUpdatesTab" hidden>
       <p class="announcements-view-note">法典与图包的内容更新，按日期倒序。点任意一行直达该书这批新增的词条。</p>
       <div id="updatesList" class="updates-list"></div>
@@ -838,6 +840,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <svg class="announcements-foot-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
       </button>
     </section>
+    </div>
   </div>
 </div>
 

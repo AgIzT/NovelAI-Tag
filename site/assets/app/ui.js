@@ -365,10 +365,13 @@ export function bindUI() {
     await applySearchConditions({ filterValues: values });
     return true;
   };
-  const removeSearchFilter = async (_filter, index) => {
+  const removeSearchFilter = async (filter, index) => {
     const values = [...state.searchFilterValues];
-    if (!Number.isInteger(index) || index < 0 || index >= values.length) return;
-    values.splice(index, 1);
+    const value = filter?.invalid ? String(filter.value ?? '') : serializeSearchFilter(filter);
+    // 全站索引尚在加载时，前一次删除已改状态而 chips 可能还未重绘；按身份复核旧索引。
+    const currentIndex = values[index] === value ? index : values.indexOf(value);
+    if (currentIndex < 0) return;
+    values.splice(currentIndex, 1);
     await applySearchConditions({ filterValues: values });
   };
   const removeQueryTerm = async value => {
@@ -600,8 +603,14 @@ export function bindUI() {
   const announceBtn = $('#announcementsBtn');
   const updatesPopover = $('#updatesPopover');
   if (announceBtn && updatesPopover) {
+    let popoverRequest = 0;
+    let popoverPending = false;
+    updatesPopover.inert = updatesPopover.hidden;
     const closePopover = ({ focusButton = false } = {}) => {
-      if (updatesPopover.hidden) return;
+      popoverRequest += 1;
+      popoverPending = false;
+      announceBtn.removeAttribute('aria-busy');
+      updatesPopover.inert = true;
       updatesPopover.hidden = true;
       announceBtn.classList.remove('open');
       announceBtn.setAttribute('aria-expanded', 'false');
@@ -617,19 +626,25 @@ export function bindUI() {
     announceBtn.onclick = async ev => {
       ev.stopPropagation();
       closeMore({ historyMode: 'none' });
-      if (!updatesPopover.hidden) {
+      if (!updatesPopover.hidden || popoverPending) {
         closePopover({ focusButton: true });
         return;
       }
-      /* 移动端没有"轻量悬浮"的空间，直接进面板，省一次点击。 */
+      const request = ++popoverRequest;
+      popoverPending = true;
+      announceBtn.setAttribute('aria-busy', 'true');
+      await loadUpdates();
+      if (request !== popoverRequest) return;
+      popoverPending = false;
+      announceBtn.removeAttribute('aria-busy');
+      /* 加载期间的取消/再次点击优先；按此时的断点决定入口。 */
       if (mobileQuery.matches) {
-        await loadUpdates();
         openPanelAt('');
         return;
       }
-      await loadUpdates();
       renderUpdatesDigest(updatesPopover);
       updateAnnouncementBadge();
+      updatesPopover.inert = false;
       updatesPopover.hidden = false;
       announceBtn.classList.add('open');
       announceBtn.setAttribute('aria-expanded', 'true');
@@ -642,11 +657,14 @@ export function bindUI() {
       }
       if (handleUpdateRowClick(ev, { consumeLayer: false })) closePopover();
     };
-    updatesPopover.onkeydown = ev => {
-      if (ev.key === 'Escape') { ev.preventDefault(); closePopover({ focusButton: true }); }
-    };
+    document.addEventListener('keydown', ev => {
+      if (ev.key !== 'Escape' || (updatesPopover.hidden && !popoverPending)) return;
+      ev.preventDefault();
+      closePopover({ focusButton: true });
+    });
+    mobileQuery.addEventListener('change', () => closePopover());
     document.addEventListener('click', ev => {
-      if (!updatesPopover.hidden && !updatesPopover.contains(ev.target) && !announceBtn.contains(ev.target)) {
+      if ((!updatesPopover.hidden || popoverPending) && !updatesPopover.contains(ev.target) && !announceBtn.contains(ev.target)) {
         closePopover();
       }
     });

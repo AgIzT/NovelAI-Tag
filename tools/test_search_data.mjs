@@ -65,20 +65,75 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   const originalFrame = globalThis.requestAnimationFrame;
-  const makeNode = () => ({
-    children: [], dataset: {}, attributes: {}, hidden: false, listeners: new Map(),
-    classList: { toggle() {} },
-    append(child) { this.children.push(child); },
-    replaceChildren() { this.children = []; },
-    setAttribute(name, value) { this.attributes[name] = value; },
-    addEventListener(type, listener) { this.listeners.set(type, listener); },
-    focus() { this.onFocus?.(); },
-  });
+  const originalComputedStyle = globalThis.getComputedStyle;
+  const makeNode = (tag = 'div') => {
+    const node = {
+      tagName: tag.toUpperCase(), children: [], dataset: {}, attributes: {}, style: {},
+      className: '', hidden: false, listeners: new Map(), parentElement: null,
+      get firstElementChild() { return this.children[0] || null; },
+      get lastElementChild() { return this.children.at(-1) || null; },
+      append(...children) {
+        for (const child of children) {
+          child.remove();
+          child.parentElement = this;
+          this.children.push(child);
+        }
+      },
+      insertBefore(child, reference) {
+        if (child === reference) return child;
+        child.remove();
+        if (reference === null) this.append(child);
+        else {
+          const index = this.children.indexOf(reference);
+          assert.notEqual(index, -1, 'insertBefore 的参考节点必须属于当前父节点');
+          child.parentElement = this;
+          this.children.splice(index, 0, child);
+        }
+        return child;
+      },
+      remove() {
+        if (!this.parentElement) return;
+        const siblings = this.parentElement.children;
+        siblings.splice(siblings.indexOf(this), 1);
+        this.parentElement = null;
+      },
+      replaceChildren(...children) {
+        for (const child of [...this.children]) child.remove();
+        this.append(...children);
+      },
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+      removeAttribute(name) { delete this.attributes[name]; },
+      querySelector(selector) { return this.children.find(child => child.tagName.toLowerCase() === selector) || null; },
+      closest(selector) {
+        if (selector.startsWith('.') && this.classList.contains(selector.slice(1))) return this;
+        return this.parentElement?.closest(selector) || null;
+      },
+      getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 28 }; },
+      addEventListener(type, listener) { this.listeners.set(type, listener); },
+      focus() { this.onFocus?.(); },
+    };
+    node.classList = {
+      contains(name) { return node.className.split(/\s+/).includes(name); },
+      toggle(name, force) {
+        const classes = new Set(node.className.split(/\s+/).filter(Boolean));
+        const enabled = force ?? !classes.has(name);
+        if (enabled) classes.add(name);
+        else classes.delete(name);
+        node.className = [...classes].join(' ');
+        return enabled;
+      },
+    };
+    return node;
+  };
   const nodes = new Map(['searchFilterSummary', 'searchFilterChips', 'searchClearAllBtn', 'searchFilterClearAll',
     'searchFilterBtn', 'searchFilterCount', 'searchFilterFeedback', 'searchFilterPanel', 'searchFilterForm'].map(id => [id, makeNode()]));
-  globalThis.document = { getElementById: id => nodes.get(id), createElement: makeNode, addEventListener() {} };
-  globalThis.window = { addEventListener() {} };
+  globalThis.document = {
+    getElementById: id => nodes.get(id), createElement: makeNode, addEventListener() {},
+    body: makeNode('body'), documentElement: makeNode('html'),
+  };
+  globalThis.window = { addEventListener() {}, scrollX: 0, scrollY: 0, matchMedia: () => ({ matches: true }) };
   globalThis.requestAnimationFrame = () => {};
+  globalThis.getComputedStyle = () => ({ opacity: '1' });
   try {
     renderSearchFilters({ queryConditions: plan.queryConditions, filters: plan.filters, hasActiveSearch: true });
     assert.deepEqual(nodes.get('searchFilterChips').children.map(chip => chip.children[0].textContent),
@@ -115,6 +170,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     globalThis.document = originalDocument;
     globalThis.window = originalWindow;
     globalThis.requestAnimationFrame = originalFrame;
+    globalThis.getComputedStyle = originalComputedStyle;
   }
 }
 
