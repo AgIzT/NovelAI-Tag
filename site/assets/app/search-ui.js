@@ -664,7 +664,10 @@ export function setupSearchUi() {
     if (!panelIsOpen() || panel.contains(event.target) || trigger.contains(event.target)) return;
     closeSearchFilterPanel();
   });
-  panel.addEventListener('focusout', () => {
+  panel.addEventListener('focusout', event => {
+    // 点框内文字 / 空白会让焦点落回 body；只有转移到真实框外控件才按失焦关闭。
+    const next = event.relatedTarget;
+    if (!next || panel.contains(next) || trigger.contains(next)) return;
     requestAnimationFrame(() => {
       const focused = document.activeElement;
       if (panelIsOpen() && !panel.contains(focused) && !trigger.contains(focused)) closeSearchFilterPanel();
