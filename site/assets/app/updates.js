@@ -87,7 +87,7 @@ export function markBatchBookRead(batchId, codexId) {
 export function renderUpdatesList(container) {
   if (!container) return;
   if (!batches.length) {
-    container.innerHTML = '<div class="announcement-empty">暂无更新记录。</div>';
+    container.innerHTML = '<div class="announcement-empty">暂无更新记录</div>';
     return;
   }
   container.innerHTML = batches.map(batch => `
@@ -122,7 +122,7 @@ export function renderUpdatesDigest(container, { limit = 3 } = {}) {
        <div class="update-pop-sub">${digest.books} 本法典更新 · 最近 ${esc(formatBatchDate(digest.latestDate))}</div>`
     : `<div class="update-pop-eyebrow">更新动态</div>
        <div class="update-pop-big is-quiet">暂无新更新</div>
-       <div class="update-pop-sub">${digest.hasAny ? `最近一次 ${esc(formatBatchDate(digest.latestDate))}` : '还没有记录在案的更新'}</div>`;
+       <div class="update-pop-sub">${digest.hasAny ? `最近一次 ${esc(formatBatchDate(digest.latestDate))}` : '暂无更新记录'}</div>`;
   container.innerHTML = `
     <div class="update-pop-hero">${hero}</div>
     ${rows.length ? `<div class="update-pop-list">${rows.join('')}</div>` : ''}

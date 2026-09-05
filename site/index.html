@@ -168,7 +168,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <header class="search-filter-head">
         <div>
           <strong id="searchFilterTitle">筛选搜索结果</strong>
-          <p>普通搜索只查标题、标签和角色正向提示词；需要查目录、备注或负面词时在这里添加条件。</p>
+          <p>可按目录、备注、负面词等字段添加条件。</p>
         </div>
         <button id="searchFilterClose" class="search-filter-close" type="button" aria-label="关闭筛选面板" title="关闭筛选面板">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
@@ -191,7 +191,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button id="searchFilterAdd" class="search-filter-add" type="submit">添加条件</button>
       </form>
       <div id="searchSyntaxHint" class="search-filter-examples" aria-labelledby="searchExamplesTitle">
-        <span id="searchExamplesTitle">试试这些写法</span>
+        <span id="searchExamplesTitle">写法示例</span>
         <div>
           <button type="button" data-search-example="猫 蓝眼睛"><code>猫 蓝眼睛</code><small>同时包含</small></button>
           <button type="button" data-search-example="&quot;blue eyes&quot;"><code>"blue eyes"</code><small>完整短语</small></button>
@@ -335,7 +335,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <strong id="searchRelatedTitle">相关目录</strong>
           <span id="searchRelatedCount"></span>
         </div>
-        <small>目录命中不会混入图片结果</small>
       </header>
       <ul id="searchRelatedList"></ul>
     </section>
@@ -817,26 +816,25 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </div>
     <div class="announcements-views">
     <section id="announcementsUpdatesView" class="announcements-view" role="tabpanel" aria-labelledby="announcementsUpdatesTab" hidden>
-      <p class="announcements-view-note">法典与图包的内容更新，按日期倒序。点任意一行直达该书这批新增的词条。</p>
+      <p class="announcements-view-note">法典与图包的内容更新，按日期倒序。点任意一行查看该书这批新增词条。</p>
       <div id="updatesList" class="updates-list"></div>
     </section>
     <section id="announcementsNoticeView" class="announcements-view" role="tabpanel" aria-labelledby="announcementsNoticeTab">
       <div id="announcementsList" class="announcements-list"></div>
     </section>
     <section id="announcementsFeedbackView" class="announcements-view" role="tabpanel" aria-labelledby="announcementsFeedbackTab" hidden>
-      <p class="announcements-view-note">每条反馈都会被认真查看，处理进度与回复公开可查。</p>
       <button id="announcementsFeedbackLink" class="announcements-foot" type="button">
         <span class="announcements-foot-ico" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="m9 11 2 2 4-4"/></svg>
         </span>
-        <span class="announcements-foot-copy"><b>反馈处理进度</b><small>看看大家提的反馈都得到了怎样的回复与处理</small></span>
+        <span class="announcements-foot-copy"><b>反馈处理进度</b><small>公开的处理与回复</small></span>
         <svg class="announcements-foot-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
       </button>
       <button id="announcementsFeedbackSubmit" class="announcements-foot" type="button">
         <span class="announcements-foot-ico" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
         </span>
-        <span class="announcements-foot-copy"><b>我要反馈</b><small>卡片内容、图片、复制问题，或者功能建议</small></span>
+        <span class="announcements-foot-copy"><b>提交反馈</b><small>卡片内容、图片、复制问题，或者功能建议</small></span>
         <svg class="announcements-foot-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
       </button>
     </section>
@@ -851,7 +849,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg></span>
       <div>
         <h2 class="settings-title">反馈与进度</h2>
-        <p>每条反馈都会被认真查看，处理进度与回复公开可查。</p>
       </div>
     </div>
     <div class="feedback-tabs" role="tablist" aria-label="反馈功能">

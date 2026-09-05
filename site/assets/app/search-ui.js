@@ -542,7 +542,7 @@ function builderPayload() {
   const value = clean(valueControl?.value);
   if (!field || !operator || !valueControl || !value) {
     valueControl?.setAttribute('aria-invalid', 'true');
-    setFilterFeedback('请先填写筛选值。');
+    setFilterFeedback('填写筛选值');
     animateUi(valueControl, [{ opacity: .55, translate: '0 2px' }, { opacity: 1, translate: '0 0' }], { duration: 180 });
     valueControl?.focus();
     return null;
@@ -569,7 +569,7 @@ async function submitBuilder(event) {
     const accepted = await searchUiActions.addFilter(payload);
     if (accepted !== false && !el('searchFilterValue')?.hidden) el('searchFilterValue').value = '';
   } catch (error) {
-    setFilterFeedback(clean(error?.message) || '暂时无法添加这个条件。');
+    setFilterFeedback(clean(error?.message) || '添加失败，请刷新后重试');
   } finally {
     if (add) add.disabled = false;
   }
@@ -638,7 +638,7 @@ export function setupSearchUi() {
       : searchUiActions.removeQueryTerm(filter.queryValue);
     void Promise.resolve(removeAction).catch(error => {
       pendingFilterFocusIndex = null;
-      setFilterFeedback(clean(error?.message) || '暂时无法移除这个条件。');
+      setFilterFeedback(clean(error?.message) || '移除失败，请刷新后重试');
     }).finally(() => pendingFilterRemovalChips.delete(chip));
   });
 
