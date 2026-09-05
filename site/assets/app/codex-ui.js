@@ -5,9 +5,11 @@ import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilter
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
+  getManagedHistoryEntry,
   openHistoryLayer,
   registerHistoryLayer,
   topHistoryLayerId,
@@ -159,6 +161,7 @@ export function setupCodexPicker() {
   if (!btn || !menu) return;
 
   let activeType = null;  // 级联模式下当前选中的类型
+  let syncTypeIndicator = () => {};
   let dismissN5LaunchNotice = () => {};
   const n5Launch = n5LaunchMode();
   const n5LaunchActive = n5Launch.active && state.codexes.some(isN5LaunchCodex);
@@ -170,21 +173,27 @@ export function setupCodexPicker() {
     if (!list.length) return;
     list[(index + list.length) % list.length].focus();
   };
-  const focusPreferredItem = () => {
+  const focusPreferredItem = ({ preventScroll = n5LaunchActive } = {}) => {
+    if (menu.hidden) return;
     const target = (n5LaunchActive && menu.querySelector('.n5-launch-panel')) ||
       menu.querySelector('.codex-item.active') || menu.querySelector('.codex-type.active') || focusableItems()[0];
-    target?.focus({ preventScroll: n5LaunchActive });
+    target?.focus({ preventScroll });
   };
-  const isMobile = () => window.matchMedia('(max-width: 600px)').matches;
+  const mobileLayout = window.matchMedia('(max-width: 600px)');
+  const isMobile = () => mobileLayout.matches;
   const openDirect = ({ focus = false } = {}) => {
     renderMenu();
+    menu.inert = false;
     menu.hidden = false;
+    syncTypeIndicator();
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
-    if (focus) requestAnimationFrame(focusPreferredItem);
+    if (focus) requestAnimationFrame(() => focusPreferredItem());
   };
   const closeDirect = ({ focusButton = false } = {}) => {
+    menu.inert = true;
     menu.hidden = true;
+    menu.querySelectorAll('.codex-list, .codex-type-indicator').forEach(cancelUiMotion);
     btn.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
     if (focusButton) btn.focus({ preventScroll: true });
@@ -203,24 +212,26 @@ export function setupCodexPicker() {
     }
   };
   const close = ({ focusButton = false, historyMode = 'back' } = {}) => {
-    if (isMobile() && historyMode !== 'none' && closeHistoryLayer('codex-menu')) return;
+    // 手机登记过的层随本次打开会话保留到真正关闭，跨回桌面也要消费。
+    if (historyMode !== 'none' && topHistoryLayerId() === 'codex-menu' && closeHistoryLayer('codex-menu')) return;
     closeDirect({ focusButton });
-    if (isMobile() && historyMode !== 'none') forgetHistoryLayer('codex-menu');
   };
   closePickerRef = close;   // 供外部模块（本地编辑模式）正确收起选择器，含移动端托管历史层
 
-  const chooseCodex = c => {
+  const chooseCodex = (c, source) => {
     if (!c) return;
     if (isCodexLocked(c)) { showNsfwLockedHint(); return; }
     dismissN5LaunchNotice();
+    source?.classList.add('is-selecting');
     const changed = state.favoritesView || state.siteSearchView || sel.value !== c.id;
     if (!changed) {
       close({ focusButton: true });
       return;
     }
+    const consumeLayer = topHistoryLayerId() === 'codex-menu';
     close({ focusButton: true, historyMode: 'none' });
     sel.value = c.id;
-    codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer: isMobile() });
+    codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer });
   };
 
   /* 类型清单：每类带真实法典 real[] 与是否占位 soon */
@@ -276,7 +287,7 @@ export function setupCodexPicker() {
       `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>` +
       `</span></span>`;
     bindCoverReveal(item);
-    item.onclick = () => chooseCodex(c);
+    item.onclick = () => chooseCodex(c, item);
     return item;
   };
 
@@ -342,7 +353,7 @@ export function setupCodexPicker() {
       `<span class="n5-stamp n5-stamp-foot">${esc(stamp)}</span>` +
       `<span class="n5-wm" aria-hidden="true">V5</span>`;
     panel.querySelectorAll('.n5-launch-book').forEach(book => {
-      book.onclick = () => chooseCodex(featured.find(c => c.id === book.dataset.id));
+      book.onclick = () => chooseCodex(featured.find(c => c.id === book.dataset.id), book);
     });
     return panel;
   };
@@ -399,10 +410,31 @@ export function setupCodexPicker() {
     }
     const rail = document.createElement('div');
     rail.className = 'codex-rail';
+    const indicator = document.createElement('span');
+    indicator.className = 'codex-type-indicator';
+    indicator.setAttribute('aria-hidden', 'true');
+    indicator.hidden = true;
+    rail.appendChild(indicator);
+    syncTypeIndicator = ({ animate = false } = {}) => {
+      const selected = rail.querySelector('.codex-type.active');
+      if (menu.hidden || !selected) return;
+      const previous = { translate: getComputedStyle(indicator).translate, height: getComputedStyle(indicator).height };
+      const next = { translate: `0 ${selected.offsetTop}px`, height: `${selected.offsetHeight}px` };
+      const wasVisible = !indicator.hidden;
+      cancelUiMotion(indicator);
+      Object.assign(indicator.style, next);
+      indicator.hidden = false;
+      if (animate && wasVisible) animateUi(indicator, [previous, next]);
+    };
     const listWrap = document.createElement('div');
     listWrap.className = 'codex-list';
+    let renderedType = null;
     const setActive = id => {
-      activeType = id;
+      if (renderedType === id) return;
+      const animate = renderedType !== null && !menu.hidden;
+      const previousHeight = animate ? listWrap.getBoundingClientRect().height : 0;
+      cancelUiMotion(listWrap);
+      renderedType = activeType = id;
       rail.querySelectorAll('.codex-type').forEach(el => {
         const active = el.dataset.type === id;
         el.classList.toggle('active', active);
@@ -412,6 +444,15 @@ export function setupCodexPicker() {
       const t = types.find(x => x.id === id);
       if (t.soon) listWrap.appendChild(makeSoonBanner(t));
       fillItems(listWrap, t);
+      listWrap.scrollTop = 0;
+      syncTypeIndicator({ animate });
+      if (animate) {
+        const height = listWrap.getBoundingClientRect().height;
+        animateUi(listWrap, [
+          { height: `${previousHeight}px`, opacity: .5, translate: '0 5px' },
+          { height: `${height}px`, opacity: 1, translate: '0 0' },
+        ]);
+      }
     };
     types.forEach(t => {
       const el = document.createElement('button');
@@ -454,6 +495,8 @@ export function setupCodexPicker() {
   };
 
   const renderMenu = () => {
+    menu.querySelectorAll('.codex-list, .codex-type-indicator').forEach(cancelUiMotion);
+    syncTypeIndicator = () => {};
     if (isMobile()) renderGrouped(buildTypes());
     else renderCascade(buildTypes());
     const launchPanel = makeN5LaunchPanel();
@@ -577,16 +620,27 @@ export function setupCodexPicker() {
   window.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && !menu.hidden) close({ focusButton: true });
   });
-  let resizeRaf = 0;
-  window.addEventListener('resize', () => {
-    if (!isMobile() && !menu.hidden) {
-      closeDirect();
-      forgetHistoryLayer('codex-menu');
-      return;
-    }
+  mobileLayout.addEventListener('change', () => {
     if (menu.hidden) return;
-    cancelAnimationFrame(resizeRaf);
-    resizeRaf = requestAnimationFrame(renderMenu);
+    // 只在跨断点时重排；手机地址栏/软键盘改变高度不应重建书卡或重置滚动。
+    const focused = document.activeElement;
+    const restoreFocus = menu.contains(focused);
+    const focusedBook = state.codexes.find(c => c.id === focused?.dataset.id);
+    if (focusedBook) activeType = codexType(focusedBook);
+    const focusSelector = focused?.classList.contains('n5-launch-book') ? '.n5-launch-book' :
+      focused?.classList.contains('codex-item') ? '.codex-item' :
+      focused?.classList.contains('codex-door') ? '.codex-door' : '.codex-type';
+    renderMenu();
+    syncTypeIndicator();
+    if (isMobile() && !getManagedHistoryEntry()?.layers.some(layer => layer.id === 'codex-menu')) {
+      openHistoryLayer('codex-menu', { mode: topHistoryLayerId() === 'banner-about' ? 'replace' : 'push' });
+    }
+    if (restoreFocus) {
+      const target = [...menu.querySelectorAll(focusSelector)].find(el =>
+        el.dataset.id === focused?.dataset.id && el.dataset.type === focused?.dataset.type);
+      if (target) target.focus({ preventScroll: true });
+      else focusPreferredItem({ preventScroll: true });
+    }
   });
   setupN5LaunchNotice();
 }
@@ -638,12 +692,75 @@ export function visibleEntryCount() {
 /* ---------------- ??? ---------------- */
 let treeEnterTimer = 0;
 let resultEnterTimer = 0;
+const treeBranchAnimations = new Map();
+
+function syncTreeBranchState(item, expanded) {
+  const row = item.firstElementChild;
+  const kids = item.lastElementChild;
+  if (!kids?.classList.contains('tree-children')) return;
+  item.classList.toggle('collapsed', !expanded);
+  kids.inert = !expanded;
+  kids.setAttribute('aria-hidden', String(!expanded));
+  const arrow = row.querySelector('.tw-arrow');
+  arrow.setAttribute('aria-expanded', String(expanded));
+  arrow.setAttribute('aria-label', `${expanded ? '收起' : '展开'}目录：${row.querySelector('.tw-name').textContent}`);
+}
+
+function cancelTreeBranchMotion(kids) {
+  treeBranchAnimations.delete(kids);
+  cancelUiMotion(kids);
+  kids.classList.remove('tree-branch-moving');
+}
+
+function setTreeBranchExpanded(item, expanded, { animate = true } = {}) {
+  const kids = item.lastElementChild;
+  if (!kids?.classList.contains('tree-children')) return;
+  if (animate && item.classList.contains('collapsed') === !expanded) return;
+  const related = [...treeBranchAnimations.keys()].filter(branch => branch === kids || kids.contains(branch) || branch.contains(kids));
+  const canAnimate = animate && item.isConnected && kids.animate && !prefersReducedMotion()
+    && !document.documentElement.classList.contains('motion-off') && !item.closest('#sidebar.closed');
+  // 祖先正在展开时点子目录，先保留当前画面，再按最新子树终态重测，避免旧高度截断内容。
+  const moving = canAnimate ? [kids, ...related.filter(branch => branch !== kids && branch.contains(kids))].map(branch => ({
+    branch,
+    height: branch.getBoundingClientRect().height,
+    opacity: Number(getComputedStyle(branch).opacity),
+  })) : [];
+  related.forEach(cancelTreeBranchMotion);
+  syncTreeBranchState(item, expanded);
+  const targets = moving.map(record => ({
+    ...record,
+    expanded: !record.branch.parentElement.classList.contains('collapsed'),
+    heightTo: record.branch.parentElement.classList.contains('collapsed') ? 0 : record.branch.scrollHeight,
+  }));
+  for (const { branch, height, opacity, expanded: opening, heightTo } of targets) {
+    if (!height && !heightTo) continue;
+    branch.classList.add('tree-branch-moving');
+    const animation = animateUi(branch, [
+      { height: `${height}px`, opacity: height ? opacity : 0 },
+      { height: `${heightTo}px`, opacity: opening ? 1 : 0 },
+    ], { duration: opening ? 240 : 190 });
+    if (!animation) {
+      branch.classList.remove('tree-branch-moving');
+      continue;
+    }
+    treeBranchAnimations.set(branch, animation);
+    const finish = () => {
+      if (treeBranchAnimations.get(branch) !== animation) return;
+      treeBranchAnimations.delete(branch);
+      branch.classList.remove('tree-branch-moving');
+      refreshTreeSpy();
+    };
+    animation.finished.then(finish, finish);
+  }
+  if (animate) refreshTreeSpy();
+}
 
 export function renderTree() {
   const nav = $('#tree');
   const shouldAnimate = nav.dataset.codexId !== (state.codex?.id || '');
   clearTimeout(treeEnterTimer);
   nav.classList.remove('tree-entering');
+  [...treeBranchAnimations.keys()].forEach(cancelTreeBranchMotion);
   nav.innerHTML = '';   // 同时清掉了 .tree-spy 指示条，下面 reset 后由下次滚动更新重建
   resetTreeSpy();
   nav.dataset.codexId = state.codex?.id || '';
@@ -702,6 +819,12 @@ export function updateReadingSpy() {
   const m = $('#masonry');
   if (!nav || !m) return;
   const spy = nav.querySelector('.tree-spy');
+  // 分支高度过渡时先暂隐指示条，末轮结束按终态定位，避免逐帧重启其位移过渡。
+  if (treeBranchAnimations.size) {
+    if (spy) spy.hidden = true;
+    resetTreeSpy();
+    return;
+  }
   if (!state.codex || !state.placements.length) {
     if (spy) spy.hidden = true;
     resetTreeSpy();
@@ -722,7 +845,7 @@ export function updateReadingSpy() {
   let row = null;
   for (let d = path.length; d >= 1; d--) {
     const cand = nav.querySelector(`.tree-row[data-path="${CSS.escape(path.slice(0, d).join('\u0001'))}"]`);
-    if (cand && cand.offsetParent !== null) { row = cand; break; }
+    if (cand && !cand.closest('.tree-children[inert]') && cand.offsetParent !== null) { row = cand; break; }
   }
   if (!row) {
     if (spy) spy.hidden = true;
@@ -754,7 +877,7 @@ export function updateReadingSpy() {
     el.style.removeProperty('transition');
   }
   /* 目录滚动跟随：指示条快出目录视野时平滑带过去 */
-  if (!spyPointerIn) {
+  if (!spyPointerIn && !nav.contains(document.activeElement)) {
     const pad = 44;
     if (top < nav.scrollTop + pad || top + r.height > nav.scrollTop + nav.clientHeight - pad) {
       nav.scrollTo({ top: Math.max(0, top - nav.clientHeight * 0.38), behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
@@ -854,15 +977,27 @@ export function buildNodes(nodes, parent, prefix, depth) {
       `<span class="tw-arrow">${hasKids ? '▾' : ''}</span>` +
       `<span class="tw-name">${esc(nd.name)}</span>` +
       `<span class="tw-count">${nd.count}</span>`;
-    row.querySelector('.tw-arrow').onclick = e => { e.stopPropagation(); item.classList.toggle('collapsed'); refreshTreeSpy(); };
+    if (hasKids) {
+      const arrow = row.querySelector('.tw-arrow');
+      arrow.setAttribute('role', 'button');
+      arrow.tabIndex = 0;
+      const toggle = () => setTreeBranchExpanded(item, item.classList.contains('collapsed'));
+      arrow.onclick = event => { event.stopPropagation(); toggle(); };
+      arrow.onkeydown = event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggle();
+      };
+    }
     row.onclick = () => {
       if (locked) {
         showNsfwLockedHint();
-        if (hasKids) item.classList.remove('collapsed');
+        if (hasKids) setTreeBranchExpanded(item, true);
         return;
       }
       selectPath(path, row);
-      if (hasKids) item.classList.remove('collapsed');
+      if (hasKids) setTreeBranchExpanded(item, true);
       refreshTreeSpy();   // 展开后行可见性变了，指示条重解析
     };
     item.appendChild(row);
@@ -871,6 +1006,7 @@ export function buildNodes(nodes, parent, prefix, depth) {
       kids.className = 'tree-children';
       buildNodes(nd.children, kids, path, depth + 1);
       item.appendChild(kids);
+      syncTreeBranchState(item, !item.classList.contains('collapsed'));
     }
     parent.appendChild(item);
   }
@@ -928,10 +1064,11 @@ export function selectPathByPath(path) {
     }
     let item = row.closest('.tree-item');
     while (item) {
-      item.classList.remove('collapsed');
+      setTreeBranchExpanded(item, true, { animate: false });
       item = item.parentElement ? item.parentElement.closest('.tree-item') : null;
     }
     selectPath(path, row);
+    refreshTreeSpy();
     row.scrollIntoView({ block: 'nearest' });
     return;
   }

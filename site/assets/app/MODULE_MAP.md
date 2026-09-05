@@ -33,8 +33,8 @@
 | `sd-mode.js` | SD 模式的 localStorage 读写契约 | — | — | 共创广场通过同一存储契约同步，不导入主站 `state` |
 | `local-ownership.js` | 读取、记录和枚举本地拥有的反馈 / 投稿记录 | — | — | 有界且会过期的本地标记；不充当服务端权限证明 |
 | `clipboard.js` | `writeClipboardText`；统一返回 Clipboard API、旧式复制或手动复制结果 | — | — | 无 UI 的能力层；失败后的面板由调用方交给 `clipboard-fallback.js` |
-| `clipboard-fallback.js` | 手动复制面板的显示、关闭与敏感文本清除 | 延迟创建的面板实例 | `ui-motion.js` | 局部界面动效的启动 / 取消与偏好门控；`animateUi`、`cancelUiMotion` | 按元素保存的动画句柄 | `utils.js` | 只取消自身持有的动画，结束释放合成样式；不持有业务状态 |
-| `modal.js` | 撤销分级权限时必须清空 DOM 中残留的待复制文本 |
+| `clipboard-fallback.js` | 手动复制面板的显示、关闭与敏感文本清除 | 延迟创建的面板实例 | `modal.js` | 撤销分级权限时必须清空 DOM 中残留的待复制文本 |
+| `ui-motion.js` | 局部界面动效的启动 / 取消与偏好门控；`animateUi`、`cancelUiMotion` | 按元素保存的动画句柄 | `utils.js` | 只取消自身持有的动画，结束释放合成样式；不持有业务状态 |
 | `modal.js` | 遮罩开关、焦点陷阱、历史层登记；`bindBackdropDismiss` / `bindOutsideDismiss` | 遮罩计时器、焦点返回点与各关闭绑定的指针起终点 | `utils.js`、`browser-history.js` | 外部点击关闭统一检查同次指针的起终点；保留键盘 click，绑定返回解绑函数；各弹层复用遮罩 / 焦点机制 |
 | `browser-history.js` | 页面无关的路由记录、`beginLayeredSearch`、覆盖层栈、恢复令牌与滚动检查点 | 当前记录、恢复状态、待返回操作、层注册表与计时器 | — | 页面通过 `configureBrowserHistory` 注入 `captureRoute`、`urlForRoute`、`applyRoute`、`restoreScroll`、`isEmptySearchRoute` |
 | `feedback.js` | 加载态、骨架屏与可操作 toast | 骨架屏和 toast 的计时 / 焦点状态 | `utils.js` | 只提供反馈表面，不拥有业务提交 |
@@ -63,10 +63,10 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `codex-ui.js` | 法典选择器、目录树、横幅、分类轨、结果 / 空态、随机浏览与归档 UI | 动作注入、访问视图缓存、目录监听、提示 / 面板状态 | `state.js`、`utils.js`、`access.js`、`data.js`、`media.js`、`feedback.js`、`browser-history.js`、`modal.js` | 注入 `loadCodex`、`applySearch`、`applyFilter`、`openLightbox`、`syncUrlState`、`updateVirtualCards`；编辑器可追加 `decorateDoor` |
+| `codex-ui.js` | 法典选择器、目录树、横幅、分类轨、结果 / 空态、随机浏览与归档 UI | 动作注入、访问视图缓存、目录监听、分支动效、提示 / 面板状态 | `state.js`、`utils.js`、`access.js`、`data.js`、`media.js`、`feedback.js`、`browser-history.js`、`modal.js`、`ui-motion.js` | 注入 `loadCodex`、`applySearch`、`applyFilter`、`openLightbox`、`syncUrlState`、`updateVirtualCards`；编辑器可追加 `decorateDoor` |
 | `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效 | 动作注入、布局缓存、虚拟窗口、重排与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js` | 注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`；不静态导入 `lightbox.js` 或 `report.js` |
 | `lightbox.js` | 灯箱开关、跨词条步进、预载、原图 / 分享 / 收藏 / 反馈与 FLIP 辅助 | 当前序号、关闭计时、焦点与缩略图身份、预载缓存 | `state.js`、`utils.js`、`masonry.js`、`search.js`、`copy.js`、`nai-sd.js`、`history.js`、`router.js`、`data.js`、`media.js`、`original-capability.js`、`access.js`、`report.js`、`browser-history.js`、`favorites.js`、`modal.js` | 背景关闭复用手势门并保留滑图后的 click 抑制；灯箱动效维护方式见本地私有文档 `docs/经验/前端灯箱FLIP动效.md` |
-| `report.js` | 反馈提交、上下文打包、公开进度列表和兜底复制 | 当前提交上下文、触发点、公开列表 / 筛选状态 | `state.js`、`utils.js`、`feedback.js`、`modal.js`、`media.js`、`original-capability.js`、`feedback-progress.js`、`local-ownership.js`、`clipboard.js`、`clipboard-fallback.js` | 拥有反馈业务；由瀑布流动作注入调用，不反向依赖瀑布流 |
+| `report.js` | 反馈提交、上下文打包、公开进度列表和兜底复制 | 当前提交上下文、触发点、公开列表 / 筛选状态与页签动效 | `state.js`、`utils.js`、`feedback.js`、`modal.js`、`media.js`、`original-capability.js`、`feedback-progress.js`、`local-ownership.js`、`clipboard.js`、`clipboard-fallback.js`、`ui-motion.js` | 拥有反馈业务；由瀑布流动作注入调用，不反向依赖瀑布流 |
 | `announcements.js` | 动态面板：公告 / 更新 / 反馈三页签切换、公告加载与未读角标 | 公告数据、加载状态与在途 Promise、当前页签与切换动效 | `ui-motion.js`、`utils.js`、`modal.js`、`history.js`、`updates.js`、`../data-source.js` | 数据读取走统一数据源，不自行拼发布路径；只把当前打开的那一栏标记为已读，未翻到的栏保留红点 |
 | `updates.js` | 跨书更新时间线：`loadUpdates`、`updatesDigest`、面板列表与顶栏气泡渲染、已读标记、行点击派发 | 批次数据、加载状态与在途 Promise；已读集合存 `localStorage` | `utils.js`、`data.js`、`codex-ui.js`、`../data-source.js` | 注入 `openBatch`（`app.js` 提供：换书 + 落到该批次筛选）。条数口径必须与 `data.js` 的 `updateFilterDefinitions` / `entryMatchesUpdateFilter` 以及 `tools/build_updates_index.py` 三处一致；行点击的 `consumeLayer` 由调用方声明，本模块不推断 |
 | `onboarding.js` | 首次引导的设置、判断和手动打开 | 初始路由、步骤与本次提示标记 | `utils.js`、`modal.js` | 初始深链不强插引导；历史行为交给共享模态层 |
@@ -75,7 +75,7 @@
 | `copy-fx.js` | 复制采样提示、收入中转站的抛入反馈 | 单例节点、动画句柄、计时器、代次与最近指针位置 | — | 仅在复制成功后由 `copy.js` 触发；动画数值留在代码和动效经验，不写死在地图 |
 | `home-shortcut.js` | 平台 / WebView 判断与添加主屏幕指引 | 延迟创建的指引面板 | `modal.js`、`utils.js` | 只提供快捷方式说明，不承诺离线能力 |
 | `original-capability.js` | 还原真实来源法典并判断某张图能否向用户暴露原图 | — | `state.js`、`data.js`、`media.js` | 与“资源有没有原图”分层；调用方不得只看 URL 存在性 |
-| `ui.js` | 全局事件绑定、主题 / 密度 / 搜索范围 / 中文筛选 / 分级开关、顶栏动态气泡开合与页面级编排 | `uiActions`、主题图标表、首次搜索历史意图跟踪器 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`codex-ui.js`、`router.js`、`search.js`、`search-ui.js`、`history.js`、`masonry.js`、`lightbox.js`、`clipboard-fallback.js`、`modal.js`、`announcements.js`、`updates.js`、`report.js`、`onboarding.js`、`tag-relay-rail.js`、`tag-relay.js`、`home-shortcut.js`、`resume-prompt.js`、`browser-history.js` | 注入 `loadCodex`、两个虚拟视图入口、`exitSiteSearchView`、`applySearch`、`applyFilter`、`openRelatedDirectory`；输入法组合期间不解析或写历史 |
+| `ui.js` | 全局事件绑定、主题 / 密度 / 搜索范围 / 中文筛选 / 分级开关、顶栏动态气泡开合与页面级编排 | `uiActions`、主题图标表、首次搜索历史意图跟踪器 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`codex-ui.js`、`router.js`、`search.js`、`search-ui.js`、`history.js`、`masonry.js`、`lightbox.js`、`clipboard-fallback.js`、`modal.js`、`announcements.js`、`updates.js`、`report.js`、`onboarding.js`、`tag-relay-rail.js`、`tag-relay.js`、`home-shortcut.js`、`resume-prompt.js`、`browser-history.js`、`ui-motion.js` | 注入 `loadCodex`、两个虚拟视图入口、`exitSiteSearchView`、`applySearch`、`applyFilter`、`openRelatedDirectory`；输入法组合期间不解析或写历史 |
 
 ## Tag 中转站
 

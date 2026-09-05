@@ -43,6 +43,8 @@ const dom = new Map();
 const windowListeners = new Map();
 const documentListeners = new Map();
 globalThis.HTMLElement = FakeHTMLElement;
+// 属性变化与真实关闭清理由浏览器回归验证；此处只检查事件接线。
+globalThis.MutationObserver = class { observe() {} };
 globalThis.window = {
   addEventListener(type, listener) { windowListeners.set(type, listener); },
   matchMedia: () => ({ matches: true }),

@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { $, clamp, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { entryImages, imageItemUrl, thumbUrl, hasEntryImage } from './media.js';
 import { entryImageCanUseOriginal } from './original-capability.js';
 import {
@@ -60,12 +61,14 @@ export function setupReport() {
   tabs.forEach((button, index) => {
     button.addEventListener('click', () => selectFeedbackTab(button.dataset.feedbackTab));
     button.addEventListener('keydown', event => {
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
       const offset = event.key === 'ArrowRight' ? 1 : -1;
-      const next = tabs[(index + offset + tabs.length) % tabs.length];
+      const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+        : (index + offset + tabs.length) % tabs.length;
+      const next = tabs[nextIndex];
       selectFeedbackTab(next.dataset.feedbackTab);
-      next.focus();
+      next.focus({ preventScroll: true });
     });
   });
   mask.querySelectorAll('[data-feedback-filter]').forEach(button => {
@@ -75,11 +78,16 @@ export function setupReport() {
     });
   });
   $('#feedbackProgressRefresh')?.addEventListener('click', () => loadPublicFeedback({ force: true }));
+  // 共享遮罩的 Back / Esc 关闭同样结束局部动效，重开不会接续旧页的半帧。
+  new MutationObserver(() => {
+    if (mask.hidden || !mask.classList.contains('show')) cancelFeedbackTabMotion();
+  }).observe(mask, { attributes: true, attributeFilter: ['class', 'hidden'] });
 }
 
 export function openReportDialog({ source = 'global', entry = null, imageIndex = 0, defaultType = '', imageError = false, tab = 'submit', trigger = document.activeElement, historyMode = 'push' } = {}) {
   const mask = $('#feedbackPanel');
   if (!mask) return;
+  cancelFeedbackTabMotion();
   currentTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
   const type = TYPE_VALUES.includes(defaultType)
     ? defaultType
@@ -300,18 +308,36 @@ async function copyFallbackText() {
   );
 }
 
+function cancelFeedbackTabMotion() {
+  cancelUiMotion($('#feedbackSubmitView'));
+  cancelUiMotion($('#feedbackProgressView'));
+}
+
 function selectFeedbackTab(value) {
   const tab = value === 'progress' ? 'progress' : 'submit';
+  const mask = $('#feedbackPanel');
+  const submitView = $('#feedbackSubmitView');
+  const progressView = $('#feedbackProgressView');
+  const nextView = tab === 'progress' ? progressView : submitView;
+  const open = Boolean(mask && !mask.hidden && mask.classList.contains('show'));
+  // 重复选择不重画进度列表，保留已经展开的反馈卡片，也不重播动画。
+  if (open && nextView && !nextView.hidden) return;
+  const changed = Boolean(nextView?.hidden);
+  cancelFeedbackTabMotion();
+  mask?.querySelector('.feedback-tabs')?.style.setProperty('--feedback-tab-index', tab === 'progress' ? '1' : '0');
   document.querySelectorAll('[data-feedback-tab]').forEach(button => {
     const active = button.dataset.feedbackTab === tab;
     button.setAttribute('aria-selected', active ? 'true' : 'false');
     button.tabIndex = active ? 0 : -1;
   });
-  const submitView = $('#feedbackSubmitView');
-  const progressView = $('#feedbackProgressView');
   if (submitView) submitView.hidden = tab !== 'submit';
   if (progressView) progressView.hidden = tab !== 'progress';
   if (tab === 'progress') loadPublicFeedback();
+  // 请求与状态立即交接；只动新页内容，不锁定异步进度列表的高度。
+  if (open && changed) animateUi(nextView, [
+    { opacity: 0, translate: tab === 'progress' ? '8px 0' : '-8px 0' },
+    { opacity: 1, translate: '0 0' },
+  ]);
 }
 
 async function loadPublicFeedback({ force = false } = {}) {

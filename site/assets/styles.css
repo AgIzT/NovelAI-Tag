@@ -144,13 +144,13 @@ body.dark .more-menu{border-color:rgba(255,255,255,.12)}
   display:inline-flex;align-items:center;gap:8px;max-width:280px;
   border:1px solid var(--line);background:var(--card);color:var(--text);
   border-radius:999px;padding:8px 14px;font-size:13px;cursor:pointer;
-  transition:border-color .12s,box-shadow .12s,background .12s;
+  transition:border-color .16s,box-shadow .16s,background .16s,scale .14s ease;
 }
 .codex-btn span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .codex-btn:hover{border-color:var(--accent)}
 .codex-btn:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .codex-btn.open{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.codex-arrow{width:12px;height:12px;flex:none;stroke:var(--muted);stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.codex-arrow{width:12px;height:12px;flex:none;stroke:var(--muted);stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:transform .22s cubic-bezier(.22,1,.36,1)}
 .codex-btn.open .codex-arrow{transform:rotate(180deg)}
 body.dark .codex-btn{background:rgba(255,255,255,.06);border-color:transparent}
 body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
@@ -159,7 +159,12 @@ body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
   /* 实心面板：玻璃拟态与 V5 版面的排版语言冲突，顺带省掉一层合成 */
   background:var(--panel);
   border:1px solid var(--popover-line);border-radius:14px;box-shadow:var(--popover-shadow);
-  padding:9px;animation:settingsIn .16s ease;
+  padding:9px;opacity:1;translate:0 0;
+  transition:opacity .18s ease,translate .22s cubic-bezier(.22,1,.36,1),display .22s allow-discrete;
+}
+.codex-menu[hidden]{opacity:0;translate:0 -7px;pointer-events:none}
+@starting-style{
+  .codex-menu:not([hidden]){opacity:0;translate:0 -7px}
 }
 /* minmax(0,1fr)：书卡里有不可压缩的条数/圆环，纯 1fr 轨道会被撑出面板 */
 .codex-menu.cascade{display:grid;grid-template-columns:172px minmax(0,1fr);gap:9px}
@@ -211,10 +216,10 @@ body.dark .n5-launch-panel,body.dark .n5-launch-notice{
 .n5-launch-book{
   display:grid;grid-template-columns:50px minmax(0,1fr) auto auto;align-items:center;gap:16px;
   width:100%;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:var(--n5-ink);
-  font-family:inherit;text-align:left;cursor:pointer;transition:background .15s;
+  font-family:inherit;text-align:left;cursor:pointer;transition:background .16s,scale .14s ease;
 }
 .n5-launch-book + .n5-launch-book{border-top:1px solid var(--n5-line)}
-.n5-launch-book:hover{background:var(--n5-wash)}
+.n5-launch-book:hover,.n5-launch-book.is-selecting{background:var(--n5-wash)}
 .n5-launch-book:focus-visible{background:var(--n5-wash);outline-offset:-2px}
 .n5b-cover{width:50px;height:50px;border-radius:22px;overflow:hidden;background:var(--n5-wash)}
 .n5b-cover img{display:block;width:100%;height:100%;object-fit:cover}
@@ -268,7 +273,7 @@ body.dark .n5-launch-notice{box-shadow:0 10px 34px rgba(0,0,0,.55)}
   position:relative;display:flex;align-items:center;gap:12px;width:100%;text-align:left;
   border:1px solid var(--line);background:var(--card);color:var(--text);
   border-radius:13px;padding:8px;font-size:13px;cursor:pointer;box-shadow:var(--shadow);
-  transition:transform .16s,box-shadow .16s,border-color .16s,background .16s;
+  transition:transform .16s,box-shadow .16s,border-color .16s,background .16s,scale .14s ease;
 }
 .codex-item:hover,.codex-item:focus-visible{transform:translateY(-1px);box-shadow:var(--shadow-hover);border-color:var(--accent);outline:none}
 .codex-item.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-glow)}
@@ -342,15 +347,17 @@ body.dark .ci-chip.has-orig{background:rgba(255,255,255,.1)}
 .codex-item.locked .ci-chip.lock{display:inline-flex}
 .codex-item.locked .ci-chip.orig{opacity:.6}
 /* ── 类型级联（PC）左类型轨 ── */
-.codex-rail{display:flex;flex-direction:column;gap:3px;border-right:1px solid var(--line);padding-right:8px}
+.codex-rail{position:relative;isolation:isolate;display:flex;flex-direction:column;gap:3px;border-right:1px solid var(--line);padding-right:8px}
 body.dark .codex-rail{border-color:rgba(255,255,255,.08)}
+.codex-type-indicator{position:absolute;inset:0 8px auto 0;z-index:-1;border-radius:10px;background:var(--accent-soft);pointer-events:none}
 .codex-type{
-  display:flex;align-items:center;gap:9px;border:none;background:transparent;color:var(--text);
+  position:relative;display:flex;align-items:center;gap:9px;border:none;background:transparent;color:var(--text);
   border-radius:10px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;
-  transition:background .12s,color .12s;
+  transition:background .16s,color .16s,scale .14s ease;
 }
 .codex-type:hover{background:var(--tagbg)}
-.codex-type.active{background:var(--accent-soft);color:var(--accent)}
+.codex-type.active{background:transparent;color:var(--accent)}
+.codex-type .ct-ico,.codex-type .ct-n{transition:color .16s}
 .codex-type .ct-ico{flex:none;width:17px;height:17px;display:flex;color:var(--muted)}
 .codex-type.active .ct-ico{color:var(--accent)}
 .codex-type .ct-ico svg{width:17px;height:17px}
@@ -385,7 +392,7 @@ body.dark .ci-soon-chip{color:#e3b463;border-color:rgba(227,180,99,.3)}
 /* 社区投稿门：置底、跨栏、虚线卡+加号，明确区分于策展书行 */
 .codex-door-wrap{grid-column:1/-1;margin-top:4px;padding-top:9px;border-top:1px solid var(--line)}
 body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
-.codex-door{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px dashed var(--accent);border-radius:12px;background:var(--accent-soft);text-decoration:none;transition:transform .16s,box-shadow .16s}
+.codex-door{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px dashed var(--accent);border-radius:12px;background:var(--accent-soft);text-decoration:none;transition:transform .16s,box-shadow .16s,scale .14s ease}
 .codex-door:hover,.codex-door:focus-visible{transform:translateY(-1px);box-shadow:0 6px 18px var(--accent-glow);outline:none}
 .codex-door .cd-ico{flex:none;width:30px;height:30px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center}
 .codex-door .cd-ico svg{width:18px;height:18px}
@@ -394,7 +401,13 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .codex-door .cd-sub{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .codex-door .cd-out{flex:none;color:var(--accent);display:flex}
 .codex-door .cd-out svg{width:18px;height:18px}
+/* 独立 scale 不覆盖原有 hover 抬升；只给选择器内的实际点击目标。 */
+.codex-btn:active,.codex-type:active{scale:.97}
+.codex-item:active,.n5-launch-book:active,.codex-door:active{scale:.985}
+.codex-item.is-selecting{border-color:var(--accent);background:var(--accent-soft)}
 @media (prefers-reduced-motion:reduce){
+  .codex-btn,.codex-arrow,.codex-type,.codex-type .ct-ico,.codex-type .ct-n,.codex-menu{transition:none}
+  .codex-btn:active,.codex-type:active,.codex-item:active,.n5-launch-book:active,.codex-door:active{scale:1}
   .codex-door,.codex-item,.ci-cover img,.n5-launch-book,.n5-launch-notice{transition:none}
   .codex-door:hover,.codex-door:focus-visible,
   .codex-item:hover,.codex-item:focus-visible,
@@ -436,6 +449,8 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   line-height:1;letter-spacing:0;cursor:pointer;
   transition:background .12s,color .12s;
 }
+.search-scope-label{display:block;pointer-events:none;transition:scale .14s ease}
+.search-scope:active .search-scope-label{scale:.96}
 .search-scope::after{
   content:"";position:absolute;right:-6px;top:5px;bottom:5px;width:1px;
   background:var(--line);opacity:.85;pointer-events:none;
@@ -691,6 +706,8 @@ body.dark .search-filter-feedback{color:#ff9e97}
 .tw-count{color:var(--muted);font-size:11px}
 .tree-children{margin-left:12px;border-left:1px solid var(--line);padding-left:4px}
 .tree-item.collapsed>.tree-children{display:none}
+.tree-children.tree-branch-moving{overflow:hidden}
+.tree-item.collapsed>.tree-children.tree-branch-moving{display:block}
 /* 浏览进度指示条（scroll spy）：随卡片浏览在目录行间平滑滑动；与 .active（用户选中）视觉区分 */
 .tree{position:relative}
 .tree-spy{
@@ -1471,15 +1488,22 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
 .feedback-kicker .settings-title{margin:0}
 .feedback-kicker p{margin:2px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
 .feedback-tabs{
-  display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:2px 0 12px;padding:4px;
+  position:relative;isolation:isolate;display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:2px 0 12px;padding:4px;
   border:1px solid var(--line);border-radius:14px;background:var(--tagbg);
+}
+.feedback-tabs::before{
+  content:"";position:absolute;z-index:-1;left:4px;top:4px;bottom:4px;
+  width:calc((100% - 12px)/2);border-radius:10px;background:var(--accent);
+  box-shadow:0 5px 14px var(--accent-glow);pointer-events:none;
+  translate:calc(var(--feedback-tab-index,0) * (100% + 4px)) 0;
+  transition:translate .22s cubic-bezier(.22,1,.36,1);
 }
 .feedback-tab{
   min-height:38px;border:0;border-radius:10px;background:transparent;color:var(--muted);
   font-size:13px;font-weight:850;transition:background .15s,color .15s,box-shadow .15s;
 }
 .feedback-tab:hover{color:var(--text);background:var(--card)}
-.feedback-tab[aria-selected="true"]{color:#fff;background:var(--accent);box-shadow:0 5px 14px var(--accent-glow)}
+.feedback-tab[aria-selected="true"]{color:#fff;background:transparent}
 .feedback-tab span{
   display:inline-grid;min-width:19px;height:19px;margin-left:5px;padding:0 5px;place-items:center;
   border-radius:999px;background:rgba(255,255,255,.2);font-size:10px;vertical-align:1px;
@@ -2319,10 +2343,10 @@ html.vt-arrived .float-actions{animation:none}
 
 /* 悬浮层退场：display 参与过渡（allow-discrete），关闭时淡出上收；
    入场仍走 settingsIn 动画。不支持的浏览器整条 transition 无效 = 维持瞬时关闭 */
-.more-menu,.codex-menu,.banner-pop{
+.more-menu,.banner-pop{
   transition:opacity .16s ease,translate .18s cubic-bezier(.22,1,.36,1),scale .18s cubic-bezier(.22,1,.36,1),display .18s allow-discrete;
 }
-.more-menu[hidden],.codex-menu[hidden],.banner-pop[hidden]{
+.more-menu[hidden],.banner-pop[hidden]{
   opacity:0;translate:0 -6px;scale:.97;pointer-events:none;
 }
 
@@ -2535,6 +2559,31 @@ html.intro-done .intro-no-replay{animation:none}
 html.vt-arrived.intro-arm .topbar,html.vt-arrived.intro-arm .sidebar,
 html.vt-arrived.intro-arm .main,html.vt-arrived.intro-arm .float-actions,
 html.vt-arrived.intro-arm .brand,html.vt-arrived.intro-arm .topbar::after{animation:none}
+
+/* 常用控件的触摸/鼠标按压；不覆盖定位 transform 或已有入场 animation。 */
+.topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+.nsfw-actions button,.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
+.feedback-public-state button,.feedback-fallback button,.rail-chip{
+  transition:background .16s,color .16s,border-color .16s,box-shadow .16s,transform .16s,scale .14s ease;
+}
+:is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+.nsfw-actions button,.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
+.feedback-public-state button,.feedback-fallback button,.rail-chip):active:not(:disabled){scale:.96}
+.tree-row{transition:background .16s,color .16s}
+.tw-arrow{transition:transform .2s cubic-bezier(.22,1,.36,1),scale .14s ease}
+.tw-arrow[role="button"]:active{scale:.88}
+.feedback-field :is(input,select,textarea),.feedback-fallback textarea{transition:border-color .16s,box-shadow .16s,background .16s}
+@media (prefers-reduced-motion:reduce){
+  .topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+  .nsfw-actions button,.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
+  .feedback-public-state button,.feedback-fallback button,.rail-chip,.tree-row,.tw-arrow,
+  .search-scope,.search-scope-label,.feedback-tabs::before,
+  .feedback-field :is(input,select,textarea),.feedback-fallback textarea{transition:none!important}
+  :is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+  .nsfw-actions button,.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
+  .feedback-public-state button,.feedback-fallback button,.rail-chip,.tw-arrow):active:not(:disabled),
+  .search-scope:active .search-scope-label{scale:1}
+}
 
 /* motion=off：给截图器 / 回归脚本一条直达静止帧的路（URL 参数或 localStorage，UI 里不暴露）。
    只压时长不清 animation-name——有回归用例断言刷新图标的 animation-name 仍在 */

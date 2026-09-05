@@ -2,6 +2,7 @@ import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
+import { animateUi } from './ui-motion.js';
 import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, updateCodexPickerState } from './codex-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
@@ -106,7 +107,19 @@ export function updateSearchScopeControl() {
   const btn = $('#searchScopeBtn');
   if (!btn) return;
   const site = state.searchScope === 'site';
-  btn.textContent = site ? '全站' : '本书';
+  const text = site ? '全站' : '本书';
+  let label = btn.querySelector('.search-scope-label');
+  const changed = Boolean(label && label.textContent !== text);
+  if (!label) {
+    label = document.createElement('span');
+    label.className = 'search-scope-label';
+    btn.replaceChildren(label);
+  }
+  label.textContent = text;
+  if (changed) animateUi(label, [
+    { opacity: 0, translate: '0 4px' },
+    { opacity: 1, translate: '0 0' },
+  ], { duration: 180 });
   btn.dataset.scope = state.searchScope;
   btn.title = site ? '当前搜索范围：全站。点击切到当前法典' : '当前搜索范围：当前法典。点击切到全站';
   btn.setAttribute('aria-label', site ? '搜索范围：全站' : '搜索范围：当前法典');
