@@ -106,6 +106,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
       querySelector(selector) { return this.children.find(child => child.tagName.toLowerCase() === selector) || null; },
       closest(selector) {
         if (selector.startsWith('.') && this.classList.contains(selector.slice(1))) return this;
+        if (selector === '[data-search-filter-index]' && this.dataset.searchFilterIndex !== undefined) return this;
         return this.parentElement?.closest(selector) || null;
       },
       getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 28 }; },
@@ -136,8 +137,15 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
   globalThis.getComputedStyle = () => ({ opacity: '1' });
   try {
     renderSearchFilters({ queryConditions: plan.queryConditions, filters: plan.filters, hasActiveSearch: true });
-    assert.deepEqual(nodes.get('searchFilterChips').children.map(chip => chip.children[0].textContent),
+    assert.deepEqual(nodes.get('searchFilterChips').children.map(chip => chip.firstElementChild.firstElementChild.textContent),
       ['关键词 猫', '关键词 蓝眼睛', '完整短语 blue eyes', '关键词 排除 男性']);
+    for (const chip of nodes.get('searchFilterChips').children) {
+      const remove = chip.firstElementChild;
+      assert.equal(chip.children.length, 1, '整个胶囊只包含一个删除按钮');
+      assert.equal(remove.tagName, 'BUTTON');
+      assert.equal(remove.firstElementChild.className, 'search-filter-chip-label', '文字必须属于删除按钮的点击区域');
+      assert.equal(remove.lastElementChild.attributes['aria-hidden'], 'true', '叉号仅作装饰，不重复读出');
+    }
     assert.equal(nodes.get('searchFilterCount').textContent, '4', '正向词与字段 chips 合并计数');
     assert.equal(nodes.get('searchFilterSummary').hidden, false);
     renderSearchFilters({ hasActiveSearch: true });
@@ -152,19 +160,20 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     const display = query => renderSearchFilters({ queryConditions: parseSearchQuery(query).queryConditions });
     let draft = '猫 蓝眼睛';
     display(draft);
-    const oldRemove = chips.children[0].children[1];
-    const target = { closest: () => oldRemove };
+    const oldRemove = chips.children[0].firstElementChild;
+    const target = oldRemove.firstElementChild;
+    assert.strictEqual(target.closest('[data-search-filter-index]'), oldRemove, '点击标签文字应找到整块删除按钮');
     draft = '猫 蓝眼睛 白色';
     let prevented = false;
     chips.listeners.get('pointerdown')({ button: 0, target, preventDefault() { prevented = true; } });
     if (!prevented) display(draft);
-    assert.strictEqual(chips.children[0].children[1], oldRemove, '按下时保留目标，不能因输入框 blur 重建它');
+    assert.strictEqual(chips.children[0].firstElementChild, oldRemove, '按下时保留目标，不能因输入框 blur 重建它');
     nodes.get('searchFilterBtn').onFocus = () => display(draft);
     setSearchUiActions({ removeQueryTerm(value) { draft = removeSearchQueryTerm(draft, value); display(draft); } });
     chips.listeners.get('click')({ target });
-    assert.equal(draft, '蓝眼睛 白色', '第一次点击既删除旧条件，也保留最新输入');
-    const keyboardRemove = chips.children[0].children[1];
-    chips.listeners.get('click')({ target: { closest: () => keyboardRemove } });
+    assert.equal(draft, '蓝眼睛 白色', '第一次点击标签文字既删除旧条件，也保留最新输入');
+    const keyboardRemove = chips.children[0].firstElementChild;
+    chips.listeners.get('click')({ target: keyboardRemove });
     assert.equal(draft, '白色', '键盘 click 无 pointerdown 也可删除');
   } finally {
     globalThis.document = originalDocument;

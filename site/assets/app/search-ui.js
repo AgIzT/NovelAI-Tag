@@ -238,8 +238,12 @@ function createFilterChip() {
   const remove = document.createElement('button');
   remove.className = 'search-filter-chip-remove';
   remove.type = 'button';
-  remove.textContent = '×';
-  chip.append(label, remove);
+  const icon = document.createElement('span');
+  icon.className = 'search-filter-chip-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = '×';
+  remove.append(label, icon);
+  chip.append(remove);
   return chip;
 }
 
@@ -299,7 +303,7 @@ function renderFilterChips(filters, hasActiveSearch) {
   const changed = filters.length !== renderedChipRecords.length || filters.some((filter, index) => {
     const previous = renderedChipRecords[index];
     return previous?.key !== keys[index]
-      || previous.chip.firstElementChild.textContent !== labels[index]
+      || previous.chip.firstElementChild.firstElementChild.textContent !== labels[index]
       || previous.chip.classList.contains('is-error') !== Boolean(filter?.invalid || filter?.issue);
   });
   if (changed) {
@@ -330,8 +334,8 @@ function renderFilterChips(filters, hasActiveSearch) {
     const nextRecords = filters.map((filter, index) => {
       const record = available.get(keys[index])?.shift() || { key: keys[index], chip: createFilterChip() };
       const { chip } = record;
-      const label = chip.firstElementChild;
-      const remove = chip.lastElementChild;
+      const remove = chip.firstElementChild;
+      const label = remove.firstElementChild;
       chip.classList.toggle('is-error', Boolean(filter?.invalid || filter?.issue));
       if (label.textContent !== labels[index]) label.textContent = labels[index];
       remove.dataset.searchFilterIndex = String(index);
