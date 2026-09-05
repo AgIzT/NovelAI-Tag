@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { $, clamp, esc } from './utils.js';
 import { toast } from './feedback.js';
-import { openMask, closeMask, trapFocus } from './modal.js';
+import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
 import { entryImages, imageItemUrl, thumbUrl, hasEntryImage } from './media.js';
 import { entryImageCanUseOriginal } from './original-capability.js';
 import {
@@ -44,7 +44,7 @@ export function setupReport() {
   if (!mask) return;
   $('#feedbackClose')?.addEventListener('click', () => closeMask(mask));
   $('#feedbackCancel')?.addEventListener('click', () => closeMask(mask));
-  mask.addEventListener('click', ev => { if (ev.target === mask) closeMask(mask); });
+  bindBackdropDismiss(mask, () => closeMask(mask));
   mask.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {
       ev.preventDefault();

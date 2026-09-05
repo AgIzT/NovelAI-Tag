@@ -6,7 +6,7 @@ import { $, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
 import { setCodexUiActions, closeCodexPicker, invalidateAccessViewMemo, syncCodexPickerCounts } from './codex-ui.js';
-import { openMask, closeMask, trapFocus } from './modal.js';
+import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
 import { fetchDataJson } from '../data-source.js';
 import { invalidateSearchableText } from './search.js';
 import { invalidateSearchDirectories } from './search-directories.js';
@@ -216,7 +216,7 @@ function mountEditDialog(mask, { trigger = document.activeElement } = {}) {
     }
     closeMask(mask, options);
   };
-  mask.addEventListener('click', ev => { if (ev.target === mask) close(); });
+  bindBackdropDismiss(mask, () => close());
   mask.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {
       ev.preventDefault();

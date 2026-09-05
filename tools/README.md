@@ -98,7 +98,7 @@
 - Python · 发布与安全：`test_build_share_index.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
 - Node · 数据与路由：`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
 - Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。
-- Node · 主站状态与交互：`test_browser_history.mjs`、`test_history_storage.mjs`、`test_edit_client.mjs`、`test_search_data.mjs`、`test_search_directories.mjs`、`test_render_ui.mjs`、`test_copy.mjs`、`test_beta_banner.mjs`、`test_home_shortcut.mjs`、`test_local_ownership.mjs`、`test_resume_prompt.mjs`、`test_masonry_viewport.mjs`、`test_skeleton_transition.mjs`。
+- Node · 主站状态与交互：`test_browser_history.mjs`、`test_history_storage.mjs`、`test_edit_client.mjs`、`test_search_data.mjs`、`test_search_directories.mjs`、`test_render_ui.mjs`、`test_modal_dismiss.mjs`、`test_copy.mjs`、`test_beta_banner.mjs`、`test_home_shortcut.mjs`、`test_local_ownership.mjs`、`test_resume_prompt.mjs`、`test_masonry_viewport.mjs`、`test_skeleton_transition.mjs`。
 - Node · 收藏与中转站：`test_favorites_backup.mjs`、`test_favorites_runtime.mjs`、`test_favorites_origin_migration.mjs`、`test_favorites_transfer.mjs`、`test_tag_relay_access.mjs`、`test_tag_relay_core.mjs`、`test_tag_relay_store.mjs`。
 
 `__pycache__/` 是 Python 缓存，忽略。

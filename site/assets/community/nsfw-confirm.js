@@ -1,4 +1,4 @@
-import { closeMask, openMask, trapFocus } from '../app/modal.js';
+import { bindBackdropDismiss, closeMask, openMask, trapFocus } from '../app/modal.js';
 
 let mask = null;
 let pendingAccept = null;
@@ -40,9 +40,7 @@ function ensureMask() {
     closeMask(mask, { historyMode: 'none' });
     accept?.({ consumeLayer: true });
   });
-  mask.addEventListener('click', event => {
-    if (event.target === mask) cancel();
-  });
+  bindBackdropDismiss(mask, cancel);
   mask.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       event.preventDefault();

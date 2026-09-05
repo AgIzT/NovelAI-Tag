@@ -1,4 +1,4 @@
-import { closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
+import { bindBackdropDismiss, closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
 import { toast } from '../app/feedback.js';
 import {
   DEFAULT_COMMUNITY_CATEGORY,
@@ -66,9 +66,7 @@ function bindOpenButtons() {
 }
 
 function bindDialog() {
-  submitMask.addEventListener('click', event => {
-    if (event.target === submitMask) closeSubmitDialog();
-  });
+  bindBackdropDismiss(submitMask, closeSubmitDialog);
   submitMask.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       event.preventDefault();

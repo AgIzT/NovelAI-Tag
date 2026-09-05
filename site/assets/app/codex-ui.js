@@ -4,6 +4,7 @@ import { isCodexLocked, showNsfwLockedHint, showR18gLockedHint, isEntryAccessBlo
 import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilters, updateFilterDefinitions } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
+import { bindOutsideDismiss } from './modal.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -570,8 +571,8 @@ export function setupCodexPicker() {
       focusItem(list.length - 1);
     }
   };
-  document.addEventListener('click', ev => {
-    if (!menu.hidden && !menu.contains(ev.target) && !btn.contains(ev.target)) close();
+  bindOutsideDismiss([menu, btn], () => {
+    if (!menu.hidden) close();
   });
   window.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && !menu.hidden) close({ focusButton: true });

@@ -1,4 +1,4 @@
-import { closeMask, isMaskOpen, openMask, trapFocus } from './modal.js';
+import { closeMask, isMaskOpen, openMask, trapFocus, bindBackdropDismiss } from './modal.js';
 
 const MASK_ID = 'clipboardFallback';
 
@@ -55,9 +55,7 @@ function ensureClipboardFallback() {
   mask.querySelector('[data-clipboard-select]')?.addEventListener('click', () => {
     selectFallbackText(mask.querySelector('.clipboard-fallback-text'));
   });
-  mask.addEventListener('click', event => {
-    if (event.target === mask) close();
-  });
+  bindBackdropDismiss(mask, () => close());
   mask.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       event.preventDefault();

@@ -9,6 +9,56 @@ import {
 const maskTimers = new WeakMap();
 const maskOpeners = new WeakMap();
 
+function bindDismissClick(root, onDismiss, isOutside) {
+  let pointer = null;
+  const reset = () => { pointer = null; };
+  const onPointerDown = event => {
+    pointer = event.button === 0 && event.isPrimary !== false
+      ? { id: event.pointerId, outside: isOutside(event.target), releasedOutside: false }
+      : null;
+  };
+  const onPointerUp = event => {
+    if (!pointer || pointer.id !== event.pointerId) return;
+    // 触摸会隐式捕获指针，event.target 可能仍是起点；释放位置必须重新命中测试。
+    const doc = root.ownerDocument || root;
+    const target = doc.elementFromPoint(event.clientX, event.clientY);
+    pointer.releasedOutside = event.button === 0 && Boolean(target && isOutside(target));
+  };
+  const onClick = event => {
+    const gesture = pointer;
+    reset();
+    // 键盘 / 辅助技术产生的 click 没有对应的指针序列。
+    const keyboardClick = event.detail === 0 && !event.pointerType;
+    const outsideClick = gesture?.outside && gesture.releasedOutside
+      && (event.pointerId === undefined || event.pointerId === gesture.id);
+    if ((keyboardClick || outsideClick) && isOutside(event.target)) onDismiss(event);
+  };
+  // 在内容自己的监听之前记下起终点，不阻止选字、滚动或灯箱滑动。
+  root.addEventListener('pointerdown', onPointerDown, true);
+  root.addEventListener('pointerup', onPointerUp, true);
+  root.addEventListener('pointercancel', reset, true);
+  root.addEventListener('click', onClick);
+  return () => {
+    reset();
+    root.removeEventListener('pointerdown', onPointerDown, true);
+    root.removeEventListener('pointerup', onPointerUp, true);
+    root.removeEventListener('pointercancel', reset, true);
+    root.removeEventListener('click', onClick);
+  };
+}
+
+export function bindBackdropDismiss(mask, onDismiss, { isBackdrop = target => target === mask } = {}) {
+  if (!mask) return () => {};
+  return bindDismissClick(mask, onDismiss, isBackdrop);
+}
+
+export function bindOutsideDismiss(elements, onDismiss) {
+  return bindDismissClick(document, onDismiss, target => {
+    const inside = (typeof elements === 'function' ? elements() : elements).filter(Boolean);
+    return inside.length > 0 && inside.every(element => !element.contains(target));
+  });
+}
+
 export function focusableIn(root) {
   if (!root) return [];
   return [...root.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]

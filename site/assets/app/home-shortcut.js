@@ -1,4 +1,4 @@
-import { closeMask, openMask, trapFocus } from './modal.js';
+import { closeMask, openMask, trapFocus, bindBackdropDismiss } from './modal.js';
 import { isTouchPrimaryInput } from './utils.js';
 
 export function homeShortcutPlatform(userAgent = globalThis.navigator?.userAgent || '', navigatorLike = globalThis.navigator) {
@@ -78,7 +78,7 @@ function ensurePanel() {
   document.body.appendChild(mask);
   const close = () => closeMask(mask);
   mask.querySelectorAll('[data-home-shortcut-close]').forEach(button => button.addEventListener('click', close));
-  mask.addEventListener('click', event => { if (event.target === mask) close(); });
+  bindBackdropDismiss(mask, () => close());
   mask.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       event.preventDefault();

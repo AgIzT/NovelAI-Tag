@@ -11,7 +11,7 @@ import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntrie
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
-import { openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
+import { bindBackdropDismiss, bindOutsideDismiss, openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
 import { setupAnnouncements, openAnnouncementsPanel, updateAnnouncementBadge } from './announcements.js';
 import { loadUpdates, renderUpdatesDigest, handleUpdateRowClick } from './updates.js';
 import { setupReport, openReportDialog } from './report.js';
@@ -588,8 +588,8 @@ export function bindUI() {
       else if (ev.key === 'Home') { ev.preventDefault(); list[0]?.focus(); }
       else if (ev.key === 'End') { ev.preventDefault(); list[list.length - 1]?.focus(); }
     };
-    document.addEventListener('click', ev => {
-      if (!moreMenu.hidden && !moreMenu.contains(ev.target) && !moreBtn.contains(ev.target)) closeMore();
+    bindOutsideDismiss([moreMenu, moreBtn], () => {
+      if (!moreMenu.hidden) closeMore();
     });
   }
   setupReport();
@@ -663,8 +663,8 @@ export function bindUI() {
       closePopover({ focusButton: true });
     });
     mobileQuery.addEventListener('change', () => closePopover());
-    document.addEventListener('click', ev => {
-      if ((!updatesPopover.hidden || popoverPending) && !updatesPopover.contains(ev.target) && !announceBtn.contains(ev.target)) {
+    bindOutsideDismiss([updatesPopover, announceBtn], () => {
+      if (!updatesPopover.hidden || popoverPending) {
         closePopover();
       }
     });
@@ -771,7 +771,7 @@ export function bindUI() {
   };
   $('#nsfwCancel').onclick = cancelNsfwConfirm;
   $('#nsfwCancelX').onclick = cancelNsfwConfirm;
-  nsfwMask.onclick = ev => { if (ev.target === nsfwMask) cancelNsfwConfirm(); };
+  bindBackdropDismiss(nsfwMask, cancelNsfwConfirm);
   nsfwMask.onkeydown = ev => trapFocus(ev, nsfwMask);
 
   /* R18G / 重口：默认完全隐藏；需先开 NSFW，再走多重恐吓式确认才能开启 */
@@ -853,7 +853,7 @@ export function bindUI() {
       else cancelR18gConfirm();
     };
     $('#r18gCancelX').onclick = cancelR18gConfirm;
-    r18gMask.onclick = ev => { if (ev.target === r18gMask) cancelR18gConfirm(); };
+    bindBackdropDismiss(r18gMask, cancelR18gConfirm);
     r18gMask.onkeydown = ev => trapFocus(ev, r18gMask);
   }
   updateR18gToggleState();
@@ -904,11 +904,11 @@ export function bindUI() {
   }
   $('#shortcutBtn').onclick = () => openFromMore(shortcutMask);
   $('#shortcutClose').onclick = () => closeMask(shortcutMask);
-  shortcutMask.onclick = ev => { if (ev.target === shortcutMask) closeMask(shortcutMask); };
+  bindBackdropDismiss(shortcutMask, () => closeMask(shortcutMask));
   shortcutMask.onkeydown = ev => trapFocus(ev, shortcutMask);
   $('#historyBtn').onclick = () => { renderHistoryPanel(); openFromMore(historyMask); };
   $('#historyClose').onclick = () => closeMask(historyMask);
-  historyMask.onclick = ev => { if (ev.target === historyMask) closeMask(historyMask); };
+  bindBackdropDismiss(historyMask, () => closeMask(historyMask));
   historyMask.onkeydown = ev => trapFocus(ev, historyMask);
   $('#resumeBrowse').onclick = async () => {
     await resumeLastBrowse({ historyMode: 'push', consumeLayer: true });
@@ -924,14 +924,14 @@ export function bindUI() {
   const settingsBtn = $('#settingsBtn');
   if (settingsBtn) settingsBtn.onclick = () => openFromMore(settingsMask, settingsBtn);
   $('#settingsClose').onclick = () => closeMask(settingsMask);
-  settingsMask.onclick = ev => { if (ev.target === settingsMask) closeMask(settingsMask); };
+  bindBackdropDismiss(settingsMask, () => closeMask(settingsMask));
   settingsMask.onkeydown = ev => trapFocus(ev, settingsMask);
   $('#aboutBtn').onclick = () => openFromMore(aboutMask);
   $('#aboutClose').onclick = () => closeMask(aboutMask);
-  aboutMask.onclick = ev => { if (ev.target === aboutMask) closeMask(aboutMask); };
+  bindBackdropDismiss(aboutMask, () => closeMask(aboutMask));
   aboutMask.onkeydown = ev => trapFocus(ev, aboutMask);
   $('#archiveClose').onclick = () => closeMask(archiveMask);
-  archiveMask.onclick = ev => { if (ev.target === archiveMask) closeMask(archiveMask); };
+  bindBackdropDismiss(archiveMask, () => closeMask(archiveMask));
   archiveMask.onkeydown = ev => trapFocus(ev, archiveMask);
   document.addEventListener('openCodexArchive', ev => {
     renderCodexArchive();
@@ -940,11 +940,10 @@ export function bindUI() {
     closeBannerAbout();
     openMask(archiveMask, opener, { historyMode: replaceLayer ? 'replace' : 'push' });
   });
-  document.addEventListener('click', ev => {
-    const openBtn = document.querySelector('.banner-about-btn.open');
-    const openPop = document.querySelector('.banner-pop:not([hidden])');
-    if (!openBtn || !openPop) return;
-    if (openBtn.contains(ev.target) || openPop.contains(ev.target)) return;
+  bindOutsideDismiss(() => [
+    document.querySelector('.banner-about-btn.open'),
+    document.querySelector('.banner-pop:not([hidden])'),
+  ], () => {
     closeBannerAbout({ historyMode: 'back' });
   });
   window.addEventListener('keydown', ev => {

@@ -1,4 +1,4 @@
-import { openMask, closeMask, trapFocus } from './modal.js';
+import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -395,9 +395,7 @@ export function setupFavoritesBackup(options = {}) {
 
   triggers.forEach(trigger => trigger.addEventListener('click', open));
   closeButton?.addEventListener('click', close);
-  panel.addEventListener('click', event => {
-    if (event.target === panel) close();
-  });
+  bindBackdropDismiss(panel, () => close());
   panel.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       event.preventDefault();

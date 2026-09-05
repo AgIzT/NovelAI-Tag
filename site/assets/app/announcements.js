@@ -1,5 +1,5 @@
 import { $, esc, safeJsonParse } from './utils.js';
-import { openMask, closeMask, trapFocus } from './modal.js';
+import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { formatRecentTime } from './history.js';
 import { fetchDataJson } from '../data-source.js';
@@ -33,7 +33,7 @@ export function setupAnnouncements({ closeMore = () => {}, trigger = null, histo
     handleUpdateRowClick(event, { consumeLayer: true });
   });
   $('#announcementsClose')?.addEventListener('click', () => closeMask(mask));
-  mask.addEventListener('click', ev => { if (ev.target === mask) closeMask(mask); });
+  bindBackdropDismiss(mask, () => closeMask(mask));
   mask.addEventListener('keydown', ev => {
     const tabBtn = ev.target.closest?.('[data-announcements-tab]');
     if (tabBtn && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) {

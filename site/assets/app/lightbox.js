@@ -16,6 +16,7 @@ import {
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { openReportDialog } from './report.js';
 import { goBackFrom } from './browser-history.js';
+import { bindBackdropDismiss } from './modal.js';
 import {
   flushDeferredFavoritesViewRefresh,
   isFav,
@@ -878,13 +879,13 @@ export function renderLightbox() {
 
 export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-width:600px)') } = {}) {
   let suppressLightboxClick = false;
-  $('#lightbox').onclick = ev => {
+  bindBackdropDismiss($('#lightbox'), () => {
     if (suppressLightboxClick) {
       suppressLightboxClick = false;
       return;
     }
-    if (ev.target.id === 'lightbox' || ev.target.id === 'lightboxStage') closeLightbox();
-  };
+    closeLightbox();
+  }, { isBackdrop: target => target.id === 'lightbox' || target.id === 'lightboxStage' });
   $('#lightboxFold').onclick = ev => {
     ev.stopPropagation();
     const lbEl = $('#lightbox');

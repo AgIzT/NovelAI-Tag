@@ -1,4 +1,4 @@
-import { closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
+import { bindBackdropDismiss, closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
 import { toast } from '../app/feedback.js';
 import { goBackFrom } from '../app/browser-history.js';
 import { createLikeButton } from './likes.js';
@@ -17,9 +17,7 @@ export function initDetailDialog() {
   detailBody = $('#detailBody');
   if (!detailMask || !detailBody) return;
 
-  detailMask.addEventListener('click', event => {
-    if (event.target === detailMask) closeCommunityDetail();
-  });
+  bindBackdropDismiss(detailMask, () => closeCommunityDetail());
   detailMask.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       event.preventDefault();

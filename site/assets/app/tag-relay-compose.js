@@ -7,6 +7,7 @@
 
 import { toast } from './feedback.js';
 import { copyText } from './copy.js';
+import { bindOutsideDismiss } from './modal.js';
 import { requestRelayAction } from './tag-relay-action.js';
 import {
   appendBlockToPlan,
@@ -1006,9 +1007,11 @@ function bindPlanBar() {
         : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
     items[next].focus({ preventScroll: true });
   });
-  document.addEventListener('click', event => {
-    if (!list.hidden && !list.contains(event.target) && event.target !== picker) closePicker();
-    if (!menu.hidden && !menu.contains(event.target) && event.target !== refs.planMenuBtn) closeMenu();
+  bindOutsideDismiss([list, picker], () => {
+    if (!list.hidden) closePicker();
+  });
+  bindOutsideDismiss([menu, refs.planMenuBtn], () => {
+    if (!menu.hidden) closeMenu();
   });
 
   refs.historyToggle?.addEventListener('click', () => {

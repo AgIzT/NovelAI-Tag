@@ -1,4 +1,4 @@
-import { closeMask, openMask, trapFocus } from '../app/modal.js';
+import { bindBackdropDismiss, closeMask, openMask, trapFocus } from '../app/modal.js';
 import { readOwnedRecords } from '../app/local-ownership.js';
 import { escHtml } from './utils.js';
 
@@ -34,8 +34,8 @@ function ensureMask() {
     </div>`;
   document.body.appendChild(mask);
   mask.querySelector('[data-my-submissions-close]')?.addEventListener('click', () => closeMask(mask));
+  bindBackdropDismiss(mask, () => closeMask(mask));
   mask.addEventListener('click', event => {
-    if (event.target === mask) closeMask(mask);
     const button = event.target.closest('[data-my-submission-id]');
     if (!button || button.disabled) return;
     const entry = getEntries().find(item => String(item.id) === button.dataset.mySubmissionId);
