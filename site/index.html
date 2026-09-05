@@ -137,7 +137,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </div>
 <div id="scrollProgress" class="scroll-progress" aria-hidden="true"></div>
 <header class="topbar">
-  <button id="menuBtn" class="icon-btn" title="目录">☰</button>
+  <button id="menuBtn" class="icon-btn menu-btn" type="button" title="目录" aria-label="目录">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
   <div class="brand">法典<span>图鉴</span></div>
 
   <div class="codex-pick">
@@ -240,6 +242,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
       </button>
       <div id="moreMenu" class="more-menu" role="menu" hidden>
+        <button id="themeMenuBtn" class="more-item topbar-compact-action" type="button" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z"/></svg>
+          <span><b>切换深色模式</b></span>
+        </button>
+        <button id="settingsMenuBtn" class="more-item topbar-compact-action" type="button" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span><b>设置</b></span>
+        </button>
         <button id="globalReportBtn" class="more-item" type="button" role="menuitem">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
           <span><b>反馈与进度</b><small>提交反馈 · 查看处理进展</small></span>

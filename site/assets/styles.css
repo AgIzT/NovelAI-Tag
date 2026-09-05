@@ -48,6 +48,8 @@ button{font-family:inherit;cursor:pointer}
 
 /* ---------- 顶栏 ---------- */
 .topbar{
+  /* 同级控件共用外框尺寸，普通文字共用字号/行高；不靠内容撑高或逐个偏移。 */
+  --topbar-control-h:36px;--topbar-text-size:13px;--topbar-text-line:20px;
   position:sticky;top:12px;z-index:30;display:flex;align-items:center;gap:12px;
   height:54px;max-width:1100px;width:calc(100% - 28px);margin:12px auto 0;
   padding:0 16px;border-radius:999px;border:1px solid var(--line);
@@ -58,12 +60,17 @@ button{font-family:inherit;cursor:pointer}
 body.dark .topbar{border-color:rgba(255,255,255,.1)}
 body.tb-hidden .topbar{transform:translateY(-150%)}
 body.search-filters-open .topbar{transform:none}
-.brand{font-size:18px;font-weight:800;letter-spacing:1px;white-space:nowrap;flex:none}
+.brand{font-size:18px;line-height:24px;font-weight:800;letter-spacing:1px;white-space:nowrap;flex:none}
 .brand span{color:var(--accent)}
 .icon-btn{
   border:none;background:transparent;color:var(--text);font-size:18px;text-decoration:none;
-  width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+  width:var(--topbar-control-h,36px);height:var(--topbar-control-h,36px);border-radius:10px;display:grid;place-items:center;
 }
+.topbar .icon-btn{padding:0;flex:none;line-height:1}
+.codex-btn,#search,.search-scope,.search-filter-trigger,.sd-badge{
+  font-family:var(--font-ui);font-size:var(--topbar-text-size);line-height:var(--topbar-text-line);
+}
+.menu-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2;stroke-linecap:round;fill:none}
 .icon-btn:hover{background:var(--tagbg)}
 .icon-btn svg{display:block}
 .topbar-actions{margin-left:auto;display:flex;align-items:center;gap:4px;flex:none}
@@ -74,6 +81,7 @@ body.search-filters-open .topbar{transform:none}
 .more-btn.open{background:var(--accent-soft);color:var(--accent)}
 .more-menu{
   position:absolute;right:0;top:calc(100% + 8px);z-index:45;width:240px;
+  max-height:calc(100dvh - 80px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
   background:var(--popover-glass);
   backdrop-filter:blur(18px) saturate(1.12);-webkit-backdrop-filter:blur(18px) saturate(1.12);
   border:1px solid var(--popover-line);border-radius:16px;box-shadow:var(--popover-shadow);
@@ -87,6 +95,7 @@ body.dark .more-menu{border-color:rgba(255,255,255,.12)}
   cursor:pointer;transition:background .12s,color .12s;
 }
 .more-item:hover,.more-item:focus-visible{background:var(--tagbg);outline:none}
+.topbar-compact-action{display:none}
 .more-item svg{
   flex:none;width:19px;height:19px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none;
 }
@@ -138,12 +147,12 @@ body.dark .more-menu{border-color:rgba(255,255,255,.12)}
   display:inline-block;width:6px;height:6px;border-radius:999px;background:var(--new);
   margin-left:5px;vertical-align:1px;font-style:normal;
 }
-.codex-pick{position:relative;flex:none}
+.codex-pick{position:relative;display:flex;flex:0 1 auto;min-width:0}
 .codex-native{display:none}
 .codex-btn{
-  display:inline-flex;align-items:center;gap:8px;max-width:280px;
+  display:flex;align-items:center;gap:8px;min-width:0;max-width:280px;height:var(--topbar-control-h);
   border:1px solid var(--line);background:var(--card);color:var(--text);
-  border-radius:999px;padding:8px 14px;font-size:13px;cursor:pointer;
+  border-radius:999px;padding:0 14px;cursor:pointer;
   transition:border-color .16s,box-shadow .16s,background .16s,scale .14s ease;
 }
 .codex-btn span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -427,10 +436,10 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   .n5-notice-title{font-size:28px}
   .n5-launch-notice .n5-wm{right:-10px;bottom:-42px;font-size:146px}
 }
-.search-wrap{flex:1;max-width:520px;position:relative;display:flex;align-items:center}
+.search-wrap{flex:1;min-width:240px;max-width:520px;position:relative;display:flex;align-items:center}
 #search{
   width:100%;border:1px solid var(--line);background:var(--card);color:var(--text);
-  border-radius:999px;padding:9px 125px 9px 66px;font-size:14px;outline:none;
+  height:var(--topbar-control-h);border-radius:999px;padding:0 125px 0 66px;outline:none;
   -webkit-appearance:none;appearance:none;
   transition:border-color .14s,box-shadow .14s,background .14s;
 }
@@ -445,8 +454,9 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .search-scope{
   position:absolute;left:10px;top:50%;transform:translateY(-50%);
   height:24px;min-width:40px;border:none;border-radius:7px;padding:0 8px;
-  background:transparent;color:var(--accent);font-size:12px;font-weight:800;
-  line-height:1;letter-spacing:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  background:transparent;color:var(--accent);font-weight:800;
+  letter-spacing:0;cursor:pointer;
   transition:background .12s,color .12s;
 }
 .search-scope-label{display:block;pointer-events:none;transition:scale .14s ease}
@@ -475,7 +485,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   position:absolute;right:1px;top:1px;bottom:1px;z-index:1;
   min-width:68px;border:0;border-radius:999px;padding:0 10px;
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
-  background:var(--tagbg);color:var(--muted);font-size:12px;font-weight:700;
+  background:var(--tagbg);color:var(--muted);font-weight:700;
   transition:background .12s,color .12s,box-shadow .12s;
 }
 .search-filter-trigger:hover,.search-filter-trigger[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent)}
@@ -557,7 +567,7 @@ body.dark .search-filter-feedback{color:#ff9e97}
 .search-filter-footer button:disabled{color:var(--muted);opacity:.6;cursor:default}
 .search-filter-footer button:hover{background:var(--accent-soft)}
 .filter-btn{
-  position:relative;flex:none;width:36px;height:36px;border-radius:10px;color:var(--muted);
+  position:relative;flex:none;width:var(--topbar-control-h,36px);height:var(--topbar-control-h,36px);border-radius:10px;color:var(--muted);
   display:grid;place-items:center;cursor:pointer;
 }
 .filter-btn input{
@@ -1844,9 +1854,9 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
 }
 /* SD 模式顶栏常驻角标 */
 .sd-badge{
-  flex:none;font-size:11px;font-weight:800;letter-spacing:.5px;color:#fff;cursor:pointer;
+  flex:none;height:var(--topbar-control-h);font-weight:800;letter-spacing:.5px;color:#fff;cursor:pointer;
   background:var(--accent);border:none;border-radius:8px;
-  padding:6px 10px;white-space:nowrap;box-shadow:0 2px 8px var(--accent-soft);
+  padding:0 10px;white-space:nowrap;box-shadow:0 2px 8px var(--accent-soft);
   display:inline-flex;align-items:center;gap:4px;
   opacity:0;transform:translateY(-4px) scale(.92);pointer-events:none;
   transition:opacity .2s ease,transform .2s cubic-bezier(.22,1,.36,1),filter .15s;
@@ -2134,6 +2144,19 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 .sentinel{height:1px}
 
 /* ---------- 响应式 ---------- */
+/* 搜索需留出真实输入区；空间不足时将次要快捷动作收进已有的更多菜单。 */
+@media (max-width:900px){
+  .topbar .brand,.topbar .theme-btn,.topbar .settings-top-btn{display:none}
+  .topbar-compact-action{display:flex}
+  .sd-badge{
+    width:var(--topbar-control-h);padding:0;justify-content:center;border-radius:9px;
+    font-size:0;box-shadow:none;
+  }
+  .sd-badge::before{content:"SD";font-size:11px;letter-spacing:0}
+}
+@media (min-width:601px) and (max-width:900px){
+  .topbar{gap:8px;padding-inline:12px}
+}
 @media (max-width:760px){
   .search-filter-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .search-filter-value-wrap{grid-column:1/-1}
@@ -2143,31 +2166,29 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 @media (max-width:600px){
   :root{--topbar-h:64px}
   .topbar{
+    --topbar-control-h:34px;
     flex-wrap:nowrap;gap:6px;align-content:center;
     padding:6px 8px;top:8px;height:48px;min-height:48px;
     width:calc(100% - 16px);margin:8px auto 0;border-radius:18px;
   }
   body.search-mode .topbar> :not(.search-wrap){opacity:0;pointer-events:none}
   .topbar-actions{gap:2px;margin-left:0}
-  .icon-btn,.filter-btn{width:34px;height:34px;border-radius:9px}
+  .icon-btn,.filter-btn{border-radius:9px}
   .more-menu{right:0;width:224px}
-  .sd-badge{
-    width:34px;height:34px;padding:0;justify-content:center;border-radius:9px;
-    font-size:0;box-shadow:none;
-  }
-  .sd-badge::before{content:"SD";font-size:11px;letter-spacing:0}
   .mobile-search-btn{display:grid;flex:none}
   .search-wrap{
-    position:fixed;left:8px;right:8px;top:8px;z-index:55;
-    max-width:none;display:flex;opacity:0;pointer-events:none;
+    --topbar-text-size:16px;--topbar-text-line:24px;
+    /* 搜索直接覆盖顶栏；backdrop-filter 会改变 fixed 的定位参照，不能再叠一层外边距。 */
+    position:absolute;left:-1px;right:-1px;top:-1px;z-index:55;
+    min-width:0;max-width:none;display:flex;opacity:0;pointer-events:none;
     transform:translateY(-8px) scale(.98);transition:opacity .18s,transform .18s;
   }
   body.search-mode .search-wrap{opacity:1;pointer-events:auto;transform:none}
   #search{
-    height:48px;border-radius:18px;padding-left:108px;padding-right:130px;
-    box-shadow:var(--shadow);font-size:15px;
+    height:48px;border-radius:18px;padding-left:118px;padding-right:130px;
+    box-shadow:var(--shadow);
   }
-  .search-scope{left:62px;height:24px;min-width:38px;border-radius:7px;padding:0 7px}
+  .search-scope{left:62px;height:24px;min-width:48px;border-radius:7px;padding:0 7px}
   .search-clear{right:94px;width:30px;height:30px}
   .search-filter-trigger{border-radius:16px}
   .search-exit{display:grid}
@@ -2195,7 +2216,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   }
   .tree{overscroll-behavior:contain}
   .codex-pick{flex:1;min-width:0}
-  .codex-btn{width:100%;max-width:none;height:32px;padding:6px 10px}
+  .codex-btn{width:100%;max-width:none;padding:0 10px}
   .codex-btn span{flex:1}
   .codex-menu{
     position:fixed;left:12px;right:12px;top:calc(var(--topbar-h) + 6px);width:auto;max-width:none;
@@ -2301,8 +2322,9 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-original-status{left:58px;bottom:8px}
 }
 @media (max-width:420px){
-  #search{padding-left:98px;padding-right:92px}
-  .search-scope{left:48px;width:38px;padding:0 4px}
+  .topbar{gap:4px}
+  #search{padding-left:100px;padding-right:92px}
+  .search-scope{left:48px;width:44px;min-width:44px;padding:0 4px}
   .search-clear{right:54px}
   .search-filter-trigger{width:44px;min-width:44px;padding:0}
   .search-filter-trigger>span{display:none}

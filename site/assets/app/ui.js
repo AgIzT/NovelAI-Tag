@@ -450,14 +450,20 @@ export function bindUI() {
     }
   };
 
+  const themeBtn = $('#themeBtn');
+  const themeMenuBtn = $('#themeMenuBtn');
   const applyTheme = d => {
     document.body.classList.toggle('dark', d);
     document.documentElement.style.colorScheme = d ? 'dark' : 'light';   // 滚动条等原生控件跟随深浅色
-    $('#themeBtn').innerHTML = d ? THEME_ICONS.sun : THEME_ICONS.moon;
-    $('#themeBtn').setAttribute('aria-label', d ? '切换浅色模式' : '切换深色模式');
+    const icon = d ? THEME_ICONS.sun : THEME_ICONS.moon;
+    const label = d ? '切换浅色模式' : '切换深色模式';
+    themeBtn.innerHTML = icon;
+    themeBtn.setAttribute('aria-label', label);
+    if (themeMenuBtn) themeMenuBtn.innerHTML = `${icon}<span><b>${label}</b></span>`;
     localStorage.setItem('fadian-dark', d ? '1' : '0');
   };
-  $('#themeBtn').onclick = () => applyTheme(!document.body.classList.contains('dark'));
+  const toggleTheme = () => applyTheme(!document.body.classList.contains('dark'));
+  themeBtn.onclick = toggleTheme;
   applyTheme(localStorage.getItem('fadian-dark') === '1');
 
   /* 界面风格（换肤）：与深浅色正交，每套 light+dark 都在 CSS 里；默认紫=不加类 */
@@ -573,6 +579,13 @@ export function bindUI() {
     closeMoreDirect({ focusButton });
     if (mobileQuery.matches && historyMode !== 'none') forgetHistoryLayer('more-menu');
   };
+  if (themeMenuBtn) {
+    themeMenuBtn.onclick = () => {
+      toggleTheme();
+      closeMore({ focusButton: true });
+      moreBtn.focus({ preventScroll: true });
+    };
+  }
   const openMore = ({ focus = false, historyMode = 'push' } = {}) => {
     const replaceLayer = mobileQuery.matches && topHistoryLayerId() === 'banner-about';
     openMoreDirect({ focus });
@@ -936,6 +949,8 @@ export function bindUI() {
   });
   const settingsBtn = $('#settingsBtn');
   if (settingsBtn) settingsBtn.onclick = () => openFromMore(settingsMask, settingsBtn);
+  const settingsMenuBtn = $('#settingsMenuBtn');
+  if (settingsMenuBtn) settingsMenuBtn.onclick = () => openFromMore(settingsMask);
   $('#settingsClose').onclick = () => closeMask(settingsMask);
   bindBackdropDismiss(settingsMask, () => closeMask(settingsMask));
   settingsMask.onkeydown = ev => trapFocus(ev, settingsMask);
