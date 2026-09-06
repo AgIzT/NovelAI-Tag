@@ -115,6 +115,7 @@ const {
 const {
   codexUpdateFilters,
   entryMatchesUpdateFilter,
+  normalizeCodex,
   normalizeImageList,
   resolveUpdateFilter,
   updateFilterDefinitions,
@@ -629,6 +630,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   );
   assert.equal(lightboxOriginalCopy('ready', true).tip, '可拖入 NovelAI 读取生成参数');
   assert.match(lightboxOriginalCopy('ready', false).tip, /不提供可读取的生成参数/);
+  assert.equal(lightboxOriginalCopy('ready', true, 'NoobXL V').tip, '原图保留 NoobXL V 生成参数');
+  assert.equal(lightboxOriginalCopy('loading', true, 'NoobXL V').tip, '原图加载中');
+  assert.match(lightboxOriginalCopy('ready', false, 'NoobXL V').tip, /不提供可读取的生成参数/);
   assert.match(lightboxOriginalCopy('failed', true).label, /失败/);
   assert.match(lightboxOriginalCopy('thumbnail', false).label, /仅缩略图/);
   assert.equal(lightboxOriginalCopy('unavailable', false).label, '无原图');
@@ -803,6 +807,18 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const withoutOriginal = renderCodexChips({ hasOriginal: false, version: '2026.8.26' });
   assert.match(withoutOriginal, /orig no-orig[^>]*>无原图</);
   assert.doesNotMatch(withoutOriginal, /NSFW/);
+
+  const modelCodex = normalizeCodex({ id: 'kisegaeningyou', entries: [] }, {
+    id: 'kisegaeningyou', type: 'composition', hasOriginal: true, exampleModel: ' NoobXL V ',
+  });
+  assert.equal(modelCodex.exampleModel, 'NoobXL V');
+  assert.equal(modelCodex.type, 'composition');
+  assert.equal(modelCodex.hasOriginal, true, '模型例图标记不撤销原图能力');
+  const modelChips = renderCodexChips(modelCodex);
+  assert.match(modelChips, /model-example[^>]*>NoobXL V模型例图</);
+  assert.doesNotMatch(modelChips, /含原图|无原图/);
+  assert.match(renderCodexChips({ exampleModel: '<img onerror=alert(1)>' }), /&lt;img/);
+  assert.doesNotMatch(renderCodexChips({ exampleModel: '<img onerror=alert(1)>' }), /<img/);
 
   const chipStyles = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
   // 2026-08-27 起状态签中性化：四档靠形态区分，红/绿/琥珀写死色值不允许回潮。

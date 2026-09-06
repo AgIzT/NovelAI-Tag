@@ -91,11 +91,19 @@ function n5LaunchMode() {
   return { active: Date.now() < N5_LAUNCH_END_AT, forceNotice: false };
 }
 
-/* 书卡状态签固定按决策优先级输出：原图能力必显 → NSFW → 其他来源状态 → 更新日期最后。
+/* 模型例图优先展示模型来源；其余书沿用原图能力签。 */
+const codexExampleLabel = c => {
+  const model = String(c?.exampleModel || '').trim();
+  return model ? `${model}模型例图` : '';
+};
+
+/* 书卡状态签顺序：模型来源 / 原图能力 → NSFW → 其他来源状态 → 更新日期最后。
    NSFW 解锁/未解锁两枚签同时留在 DOM，由 .locked 类切换，避免刷新整张书卡。 */
 export function renderCodexChips(c = {}) {
   const hasOriginal = c.hasOriginal === true;
+  const exampleLabel = codexExampleLabel(c);
   const chips = [
+    exampleLabel ? `<span class="ci-chip model-example">${esc(exampleLabel)}</span>` :
     `<span class="ci-chip orig ${hasOriginal ? 'has-orig' : 'no-orig'}">${hasOriginal ? '含原图' : '无原图'}</span>`,
   ];
   if (c.nsfw) {
@@ -114,6 +122,19 @@ export function codexCoverUrl(c) {
   if (!c?.cover) return '';
   // coverCodexId：封面借用别本的图片前缀时才需要写（如合并册沿用的历史资源目录）
   return thumbUrl({ image: c.cover, assetRev: c.coverRev || '', assetCodexId: c.coverCodexId || '' }, c);
+}
+
+/* 封面构图只接受有界数值；独立 scale 与原有 hover transform 叠加。
+   未配置时不输出 style 属性，继续使用各表面的默认构图。 */
+export function codexCoverStyle(c) {
+  const framing = c?.coverFraming;
+  if (!framing || typeof framing !== 'object' || Array.isArray(framing)) return '';
+  const bounded = (value, min, max, fallback) =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+  const x = bounded(framing.x, 0, 100, 50);
+  const y = bounded(framing.y, 0, 100, 50);
+  const scale = bounded(framing.scale, 1, 2, 1);
+  return ` style="object-position:${x}% ${y}%;transform-origin:${x}% ${y}%;scale:${scale}"`;
 }
 
 /* 详情横幅与法典选择器必须服从同一份 cover 元数据；只有未配置封面时，
@@ -241,10 +262,10 @@ export function setupCodexPicker() {
   }).filter(t => !document.body.classList.contains('local-edition') || t.real.length > 0);
 
   /* 封面槽：占位块永远在底下垫着，图加载成功才淡入盖上去；图挂了/没配封面都自然露出占位，不会有破图 */
-  const coverSlot = (iconKey, url = '') =>
+  const coverSlot = (iconKey, url = '', c = null) =>
     `<span class="ci-cover">` +
     `<span class="ci-ph">${TYPE_ICONS[iconKey]}</span>` +
-    (url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : '') +
+    (url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async"${codexCoverStyle(c)}>` : '') +
     `<span class="ci-veil">${LOCK_ICON}</span>` +
     `</span>`;
 
@@ -276,7 +297,7 @@ export function setupCodexPicker() {
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
     item.innerHTML =
-      coverSlot(typeIconOf(c), cover) +
+      coverSlot(typeIconOf(c), cover, c) +
       `<span class="ci-main">` +
       `<span class="ci-head"><span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
       (active ? '<span class="ci-now">当前</span>' : '') +
@@ -340,7 +361,7 @@ export function setupCodexPicker() {
         return `<button type="button" class="n5-launch-book" data-id="${esc(c.id)}" ` +
           `aria-label="${esc(shortTitle)}，${count} 条词条">` +
           `<span class="n5b-cover">` +
-          (cover ? `<img src="${esc(cover)}" alt="" loading="lazy" decoding="async">` : '') +
+          (cover ? `<img src="${esc(cover)}" alt="" loading="lazy" decoding="async"${codexCoverStyle(c)}>` : '') +
           `</span>` +
           `<span class="n5b-main">` +
           `<span class="n5b-name">${esc(shortTitle)}</span>` +
@@ -1363,10 +1384,12 @@ export function renderCodexHeader() {
   const pct = c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0;
   const metaText = [c.author, c.version].filter(Boolean).join(' · ');
   const virtualView = state.favoritesView || state.siteSearchView;
-  const originalPill = virtualView ? '' :
+  const exampleLabel = codexExampleLabel(c);
+  const originalPill = virtualView ? '' : exampleLabel ?
+    `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   banner.innerHTML =
-    `<div class="banner-cover">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt="">` : ''}</div>` +
+    `<div class="banner-cover">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
     `<div class="banner-info">` +
     `<div class="banner-title">${esc(c.title)}</div>` +
     `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}</div>` +

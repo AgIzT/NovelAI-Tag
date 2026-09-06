@@ -523,21 +523,24 @@ export function renderCharacterPrompts(entry) {
   }
 }
 
-export function lightboxOriginalCopy(status, readable) {
+export function lightboxOriginalCopy(status, readable, exampleModel = '') {
+  const model = String(exampleModel || '').trim();
   if (status === 'unavailable') {
     return { label: '无原图', tip: '本法典不提供原图，仅可查看缩略图' };
   }
   if (status === 'loading') {
     return {
       label: '原图加载中…',
-      tip: readable ? '原图加载中，拖入 NovelAI 请稍候' : '原图加载中，仅供查看或保存',
+      tip: readable
+        ? (model ? '原图加载中' : '原图加载中，拖入 NovelAI 请稍候')
+        : '原图加载中，仅供查看或保存',
     };
   }
   if (status === 'ready') {
     return {
       label: '原图 ✓',
       tip: readable
-        ? '可拖入 NovelAI 读取生成参数'
+        ? (model ? `原图保留 ${model} 生成参数` : '可拖入 NovelAI 读取生成参数')
         : '原图可查看或保存；此来源不提供可读取的生成参数',
     };
   }
@@ -558,13 +561,13 @@ export function lightboxOriginalAction(available, sourceAllowsOriginal = availab
   };
 }
 
-function applyOriginalPresentation(seq, status, readable) {
+function applyOriginalPresentation(seq, status, readable, exampleModel) {
   if (seq !== lbSeq) return;
   clearTimeout(lbOriginalStatusTimer);
   lbOriginalStatusTimer = 0;
   const statusEl = $('#lightboxOriginalStatus');
   const tip = $('#lightboxTip') || document.querySelector('.lightbox-tip');
-  const copy = lightboxOriginalCopy(status, readable);
+  const copy = lightboxOriginalCopy(status, readable, exampleModel);
   if (statusEl) {
     statusEl.hidden = false;
     statusEl.dataset.state = status;
@@ -604,6 +607,7 @@ export function renderLightbox() {
   const origSrc = hasOriginal ? imageItemUrl('original', e, item) : '';
   const origAbs = resolvedUrl(origSrc);
   const readableOriginal = hasOriginal;
+  const exampleModel = String(findCodexMeta(lightboxEntrySourceId(e))?.exampleModel || '').trim();
   img.onload = null;
   img.onerror = emptyImage ? null : () => {
     if (seq !== lbSeq) return;
@@ -611,13 +615,13 @@ export function renderLightbox() {
       img.src = origSrc;
       return;
     }
-    if (hasOriginal) applyOriginalPresentation(seq, 'failed', readableOriginal);
+    if (hasOriginal) applyOriginalPresentation(seq, 'failed', readableOriginal, exampleModel);
     notifyImageLoadError(e);
   };
   img.onload = emptyImage ? null : () => {
     if (seq !== lbSeq || !hasOriginal) return;
     if (resolvedUrl(img.currentSrc || img.src) === origAbs) {
-      applyOriginalPresentation(seq, 'ready', readableOriginal);
+      applyOriginalPresentation(seq, 'ready', readableOriginal, exampleModel);
     }
   };
   /* 垫底加载：先上缩略图，原图加载完成后替换 */
@@ -635,7 +639,7 @@ export function renderLightbox() {
       pre.onerror = () => {
         pre.onload = null;
         pre.onerror = null;
-        applyOriginalPresentation(seq, 'failed', readableOriginal);
+        applyOriginalPresentation(seq, 'failed', readableOriginal, exampleModel);
       };
       pre.src = origSrc;
     }
@@ -648,7 +652,7 @@ export function renderLightbox() {
     const originalStatus = !sourceAllowsOriginal
       ? 'unavailable'
       : (hasOriginal ? 'loading' : 'thumbnail');
-    applyOriginalPresentation(seq, originalStatus, readableOriginal);
+    applyOriginalPresentation(seq, originalStatus, readableOriginal, exampleModel);
     showImage();
   }
 
@@ -684,7 +688,7 @@ export function renderLightbox() {
   const hasPositive = Boolean(String(e.tags || '').trim());
   if (hasPositive) renderHighlightedText($('#lightboxTags'), e.tags || '', currentHighlightTerms());
   else $('#lightboxTags').textContent = readableOriginal
-    ? '暂无站内可复制 tags；原图就绪后可尝试拖入 NovelAI 读取。'
+    ? (exampleModel ? '暂无站内可复制 tags；生成参数保留在原图中。' : '暂无站内可复制 tags；原图就绪后可尝试拖入 NovelAI 读取。')
     : '暂无站内可复制 tags。';
   renderCharacterPrompts(e);
   $('#lightboxNegative').textContent = e.negative || '';

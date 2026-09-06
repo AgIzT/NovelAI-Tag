@@ -177,6 +177,8 @@ export function normalizeCodex(data, meta = {}) {
     links: meta.links || data.links || [],
     aliases: meta.aliases || data.aliases || [],
     hasOriginal: meta.hasOriginal ?? data.hasOriginal ?? false,
+    exampleModel: String(meta.exampleModel ?? data.exampleModel ?? '').trim(),
+    coverFraming: meta.coverFraming ?? data.coverFraming ?? null,
   };
   codex.entries = (data.entries || []).map((entry, i) => normalizeEntry(entry, codex, i));
   codex.entryCount = Number(codex.entryCount || codex.entries.length);
