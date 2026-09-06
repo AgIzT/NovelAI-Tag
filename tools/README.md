@@ -103,6 +103,10 @@
 
 `__pycache__/` 是 Python 缓存，忽略。
 
+## 永久下架记录
+
+`data/image_takedowns.json` 是 Git 精确忽略的本地私有登记册，不纳入公开仓库；保存已核验的图片下架身份与完整字节 SHA-256，字段及私有备份边界见 `data/README.md`。当前仅登记，尚未接入公共导入、同步、发布与回滚检查，不能据此宣称自动防复入已生效。
+
 ## 操作说明去向
 
 - `codex_update_match.py` / `suozhang_r18_merge_match.py` 的基线回放、全局匹配、角色词收尾和应用门禁：读本地私有文档 `docs/经验/Word法典增量更新.md`。
