@@ -241,6 +241,58 @@ def collect_strings_assets():
     return assets
 
 
+def collect_cover_assets(codexes, assets, issues, image_prefix, manifest_objects, hash_stats):
+    # Selector covers may exist only in codexes.json or outside entries entirely.
+    # They are images, not synthetic entries: no original or entry revision is added.
+    seen = {
+        key_for(image_prefix, cid, filename)
+        for kind, cid, filename, _path, _sha in assets
+        if kind == "image"
+    }
+    # Roots precede index records. Match normalizeCodex: selector metadata
+    # overrides the root, and dataUrl implies relative paths unless explicit.
+    routing = {}
+    for codex in codexes:
+        route = routing.setdefault(codex.get("id"), {})
+        for field in ("assetPathMode", "dataUrl"):
+            if codex.get(field):
+                route[field] = codex[field]
+    for codex in codexes:
+        cover = codex.get("cover")
+        if not isinstance(cover, str) or not cover:
+            continue
+        # Relative-mode books resolve against their own assetBaseUrl, outside
+        # the local codex cache. Absolute URLs and embedded data need no upload.
+        route = routing.get(codex.get("id"), {})
+        path_mode = route.get("assetPathMode") or ("relative" if route.get("dataUrl") else "codex")
+        if path_mode == "relative":
+            continue
+        parsed = urllib.parse.urlsplit(cover)
+        if parsed.scheme or parsed.netloc:
+            continue
+        asset_cid = codex.get("coverCodexId") or codex.get("id")
+        if not isinstance(asset_cid, str) or not asset_cid:
+            issues.append(f"invalid cover owner: {cover}")
+            continue
+        cover_path = THUMB_DIR / asset_cid / cover
+        cache_root = (THUMB_DIR / asset_cid).resolve()
+        try:
+            cache_root.relative_to(THUMB_DIR.resolve())
+            cover_path.resolve().relative_to(cache_root)
+        except ValueError:
+            issues.append(f"invalid cover path: {asset_cid}/{cover}")
+            continue
+        key = key_for(image_prefix, asset_cid, cover)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not cover_path.is_file():
+            issues.append(f"missing cover: {asset_cid}/{cover}")
+            continue
+        sha = sha256_cached(cover_path, key, manifest_objects, hash_stats)
+        assets.append(("image", asset_cid, cover, cover_path, sha))
+
+
 def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
     assets = []
     issues = []
@@ -250,9 +302,11 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
     manifest_objects = manifest_objects or {}
     image_prefix = cfg.get("image_prefix") or DEFAULT_IMAGE_PREFIX
     original_prefix = cfg.get("original_prefix") or DEFAULT_ORIGINAL_PREFIX
+    cover_sources = []
 
     for codex_path in codex_files():
         codex = load_json(codex_path)
+        cover_sources.append(codex)
         cid = codex.get("id") or codex_path.stem
         changed = False
         imaged = 0
@@ -344,6 +398,10 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
             write_json(codex_path, codex)
             changed_files.append(codex_path)
 
+    cover_sources.extend(load_json(DATA_DIR / "codexes.json", []) or [])
+    collect_cover_assets(
+        cover_sources, assets, issues, image_prefix, manifest_objects, hash_stats
+    )
     update_index(apply_metadata=apply_metadata, changed_files=changed_files)
     return assets, issues, changed_files, hash_stats
 
