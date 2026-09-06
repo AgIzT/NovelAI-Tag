@@ -23,7 +23,7 @@
 | `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
 | `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
 | `build_updates_index.py` | 重建跨书更新索引 `site/data/updates.json`（顶栏动态气泡与「公告/更新/反馈」面板的更新页签读它）。判定规则与前端 `data.js` 的 `updateFilterDefinitions`/`entryMatchesUpdateFilter` 逐条对齐，改一侧必须同步另一侧；发布数据链自动跑，也可 `--dry-run` / `--report` 单独看结果 | 只写 `site/data/updates.json` |
-| `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。安全本里的门控词条只入词条名；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
+| `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条只入词条名；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
 | `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`） | 只读，写测试输出 |
@@ -96,7 +96,7 @@
 - Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
-- Node · 数据与路由：`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
+- Node · 数据与路由：`test_entry_aliases.mjs`（同书套图合并的收藏、深链及分享门控）、`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
 - Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。
 - Node · 主站状态与交互：`test_browser_history.mjs`、`test_history_storage.mjs`、`test_edit_client.mjs`、`test_search_data.mjs`、`test_search_directories.mjs`、`test_render_ui.mjs`、`test_modal_dismiss.mjs`、`test_copy.mjs`、`test_beta_banner.mjs`、`test_home_shortcut.mjs`、`test_local_ownership.mjs`、`test_resume_prompt.mjs`、`test_masonry_viewport.mjs`、`test_skeleton_transition.mjs`。
 - Node · 收藏与中转站：`test_favorites_backup.mjs`、`test_favorites_runtime.mjs`、`test_favorites_origin_migration.mjs`、`test_favorites_transfer.mjs`、`test_tag_relay_access.mjs`、`test_tag_relay_core.mjs`、`test_tag_relay_store.mjs`。

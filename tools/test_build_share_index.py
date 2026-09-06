@@ -176,6 +176,56 @@ class ShareIndexGrading(unittest.TestCase):
         )
         self.assertNotIn("不该出现的书名", json.dumps(shard, ensure_ascii=False))
 
+    def test_entry_aliases_reuse_canonical_cards_without_counting_or_gating_changes(self):
+        aliases = {f"old-{number}": "safe-0002" for number in range(5)}
+        aliases["old-safe"] = "safe-0001"
+        index, shards, warnings = self.build(
+            [codex_meta("safe", entryAliases=aliases)],
+            {"safe": {"id": "safe", "entryAliases": aliases, "entries": [
+                entry("safe-0001", "普通词条"), entry("safe-0002", "DC 001", rating="r18"),
+            ]}},
+        )
+        self.assertEqual(warnings, [])
+        self.assertEqual(index["codexes"]["safe"]["shareCount"], 1)
+        self.assertEqual(shards["safe"]["shareCount"], 1)
+        self.assertEqual(shards["safe"]["entryCount"], 2)
+        for source, target in aliases.items():
+            self.assertIs(shards["safe"]["entries"][source], shards["safe"]["entries"][target])
+        self.assertEqual(shards["safe"]["entries"]["old-0"], {
+            "id": "safe-0002", "title": "DC 001", "shareable": False,
+        })
+
+    def test_entry_aliases_reject_conflict_missing_target_chains_and_index_drift(self):
+        invalid = [
+            [], {"old": "missing"}, {"safe-0001": "safe-0002"},
+            {"old": "old"}, {"old": "middle", "middle": "safe-0002"},
+            {"old": "next", "next": "old"}, {"old": 7}, {"old": " safe-0002"},
+        ]
+        for aliases in invalid:
+            with self.subTest(aliases=aliases), self.assertRaises(ValueError):
+                self.build([codex_meta("safe", entryAliases=aliases)], {"safe": {
+                    "id": "safe", "entryAliases": aliases,
+                    "entries": [entry("safe-0001", "一"), entry("safe-0002", "二")],
+                }})
+        with self.assertRaises(ValueError):
+            self.build([codex_meta("safe")], {"safe": {
+                "id": "safe", "entryAliases": {"old": "safe-0001"},
+                "entries": [entry("safe-0001", "一")],
+            }})
+
+    def test_entry_aliases_preserve_whole_book_nsfw_gate(self):
+        aliases = {"old": "hidden-0001"}
+        args = ([codex_meta("hidden", nsfw=True, entryAliases=aliases)], {"hidden": {
+            "id": "hidden", "entryAliases": aliases,
+            "entries": [entry("hidden-0001", "门控标题")],
+        }})
+        _, shards, _ = self.build_with_flag(False, *args)
+        self.assertNotIn("hidden", shards)
+        _, shards, _ = self.build_with_flag(True, *args)
+        self.assertEqual(shards["hidden"]["entries"]["old"], {
+            "id": "hidden-0001", "title": "门控标题", "shareable": False,
+        })
+
     def test_entry_without_title_is_dropped_rather_than_guessed(self):
         _, per_codex, _ = self.build(
             [codex_meta("safe")],

@@ -3,6 +3,7 @@ import { $ } from './utils.js';
 import { encodePathCode } from './path-code.js';
 import { serializeSearchFilters } from './search.js';
 import { hasEntryImage } from './media.js';
+import { resolveAtlasEntryId } from './favorites-backup-core.js';
 import { toast } from './feedback.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import {
@@ -257,7 +258,12 @@ export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
   const uniqueMatches = ids => {
     const matches = [];
     for (const id of ids) {
-      const entry = state.codex.entries.find(candidate => candidate.id === id);
+      // 真实 ID 优先；被合并的旧 ID 才按书内精确映射转到现存套图。
+      let entry = state.codex.entries.find(candidate => candidate.id === id);
+      if (!entry) {
+        const targetId = resolveAtlasEntryId(id, state.codex.entryAliases);
+        if (targetId !== id) entry = state.codex.entries.find(candidate => candidate.id === targetId);
+      }
       if (entry && !matches.some(item => item.id === entry.id)) matches.push(entry);
     }
     return matches;

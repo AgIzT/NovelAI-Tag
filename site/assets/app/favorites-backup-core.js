@@ -191,11 +191,24 @@ function findFavoriteOwnerMigration(item, lookup) {
   return lookup.byAnyId.get(migration.targetCodexId) || null;
 }
 
+// 同书散条合为套图后的精确身份映射；只允许单跳，不猜编号，也不沿链递归。
+export function resolveAtlasEntryId(entryId, entryAliases) {
+  if (!isRecord(entryAliases) || !Object.hasOwn(entryAliases, entryId)) return entryId;
+  const target = entryAliases[entryId];
+  if (typeof target !== 'string' || !target || target.trim() !== target
+      || target.length > FAVORITES_BACKUP_LIMITS.maxAtlasFieldLength
+      || CONTROL_CHAR_RE.test(target) || target === entryId
+      || Object.hasOwn(entryAliases, target)) return entryId;
+  return target;
+}
+
 export function canonicalizeAtlasFavorite(favorite, codexesOrLookup = []) {
   const item = validateAtlasItem(favorite);
   const lookup = toCodexLookup(codexesOrLookup);
   const migratedOwner = findFavoriteOwnerMigration(item, lookup);
-  if (migratedOwner) return { codexId: migratedOwner.id, entryId: item.entryId };
+  if (migratedOwner) {
+    return { codexId: migratedOwner.id, entryId: resolveAtlasEntryId(item.entryId, migratedOwner.entryAliases) };
+  }
 
   const meta = lookup.byAnyId.get(item.codexId);
   if (!meta) return item;
@@ -205,7 +218,7 @@ export function canonicalizeAtlasFavorite(favorite, codexesOrLookup = []) {
   if (meta.id !== item.codexId && entryId.startsWith(`${item.codexId}-`)) {
     entryId = meta.id + entryId.slice(item.codexId.length);
   }
-  return { codexId: meta.id, entryId };
+  return { codexId: meta.id, entryId: resolveAtlasEntryId(entryId, meta.entryAliases) };
 }
 
 export function atlasFavoriteStorageKeys(favorite, codexesOrLookup = []) {
@@ -221,6 +234,12 @@ export function atlasFavoriteStorageKeys(favorite, codexesOrLookup = []) {
       keys.add(atlasStorageKey(candidate));
     }
   };
+
+  for (const entryId of Object.keys(isRecord(meta?.entryAliases) ? meta.entryAliases : {})) {
+    if (resolveAtlasEntryId(entryId, meta.entryAliases) === canonical.entryId) {
+      addCompatibleKey({ codexId: canonical.codexId, entryId });
+    }
+  }
 
   for (const alias of meta?.aliases || []) {
     const aliasEntryId = canonical.entryId.startsWith(`${meta.id}-`)

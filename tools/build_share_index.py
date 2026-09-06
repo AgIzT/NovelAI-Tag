@@ -152,6 +152,28 @@ def is_safe_entry(entry: dict[str, Any]) -> bool:
     return True
 
 
+def validated_entry_aliases(data: dict[str, Any], meta: dict[str, Any], entries: list[Any]) -> dict[str, str]:
+    aliases = data.get("entryAliases", {})
+    if not isinstance(aliases, dict) or aliases != meta.get("entryAliases", {}):
+        raise ValueError(f"entryAliases must match codex index: {meta.get('id')}")
+    current_ids = {entry.get("id") for entry in entries if isinstance(entry, dict)}
+    for source, target in aliases.items():
+        if (not isinstance(source, str) or not isinstance(target, str)
+                or not source or not target or source.strip() != source or target.strip() != target
+                or max(len(source), len(target)) > 128
+                or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in source + target)
+                or source in current_ids or target not in current_ids or target in aliases):
+            raise ValueError(f"invalid entryAlias in {meta.get('id')}: {source!r} -> {target!r}")
+    return aliases
+
+
+def add_entry_aliases(entries: dict[str, Any], aliases: dict[str, str]) -> None:
+    # 复用已完成门控的卡片，保留对象 id 为规范目标；别名键不参与词条计数。
+    for source, target in aliases.items():
+        if target in entries:
+            entries[source] = entries[target]
+
+
 def normalize_codex(data: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
     return {
         **data,
@@ -313,6 +335,7 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
             "shareable": not nsfw,
         }
         raw_entries = data.get("entries") if isinstance(data.get("entries"), list) else []
+        entry_aliases = validated_entry_aliases(data, meta, raw_entries)
         if not raw_entries:
             warnings.append(f"codex has no entries: {codex_id}")
 
@@ -329,6 +352,7 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
                 item = build_title_only_entry(raw_entry)
                 if item:
                     title_only[item["id"]] = item
+            add_entry_aliases(title_only, entry_aliases)
             index["codexes"][codex_id] = {**base_index, "titleOnly": True}
             per_codex[codex_id] = {
                 "schema": 1,
@@ -362,6 +386,7 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         cover = safe_with_image.get("image") if safe_with_image else None
         # 只数出完整卡的词条；门控词条虽然也在 entries 里，但不算"可分享"。
         share_count = sum(1 for item in entries.values() if item.get("shareable") is True)
+        add_entry_aliases(entries, entry_aliases)
         index["codexes"][codex_id] = {
             **base_index,
             "title": clean_text(codex.get("title") or codex_id),
