@@ -644,6 +644,41 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     lightboxOriginalAction(true, true),
     { disabled: false, label: '查看原图', title: '在新标签页查看原图' },
   );
+
+  // 本地新建书未写发布级 hasOriginal；正常化后的 false 不能遮住实际上传的原文件。
+  // 无原图 fallback、显式 false、外部源和线上缺省能力继续拒绝。
+  const uploadedEntry = { id: 'uploaded-0001', image: 'thumb.jpg', original: 'source.png' };
+  const uploadedImage = entryImages(uploadedEntry)[0];
+  state.codexes = [
+    ...state.codexes,
+    { id: 'uploaded' },
+    { id: 'external-upload', dataUrl: 'https://example.com/book.json' },
+    { id: 'external-assets', assetBaseUrl: 'https://example.com/images/' },
+  ];
+  state.codex = normalizeCodex(state.codexes.find(c => c.id === 'uploaded'), {
+    id: 'uploaded', entries: [uploadedEntry],
+  });
+  assert.equal(state.codex.hasOriginal, false);
+  assert.equal(entryImageCanUseOriginal(uploadedEntry, uploadedImage), false, '线上缺省不开放原图');
+  document.body.classList.add('local-edition');
+  try {
+    assert.equal(entryImageCanUseOriginal(uploadedEntry, uploadedImage), true, '本地正常上传可查看原文件');
+    assert.equal(entryImageCanUseOriginal(uploadedEntry, normalizedFallback), false);
+    assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'uploaded' }, uploadedImage), true, '收藏/搜索仍按真实来源查看原图');
+    for (const sourceId of ['without-original', 'external-upload', 'external-assets', 'missing']) {
+      assert.equal(entryImageCanUseOriginal({ _srcCodexId: sourceId }, uploadedImage), false, sourceId);
+    }
+    assert.equal(lightboxOriginalAction(entryImageCanUseOriginal(uploadedEntry, uploadedImage)).disabled, false);
+    assert.equal(lightboxOriginalCopy('ready', false).tip, '原图可查看或保存');
+    assert.equal(lightboxOriginalCopy('ready', true, 'NoobXL V').tip, '原图可查看或保存', '本地文件不凭整册标记承诺生成参数');
+    assert.equal(lightboxOriginalCopy('loading', true).tip, '原图加载中');
+    assert.doesNotMatch(renderCodexChips({ hasOriginal: false }), /无原图|no-orig/);
+    assert.doesNotMatch(renderCodexChips({ hasOriginal: true }), /含原图|has-orig/);
+  } finally {
+    document.body.classList.remove('local-edition');
+  }
+  assert.equal(entryImageCanUseOriginal(uploadedEntry, uploadedImage), false, '恢复线上模式仍严格限制');
+  assert.match(renderCodexChips({ hasOriginal: false }), /无原图/);
 }
 
 // 原生分享只在触屏设备启用；桌面即使暴露 navigator.share 也维持复制路径。
@@ -985,6 +1020,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     siteSearchView: state.siteSearchView,
     suppressUrlSync: state.suppressUrlSync,
     title: document.title,
+    bodyDataset: document.body.dataset,
   };
   const first = { id: 'book-0001', title: '第一条' };
   const second = { id: 'book-0002', title: '第二条' };
@@ -994,6 +1030,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   state.siteSearchView = false;
   state.suppressUrlSync = true;
   document.title = '服务端注入的旧标题';
+  document.body.dataset = { localTitle: '法典图鉴本地版 v1.5.0' };
 
   syncUrlState({ entry: first.id, historyMode: 'none', saveBrowse: false });
   assert.equal(document.title, '第一条 · 测试法典 | 法典图鉴');
@@ -1014,6 +1051,19 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     documentTitleForRoute({ codex: 'nai45_community_pack', favorites: true, entry: virtualEntry.id }, virtualCodex),
     '来源词条 · 社区 AI 杂图 | 法典图鉴',
   );
+
+  // 本地发行版由构建器注入完整版本标题；初始加载、灯箱切换与关闭都必须保留它。
+  document.body.classList.add('local-edition');
+  for (const entry of [first.id, second.id, '']) {
+    syncUrlState({ entry, historyMode: 'none', saveBrowse: false });
+    assert.equal(document.title, '法典图鉴本地版 v1.5.0');
+  }
+  document.body.dataset.localTitle = '法典图鉴本地版 v9.8.7';
+  assert.equal(documentTitleForRoute({}), '法典图鉴本地版 v9.8.7', '路由标题不得硬编码发行版本');
+  delete document.body.dataset.localTitle;
+  assert.equal(documentTitleForRoute({}), '法典图鉴 · NovelAI 提示词', '缺少构建标题时不得写入空标题');
+  document.body.classList.remove('local-edition');
+  document.body.dataset = previous.bodyDataset;
 
   Object.assign(state, {
     codex: previous.codex,
@@ -1252,7 +1302,15 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(searchUiSource, /el\('searchFilterBtn'\)\?\.focus\(\{ preventScroll: true \}\)/);
   assert.match(searchUiSource, /pendingFilterFocusIndex = index/);
   assert.match(searchUiSource, /pendingFilterFocusIndex !== null[\s\S]*focusFilterAfterRemoval\(focusIndex\)/);
-  assert.match(stylesSource, /@media \(max-width:420px\)\{[\s\S]*#search\{padding-left:98px;padding-right:92px\}/);
+  const narrowSearchStyles = stylesSource.match(/@media \(max-width:420px\)\{([\s\S]*?)\n\}/)?.[1] || '';
+  const narrowSearchInput = narrowSearchStyles.match(/#search\{([^}]+)\}/)?.[1] || '';
+  const narrowSearchScope = narrowSearchStyles.match(/\.search-scope\{([^}]+)\}/)?.[1] || '';
+  const narrowScopeLeft = Number(narrowSearchScope.match(/\bleft:(\d+)px/)?.[1]);
+  const narrowScopeWidth = Number(narrowSearchScope.match(/(?:^|;)width:(\d+)px/)?.[1]);
+  const narrowSearchPadding = Number(narrowSearchInput.match(/padding-left:(\d+)px/)?.[1]);
+  assert.ok(narrowScopeWidth >= 44, '极窄屏范围按钮必须保留可用点击宽度');
+  assert.ok(narrowSearchPadding >= narrowScopeLeft + narrowScopeWidth + 8, '极窄屏输入文字必须与范围按钮保留间距');
+  assert.match(narrowSearchInput, /padding-right:92px/, '极窄屏输入文字必须为清空与筛选按钮留位');
   assert.match(stylesSource, /body\.dark \.search-filter-feedback\{color:#ff9e97\}/);
   assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)\{[\s\S]*\.search-filter-panel/);
   assert.match(indexSource, /id="sidebar"[\s\S]*id="sidebarBackdrop"[\s\S]*id="main"/);

@@ -23,6 +23,11 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+if __package__:
+    from .local_edition_version import VERSION
+else:
+    from local_edition_version import VERSION
+
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_ROOT = ROOT / "output" / "local-edition"
@@ -51,7 +56,7 @@ body.local-edition .favorites-backup-stats { grid-template-columns: minmax(0, 1f
 
 
 LOCAL_ABOUT = {
-    "intro": "这是你的本地法典图鉴。法典、词条、原图和缩略图都只保存在当前文件夹中。",
+    "intro": f"法典图鉴本地版 v{VERSION}。法典、词条、原图和缩略图都只保存在当前文件夹中。",
     "links": [],
     "credits": ["本地版只提供软件与演示数据，请使用你自己的词条和图片。"],
     "tips": [
@@ -81,6 +86,7 @@ LOCAL_HTML_REPLACEMENTS = {
 LOCAL_HTML_BLOCKS_TO_REMOVE = (
     ('<aside class="favorites-migration-banner"', "</aside>"),
     ('<section class="favorites-backup-section favorites-migration-section"', "</section>"),
+    ('<link rel="manifest"', ">"),
 )
 
 
@@ -280,9 +286,13 @@ def create_local_site(product: Path):
     html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
     html = html.replace(
         "<title>法典图鉴 · NovelAI 提示词</title>",
-        "<title>法典图鉴本地版</title>",
+        f"<title>法典图鉴本地版 v{VERSION}</title>",
     )
-    html = html.replace("<body>", '<body class="local-edition">', 1)
+    html = html.replace(
+        "<body>",
+        f'<body class="local-edition" data-local-title="{PRODUCT_NAME} v{VERSION}">',
+        1,
+    )
     html = html.replace(
         '<link rel="stylesheet" href="assets/favorites-backup.css">',
         '<link rel="stylesheet" href="assets/favorites-backup.css">\n'
@@ -335,6 +345,21 @@ def create_icon(path: Path):
 def build_executable(product: Path, build_root: Path):
     icon = build_root / "local-edition.ico"
     create_icon(icon)
+    version_file = build_root / "version.txt"
+    version_tuple = tuple(int(part) for part in VERSION.split(".")) + (0,)
+    version_file.write_text(
+        "VSVersionInfo(ffi=FixedFileInfo("
+        f"filevers={version_tuple!r}, prodvers={version_tuple!r}, "
+        "mask=0x3f, flags=0, OS=0x40004, fileType=0x1, subtype=0, date=(0, 0)), "
+        "kids=[StringFileInfo([StringTable('080404B0', ["
+        f"StringStruct('FileDescription', '{PRODUCT_NAME}'), "
+        f"StringStruct('FileVersion', '{VERSION}'), "
+        f"StringStruct('ProductName', '{PRODUCT_NAME}'), "
+        f"StringStruct('ProductVersion', '{VERSION}'), "
+        f"StringStruct('OriginalFilename', '{PRODUCT_NAME}.exe')"
+        "])]), VarFileInfo([VarStruct('Translation', [2052, 1200])])])",
+        encoding="utf-8",
+    )
     command = [
         sys.executable,
         "-m",
@@ -347,6 +372,8 @@ def build_executable(product: Path, build_root: Path):
         PRODUCT_NAME,
         "--icon",
         str(icon),
+        "--version-file",
+        str(version_file),
         "--distpath",
         str(product),
         "--workpath",
@@ -359,7 +386,7 @@ def build_executable(product: Path, build_root: Path):
 
 
 def write_readme(product: Path):
-    text = """法典图鉴本地版
+    text = f"""法典图鉴本地版 v{VERSION}
 ================
 
 使用方法
@@ -378,6 +405,14 @@ def write_readme(product: Path):
 
 本地版不需要安装 Python，不需要 Git、R2 或 Cloudflare，也不会自动上传任何内容。
 请完整保留整个文件夹，不要只移动 EXE。
+
+从旧版升级
+----------
+先在旧版导出收藏 JSON，关闭旧版窗口并备份整个旧版目录，将新版解压到新的目录。
+把旧版 site\\data、site\\images、originals 和 output\\edit-backups 复制到新版对应位置。
+保留新版 EXE 和 site\\assets，不要用旧版程序文件覆盖它们。
+v1.0.0 的本机端口为 8769，新版为 18769；收藏和设置不会随目录复制自动迁移。
+启动新版后导入收藏 JSON，并重新选择设置。
 """
     (product / "使用说明.txt").write_text(text, encoding="utf-8-sig")
     bat = """@echo off

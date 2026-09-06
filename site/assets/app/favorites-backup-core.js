@@ -11,7 +11,7 @@ export const FAVORITES_BACKUP_LIMITS = Object.freeze({
 });
 
 // 永久兼容表：词条保留原 id、但归属法典发生变化时，旧 localStorage 键仍须指向新正主。
-// 这与整本法典 aliases 不同：mengshen_pack 仍存在，只迁走了 0001-0258 这一段。
+// 这与整本法典 aliases 不同：归属迁移不改词条前缀，且可以只迁走一个编号范围。
 export const ATLAS_FAVORITE_OWNER_MIGRATIONS = Object.freeze([
   Object.freeze({
     sourceCodexId: 'mengshen_pack',
@@ -213,12 +213,20 @@ export function atlasFavoriteStorageKeys(favorite, codexesOrLookup = []) {
   const canonical = canonicalizeAtlasFavorite(favorite, lookup);
   const keys = new Set([atlasStorageKey(canonical)]);
   const meta = lookup.byAnyId.get(canonical.codexId);
+  const addCompatibleKey = candidate => {
+    // aliases 也供路由使用，不一定是这条词条的历史归属；迁移规则还可能把候选导向另一册。
+    // 只认正向归一后仍回到同一词条的键，避免星标命中与收藏墙/备份恢复指向不同身份。
+    const normalized = canonicalizeAtlasFavorite(candidate, lookup);
+    if (normalized.codexId === canonical.codexId && normalized.entryId === canonical.entryId) {
+      keys.add(atlasStorageKey(candidate));
+    }
+  };
 
   for (const alias of meta?.aliases || []) {
     const aliasEntryId = canonical.entryId.startsWith(`${meta.id}-`)
       ? alias + canonical.entryId.slice(meta.id.length)
       : canonical.entryId;
-    keys.add(atlasStorageKey({ codexId: alias, entryId: aliasEntryId }));
+    addCompatibleKey({ codexId: alias, entryId: aliasEntryId });
   }
 
   for (const migration of ATLAS_FAVORITE_OWNER_MIGRATIONS) {
@@ -230,7 +238,7 @@ export function atlasFavoriteStorageKeys(favorite, codexesOrLookup = []) {
       migrationTargetId === canonical.codexId
       && migrationMatchesEntryId(migration, canonical.entryId)
     ) {
-      keys.add(atlasStorageKey({ codexId: migration.sourceCodexId, entryId: canonical.entryId }));
+      addCompatibleKey({ codexId: migration.sourceCodexId, entryId: canonical.entryId });
     }
   }
   return [...keys];

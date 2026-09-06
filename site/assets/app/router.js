@@ -135,6 +135,10 @@ function appBasePath() {
 }
 
 export function documentTitleForRoute(route, codex = state.codex) {
+  const localTitle = typeof document !== 'undefined' && document.body?.classList.contains('local-edition')
+    ? String(document.body.dataset?.localTitle || '').trim()
+    : '';
+  if (localTitle) return localTitle;
   const entryId = String(route?.entry || '');
   if (entryId && codex) {
     const activeEntry = state.lightbox?.entry?.id === entryId ? state.lightbox.entry : null;

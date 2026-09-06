@@ -102,7 +102,7 @@ const codexExampleLabel = c => {
 export function renderCodexChips(c = {}) {
   const hasOriginal = c.hasOriginal === true;
   const exampleLabel = codexExampleLabel(c);
-  const chips = [
+  const chips = document.body.classList.contains('local-edition') ? [] : [
     exampleLabel ? `<span class="ci-chip model-example">${esc(exampleLabel)}</span>` :
     `<span class="ci-chip orig ${hasOriginal ? 'has-orig' : 'no-orig'}">${hasOriginal ? '含原图' : '无原图'}</span>`,
   ];
@@ -1385,7 +1385,7 @@ export function renderCodexHeader() {
   const metaText = [c.author, c.version].filter(Boolean).join(' · ');
   const virtualView = state.favoritesView || state.siteSearchView;
   const exampleLabel = codexExampleLabel(c);
-  const originalPill = virtualView ? '' : exampleLabel ?
+  const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   banner.innerHTML =

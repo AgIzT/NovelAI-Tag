@@ -1123,7 +1123,30 @@ def make_handler(store):
                     return self._json({"ok": False, "error": str(ex), "code": "internal"}, 500)
             if path.startswith("/originals/"):
                 return self._serve_original()
+            if path.startswith("/share/"):
+                return self._serve_app_shell()
             return super().do_GET()
+
+        def _serve_app_shell(self):
+            """详情地址原位交付首页，让前端继续读取路径/查询串，并从根目录加载资源。"""
+            index = os.path.join(site_dir, "index.html")
+            if not os.path.isfile(index):
+                self.send_error(404)
+                return
+            with open(index, "r", encoding="utf-8") as fh:
+                html = fh.read()
+            # charset 保持在 head 最前，base 必须早于 app-base 脚本和所有相对资源。
+            html = re.sub(
+                r"(<head\b[^>]*>\s*(?:<meta\b[^>]*charset[^>]*>\s*)?)",
+                r'\1<base href="/">\n', html, count=1, flags=re.IGNORECASE,
+            )
+            body = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def do_POST(self):
             try:

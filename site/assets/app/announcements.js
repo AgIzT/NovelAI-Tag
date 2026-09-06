@@ -19,6 +19,7 @@ let finishTabMotion = null;
 /* 面板由顶栏气泡的三个入口驱动，气泡自己不渲染内容——它只回答「有没有」，
    点开哪一栏由 openAnnouncementsPanel 的 tab 参数决定。 */
 export function setupAnnouncements({ closeMore = () => {}, trigger = null, historyMode = () => 'push' } = {}) {
+  if (document.body?.classList.contains('local-edition')) return;
   const mask = $('#announcementsPanel');
   const btn = $('#announcementsBtn');
   if (!mask || !btn) return;

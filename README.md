@@ -18,6 +18,8 @@
 
 ## 🚀 本地使用与编辑（Windows）
 
+当前发行版：**[法典图鉴本地版 v1.5.0](https://github.com/AgIzT/NovelAI-Tag/releases/tag/local-v1.5.0)**。
+
 1. 前往 [GitHub Releases](https://github.com/AgIzT/NovelAI-Tag/releases)，下载最新的 `NovelAI-Tag-Local-YYYYMMDD.zip`
 2. 完整解压 ZIP。
 3. 双击 `法典图鉴本地版.exe`。如果 EXE 无法直接启动，可改用同目录的 `启动法典图鉴.bat`。
@@ -27,6 +29,8 @@
 新增词条时选择 NovelAI / Stable Diffusion 图片，会自动读取并填入主正向、主负面及角色 Tag；需要一次加入多张图片时，使用结果栏的“批量导入”，预览并确认标题、分类与分级后再写入。
 
 发行包内置一本可自由修改或删除的示例法典。法典数据保存在 `site/data/`，缩略图保存在 `site/images/`，原图保存在 `originals/`，保存前的自动备份位于 `output/edit-backups/`。本地版只监听本机地址，内容不会自动上传；迁移或备份时建议直接复制整个解压目录。
+
+升级时先在旧版导出收藏 JSON、关闭旧版并备份整个目录。将新版解压到新目录，再复制旧版的 `site/data/`、`site/images/`、`originals/` 与 `output/edit-backups/` 到对应位置，保留新版 EXE 与 `site/assets/`。v1.0.0 的本机端口为 8769，新版为 18769；浏览器收藏和设置不会随目录复制迁移，请在新版导入收藏并重新选择设置。
 
 ## ☁️ 部署上线
 前端无需构建：

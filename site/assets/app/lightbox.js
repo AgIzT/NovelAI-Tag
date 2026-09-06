@@ -525,6 +525,11 @@ export function renderCharacterPrompts(entry) {
 
 export function lightboxOriginalCopy(status, readable, exampleModel = '') {
   const model = String(exampleModel || '').trim();
+  // 用户上传文件的生成参数未经逐图验证；物理原图可用不代表承诺可读参数。
+  if (document.body.classList.contains('local-edition')) {
+    if (status === 'loading') return { label: '原图加载中…', tip: '原图加载中' };
+    if (status === 'ready') return { label: '原图 ✓', tip: '原图可查看或保存' };
+  }
   if (status === 'unavailable') {
     return { label: '无原图', tip: '本法典不提供原图，仅可查看缩略图' };
   }
@@ -606,7 +611,7 @@ export function renderLightbox() {
   const hasOriginal = !emptyImage && lightboxItemHasOriginal(e, item);
   const origSrc = hasOriginal ? imageItemUrl('original', e, item) : '';
   const origAbs = resolvedUrl(origSrc);
-  const readableOriginal = hasOriginal;
+  const readableOriginal = hasOriginal && !document.body.classList.contains('local-edition');
   const exampleModel = String(findCodexMeta(lightboxEntrySourceId(e))?.exampleModel || '').trim();
   img.onload = null;
   img.onerror = emptyImage ? null : () => {

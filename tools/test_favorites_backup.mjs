@@ -205,6 +205,25 @@ assert.ok(
   ).includes('community_ai_misc:community_ai_misc-0042'),
   '并册后仍须生成旧归属键 community_ai_misc:community_ai_misc-0042',
 );
+// 并册后新增的梦神 1945+ 没有旧书归属，不能从路由 alias 伪造一个会改写词条 id 的键。
+// 同理，alias 冲突或旧迁移指向另一册时，不能让两条不同收藏共用同一个存储键。
+for (const entryId of ['mengshen_pack-1945', 'mengshen_pack-1957', 'mengshen_pack-9999']) {
+  const favorite = { codexId: 'nai45_community_pack', entryId };
+  const keys = atlasFavoriteStorageKeys(favorite, mergedPackCodexes);
+  assert.equal(keys[0], `${favorite.codexId}:${entryId}`);
+  assert.ok(!keys.includes(`mengshen_pack:${entryId}`), `不得扩大历史迁移范围：${entryId}`);
+  for (const key of keys) {
+    assert.deepEqual(canonicalizeAtlasStorageKey(key, mergedPackCodexes), favorite, key);
+  }
+}
+assert.ok(!atlasFavoriteStorageKeys(
+  { codexId: 'nai45_community_pack', entryId: 'mengshen_pack-0001' },
+  mergedPackCodexes,
+).includes('mengshen_pack:mengshen_pack-0001'), '迁入画师词典的旧键不能同时认领图包词条');
+assert.deepEqual(atlasFavoriteStorageKeys(
+  { codexId: 'beta', entryId: 'beta-42' },
+  [{ id: 'alpha', aliases: ['shared'] }, { id: 'beta', aliases: ['shared'] }],
+), ['beta:beta-42'], '冲突 alias 仍由索引中第一册认领');
 assert.deepEqual(
   atlasFavoriteStorageKeys(
     { codexId: 'suozhang_r18', entryId: 'codex_6e699406-0042' },
@@ -386,29 +405,34 @@ if (hasLocalData) {
     readBook('artist_nai45_personal'), readBook('nai45_community_pack'), readBook('suozhang_r18'),
   ]);
   const legacyKeys = [];
+  const legacyKeysByCodex = new Map();
   const assertLegacyFavorite = (sourceCodexId, entry, targetCodexId) => {
     const expected = { codexId: targetCodexId, entryId: entry.id };
     const oldKey = `${sourceCodexId}:${entry.id}`;
     assert.deepEqual(canonicalizeAtlasStorageKey(oldKey, lookup), expected, oldKey);
     assert.ok(atlasFavoriteStorageKeys(expected, lookup).includes(oldKey), `反向兼容键缺失：${oldKey}`);
     legacyKeys.push(oldKey);
+    if (!legacyKeysByCodex.has(targetCodexId)) legacyKeysByCodex.set(targetCodexId, []);
+    legacyKeysByCodex.get(targetCodexId).push(oldKey);
   };
-  // 旧个人词典、旧画师串、两个旧图包全量覆盖，不能只验证迁移表里的几条样例。
+  // 历史来源按稳定 ID 判定，不能随可编辑目录名变化。
+  // 2026-08-31 并册前快照：个人词典 4334、画师串 1134；后者目录后来改名为「画风组词典」。
   for (const entry of artists.entries) {
-    const sourceCodexId = {
-      '单画师词典': 'artist_nai45_personal',
-      '画师串词典': 'artist_nai45_strings',
-    }[entry.path[0]];
-    assert.ok(sourceCodexId, `画师词典存在未审计分区：${entry.path[0]}`);
-    assertLegacyFavorite(sourceCodexId, entry, artists.id);
+    if (/^(artist_300_|artist_nai45_personal_|artist_45_collection_)\d+$/.test(entry.id)) {
+      assertLegacyFavorite('artist_nai45_personal', entry, artists.id);
+    } else if (/^(artist_nai45_strings_\d+|mengshen_pack-\d{4})$/.test(entry.id)) {
+      assertLegacyFavorite('artist_nai45_strings', entry, artists.id);
+    }
   }
+  // 并册前梦神确实只有 0259..1944；1945..1957 于 2026.9.1 直接加入合并册，
+  // 不能仅凭 assetCodexId 或目录名给它们虚构 legacy 归属；下方仍全量审核当前键及反向闭包。
   for (const entry of packs.entries) {
-    const sourceCodexId = {
-      '梦神 · 社区图包': 'mengshen_pack',
-      '社区 · AI杂图': 'community_ai_misc',
-    }[entry.path[0]];
-    assert.ok(sourceCodexId, `社区图包存在未审计分区：${entry.path[0]}`);
-    assertLegacyFavorite(sourceCodexId, entry, packs.id);
+    const mengshenNumber = /^mengshen_pack-(\d{4})$/.exec(entry.id)?.[1];
+    if (mengshenNumber && Number(mengshenNumber) >= 259 && Number(mengshenNumber) <= 1944) {
+      assertLegacyFavorite('mengshen_pack', entry, packs.id);
+    } else if (/^community_ai_misc-\d+$/.test(entry.id)) {
+      assertLegacyFavorite('community_ai_misc', entry, packs.id);
+    }
   }
   const movedMengshenEntries = artists.entries.filter(entry => entry.id.startsWith('mengshen_pack-'));
   assert.equal(movedMengshenEntries.length, 258);
@@ -416,21 +440,49 @@ if (hasLocalData) {
     assertLegacyFavorite('mengshen_pack', entry, artists.id);
   }
   for (const entry of suozhangR18.entries) {
-    const sourceCodexId = entry.id.startsWith('codex_6e699406-')
-      ? 'codex_6e699406'
-      : 'codex_8489ac52';
-    assertLegacyFavorite(sourceCodexId, entry, suozhangR18.id);
+    const sourceCodexId = /^(codex_6e699406|codex_8489ac52)-/.exec(entry.id)?.[1];
+    if (sourceCodexId) assertLegacyFavorite(sourceCodexId, entry, suozhangR18.id);
   }
-  const restored = parseFavoritesBackup(serializeFavoritesBackup({
-    atlasKeys: legacyKeys, codexes: realCodexes, exportedAt,
-  }), realCodexes);
-  assert.equal(restored.unknownCodexCount, 0);
-  assert.equal(restored.favorites.atlas.length, artists.entries.length + packs.entries.length + suozhangR18.entries.length);
-  const actualIds = new Map([artists, packs, suozhangR18].map(book => [book.id, new Set(book.entries.map(entry => entry.id))]));
-  for (const item of restored.favorites.atlas) {
+  // 当前词条无论是否有历史身份都必须覆盖，不能缩 legacy 夹具后漏掉新增词条。
+  // 所有反向候选还必须经正向归一回到同一真实词条，防止普通星标与收藏墙各认一个身份。
+  const allBooks = await Promise.all(realCodexes.map(meta => readBook(meta.id)));
+  const currentKeys = [];
+  let compatibleKeyCount = 0;
+  for (const book of allBooks) {
+    for (const entry of book.entries) {
+      const expected = { codexId: book.id, entryId: entry.id };
+      const currentKey = `${book.id}:${entry.id}`;
+      assert.deepEqual(canonicalizeAtlasStorageKey(currentKey, lookup), expected, currentKey);
+      currentKeys.push(currentKey);
+      const keys = atlasFavoriteStorageKeys(expected, lookup);
+      assert.equal(keys[0], currentKey, '新收藏始终使用当前规范键');
+      for (const key of keys) {
+        assert.deepEqual(canonicalizeAtlasStorageKey(key, lookup), expected, `反向键归一不闭合：${key}`);
+        compatibleKeyCount += 1;
+      }
+    }
+  }
+  // 全站总词条数可以超过单份备份 30000 项的契约；逐册验证旧键/当前键去重与往返，不放宽限额。
+  const restoredFavorites = [];
+  for (const book of allBooks) {
+    const restored = parseFavoritesBackup(serializeFavoritesBackup({
+      atlasKeys: [
+        ...(legacyKeysByCodex.get(book.id) || []),
+        ...book.entries.map(entry => `${book.id}:${entry.id}`),
+      ],
+      codexes: realCodexes,
+      exportedAt,
+    }), realCodexes);
+    assert.equal(restored.unknownCodexCount, 0);
+    assert.equal(restored.favorites.atlas.length, book.entries.length, `${book.id} 历史键与当前键去重`);
+    restoredFavorites.push(...restored.favorites.atlas);
+  }
+  assert.equal(restoredFavorites.length, currentKeys.length);
+  const actualIds = new Map(allBooks.map(book => [book.id, new Set(book.entries.map(entry => entry.id))]));
+  for (const item of restoredFavorites) {
     assert.ok(actualIds.get(item.codexId)?.has(item.entryId), `备份恢复后目标不存在：${item.codexId}:${item.entryId}`);
   }
-  console.log(`favorites backup core: audited ${legacyKeys.length} real legacy keys, export/restore OK`);
+  console.log(`favorites backup core: audited ${legacyKeys.length} real legacy keys, ${currentKeys.length} current keys, ${compatibleKeyCount} compatible keys; export/restore OK`);
 } else {
   console.log('favorites backup core: skipped local-only site/data compatibility audit');
 }

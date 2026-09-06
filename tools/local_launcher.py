@@ -21,6 +21,7 @@ import webbrowser
 import PIL  # noqa: F401
 
 from edit_server import EditStore, Server, make_handler
+from local_edition_version import VERSION
 
 
 DEFAULT_PORT = 18769
@@ -32,7 +33,7 @@ def _configure_console():
     try:
         ctypes.windll.kernel32.SetConsoleOutputCP(65001)
         ctypes.windll.kernel32.SetConsoleCP(65001)
-        ctypes.windll.kernel32.SetConsoleTitleW("法典图鉴本地版")
+        ctypes.windll.kernel32.SetConsoleTitleW(f"法典图鉴本地版 v{VERSION}")
     except Exception:
         pass
     for stream in (sys.stdout, sys.stderr):
@@ -82,6 +83,7 @@ class LocalEditStore(EditStore):
     def capabilities(self):
         info = super().capabilities()
         info["localEdition"] = True
+        info["localVersion"] = VERSION
         info["pendingR2Sync"] = False
         return info
 
@@ -161,7 +163,7 @@ def run(root, port=DEFAULT_PORT, open_browser=True):
         raise RuntimeError("本地服务未能按时启动。")
 
     print("=" * 56)
-    print("法典图鉴本地版正在运行")
+    print(f"法典图鉴本地版 v{VERSION} 正在运行")
     print(f"地址：http://localhost:{port}/")
     print("内容与图片只保存在本机，不需要 R2、Cloudflare 或 Git。")
     print("关闭这个窗口即可停止服务。")

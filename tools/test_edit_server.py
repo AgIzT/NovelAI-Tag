@@ -928,6 +928,61 @@ class HttpSmokeTest(unittest.TestCase):
         self.assertIn("testbook", data["editable"])
         self.assertIn("lockbook", data["locked"])
 
+    def test_share_refresh_serves_shell_and_root_assets_without_redirect(self):
+        import urllib.parse
+        import urllib.request
+
+        shell = (
+            '<!DOCTYPE html><html><head>\n<meta charset="UTF-8">\n'
+            '<script id="app-base"></script>'
+            '<script type="module" src="assets/app.js"></script>'
+            '</head><body>本地法典</body></html>'
+        )
+        _write(os.path.join(self.root, "site", "index.html"), shell)
+        _write(os.path.join(self.root, "site", "assets", "app.js"), 'console.log("atlas");')
+        for path in (
+            "/share/testbook/testbook-0003",
+            "/share/testbook/testbook-0003?q=blue&f=tags&entry=testbook-0002",
+            "/share/testbook/legacy%2Fentry?p=abc",
+        ):
+            with self.subTest(path=path):
+                url = f"http://127.0.0.1:{self.port}{path}"
+                with urllib.request.urlopen(url) as res:
+                    self.assertEqual(res.status, 200)
+                    self.assertEqual(res.geturl(), url, "路径和查询串留给前端解析，不能重定向丢失")
+                    self.assertIsNone(res.headers.get("Location"))
+                    self.assertEqual(res.headers.get_content_type(), "text/html")
+                    self.assertEqual(res.headers.get("Cache-Control"), "no-store")
+                    body = res.read()
+                    self.assertEqual(int(res.headers["Content-Length"]), len(body))
+                html = body.decode("utf-8")
+                self.assertIn("本地法典", html)
+                self.assertEqual(html.count('<base href="/">'), 1)
+                self.assertLess(html.index('<meta charset="UTF-8">'), html.index('<base href="/">'))
+                self.assertLess(html.index('<base href="/">'), html.index('<script id="app-base">'))
+                base = urllib.parse.urljoin(url, re.search(r'<base href="([^"]+)">', html)[1])
+                asset_url = urllib.parse.urljoin(base, 'assets/app.js')
+                self.assertEqual(urllib.parse.urlsplit(asset_url).path, "/assets/app.js")
+                with urllib.request.urlopen(asset_url) as asset:
+                    self.assertEqual(asset.status, 200)
+                    self.assertEqual(asset.read(), b'console.log("atlas");')
+        self.assertEqual(_read(os.path.join(self.root, "site", "index.html")), shell)
+
+    def test_share_fallback_preserves_missing_resources_and_shell_404(self):
+        import urllib.error
+        import urllib.request
+
+        # 缺失首页不能返回空成功；其它静态资源和非 share 路由继续用真实 404。
+        for path in ("/share/testbook/testbook-0003", "/assets/missing.js", "/images/missing.jpg", "/unknown"):
+            with self.subTest(path=path), self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}")
+            self.assertEqual(caught.exception.code, 404)
+        _write(os.path.join(self.root, "site", "index.html"), "<html><head></head><body>atlas</body></html>")
+        for path in ("/assets/missing.js", "/images/missing.jpg", "/share-like/testbook/testbook-0003", "/unknown"):
+            with self.subTest(path=path), self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}")
+            self.assertEqual(caught.exception.code, 404)
+
     def test_entry_update_roundtrip(self):
         status, data = self.request("/__edit__/entry", {
             "codexId": "testbook", "op": "update", "entryId": "testbook-0002",
@@ -992,6 +1047,12 @@ class HttpSmokeTest(unittest.TestCase):
     def test_foreign_host_rejected_for_get_and_post(self):
         status, data = self.request(
             "/__edit__/ping",
+            headers={"Host": "evil.example"},
+        )
+        self.assertEqual((status, data["code"]), (403, "bad-host"))
+
+        status, data = self.request(
+            "/share/testbook/testbook-0003",
             headers={"Host": "evil.example"},
         )
         self.assertEqual((status, data["code"]), (403, "bad-host"))
