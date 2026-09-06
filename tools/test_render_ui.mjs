@@ -1,6 +1,7 @@
 // 渲染与主 UI 回归：node tools/test_render_ui.mjs
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 
 class FakeHTMLElement {
   constructor(tagName = 'DIV') {
@@ -102,10 +103,11 @@ const {
   lightboxOriginalCopy,
   preloadImage,
   preloadLightboxNeighbors,
+  resolvedUrl,
   shareUrlForEntry,
   setLightboxScrollLocked,
 } = await import('../site/assets/app/lightbox.js');
-const { entryImages, imageItemHasOriginal } = await import('../site/assets/app/media.js');
+const { assetUrl, entryImages, imageItemHasOriginal, imageItemUrl, localAssetUrl } = await import('../site/assets/app/media.js');
 const {
   entryImageCanUseOriginal,
   entrySourceAllowsOriginal,
@@ -143,6 +145,102 @@ const {
   syncUrlState,
 } = await import('../site/assets/app/router.js');
 const { loadAnnouncements } = await import('../site/assets/app/announcements.js');
+
+// 真实入口脚本必须固定文档基址；history 改成分享路径后，图片、原图签收和后续路由仍使用站点目录。
+{
+  const shell = await readFile(new URL('../site/index.html', import.meta.url), 'utf8');
+  const startup = shell.match(/<script\b[^>]*\bid="app-base"[^>]*>([\s\S]*?)<\/script>/);
+  assert.ok(startup, '入口应在相对资源加载前固定 app base');
+  assert.ok(startup.index < shell.indexOf('href="assets/favicon.svg"'));
+  const previous = { document, location, codex: state.codex, media: state.media };
+  const entry = { image: 'thumb.webp', original: 'original.png', assetRev: 'r1' };
+  const makePage = (href, injectedBase = '') => {
+    const pageLocation = new URL(href);
+    const bases = injectedBase ? [{ tagName: 'BASE', href: injectedBase }] : [];
+    const pageDocument = {
+      get baseURI() { return bases.length ? new URL(bases[0].href, pageLocation.href).href : pageLocation.href; },
+      querySelector(selector) {
+        assert.equal(selector, 'base[href]');
+        return bases[0] || null;
+      },
+      createElement(tagName) {
+        assert.equal(tagName, 'base');
+        return { tagName: 'BASE', href: '' };
+      },
+      head: { appendChild(element) { bases.push(element); return element; } },
+    };
+    const history = {
+      pushState(_state, _title, url) { pageLocation.href = new URL(url, pageLocation.href).href; },
+    };
+    runInNewContext(startup[1], { document: pageDocument, location: pageLocation, URL });
+    return { document: pageDocument, location: pageLocation, history, bases };
+  };
+  try {
+    state.codex = { id: 'book' };
+    state.media = {
+      baseUrl: 'https://assets.test', imagePrefix: 'images', originalPrefix: 'originals', localFallback: true,
+    };
+    const cases = [
+      { href: 'http://localhost/', expected: 'http://localhost/' },
+      { href: 'http://localhost/index.html?c=book', expected: 'http://localhost/' },
+      { href: 'http://localhost/share/book/book-0001', injected: '/', expected: 'http://localhost/' },
+      { href: 'http://localhost/NovelAI-Tag/', expected: 'http://localhost/NovelAI-Tag/' },
+      { href: 'http://localhost/NovelAI-Tag/index.html', expected: 'http://localhost/NovelAI-Tag/' },
+      { href: 'file:///D:/preview/site/index.html', expected: 'file:///D:/preview/site/' },
+    ];
+    for (const testCase of cases) {
+      const page = makePage(testCase.href, testCase.injected);
+      globalThis.document = page.document;
+      globalThis.location = page.location;
+      assert.equal(document.baseURI, testCase.expected);
+      assert.equal(page.bases.length, 1, '已有的分享 base 不应重复注入');
+      if (testCase.injected) assert.equal(page.bases[0].href, testCase.injected);
+      const expectedOriginal = new URL('originals/book/original.png?v=r1', testCase.expected).href;
+      const expectedThumb = new URL('images/book/thumb.webp?v=r1', testCase.expected).href;
+      const expectedPath = new URL(testCase.expected).pathname;
+      for (const entryId of ['book-0001', 'book-0002', '']) {
+        const route = atlasUrlForRoute({ codex: 'book', entry: entryId });
+        const target = new URL(route, location.href);
+        assert.equal(target.pathname, entryId && expectedPath === '/' ? '/share/book/' + entryId : expectedPath);
+        page.history.pushState(null, '', route);
+        assert.equal(document.baseURI, testCase.expected, '打开、切图、关闭灯箱均不能让媒体基址随路由漂移');
+        assert.equal(new URL(assetUrl('image', entry), document.baseURI).href, expectedThumb);
+        assert.equal(new URL(assetUrl('original', entry), document.baseURI).href, expectedOriginal);
+        assert.equal(new URL(localAssetUrl('original', entry), document.baseURI).href, expectedOriginal);
+        assert.equal(resolvedUrl(imageItemUrl('original', entry, { path: entry.image, original: entry.original })), expectedOriginal);
+        assert.equal(resolvedUrl(expectedOriginal), expectedOriginal, '原图 currentSrc 应与原图地址签收为同一个 URL');
+      }
+      runInNewContext(startup[1], { document, location, URL });
+      assert.equal(page.bases.length, 1, '初始化重复运行时保持原来的 base');
+      assert.equal(document.baseURI, testCase.expected);
+    }
+
+    const remote = makePage('https://novelai.quicktagcloud.com/share/book/book-0001', '/');
+    globalThis.document = remote.document;
+    globalThis.location = remote.location;
+    assert.equal(assetUrl('original', entry), 'https://assets.test/originals/book/original.png?v=r1');
+    assert.equal(resolvedUrl(assetUrl('original', entry)), 'https://assets.test/originals/book/original.png?v=r1');
+
+    const local = makePage('http://localhost/share/book/book-0001', '/');
+    globalThis.document = local.document;
+    globalThis.location = local.location;
+    state.media.localFallback = false;
+    assert.equal(assetUrl('original', entry), 'https://assets.test/originals/book/original.png?v=r1');
+    state.media.localFallback = true;
+    state.codex = { id: 'external', assetPathMode: 'relative', assetBaseUrl: 'https://external.test/media' };
+    assert.equal(assetUrl('original', entry), 'https://external.test/media/original.png?v=r1');
+    assert.equal(resolvedUrl(assetUrl('original', entry)), 'https://external.test/media/original.png?v=r1');
+    assert.equal(localAssetUrl('original', entry), '', '外部法典仍不暴露本地 fallback');
+    assert.equal(assetUrl('original', { original: 'https://third.test/original.png' }), 'https://third.test/original.png');
+    assert.equal(resolvedUrl('https://third.test/original.png'), 'https://third.test/original.png');
+    assert.equal(resolvedUrl(''), '');
+  } finally {
+    globalThis.document = previous.document;
+    globalThis.location = previous.location;
+    state.codex = previous.codex;
+    state.media = previous.media;
+  }
+}
 
 // 冷全站搜索尚在异步汇总时切回当前法典，范围切换会抢先写下本 session 的首条记录；
 // 之后继续输入只能 replace。较早的全站请求即使稍后才退出，也不得让 pending 复活。

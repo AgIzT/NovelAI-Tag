@@ -204,7 +204,7 @@ export function fitStageRect(ratio) {
 export function resolvedUrl(url) {
   if (!url) return '';
   try {
-    return new URL(url, location.href).href;
+    return new URL(url, document.baseURI).href;
   } catch {
     return String(url);
   }

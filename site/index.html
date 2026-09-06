@@ -2,6 +2,14 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<script id="app-base">
+/* 分享路由会改写地址栏；相对资源始终以首次入口目录为基址，保留服务端注入的 base。 */
+if (!document.querySelector('base[href]')) {
+  const base = document.createElement('base');
+  base.href = new URL('.', location.href).href;
+  document.head.appendChild(base);
+}
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>法典图鉴 · NovelAI 提示词</title>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
