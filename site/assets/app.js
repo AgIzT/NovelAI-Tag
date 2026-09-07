@@ -20,7 +20,7 @@ import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initial
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { pathFromCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
-import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions } from './app/history.js';
+import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
 import { setUpdatesActions } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
@@ -28,6 +28,8 @@ import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from '
 import { setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
 import { setupTagRelay } from './app/tag-relay.js';
+import { loadContentBlocking, isContentBlocked } from './app/content-blocking.js';
+import { setupContentBlocking, hideCard, setBlockingUiActions, updateBlockingSummary } from './app/content-blocking-ui.js';
 
 let codexLoadSeq = 0;
 let favoritesBackupBound = false;
@@ -214,6 +216,7 @@ export async function init() {
     setupAbout();
     setupTreeSpy();
     bindUI();
+    setupContentBlocking();
     bindFavoritesBackup();
     state.pendingUrlState = readUrlState();
     const wantsFavorites = state.pendingUrlState.favorites || state.pendingUrlState.codex === FAVORITES_CODEX_ID;
@@ -679,7 +682,9 @@ export function applyFilter(options = {}) {
   const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
   if (state.favoritesView) list = list.filter(isFav);   // 收藏视图里取消收藏即时消卡
-  state.list = rankSearchResults(list, plan);
+  const unblocked = list.filter(entry => !isContentBlocked(entry));
+  const blockedCount = list.length - unblocked.length;
+  state.list = rankSearchResults(unblocked, plan);
   const relatedDirectories = !plan.hasErrors && plan.positiveTerms.length
     ? findRelatedDirectories({
       codex: state.codex,
@@ -694,6 +699,7 @@ export function applyFilter(options = {}) {
   renderSearchExperience(plan, directoryOptions);
   updateResultBar();
   renderList(options);
+  updateBlockingSummary(blockedCount);
 }
 
 /* 收藏视图内取消收藏后：从仍被收藏的词条重算合成法典的条目/计数/目录树，刷新顶栏、横幅进度、
@@ -866,6 +872,7 @@ setMasonryActions({
   openLightbox,
   copyEntry,
   toggleFav,
+  hideCard,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 
@@ -888,4 +895,13 @@ setUpdatesActions({
   },
 });
 
+setBlockingUiActions({ refresh: () => {
+  if (state.lightbox?.entry && isContentBlocked(state.lightbox.entry)) {
+    closeLightbox({ historyMode: 'replace', immediate: true });
+  }
+  applyFilter({ transition: 'blocking' });
+  if ($('#historyPanel') && !$('#historyPanel').hidden) renderHistoryPanel();
+} });
+
+loadContentBlocking();
 init();

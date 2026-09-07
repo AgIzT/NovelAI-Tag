@@ -51,7 +51,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap"></noscript>
 <link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/ui-kit.css">
 <link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="assets/content-blocking.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
 <link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="modulepreload" href="assets/data-source.js">
@@ -319,12 +321,12 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <aside class="favorites-migration-banner" data-favorites-migration-banner hidden>
       <div class="favorites-migration-banner-copy">
         <b>换到新域名后收藏为空？</b>
-        <span>如果你以前使用 pages.dev 收藏过内容，可以从原浏览器一键找回。</span>
+        <span>如果你以前使用 pages.dev 收藏过内容，可以从原浏览器找回。</span>
         <small data-favorites-migration-feedback hidden></small>
       </div>
       <div class="favorites-migration-banner-actions">
-        <button class="favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
-        <button class="favorites-migration-dismiss" type="button" data-favorites-migration-dismiss aria-label="关闭旧收藏找回提示">以后不提示</button>
+        <button class="panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
+        <button class="panel-action favorites-migration-dismiss" type="button" data-favorites-migration-dismiss aria-label="关闭旧收藏找回提示">以后不提示</button>
       </div>
     </aside>
     <div id="codexBanner" class="codex-banner"></div>
@@ -332,13 +334,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div class="result-bar">
       <div class="result-bar-head">
         <span id="resultInfo"></span>
-        <button id="searchClearAllBtn" class="search-clear-all" type="button" hidden>清除全部</button>
+        <button id="searchClearAllBtn" class="bar-btn search-clear-all" type="button" hidden>清除全部</button>
       </div>
+      <button id="blockingResultBtn" class="bar-btn blocking-result-btn" type="button">屏蔽管理</button>
       <div id="searchFilterSummary" class="search-filter-summary" hidden>
         <div id="searchFilterChips" class="search-filter-chips" role="list" aria-label="当前搜索筛选"></div>
       </div>
       <div id="updateFilterControls" class="update-filter-controls" hidden></div>
-      <button id="favoritesViewBackupBtn" class="favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
+      <button id="favoritesViewBackupBtn" class="bar-btn favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
         <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
         <span>备份与恢复</span>
       </button>
@@ -600,6 +603,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button class="density-option" type="button" data-density="compact" aria-pressed="false">紧凑</button>
       </div>
     </div>
+    <div class="set-row">
+      <div class="set-info">
+        <div class="set-name">内容屏蔽</div>
+        <div id="blockingSettingsSummary" class="set-desc">屏蔽词与单独隐藏的卡片</div>
+      </div>
+      <button id="blockingSettingsBtn" class="panel-action is-sm" type="button">管理</button>
+    </div>
     <div class="set-row nsfw-set-row">
       <div class="set-info">
         <div class="set-name">显示 NSFW 内容 <span class="set-live">需确认</span></div>
@@ -613,6 +623,52 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div class="set-desc">包含猎奇极端内容</div>
       </div>
       <label class="switch live"><input type="checkbox" id="r18gToggle"><i></i></label>
+    </div>
+  </div>
+</div>
+
+<div id="contentBlocking" class="settings-mask" hidden>
+  <div class="settings-panel blocking-panel" role="dialog" aria-modal="true" aria-labelledby="blockingTitle">
+    <button id="blockingClose" class="settings-close" type="button" aria-label="关闭屏蔽管理">×</button>
+    <h2 id="blockingTitle" class="settings-title">屏蔽管理</h2>
+    <p class="settings-note">清单仅保存在当前浏览器，清除站点数据后会丢失。</p>
+    <div class="blocking-enable-row">
+      <label for="blockingEnabled">启用内容屏蔽</label>
+      <label class="switch live"><input id="blockingEnabled" type="checkbox" checked><i></i></label>
+    </div>
+    <p id="blockingPaused" class="settings-note blocking-paused" role="status" hidden>屏蔽已暂停，清单中的内容会正常显示。</p>
+    <div class="seg-tabs blocking-tabs" role="tablist" aria-label="屏蔽清单">
+      <button id="blockingWordsTab" type="button" role="tab" data-blocking-tab="words" aria-selected="true" aria-controls="blockingWordsPanel">屏蔽词 0</button>
+      <button id="blockingEntriesTab" type="button" role="tab" data-blocking-tab="entries" aria-selected="false" aria-controls="blockingEntriesPanel" tabindex="-1">单独隐藏 0</button>
+    </div>
+    <div class="blocking-views">
+    <section id="blockingWordsPanel" role="tabpanel" aria-labelledby="blockingWordsTab">
+      <form id="blockingWordForm" class="blocking-word-form">
+        <label for="blockingWordInput">添加词或短语</label>
+        <div class="blocking-input-row"><input id="blockingWordInput" type="text" maxlength="8000" autocomplete="off" placeholder="例如：蜘蛛，spider" aria-describedby="blockingWordHint blockingWordError"><button class="panel-action is-primary" type="submit">添加</button></div>
+        <p id="blockingWordHint" class="blocking-hint">多个词用逗号分隔。标题或正向提示词命中任意一项即隐藏；英文按整词匹配，中文按短语匹配。</p>
+        <p id="blockingWordError" class="blocking-error" role="alert" hidden></p>
+      </form>
+      <ul id="blockingWordList" class="blocking-word-list" aria-label="已屏蔽的词"></ul>
+      <p id="blockingWordsEmpty" class="blocking-empty">还没有屏蔽词</p>
+    </section>
+    <section id="blockingEntriesPanel" role="tabpanel" aria-labelledby="blockingEntriesTab" hidden>
+      <ul id="blockingEntryList" class="blocking-entry-list" aria-label="单独隐藏的卡片"></ul>
+      <p id="blockingEntriesEmpty" class="blocking-empty">点卡片上的「不想看」，就能在这里管理。</p>
+      <button id="blockingMoreEntries" class="panel-action is-sm" type="button" hidden>显示更多</button>
+    </section>
+    </div>
+  </div>
+</div>
+<div id="blockingReveal" class="settings-mask" hidden>
+  <div class="settings-panel blocking-reveal-panel" role="dialog" aria-modal="true" aria-labelledby="blockingRevealTitle">
+    <button id="blockingRevealClose" class="settings-close" type="button" aria-label="关闭屏蔽提示">×</button>
+    <h2 id="blockingRevealTitle" class="settings-title">此卡片已屏蔽</h2>
+    <p id="blockingRevealReason" class="settings-note"></p>
+    <div class="blocking-reveal-actions">
+      <button id="blockingRevealCancel" class="panel-action" type="button">返回浏览</button>
+      <button id="blockingRevealManage" class="panel-action" type="button">管理屏蔽</button>
+      <button id="blockingRevealOnce" class="panel-action is-primary" type="button">仅本次查看</button>
     </div>
   </div>
 </div>
@@ -678,7 +734,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <b>备份与恢复收藏</b>
         <small>用 JSON 文件搬运法典图鉴与共创广场收藏。</small>
       </div>
-      <button type="button" data-favorites-backup-open>管理备份</button>
+      <button class="panel-action is-sm" type="button" data-favorites-backup-open>管理备份</button>
     </div>
     <div class="history-head">
       <span>最近浏览</span>
@@ -709,8 +765,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <p>一份文件会同时包含两处收藏。</p>
           </div>
           <div class="favorites-backup-heading-actions">
-            <button id="favoritesExportTextBtn" class="favorites-backup-secondary" type="button">复制迁移文本</button>
-            <button id="favoritesExportBtn" class="favorites-backup-primary" type="button">导出 JSON</button>
+            <button id="favoritesExportTextBtn" class="panel-action favorites-backup-secondary" type="button">复制迁移文本</button>
+            <button id="favoritesExportBtn" class="panel-action is-primary favorites-backup-primary" type="button">导出 JSON</button>
           </div>
         </div>
         <dl class="favorites-backup-stats">
@@ -729,9 +785,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div class="favorites-backup-section-heading">
           <div>
             <h3 id="favoritesMigrationTitle">从旧 pages.dev 找回</h3>
-            <p>在原设备和原浏览器中一键读取旧域收藏，并与当前收藏合并。</p>
+            <p>在原设备和原浏览器中读取旧域收藏，并与当前收藏合并。</p>
           </div>
-          <button class="favorites-backup-primary" type="button" data-favorites-migration-start>一键找回</button>
+          <button class="panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
         </div>
         <p class="favorites-migration-feedback" data-favorites-migration-feedback role="status" aria-live="polite" hidden></p>
         <a class="favorites-migration-fallback" data-favorites-migration-fallback href="https://novelai-tag.pages.dev/_favorites-migration-202607.html?bridge=20260721" target="_blank" rel="noopener">自动迁移失败？手动打开救援页下载 JSON</a>
@@ -755,7 +811,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <summary>或用文本粘贴</summary>
           <p>把另一台设备复制出的迁移文本粘贴到这里；也接受完整 JSON。</p>
           <textarea id="favoritesImportText" rows="4" spellcheck="false" placeholder="NAITAG1.… 或完整 JSON"></textarea>
-          <button id="favoritesImportTextBtn" class="favorites-backup-secondary" type="button">从文本检查并恢复</button>
+          <button id="favoritesImportTextBtn" class="panel-action favorites-backup-secondary" type="button">从文本检查并恢复</button>
         </details>
 
         <div id="favoritesImportPreview" class="favorites-import-preview" aria-live="polite" hidden>
@@ -782,7 +838,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <p id="favoritesBackupError" class="favorites-backup-error" role="alert" hidden></p>
         <p id="favoritesBackupStatus" class="favorites-backup-status" role="status" aria-live="polite"></p>
       </div>
-      <button id="favoritesRestoreBtn" class="favorites-backup-primary" type="button" disabled>恢复收藏</button>
+      <button id="favoritesRestoreBtn" class="panel-action is-primary favorites-backup-primary" type="button" disabled>恢复收藏</button>
     </footer>
 
     <div id="favoritesReplaceConfirm" class="favorites-replace-confirm" role="alertdialog" aria-modal="true" aria-labelledby="favoritesReplaceTitle" aria-describedby="favoritesReplaceMessage" hidden>
@@ -791,8 +847,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <h3 id="favoritesReplaceTitle">确认覆盖当前收藏？</h3>
         <p id="favoritesReplaceMessage">这会同时替换法典图鉴与共创广场收藏。</p>
         <div class="favorites-replace-actions">
-          <button id="favoritesReplaceBack" class="favorites-backup-secondary" type="button">返回检查</button>
-          <button id="favoritesReplaceConfirmBtn" class="favorites-backup-danger" type="button">确认覆盖</button>
+          <button id="favoritesReplaceBack" class="panel-action favorites-backup-secondary" type="button">返回检查</button>
+          <button id="favoritesReplaceConfirmBtn" class="panel-action is-danger favorites-backup-danger" type="button">确认覆盖</button>
         </div>
       </div>
     </div>
@@ -827,7 +883,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 5a2 2 0 0 1 4 0v1a5 5 0 0 1 4 4.9v3.2l1.4 2.4A1 1 0 0 1 18.5 18h-13a1 1 0 0 1-.9-1.5L6 14.1v-3.2A5 5 0 0 1 10 6z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg></span>
       <h2 class="settings-title">动态</h2>
     </div>
-    <div class="announcements-tabs" role="tablist" aria-label="动态分类">
+    <div class="seg-tabs announcements-tabs" role="tablist" aria-label="动态分类">
       <button class="announcements-tab" type="button" role="tab" aria-selected="false" aria-controls="announcementsUpdatesView" tabindex="-1" data-announcements-tab="updates" id="announcementsUpdatesTab">更新<i class="announcements-tab-dot" data-tab-dot="updates" hidden></i></button>
       <button class="announcements-tab" type="button" role="tab" aria-selected="true" aria-controls="announcementsNoticeView" tabindex="0" data-announcements-tab="announcements" id="announcementsNoticeTab">公告<i class="announcements-tab-dot" data-tab-dot="announcements" hidden></i></button>
       <button class="announcements-tab" type="button" role="tab" aria-selected="false" aria-controls="announcementsFeedbackView" tabindex="-1" data-announcements-tab="feedback" id="announcementsFeedbackTab">反馈</button>
@@ -869,7 +925,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <h2 class="settings-title">反馈与进度</h2>
       </div>
     </div>
-    <div class="feedback-tabs" role="tablist" aria-label="反馈功能">
+    <div class="seg-tabs feedback-tabs" role="tablist" aria-label="反馈功能">
       <button id="feedbackSubmitTab" class="feedback-tab" type="button" role="tab" aria-selected="true" aria-controls="feedbackSubmitView" tabindex="0" data-feedback-tab="submit">提交反馈</button>
       <button id="feedbackProgressTab" class="feedback-tab" type="button" role="tab" aria-selected="false" aria-controls="feedbackProgressView" tabindex="-1" data-feedback-tab="progress">处理进度 <span id="feedbackPublicCount" hidden></span></button>
     </div>
@@ -911,7 +967,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div id="feedbackStatus" class="feedback-status" aria-live="polite"></div>
         <div class="nsfw-actions">
           <button id="feedbackCancel" class="nsfw-secondary" type="button">取消</button>
-          <button id="feedbackSubmit" class="nsfw-primary feedback-submit" type="submit">提交反馈</button>
+          <button id="feedbackSubmit" class="panel-action is-primary feedback-submit" type="submit">提交反馈</button>
         </div>
       </form>
     </section>
@@ -936,7 +992,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </div>
 
 <div id="onboarding" class="settings-mask" hidden>
-  <div class="settings-panel onboarding-panel" role="dialog" aria-modal="true" aria-label="快速引导">
+  <div class="settings-panel onboarding-panel" role="dialog" aria-modal="true" aria-label="首次引导">
     <div class="onboarding-top">
       <span id="onboardingStep" class="onboarding-step">1 / 4</span>
       <button id="onboardingSkip" class="onboarding-skip" type="button">跳过</button>
@@ -956,7 +1012,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </div>
     <div class="nsfw-actions">
       <button id="onboardingBack" class="nsfw-secondary" type="button" disabled>上一步</button>
-      <button id="onboardingNext" class="nsfw-primary onboarding-next" type="button">下一步</button>
+      <button id="onboardingNext" class="panel-action is-primary onboarding-next" type="button">下一步</button>
     </div>
   </div>
 </div>
@@ -995,6 +1051,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button id="viewOriginal" type="button">查看原图</button>
         <button id="shareLightbox" type="button">分享</button>
         <button id="reportLightbox" type="button">反馈此图</button>
+        <button id="hideLightbox" type="button">不想看</button>
       </div>
       <div class="lightbox-section">
         <div class="section-head">
@@ -1043,6 +1100,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="badge-neg-chip" hidden title="含负面提示词">负面</span>
         <span class="badge-char-chip" hidden title="含角色词">角色词</span>
         <button class="fav-btn" type="button" title="收藏" aria-label="收藏">☆</button>
+        <button class="hide-card-btn" type="button" title="不想看" aria-label="不想看，隐藏此卡片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.3A11 11 0 0 1 12 5c7 0 10 7 10 7a16 16 0 0 1-3.1 4.2M6.1 6.1A19 19 0 0 0 2 12s3 7 10 7a12 12 0 0 0 5.3-1.3"/></svg></button>
       </div>
       <div class="card-tags"></div>
       <div class="card-foot">

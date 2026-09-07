@@ -41,8 +41,8 @@ function ensureClipboardFallback() {
       <footer class="favorites-backup-footer clipboard-fallback-footer">
         <span class="favorites-backup-status" aria-live="polite">文本已全选</span>
         <div class="clipboard-fallback-actions">
-          <button class="favorites-backup-secondary" type="button" data-clipboard-select>重新选择全部</button>
-          <button class="favorites-backup-primary" type="button" data-clipboard-close>关闭</button>
+          <button class="panel-action favorites-backup-secondary" type="button" data-clipboard-select>重新选择全部</button>
+          <button class="panel-action is-primary favorites-backup-primary" type="button" data-clipboard-close>关闭</button>
         </div>
       </footer>
     </section>`;

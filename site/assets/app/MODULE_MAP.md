@@ -21,13 +21,16 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `../app.js` | 主站组合根；`init`、`loadCodex`、`openRelatedDirectory`、收藏 / 全站搜索视图、筛选与搜索编排 | 法典加载序号、收藏备份绑定标记、目录选项缓存 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`search.js`、`search-directories.js`、`search-ui.js`、`media.js`、`favorites.js`、`favorites-backup-core.js`、`favorites-backup.js`、`fav-codex.js`、`site-search.js`、`masonry.js`、`lightbox.js`、`copy.js`、`report.js`、`router.js`、`codex-route-compat.js`、`path-code.js`、`codex-ui.js`、`history.js`、`ui.js`、`onboarding.js`、`intro.js`、`resume-prompt.js`、`browser-history.js`、`tag-relay.js` | 把 `q + f` 编译为统一搜索计划，先做权限过滤再统计结果 / 目录；全部 `set*Actions(...)` 先于 `init()`，本地编辑器满足探测条件后才动态导入 `edit.js` |
+| `../app.js` | 主站组合根；`init`、`loadCodex`、`openRelatedDirectory`、收藏 / 全站搜索视图、筛选与搜索编排 | 法典加载序号、收藏备份绑定标记、目录选项缓存 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`search.js`、`search-directories.js`、`search-ui.js`、`media.js`、`favorites.js`、`favorites-backup-core.js`、`favorites-backup.js`、`fav-codex.js`、`site-search.js`、`masonry.js`、`lightbox.js`、`copy.js`、`report.js`、`router.js`、`codex-route-compat.js`、`path-code.js`、`codex-ui.js`、`history.js`、`ui.js`、`onboarding.js`、`intro.js`、`resume-prompt.js`、`browser-history.js`、`tag-relay.js`、`content-blocking.js`、`content-blocking-ui.js` | 把 `q + f` 编译为统一搜索计划，先做权限过滤再统计结果 / 目录；全部 `set*Actions(...)` 先于 `init()`，本地编辑器满足探测条件后才动态导入 `edit.js` |
 | `../data-source.js` | 选择并读取 R2、同源代理或本地数据；`initializeDataSource`、`fetchDataJson*`、`getDataSource` | 初始化 Promise、当前数据源与 release 上下文 | — | 主站与共创广场共享；同一批引导数据必须来自同一 release，失败时整批切换来源 |
 | `state.js` | 全局运行态、存储键、密度和搜索范围规范化 | 共享 `state` 对象，含规范搜索草稿 / 筛选 / 语法问题 / 计划、相关目录及总数 | — | 只放跨模块运行态；模块私有状态留在所属模块 |
 | `utils.js` | DOM 查询、转义、安全 URL、路径比较、动效偏好、滚动与数值工具 | — | — | 无业务状态的通用工具层 |
 | `path-code.js` | `encodePathCode`、`pathFromCode`；目录路径与地址栏短码互转 | — | — | 编码是纯函数；解码需要法典树，分类改名后旧短码回退到可解析位置 |
 | `codex-route-compat.js` | `normalizeRoutePath`、`normalizeCodexRoutePath`；并册、改名、迁移后的旧路径兼容 | — | — | 保留只读迁移表；加载、历史恢复与最近浏览共用同一归一逻辑 |
 | `access.js` | 法典级与词条级 NSFW / R18G 判定、锁定提示 | — | `state.js`、`feedback.js` | 所有内容分级入口的单一判断层；调用方不得自行拼另一套门控 |
+| `content-blocking-core.js` | 个人屏蔽清单规范化、字面整词/短语匹配、正向字段投影 | — | — | 负面、目录、备注不参与；逐图 rawTag 按现有正向契约读取 |
+| `content-blocking.js` | 本地屏蔽清单、稳定身份匹配、缓存与跨标签页同步 | 独立 localStorage、关键词匹配 WeakMap、变更订阅 | `state.js`、`data.js`、`favorites-backup-core.js`、`content-blocking-core.js` | 复用身份兼容，独立于收藏状态；保存成功才提交内存；编辑后失效词条缓存 |
+| `content-blocking-ui.js` | 屏蔽管理、卡片隐藏/撤销、结果提示与主动打开时临时查看 | 页签、分页、结果命中数、按键复用的行节点与退场/高度动效 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`modal.js`、`ui-motion.js`、`content-blocking.js` | 保存与刷新不等待动画；关闭/快切结清局部动效，移除项立即 inert；调用方先执行分级门控；临时查看不修改持久清单 |
 | `media.js` | 图片能力判断、资源路径、版本参数、缩略图与原图 URL | — | `state.js` | 只解决资源定位，不判断“用户是否有权看原图” |
 | `nai-sd.js` | `naiToSd`、`fmtSdWeight`、`formatCopyText` | — | — | 无 DOM 的格式转换层，主站和共创广场可复用 |
 | `sd-mode.js` | SD 模式的 localStorage 读写契约 | — | — | 共创广场通过同一存储契约同步，不导入主站 `state` |
@@ -57,15 +60,15 @@
 | `favorites-backup.js` | 收藏导入导出面板、同页 / 跨页变更通知与旧域迁移入口 | 对话框状态、法典索引 Promise | `modal.js`、`browser-history.js`、`favorites-backup-core.js`、`favorites-origin-migration.js`、`../data-source.js`、`favorites-transfer.js`、`clipboard.js`、`clipboard-fallback.js` | 页面提供法典索引；只广播受影响 scope，各页面自行重读内存收藏 |
 | `fav-codex.js` | 构建“全部收藏”虚拟法典 | — | `state.js`、`data.js`、`access.js`、`media.js`、`favorites-backup-core.js` | 不写入 `state.codexes`；给条目补 `_src*`，并暴露各真实来源的 `_sourceDirectoryTrees` 供目录排序 |
 | `site-search.js` | 构建并失效“全站搜索”虚拟法典 | 成功结果缓存、在途 Promise、失效代次 | `state.js`、`data.js`、`access.js`、`media.js` | 只缓存完整成功且非降级的结果；编辑后显式失效；条目携带 `_src*`，并按来源顺序暴露 `_sourceDirectoryTrees` |
-| `history.js` | 最近复制、浏览快照、恢复、打开历史条目与滚动复位 | `historyActions`、保存计时 / 抑制状态、恢复代次 | `state.js`、`utils.js`、`media.js`、`router.js`、`codex-route-compat.js`、`access.js`、`feedback.js`、`data.js`、`fav-codex.js`、`site-search.js`、`browser-history.js` | 注入 `loadCodex`、两个虚拟视图入口、`openEntryDeepLink`、`renderTree`、`applyFilter`、`updateVirtualCards`；不得反向导入 `copy.js` |
+| `history.js` | 最近复制、浏览快照、恢复、打开历史条目与滚动复位 | `historyActions`、保存计时 / 抑制状态、恢复代次；最近记录屏蔽核验的法典缓存 | `state.js`、`utils.js`、`media.js`、`router.js`、`codex-route-compat.js`、`access.js`、`feedback.js`、`data.js`、`fav-codex.js`、`site-search.js`、`browser-history.js`、`content-blocking.js`、`favorites-backup-core.js` | 注入 `loadCodex`、两个虚拟视图入口、`openEntryDeepLink`、`renderTree`、`applyFilter`、`updateVirtualCards`；不得反向导入 `copy.js` |
 
 ## 页面与交互表面
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
 | `codex-ui.js` | 法典选择器、目录树、横幅、分类轨、结果 / 空态、随机浏览与归档 UI；`exampleModel` 覆盖书卡 / 横幅的原图状态签；`codexCoverStyle` 共用封面位置与缩放 | 动作注入、访问视图缓存、目录监听、分支动效、提示 / 面板状态 | `state.js`、`utils.js`、`access.js`、`data.js`、`media.js`、`feedback.js`、`browser-history.js`、`modal.js`、`ui-motion.js` | 注入 `loadCodex`、`applySearch`、`applyFilter`、`openLightbox`、`syncUrlState`、`updateVirtualCards`；编辑器可追加 `decorateDoor` |
-| `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效 | 动作注入、布局缓存、虚拟窗口、重排与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js` | 注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`；不静态导入 `lightbox.js` 或 `report.js` |
-| `lightbox.js` | 灯箱开关、跨词条步进、预载、原图 / 分享 / 收藏 / 反馈与 FLIP 辅助 | 当前序号、关闭计时、焦点与缩略图身份、预载缓存 | `state.js`、`utils.js`、`masonry.js`、`search.js`、`copy.js`、`nai-sd.js`、`history.js`、`router.js`、`data.js`、`media.js`、`original-capability.js`、`access.js`、`report.js`、`browser-history.js`、`favorites.js`、`modal.js` | 原图提示按真实来源的 `exampleModel` 标明模型；背景关闭复用手势门并保留滑图后的 click 抑制；灯箱动效维护方式见本地私有文档 `docs/经验/前端灯箱FLIP动效.md` |
+| `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效；屏蔽成员变更的节点复用 | 动作注入、布局缓存、虚拟窗口、重排、限时退场残影与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js`、`ui-motion.js` | 屏蔽保存后复用剩余节点/图片/同宽实测高度；退场不持有业务状态且立即 inert，清空/重排结清；注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`、`hideCard`；不静态导入 `lightbox.js` 或 `report.js` |
+| `lightbox.js` | 灯箱开关、跨词条步进、预载、原图 / 分享 / 收藏 / 反馈与 FLIP 辅助 | 当前序号、关闭计时、焦点与缩略图身份、预载缓存 | `state.js`、`utils.js`、`masonry.js`、`search.js`、`copy.js`、`nai-sd.js`、`history.js`、`router.js`、`data.js`、`media.js`、`original-capability.js`、`access.js`、`report.js`、`browser-history.js`、`favorites.js`、`modal.js`、`content-blocking.js`、`content-blocking-ui.js` | 原图提示按真实来源的 `exampleModel` 标明模型；背景关闭复用手势门并保留滑图后的 click 抑制；灯箱动效维护方式见本地私有文档 `docs/经验/前端灯箱FLIP动效.md` |
 | `report.js` | 反馈提交、上下文打包、公开进度列表和兜底复制 | 当前提交上下文、触发点、公开列表 / 筛选状态与页签动效 | `state.js`、`utils.js`、`feedback.js`、`modal.js`、`media.js`、`original-capability.js`、`feedback-progress.js`、`local-ownership.js`、`clipboard.js`、`clipboard-fallback.js`、`ui-motion.js` | 拥有反馈业务；由瀑布流动作注入调用，不反向依赖瀑布流 |
 | `announcements.js` | 动态面板：公告 / 更新 / 反馈三页签切换、公告加载与未读角标 | 公告数据、加载状态与在途 Promise、当前页签与切换动效 | `ui-motion.js`、`utils.js`、`modal.js`、`history.js`、`updates.js`、`../data-source.js` | 数据读取走统一数据源，不自行拼发布路径；只把当前打开的那一栏标记为已读，未翻到的栏保留红点 |
 | `updates.js` | 跨书更新时间线：`loadUpdates`、`updatesDigest`、面板列表与顶栏气泡渲染、已读标记、行点击派发 | 批次数据、加载状态与在途 Promise；已读集合存 `localStorage` | `utils.js`、`data.js`、`codex-ui.js`、`../data-source.js` | 注入 `openBatch`（`app.js` 提供：换书 + 落到该批次筛选）。条数口径必须与 `data.js` 的 `updateFilterDefinitions` / `entryMatchesUpdateFilter` 以及 `tools/build_updates_index.py` 三处一致；行点击的 `consumeLayer` 由调用方声明，本模块不推断 |
@@ -95,7 +98,7 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `edit.js` | `initEditMode`；本地词条、目录、法典与图片编辑 UI | 服务端能力、注入动作、启用 / 保存 / 弹层与当前词条状态 | `state.js`、`utils.js`、`feedback.js`、`lightbox.js`、`codex-ui.js`、`modal.js`、`../data-source.js`、`search.js`、`search-directories.js`、`masonry.js`、`site-search.js`、`edit-core.js` | `app.js` 探测同源 `/__edit__/ping` 成功后才动态导入；原地编辑后同时失效词条文本、目录和全站搜索缓存；线上不得静态加载 |
+| `edit.js` | `initEditMode`；本地词条、目录、法典与图片编辑 UI | 服务端能力、注入动作、启用 / 保存 / 弹层与当前词条状态 | `state.js`、`utils.js`、`feedback.js`、`lightbox.js`、`codex-ui.js`、`modal.js`、`../data-source.js`、`search.js`、`search-directories.js`、`masonry.js`、`site-search.js`、`edit-core.js`、`content-blocking.js` | `app.js` 探测同源 `/__edit__/ping` 成功后才动态导入；原地编辑后同时失效词条文本、目录和全站搜索缓存；线上不得静态加载 |
 | `edit-core.js` | 路径编解码、目录列表、搜索结果还原、图片名标题、角色提示归一、字段 diff / 校验 / 合并 | — | — | 无 DOM 的纯函数，供 `edit.js` 与 Node 测试复用；维护方式见本地私有文档 `docs/经验/本地嵌入式编辑器.md` |
 
 ## 必须保持的接线约束
@@ -104,6 +107,7 @@
 - `router.js`、`history.js`、`codex-ui.js` 通过注入调用瀑布流，避免反向静态依赖；`masonry.js` 同理通过动作注入打开灯箱和反馈。
 - `browser-history.js` 必须保持页面无关。历史层的底层 open / close handler 不得自己改 history；用户动作包装器才决定 push、replace 或 back。完整套路见本地私有文档 `docs/经验/浏览器历史状态管理.md`。
 - 内容分级统一经过 `access.js`；快照、历史或虚拟视图无法证明可访问时，保持 fail-closed。
+- 个人屏蔽独立于内容分级：`app.js` 过滤最终结果，卡片由动作注入执行隐藏，灯箱在分级判定后拦截并提供临时查看；`app.js` 初始化管理入口，`ui.js` 把面板纳入快捷键遮挡。最近记录在关键词启用时先加载真实词条核验，再渲染缩略图；`edit.js` 失效匹配缓存。清单仅覆盖主图鉴，收藏关系、共创广场和中转站编排状态仍各自管理。
 - 收藏和全站搜索是临时虚拟法典，不进入 `state.codexes`；跨法典消费者必须用 `_src*` 回到真实来源。
 - 普通搜索默认只召回标题、标签和角色正向提示词；隐藏字段必须由显式筛选访问，路径文字不得把目录内容混入图片结果。
 - 搜索地址把正向输入留在 `q`、规范筛选放进重复 `f`；相关目录和精确目录筛选都必须在权限过滤后基于真实来源树生成。

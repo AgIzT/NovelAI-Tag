@@ -1,0 +1,92 @@
+/* 个人屏蔽功能的专有样式。
+   通用件一律复用主站已有的件：结果栏入口用 .bar-btn、面板动作用 .panel-action、
+   分栏用与反馈面板同构的凹槽分段控件、输入框对齐高级搜索的字段。
+   这里只留屏蔽独有的部分——新增控件请先在主站找同源件，别在本文件另起一套尺寸。 */
+
+/* 卡片上的“不想看”：与同排的 .fav-btn 同规格，否则会把整栏标题行从 20px 撑到 28px */
+.hide-card-btn{
+  flex:none;border:none;background:transparent;cursor:pointer;
+  padding:2px 5px;border-radius:7px;line-height:1;color:var(--muted);
+  display:grid;place-items:center;
+  transition:background .12s,color .12s,scale .12s ease;
+}
+/* 按压幅度与 .fav-btn 同值，两个按钮就在一起，不能一个跟手一个不动。 */
+.hide-card-btn:active{scale:.88}
+.hide-card-btn svg{
+  display:block;width:16px;height:16px;fill:none;stroke:currentColor;
+  stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;
+}
+.hide-card-btn:is(:hover,:focus-visible){background:var(--tagbg);color:var(--accent)}
+body.density-compact .hide-card-btn{padding:1px 3px;border-radius:6px}
+body.density-compact .hide-card-btn svg{width:14px;height:14px}
+
+/* 结果栏入口的几何、字重和过渡都来自 .bar-btn，这里只挂 z 序与面板骨架 */
+#contentBlocking,#blockingReveal{z-index:110}
+#contentBlocking{z-index:111}
+.blocking-panel,.blocking-reveal-panel{padding-bottom:18px}
+
+/* 启用开关行：与设置面板里的条目同构（细线分隔，不是灰色色块） */
+.blocking-enable-row{display:flex;align-items:center;gap:10px;padding:13px 2px;border-bottom:1px solid var(--line)}
+.blocking-enable-row>label:first-child{flex:1;min-width:0;font-size:14px;font-weight:600}
+.blocking-paused{margin-top:10px}
+
+/* 分栏：几何、滑块与选中态全部来自 .seg-tabs，这里只给外边距 */
+.blocking-tabs{margin:14px 0 16px}
+.blocking-views{position:relative;display:flow-root;min-width:0}
+
+/* 添加屏蔽词：字段几何与高级搜索面板的字段一致（36px / 9px / 三像素焦点光晕） */
+.blocking-word-form>label{display:block;margin-bottom:6px;color:var(--muted);font-size:12px;font-weight:600}
+.blocking-input-row{display:flex;align-items:center;gap:8px}
+.blocking-input-row input{
+  min-width:0;flex:1;min-height:36px;border:1px solid var(--line);border-radius:9px;padding:0 10px;
+  background:var(--card);color:var(--text);font:inherit;font-size:13px;outline:none;
+  transition:border-color .16s,box-shadow .16s,background .16s;
+}
+.blocking-input-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.blocking-input-row input[aria-invalid="true"]{border-color:var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 12%,transparent)}
+.blocking-input-row input::placeholder{color:var(--muted)}
+.blocking-hint{margin:9px 0 0;color:var(--muted);font-size:12px;line-height:1.7}
+.blocking-error{margin:9px 0 0;color:var(--danger-text);font-size:12px;line-height:1.5}
+
+/* 已屏蔽的词：沿用高级搜索“已加条件”胶囊的形制 */
+.blocking-word-list{position:relative;list-style:none;display:flex;flex-wrap:wrap;gap:7px;margin:16px 0 0;padding:0}
+.blocking-word-list li{
+  min-height:28px;max-width:100%;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:999px;
+  display:inline-flex;align-items:center;background:var(--accent-soft);color:var(--text);overflow:hidden;
+}
+.blocking-word-list li>span{min-width:0;padding:3px 2px 3px 11px;font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.blocking-word-list button{
+  flex:none;align-self:stretch;width:28px;border:0;background:transparent;color:var(--muted);
+  font-size:16px;line-height:1;cursor:pointer;transition:background .15s,color .15s,scale .12s ease;
+}
+.blocking-word-list button:is(:hover,:focus-visible){background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
+
+/* 单独隐藏的卡片：与设置面板的条目行同构 */
+.blocking-entry-list{position:relative;list-style:none;margin:0;padding:0}
+.blocking-entry-list li{display:flex;align-items:center;gap:12px;padding:13px 2px;border-bottom:1px solid var(--line)}
+.blocking-entry-list li.is-last{border-bottom:none}
+.blocking-entry-list li>div{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.blocking-entry-list b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.blocking-entry-list span{color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.blocking-empty{padding:22px 0 10px;text-align:center;color:var(--muted);font-size:13px;line-height:1.8}
+#blockingMoreEntries{display:block;margin:16px auto 0}
+
+/* 已屏蔽提示弹窗的动作区：与 .nsfw-actions 同构 */
+.blocking-reveal-actions{
+  display:flex;justify-content:flex-end;flex-wrap:wrap;gap:9px;
+  margin-top:18px;padding-top:14px;border-top:1px solid var(--line);
+}
+
+/* 清单增删、补位与页签高度由 ui-motion 持有，关闭或快速操作会结清旧轮。 */
+.blocking-word-list [data-blocking-exit],.blocking-entry-list [data-blocking-exit]{pointer-events:none}
+.blocking-word-list button:active{scale:.94}
+
+@media (max-width:600px){
+  .blocking-input-row input{font-size:16px}
+  .blocking-reveal-actions{justify-content:flex-start}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .hide-card-btn,.blocking-word-list button{transition:none!important}
+  .fav-btn:active,.hide-card-btn:active,.blocking-word-list button:active{scale:1}
+}

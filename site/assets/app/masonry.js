@@ -7,12 +7,14 @@ import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } fro
 import { copyText, combinedPrompt, combinedPromptLabel, entryPromptText } from './copy.js';
 import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
 
 const masonryActions = {
   openLightbox: () => {},
   copyEntry: () => {},
   toggleFav: () => {},
   reportEntry: () => {},
+  hideCard: () => {},
 };
 
 const FILTER_EXIT_MS = 140;
@@ -22,6 +24,108 @@ let filterTransitionSeq = 0;
 let filterTransitionTimer = 0;
 let forceEntryAnim = false;
 let suppressNextInitialEntryBatch = false;
+const retiringCards = new Map();
+let blockingMotionTimer = 0;
+
+function finishBlockingMotion() {
+  clearTimeout(blockingMotionTimer);
+  blockingMotionTimer = 0;
+  $('#masonry')?.classList.remove('is-blocking-update', 'has-retiring-cards');
+  for (const retirement of retiringCards.values()) {
+    clearTimeout(retirement.timer);
+    cancelUiMotion(retirement.node);
+    cleanupCard(retirement.node);
+    retirement.node.remove();
+  }
+  retiringCards.clear();
+}
+
+function retireCard(entry, node, animate) {
+  const visual = getComputedStyle(node);
+  const opacity = visual.opacity;
+  const transform = visual.transform;
+  settleCardEntry(node);
+  // 连点时可能仍在上一轮补位中；退场固定此刻的位置，不先跳到补位终点。
+  node.style.transform = transform;
+  node.inert = true;
+  node.setAttribute('aria-hidden', 'true');
+  node.classList.add('card-retiring');
+  delete node.dataset.index;
+  if (!animate) { cleanupCard(node); node.remove(); return; }
+  const retirement = { node, timer: 0 };
+  retiringCards.set(entry, retirement);
+  $('#masonry')?.classList.add('has-retiring-cards');
+  const finish = () => {
+    if (retiringCards.get(entry) !== retirement) return;
+    retiringCards.delete(entry);
+    clearTimeout(retirement.timer);
+    cleanupCard(node);
+    node.remove();
+    if (!retiringCards.size) $('#masonry')?.classList.remove('has-retiring-cards');
+  };
+  const animation = animateUi(node, [{ opacity }, { opacity: 0 }], { duration: FILTER_EXIT_MS, easing: 'linear' });
+  retirement.timer = window.setTimeout(finish, FILTER_EXIT_MS + FILTER_EXIT_PAD_MS);
+  if (animation) animation.finished.then(finish, finish);
+  else finish();
+}
+
+// 屏蔽只改变当前结果的成员：保留未变卡片的 DOM、图片与实测高度。
+// 业务列表当场更新，离场节点仅作短暂视觉残影，不再参与交互或虚拟列表索引。
+function renderBlockingList(m) {
+  const previous = new Map(state.placements.map(p => [p.entry, p]));
+  const nodes = new Map(state.placements.map(p => [p.entry, state.nodes.get(p.index)]));
+  const active = document.activeElement;
+  const lostFocusIndex = [...state.nodes].find(([, node]) => node.contains(active))?.[0];
+  const animate = !prefersReducedMotion() && !document.documentElement.classList.contains('motion-off');
+  clearTimeout(blockingMotionTimer);
+  clearTimeout(relayoutAnimTimer);
+  relayoutAnimating = false;
+  m.classList.remove('is-relayouting');
+  m.classList.toggle('is-blocking-update', animate);
+  if (animate) void m.offsetWidth;
+  computeLayout({ previous });
+  const remaining = new Set(state.list);
+  for (const [entry, node] of nodes) {
+    if (node && !remaining.has(entry)) retireCard(entry, node, animate);
+  }
+  state.nodes.clear();
+  for (const placement of state.placements) {
+    const retirement = retiringCards.get(placement.entry);
+    const node = nodes.get(placement.entry) || retirement?.node;
+    if (!node) continue;
+    if (retirement) {
+      retiringCards.delete(placement.entry);
+      clearTimeout(retirement.timer);
+      cancelUiMotion(node);
+      node.classList.remove('card-retiring');
+      node.inert = false;
+      node.removeAttribute('aria-hidden');
+    }
+    node.dataset.index = String(placement.index);
+    state.nodes.set(placement.index, node);
+  }
+  if (!retiringCards.size) m.classList.remove('has-retiring-cards');
+  updateVirtualCards(true);
+  // 恢复/撤销可能把卡插回中间；只移动顺序真正变化的节点，不重插整屏图片。
+  const nextLive = node => {
+    while (node?.classList.contains('card-retiring')) node = node.nextElementSibling;
+    return node;
+  };
+  let cursor = nextLive(m.firstElementChild);
+  for (const [, node] of [...state.nodes].sort(([a], [b]) => a - b)) {
+    if (node !== cursor) m.insertBefore(node, cursor);
+    cursor = nextLive(node.nextElementSibling);
+  }
+  if (lostFocusIndex !== undefined && (!active.isConnected || active.closest('[inert]'))) {
+    const next = state.nodes.get(lostFocusIndex) || [...state.nodes.values()].at(-1);
+    (next?.querySelector('.hide-card-btn') || $('#blockingResultBtn'))?.focus({ preventScroll: true });
+  }
+  if (animate) blockingMotionTimer = window.setTimeout(() => {
+    blockingMotionTimer = 0;
+    m.classList.remove('is-blocking-update');
+  }, 320);
+  updateScrollProgress();
+}
 
 export function setMasonryActions(actions = {}) {
   Object.assign(masonryActions, actions);
@@ -107,6 +211,7 @@ export function colCount() {
 }
 
 export function clearMasonry() {
+  finishBlockingMotion();
   cleanupFilterTransition();
   for (const node of state.nodes.values()) cleanupCard(node);
   state.nodes.clear();
@@ -126,7 +231,14 @@ export function renderList({ resetScroll = false, transition = 'none' } = {}) {
   const m = $('#masonry');
   const shouldTransition = canRunFilterTransition(m, transition);
   const seq = ++filterTransitionSeq;
+  const interruptedFilter = Boolean(filterTransitionTimer);
   cleanupFilterTransition(m);
+
+  // 搜索退场中仍是旧高亮/命中提示；此时不能把旧 DOM 当作当前结果复用。
+  if (transition === 'blocking' && !interruptedFilter && m && state.placements.length && !resetScroll) {
+    renderBlockingList(m);
+    return;
+  }
 
   if (!shouldTransition) {
     renderListNow({ resetScroll, forceEntry: canForceFilterEntry(transition) });
@@ -164,7 +276,7 @@ export function renderList({ resetScroll = false, transition = 'none' } = {}) {
   }, maxDelay + FILTER_EXIT_MS + FILTER_EXIT_PAD_MS);
 }
 
-export function computeLayout() {
+export function computeLayout({ previous } = {}) {
   const m = $('#masonry');
   const width = Math.max(1, m.clientWidth || $('#main').clientWidth || 1);
   const cfg = densityConfig();
@@ -176,9 +288,11 @@ export function computeLayout() {
   for (let i = 0; i < state.list.length; i++) {
     const entry = state.list[i];
     const col = shortestIndex(colHeights);
-    const imageHeight = estimateImageHeight(entry, itemWidth);
+    const measured = previous?.get(entry);
+    const retained = measured?.width === itemWidth ? measured : null;
+    const imageHeight = retained?.imageHeight ?? estimateImageHeight(entry, itemWidth);
     const body = estimateBodyMetrics(entry, itemWidth);
-    const height = Math.ceil(imageHeight + body.height);
+    const height = retained?.height ?? Math.ceil(imageHeight + body.height);
     const left = col * (itemWidth + cfg.gap);
     const top = colHeights[col];
 
@@ -191,7 +305,7 @@ export function computeLayout() {
       width: itemWidth,
       height,
       imageHeight,
-      tagsHeight: body.tagsHeight,
+      tagsHeight: retained?.tagsHeight ?? body.tagsHeight,
     });
     colHeights[col] += height + cfg.gap;
   }
@@ -482,6 +596,12 @@ export function makeCard(placement) {
   fav.onclick = ev => { ev.stopPropagation(); masonryActions.toggleFav(e, fav); };
 
   const reportBtn = node.querySelector('.report-card-btn');
+  const hideBtn = node.querySelector('.hide-card-btn');
+  if (hideBtn) hideBtn.onclick = ev => {
+    ev.stopPropagation();
+    // 保存成功后的订阅刷新负责退场；错误时保留原卡，来源也不会被迟到回调改写。
+    masonryActions.hideCard(e);
+  };
   if (reportBtn) {
     reportBtn.onclick = ev => {
       ev.stopPropagation();
@@ -883,6 +1003,7 @@ export function notifyImageLoadError(e) {
 }
 
 export function cleanupCard(node) {
+  cancelUiMotion(node);
   if (node._imageTimer) {
     clearTimeout(node._imageTimer);
     node._imageTimer = 0;
@@ -931,6 +1052,7 @@ export function startRelayoutAnimation() {
 
 export function relayoutVisible({ animate = false } = {}) {
   if (!state.codex) return;
+  finishBlockingMotion();
   if (animate) startRelayoutAnimation();
   computeLayout();
   updateVirtualCards(true);
