@@ -13,6 +13,7 @@ const masonryActions = {
   copyEntry: () => {},
   toggleFav: () => {},
   reportEntry: () => {},
+  hideCard: () => {},
 };
 
 const FILTER_EXIT_MS = 140;
@@ -482,6 +483,15 @@ export function makeCard(placement) {
   fav.onclick = ev => { ev.stopPropagation(); masonryActions.toggleFav(e, fav); };
 
   const reportBtn = node.querySelector('.report-card-btn');
+  const hideBtn = node.querySelector('.hide-card-btn');
+  if (hideBtn) hideBtn.onclick = ev => {
+    ev.stopPropagation();
+    if (node.classList.contains('card-leaving')) return;
+    if (prefersReducedMotion()) { masonryActions.hideCard(e); return; }
+    // 与筛选切换同一套退场：先淡出这一张，再让屏蔽清单触发重排把空位收掉。
+    node.classList.add('card-leaving');
+    window.setTimeout(() => masonryActions.hideCard(e), FILTER_EXIT_MS + FILTER_EXIT_PAD_MS);
+  };
   if (reportBtn) {
     reportBtn.onclick = ev => {
       ev.stopPropagation();

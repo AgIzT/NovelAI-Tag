@@ -115,7 +115,7 @@ export function selectAnnouncementsTab(value) {
   const direction = TABS.indexOf(tab) > TABS.indexOf(activeTab) ? 1 : -1;
   finishTabMotion?.();
   activeTab = tab;
-  mask?.querySelector('.announcements-tabs')?.style.setProperty('--ann-tab-index', String(TABS.indexOf(tab)));
+  mask?.querySelector('.announcements-tabs')?.style.setProperty('--seg-index', String(TABS.indexOf(tab)));
   document.querySelectorAll('[data-announcements-tab]').forEach(button => {
     const active = button.dataset.announcementsTab === tab;
     button.setAttribute('aria-selected', active ? 'true' : 'false');

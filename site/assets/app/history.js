@@ -5,7 +5,9 @@ import { syncUrlState } from './router.js';
 import { normalizeCodexRoutePath } from './codex-route-compat.js';
 import { firstUnlockedCodex, isCodexLocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { toast } from './feedback.js';
-import { findCodexMeta, resolveUpdateFilter, updateFilterDefinitions } from './data.js';
+import { findCodexMeta, fetchCodex, resolveUpdateFilter, updateFilterDefinitions } from './data.js';
+import { canonicalizeAtlasFavorite } from './favorites-backup-core.js';
+import { getBlockingPreferences, isContentBlocked } from './content-blocking.js';
 import { FAVORITES_CODEX_ID } from './fav-codex.js';
 import { SITE_SEARCH_CODEX_ID } from './site-search.js';
 import { isHistoryRestoreToken } from './browser-history.js';
@@ -250,14 +252,49 @@ export function formatRecentTime(ts) {
   return new Date(Number(ts)).toLocaleDateString('zh-CN');
 }
 
+const historyBlockingCodexes = new Map();
+
+function historyContentVisibility(item, preferences) {
+  if (!preferences.enabled || (!preferences.words.length && !preferences.entries.length)) return 'visible';
+  let identity;
+  try { identity = canonicalizeAtlasFavorite({ codexId: item.codexId, entryId: item.entryId }, state.codexes); }
+  catch { return 'hidden'; }
+  const snapshot = { id: identity.entryId, _srcCodexId: identity.codexId, title: item.title };
+  if (isContentBlocked(snapshot)) return 'hidden';
+  if (!preferences.words.length) return 'visible';
+  const meta = findCodexMeta(identity.codexId);
+  if (!meta) return 'hidden';
+  const cached = historyBlockingCodexes.get(meta.id);
+  const codex = state.codex?.id === meta.id ? state.codex : cached?.codex;
+  if (codex) {
+    const entry = codex.entries.find(entry => entry.id === identity.entryId);
+    return !entry || isContentBlocked({ ...entry, _srcCodexId: meta.id }) ? 'hidden' : 'visible';
+  }
+  if (cached) return cached.failed ? 'failed' : 'pending';
+  const record = {};
+  historyBlockingCodexes.set(meta.id, record);
+  fetchCodex(meta).then(codex => { record.codex = codex; }, () => { record.failed = true; }).finally(() => {
+    if ($('#historyPanel') && !$('#historyPanel').hidden) renderHistoryPanel();
+  });
+  return 'pending';
+}
+
 export function renderHistoryPanel() {
+  if ($('#historyPanel')?.hidden) {
+    for (const [key, value] of historyBlockingCodexes) if (value.failed) historyBlockingCodexes.delete(key);
+  }
   const resume = $('#resumeBrowse');
   const resumeDesc = $('#resumeDesc');
   const resumeLocked = isHistoryItemLocked(state.lastBrowse);
   if (resumeDesc) resumeDesc.textContent = browseDesc(state.lastBrowse);
   if (resume) resume.disabled = !state.lastBrowse || Boolean(resumeLocked);
   const clearBtn = $('#clearRecent');
-  const recentEntries = state.recentEntries.filter(item => !isHistoryItemLocked(item));
+  const preferences = getBlockingPreferences();
+  const accessibleEntries = state.recentEntries.filter(item => !isHistoryItemLocked(item));
+  const checked = accessibleEntries.map(item => ({ item, visibility: historyContentVisibility(item, preferences) }));
+  const recentEntries = checked.filter(item => item.visibility === 'visible').map(item => item.item);
+  const pending = checked.some(item => item.visibility === 'pending');
+  const failed = checked.some(item => item.visibility === 'failed');
   if (clearBtn) clearBtn.disabled = recentEntries.length === 0;
 
   const list = $('#recentList');
@@ -267,7 +304,9 @@ export function renderHistoryPanel() {
     const empty = document.createElement('div');
     empty.className = 'recent-empty';
     empty.textContent = state.recentEntries.length
-      ? '最近记录中只有当前已隐藏的限制级内容。开启对应内容权限后可查看。'
+      ? (pending ? '正在检查最近记录…' : failed ? '部分记录加载失败，重新打开此面板可重试。'
+        : accessibleEntries.length ? '最近记录已被屏蔽，可在设置中管理屏蔽清单。'
+          : '最近记录中只有当前已隐藏的限制级内容。开启对应内容权限后可查看。')
       : '最近还没有打开过词条。点卡片放大图或复制词条后，这里会自动记录。';
     list.appendChild(empty);
     return;
@@ -309,6 +348,12 @@ export function renderHistoryPanel() {
     btn.appendChild(time);
     btn.onclick = () => document.dispatchEvent(new CustomEvent('openRecentEntry', { detail: item }));
     list.appendChild(btn);
+  }
+  if (pending || failed) {
+    const notice = document.createElement('p');
+    notice.className = 'recent-empty';
+    notice.textContent = pending ? '正在检查其余记录…' : '部分记录加载失败，重新打开此面板可重试。';
+    list.appendChild(notice);
   }
 }
 

@@ -1049,6 +1049,7 @@ export function bindUI() {
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable;
   };
   const overlayOpen = () =>
+    Boolean(document.querySelector('#contentBlocking.show, #blockingReveal.show')) ||
     !$('#lightbox').hidden ||
     !settingsMask.hidden ||
     !nsfwMask.hidden ||

@@ -1112,7 +1112,7 @@ function updateFilterControls() {
   for (const filter of filters) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `update-filter-btn${filter.latest ? ' is-latest' : ''}`;
+    btn.className = `bar-btn update-filter-btn${filter.latest ? ' is-latest' : ''}`;
     btn.dataset.updateFilter = filter.id;
     btn.setAttribute('aria-pressed', state.updateFilter === filter.id ? 'true' : 'false');
     if (filter.latest) {

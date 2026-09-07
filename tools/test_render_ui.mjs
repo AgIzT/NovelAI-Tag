@@ -1199,6 +1199,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     '../site/index.html',
     '../site/assets/styles.css',
     '../site/assets/edit.css',
+    '../site/assets/tokens.css',
     './build_local_edition.py',
   ];
   const [
@@ -1219,6 +1220,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     indexSource,
     stylesSource,
     editCssSource,
+    tokensSource,
     localEditionBuilderSource,
   ] = await Promise.all(paths.map(path => readFile(new URL(path, import.meta.url), 'utf8')));
 
@@ -1311,7 +1313,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.ok(narrowScopeWidth >= 44, '极窄屏范围按钮必须保留可用点击宽度');
   assert.ok(narrowSearchPadding >= narrowScopeLeft + narrowScopeWidth + 8, '极窄屏输入文字必须与范围按钮保留间距');
   assert.match(narrowSearchInput, /padding-right:92px/, '极窄屏输入文字必须为清空与筛选按钮留位');
-  assert.match(stylesSource, /body\.dark \.search-filter-feedback\{color:#ff9e97\}/);
+  assert.match(stylesSource, /\.search-filter-feedback\{[^}]*color:var\(--danger-text\)/);
+  assert.match(tokensSource, /--danger:#d74b66; --danger-text:#c33f59;/);
+  assert.match(tokensSource, /body\.dark\{[\s\S]*--danger-text:#ff9e97;/);
   assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)\{[\s\S]*\.search-filter-panel/);
   assert.match(indexSource, /id="sidebar"[\s\S]*id="sidebarBackdrop"[\s\S]*id="main"/);
   assert.match(stylesSource, /\.sidebar:not\(\.closed\)\+\.sidebar-backdrop\{[\s\S]*z-index:24[\s\S]*touch-action:none/);
@@ -1324,7 +1328,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.doesNotMatch(railActiveSource, /window\.scroll|scrollIntoView/);
   assert.match(indexSource, /id="updateFilterControls"[^>]*hidden/);
   assert.doesNotMatch(indexSource, /onlyImaged/);
-  assert.match(codexUiSource, /className = `update-filter-btn\$\{filter\.latest \? ' is-latest' : ''\}`/);
+  assert.match(codexUiSource, /className = `bar-btn update-filter-btn\$\{filter\.latest \? ' is-latest' : ''\}`/);
   assert.match(codexUiSource, /if \(filter\.latest\) \{[\s\S]*mark\.textContent = 'NEW'/);
   assert.match(uiSource, /closest\?\.\('\[data-update-filter\]'\)/);
   assert.match(appSource, /entryMatchesUpdateFilter\(entry, updateFilter\)/);
@@ -1393,6 +1397,33 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(stylesSource, /\.toast\{[\s\S]*max-width:min\(360px,calc\(100vw - 24px\)\)/);
   assert.match(stylesSource, /\.toast\.has-action\{[\s\S]*min-height:44px[\s\S]*padding:4px 6px 4px 14px/);
   assert.match(stylesSource, /\.toast\.has-action \.toast-message\{[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/);
+
+  // ---- 界面基件（ui-kit.css）防漂移 ----
+  const uiKitSource = await readFile(new URL('../site/assets/ui-kit.css', import.meta.url), 'utf8');
+  const stringsSource = await readFile(new URL('../site/strings.html', import.meta.url), 'utf8');
+  // 结果栏按钮、面板动作按钮、分段页签各只有一份定义，两个页面都要加载得到。
+  for (const source of [indexSource, stringsSource]) {
+    assert.match(source, /<link rel="stylesheet" href="assets\/ui-kit\.css">/, '两个页面都必须加载 ui-kit.css');
+  }
+  assert.match(uiKitSource, /\.bar-btn\{[\s\S]*border-radius:999px[\s\S]*font:700 12px/);
+  assert.match(uiKitSource, /\.panel-action,\.nsfw-actions button\{[\s\S]*border-radius:999px[\s\S]*font:800 13px/);
+  // 底色必须单独给 .panel-action：写进上面那条共用规则会盖掉 .nsfw-primary 的语义红。
+  assert.match(uiKitSource, /^\.panel-action\{background:var\(--card\);color:var\(--text\)\}$/m);
+  assert.doesNotMatch(
+    uiKitSource.match(/\.panel-action,\.nsfw-actions button\{[^}]+\}/)?.[0] || '',
+    /background:|(?<!border-)color:/,
+    '共用几何规则里不许写底色',
+  );
+  assert.match(uiKitSource, /\.seg-tabs\{[\s\S]*--seg-count:2;--seg-index:0/);
+  // 三处页签共用同一套凹槽与滑块，不再各写一套。
+  for (const tabs of ['announcements-tabs', 'feedback-tabs', 'blocking-tabs']) {
+    assert.match(indexSource, new RegExp(`class="seg-tabs ${tabs}"`), `${tabs} 必须走 .seg-tabs`);
+  }
+  assert.doesNotMatch(stylesSource, /\.(announcements|feedback)-tabs::before\{/, '页签滑块只在 ui-kit.css 里定义一次');
+  // 改版前遗留的旧品牌绿；accent 派生色只走 --accent-glow 或 color-mix。
+  assert.doesNotMatch(stylesSource, /rgba\(21,\s*160,\s*106/, 'styles.css 不得再出现旧品牌绿');
+  // 危险红是语义色，只留给 NSFW / R18G / 覆盖收藏这类真危险动作。
+  assert.doesNotMatch(indexSource, /id="(feedbackSubmit|onboardingNext)"[^>]*class="nsfw-primary/, '非危险主按钮不得借用 .nsfw-primary');
 }
 
 // 中转站侧栏契约：窄桌面不再硬停靠；所有确认留在侧栏内。

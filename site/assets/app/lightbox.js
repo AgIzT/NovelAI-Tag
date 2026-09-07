@@ -15,6 +15,8 @@ import {
 } from './original-capability.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { openReportDialog } from './report.js';
+import { isContentBlocked } from './content-blocking.js';
+import { hideCard, promptBlockedEntry } from './content-blocking-ui.js';
 import { goBackFrom } from './browser-history.js';
 import { bindBackdropDismiss } from './modal.js';
 import {
@@ -78,7 +80,7 @@ export function lightboxNavigationContext(entry = state.lightbox.entry, list = s
   let exactIndex = -1;
   let equivalentIndex = -1;
   for (const candidate of list) {
-    if (!hasEntryImage(candidate) || isEntryAccessBlocked(candidate)) continue;
+    if (!hasEntryImage(candidate) || isEntryAccessBlocked(candidate) || isContentBlocked(candidate)) continue;
     const index = entries.length;
     entries.push(candidate);
     if (candidate === entry) exactIndex = index;
@@ -256,6 +258,13 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   const parentScrollY = Math.max(0, window.scrollY || 0);
   if (isR18gBlocked(entry)) { showR18gLockedHint(); return; }  // 深链/最近记录等绕过路径的兜底拦截
   if (isLightboxEntryAccessBlocked(entry)) { showNsfwLockedHint(); return; }
+  if (!options.allowContentBlocked && isContentBlocked(entry)) {
+    syncUrlState({ entry: '', historyMode: 'replace' });
+    promptBlockedEntry(entry, () => openLightbox(entry, index, null, {
+      ...options, allowContentBlocked: true, consumeLayer: true, historyMode: 'push',
+    }));
+    return;
+  }
   const sourceImages = entryImages(entry);
   const images = sourceImages.length
     ? sourceImages
@@ -662,6 +671,12 @@ export function renderLightbox() {
   }
 
   $('#lightboxTitle').textContent = e.title;
+  const hideButton = $('#hideLightbox');
+  if (hideButton) {
+    hideButton.disabled = isContentBlocked(e);
+    hideButton.textContent = hideButton.disabled ? '已屏蔽' : '不想看';
+    hideButton.onclick = () => hideCard(e);
+  }
   const nav = lightboxNavigationContext(e, state.list);
   const entryPosition = nav.index >= 0 ? ` · 第 ${nav.position} / ${nav.total} 条` : '';
   $('#lightboxMeta').textContent = emptyImage

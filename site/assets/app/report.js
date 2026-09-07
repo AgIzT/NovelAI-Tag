@@ -324,7 +324,7 @@ function selectFeedbackTab(value) {
   if (open && nextView && !nextView.hidden) return;
   const changed = Boolean(nextView?.hidden);
   cancelFeedbackTabMotion();
-  mask?.querySelector('.feedback-tabs')?.style.setProperty('--feedback-tab-index', tab === 'progress' ? '1' : '0');
+  mask?.querySelector('.feedback-tabs')?.style.setProperty('--seg-index', tab === 'progress' ? '1' : '0');
   document.querySelectorAll('[data-feedback-tab]').forEach(button => {
     const active = button.dataset.feedbackTab === tab;
     button.setAttribute('aria-selected', active ? 'true' : 'false');

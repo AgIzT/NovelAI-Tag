@@ -16,6 +16,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap"></noscript>
 <link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/ui-kit.css">
 <link rel="stylesheet" href="assets/community.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
 <link rel="modulepreload" href="assets/community/constants.js">
@@ -85,12 +86,12 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <aside class="favorites-migration-banner" data-favorites-migration-banner hidden>
     <div class="favorites-migration-banner-copy">
       <b>换到新域名后收藏为空？</b>
-      <span>如果你以前使用 pages.dev 收藏过内容，可以从原浏览器一键找回。</span>
+      <span>如果你以前使用 pages.dev 收藏过内容，可以从原浏览器找回。</span>
       <small data-favorites-migration-feedback hidden></small>
     </div>
     <div class="favorites-migration-banner-actions">
-      <button class="favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
-      <button class="favorites-migration-dismiss" type="button" data-favorites-migration-dismiss aria-label="关闭旧收藏找回提示">以后不提示</button>
+      <button class="panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
+      <button class="panel-action favorites-migration-dismiss" type="button" data-favorites-migration-dismiss aria-label="关闭旧收藏找回提示">以后不提示</button>
     </div>
   </aside>
   <section class="community-hero" aria-labelledby="communityTitle">
@@ -129,7 +130,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
     <div class="community-result-row">
       <div id="resultInfo" class="result-bar">正在加载共创广场…</div>
-      <button class="favorites-backup-result-btn" type="button" data-favorites-backup-open>收藏备份</button>
+      <button class="bar-btn favorites-backup-result-btn" type="button" data-favorites-backup-open>收藏备份</button>
     </div>
 
     <button class="submit-inline" type="button" data-open-submit>
@@ -245,8 +246,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <p>一份文件会同时包含两处收藏。</p>
           </div>
           <div class="favorites-backup-heading-actions">
-            <button id="favoritesExportTextBtn" class="favorites-backup-secondary" type="button">复制迁移文本</button>
-            <button id="favoritesExportBtn" class="favorites-backup-primary" type="button">导出 JSON</button>
+            <button id="favoritesExportTextBtn" class="panel-action favorites-backup-secondary" type="button">复制迁移文本</button>
+            <button id="favoritesExportBtn" class="panel-action is-primary favorites-backup-primary" type="button">导出 JSON</button>
           </div>
         </div>
         <dl class="favorites-backup-stats">
@@ -265,9 +266,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div class="favorites-backup-section-heading">
           <div>
             <h3 id="favoritesMigrationTitle">从旧 pages.dev 找回</h3>
-            <p>在原设备和原浏览器中一键读取旧域收藏，并与当前收藏合并。</p>
+            <p>在原设备和原浏览器中读取旧域收藏，并与当前收藏合并。</p>
           </div>
-          <button class="favorites-backup-primary" type="button" data-favorites-migration-start>一键找回</button>
+          <button class="panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
         </div>
         <p class="favorites-migration-feedback" data-favorites-migration-feedback role="status" aria-live="polite" hidden></p>
         <a class="favorites-migration-fallback" data-favorites-migration-fallback href="https://novelai-tag.pages.dev/_favorites-migration-202607.html?bridge=20260721" target="_blank" rel="noopener">自动迁移失败？手动打开救援页下载 JSON</a>
@@ -291,7 +292,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <summary>或用文本粘贴</summary>
           <p>把另一台设备复制出的迁移文本粘贴到这里；也接受完整 JSON。</p>
           <textarea id="favoritesImportText" rows="4" spellcheck="false" placeholder="NAITAG1.… 或完整 JSON"></textarea>
-          <button id="favoritesImportTextBtn" class="favorites-backup-secondary" type="button">从文本检查并恢复</button>
+          <button id="favoritesImportTextBtn" class="panel-action favorites-backup-secondary" type="button">从文本检查并恢复</button>
         </details>
 
         <div id="favoritesImportPreview" class="favorites-import-preview" aria-live="polite" hidden>
@@ -318,7 +319,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <p id="favoritesBackupError" class="favorites-backup-error" role="alert" hidden></p>
         <p id="favoritesBackupStatus" class="favorites-backup-status" role="status" aria-live="polite"></p>
       </div>
-      <button id="favoritesRestoreBtn" class="favorites-backup-primary" type="button" disabled>恢复收藏</button>
+      <button id="favoritesRestoreBtn" class="panel-action is-primary favorites-backup-primary" type="button" disabled>恢复收藏</button>
     </footer>
 
     <div id="favoritesReplaceConfirm" class="favorites-replace-confirm" role="alertdialog" aria-modal="true" aria-labelledby="favoritesReplaceTitle" aria-describedby="favoritesReplaceMessage" hidden>
@@ -327,8 +328,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <h3 id="favoritesReplaceTitle">确认覆盖当前收藏？</h3>
         <p id="favoritesReplaceMessage">这会同时替换法典图鉴与共创广场收藏。</p>
         <div class="favorites-replace-actions">
-          <button id="favoritesReplaceBack" class="favorites-backup-secondary" type="button">返回检查</button>
-          <button id="favoritesReplaceConfirmBtn" class="favorites-backup-danger" type="button">确认覆盖</button>
+          <button id="favoritesReplaceBack" class="panel-action favorites-backup-secondary" type="button">返回检查</button>
+          <button id="favoritesReplaceConfirmBtn" class="panel-action is-danger favorites-backup-danger" type="button">确认覆盖</button>
         </div>
       </div>
     </div>

@@ -1,0 +1,90 @@
+/* 跨页共用的界面基件。index.html / strings.html 都在 tokens.css 之后加载本文件，
+   各自的功能样式表只在这之上写差异，不重复几何。
+   新增控件先来这里找同源件；这里没有再谈新增，别在功能样式表里另起一套尺寸。 */
+
+/* ---------- 结果栏按钮家族 ----------
+   这一排里的独立操作按钮共用几何、字重和过渡，各自只留语义色差。
+   新增结果栏入口请加 .bar-btn，不要再另起一套尺寸。 */
+.bar-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  min-height:30px;border:1px solid var(--line);border-radius:999px;
+  padding:4px 12px;background:var(--card);color:var(--text);
+  font:700 12px/1.25 var(--font-ui);white-space:nowrap;cursor:pointer;
+  transition:border-color .15s,background .15s,color .15s,box-shadow .15s,translate .15s,scale .14s ease;
+}
+.bar-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.bar-btn:active:not(:disabled){scale:.96}
+.bar-btn.is-on,.bar-btn[aria-pressed="true"]{
+  border-color:var(--accent);background:var(--accent);color:#fff;
+  box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 18%,transparent);
+}
+
+/* ---------- 面板动作按钮 ----------
+   弹层里的动作按钮统一走这里；.nsfw-primary / .nsfw-secondary 是它的语义变体。
+   新面板加按钮请用 .panel-action（主按钮再加 .is-primary）。 */
+.panel-action,.nsfw-actions button{
+  min-height:36px;border:1px solid var(--line);border-radius:999px;padding:9px 15px;
+  font:800 13px/1.25 var(--font-ui);cursor:pointer;
+  transition:background .12s,border-color .12s,color .12s,transform .12s,translate .12s,box-shadow .12s,scale .14s ease;
+}
+/* 底色只给 .panel-action：.nsfw-primary / .nsfw-secondary 的特异度是 (0,1,0)，
+   写进上面那条 (0,1,1) 的共用规则会把它们的红/灰盖掉。几何共用，配色各归各。 */
+.panel-action{background:var(--card);color:var(--text)}
+.panel-action:active:not(:disabled){scale:.96}
+.panel-action:disabled{cursor:not-allowed;opacity:.46;box-shadow:none;translate:none}
+.panel-action:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.panel-action.is-primary{
+  border-color:transparent;background:var(--accent);color:#fff;
+  box-shadow:0 8px 22px var(--accent-glow);
+}
+.panel-action.is-sm{min-height:30px;padding:5px 12px;font-size:12px}
+.panel-action.is-danger{border-color:transparent;background:#dc2626;color:#fff;box-shadow:0 8px 22px rgba(217,45,32,.24)}
+.panel-action.is-danger:hover:not(:disabled){
+  background:#dc2626;color:#fff;translate:0 -1px;box-shadow:0 10px 26px rgba(217,45,32,.32);
+}
+.panel-action.is-primary:hover:not(:disabled){
+  background:var(--accent);color:#fff;translate:0 -1px;
+  box-shadow:0 10px 26px color-mix(in srgb,var(--accent) 32%,transparent);
+}
+
+/* ---------- 分段页签 ----------
+   凹槽 + 滑块的分段控件，站内所有页签共用这一种语言。
+   列数写 --seg-count，选中位置写 --seg-index（两个都由 JS 设）。
+   新增页签请用 .seg-tabs，别再造第四套。 */
+.seg-tabs{
+  --seg-count:2;--seg-index:0;
+  position:relative;isolation:isolate;display:grid;
+  grid-template-columns:repeat(var(--seg-count),minmax(0,1fr));
+  gap:4px;padding:4px;border:1px solid var(--line);border-radius:14px;background:var(--tagbg);
+}
+.seg-tabs::before{
+  content:"";position:absolute;z-index:-1;left:4px;top:4px;bottom:4px;
+  width:calc((100% - 8px - (var(--seg-count) - 1) * 4px) / var(--seg-count));
+  border-radius:10px;background:var(--accent);box-shadow:0 5px 14px var(--accent-glow);
+  pointer-events:none;translate:calc(var(--seg-index) * (100% + 4px)) 0;
+  transition:translate .22s cubic-bezier(.22,1,.36,1);
+}
+.seg-tabs>button{
+  min-height:38px;border:0;border-radius:10px;background:transparent;color:var(--muted);
+  font:850 13px/1.25 var(--font-ui);cursor:pointer;
+  transition:background .15s,color .15s,box-shadow .15s,scale .14s ease;
+}
+.seg-tabs>button:hover{color:var(--text);background:var(--card)}
+.seg-tabs>button:is([aria-selected="true"],[aria-checked="true"]){color:#fff;background:transparent}
+.seg-tabs>button:active:not(:disabled){scale:.96}
+/* 页签后面的计数 / 未读点，选中时要在 accent 底上认得出来 */
+.seg-tabs>button>span{
+  display:inline-grid;min-width:19px;height:19px;margin-left:5px;padding:0 5px;place-items:center;
+  border-radius:999px;background:var(--tagbg-hover);color:var(--muted);font-size:10px;vertical-align:1px;
+}
+.seg-tabs>button[aria-selected="true"]>span{background:rgba(255,255,255,.22);color:#fff}
+
+/* 窄屏把动作按钮抬到 44px 触控地板；结果栏按钮本来就常并排换行，保持 30px。 */
+@media (max-width:600px){
+  .panel-action{min-height:44px}
+  .panel-action.is-sm{min-height:38px}
+}
+@media (prefers-reduced-motion:reduce){
+  .bar-btn,.panel-action,.seg-tabs>button,.seg-tabs::before{transition:none!important}
+  .bar-btn:active,.panel-action:active,.seg-tabs>button:active{scale:1}
+}

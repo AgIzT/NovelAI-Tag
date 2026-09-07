@@ -18,6 +18,7 @@
   --font-serif:var(--font-display);
   --font-mono:var(--font-prompt);
   --red:var(--new);
+  --danger:#d74b66; --danger-text:#c33f59;
 }
 body.dark{
   --bg:#0b0d13; --panel:#12141d; --card:#161a26; --text:#e8eaf3; --muted:#8a91a6;
@@ -29,6 +30,7 @@ body.dark{
   --popover-shadow:0 20px 54px rgba(0,0,0,.56),0 5px 18px rgba(0,0,0,.34);
   --overlay:rgba(0,0,0,.62);
   --accent-glow:rgba(139,124,248,.22);
+  --danger-text:#ff9e97;
 }
 /* ============ 主题色（换肤）：每套含 light + dark，与深浅色正交；默认紫=base 不加类 ============ */
 body.theme-teal{--bg:#eaeef5;--panel:#ffffff;--card:#ffffff;--text:#22304a;--muted:#7d8aa3;--line:#dbe2ee;--accent:#0fa173;--accent-soft:#dff4ea;--tagbg:#f1f4f9;--tagbg-hover:#e8eef6;--accent-glow:rgba(15,161,115,.18)}
