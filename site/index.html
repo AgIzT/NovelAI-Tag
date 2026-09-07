@@ -641,6 +641,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <button id="blockingWordsTab" type="button" role="tab" data-blocking-tab="words" aria-selected="true" aria-controls="blockingWordsPanel">屏蔽词 0</button>
       <button id="blockingEntriesTab" type="button" role="tab" data-blocking-tab="entries" aria-selected="false" aria-controls="blockingEntriesPanel" tabindex="-1">单独隐藏 0</button>
     </div>
+    <div class="blocking-views">
     <section id="blockingWordsPanel" role="tabpanel" aria-labelledby="blockingWordsTab">
       <form id="blockingWordForm" class="blocking-word-form">
         <label for="blockingWordInput">添加词或短语</label>
@@ -656,6 +657,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <p id="blockingEntriesEmpty" class="blocking-empty">点卡片上的「不想看」，就能在这里管理。</p>
       <button id="blockingMoreEntries" class="panel-action is-sm" type="button" hidden>显示更多</button>
     </section>
+    </div>
   </div>
 </div>
 <div id="blockingReveal" class="settings-mask" hidden>

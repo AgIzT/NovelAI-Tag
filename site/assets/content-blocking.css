@@ -32,6 +32,7 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
 
 /* 分栏：几何、滑块与选中态全部来自 .seg-tabs，这里只给外边距 */
 .blocking-tabs{margin:14px 0 16px}
+.blocking-views{position:relative;display:flow-root;min-width:0}
 
 /* 添加屏蔽词：字段几何与高级搜索面板的字段一致（36px / 9px / 三像素焦点光晕） */
 .blocking-word-form>label{display:block;margin-bottom:6px;color:var(--muted);font-size:12px;font-weight:600}
@@ -48,7 +49,7 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
 .blocking-error{margin:9px 0 0;color:var(--danger-text);font-size:12px;line-height:1.5}
 
 /* 已屏蔽的词：沿用高级搜索“已加条件”胶囊的形制 */
-.blocking-word-list{list-style:none;display:flex;flex-wrap:wrap;gap:7px;margin:16px 0 0;padding:0}
+.blocking-word-list{position:relative;list-style:none;display:flex;flex-wrap:wrap;gap:7px;margin:16px 0 0;padding:0}
 .blocking-word-list li{
   min-height:28px;max-width:100%;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:999px;
   display:inline-flex;align-items:center;background:var(--accent-soft);color:var(--text);overflow:hidden;
@@ -56,14 +57,14 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
 .blocking-word-list li>span{min-width:0;padding:3px 2px 3px 11px;font-size:12px;font-weight:600;overflow-wrap:anywhere}
 .blocking-word-list button{
   flex:none;align-self:stretch;width:28px;border:0;background:transparent;color:var(--muted);
-  font-size:16px;line-height:1;cursor:pointer;transition:background .15s,color .15s;
+  font-size:16px;line-height:1;cursor:pointer;transition:background .15s,color .15s,scale .12s ease;
 }
 .blocking-word-list button:is(:hover,:focus-visible){background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
 
 /* 单独隐藏的卡片：与设置面板的条目行同构 */
-.blocking-entry-list{list-style:none;margin:0;padding:0}
+.blocking-entry-list{position:relative;list-style:none;margin:0;padding:0}
 .blocking-entry-list li{display:flex;align-items:center;gap:12px;padding:13px 2px;border-bottom:1px solid var(--line)}
-.blocking-entry-list li:last-child{border-bottom:none}
+.blocking-entry-list li.is-last{border-bottom:none}
 .blocking-entry-list li>div{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
 .blocking-entry-list b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
 .blocking-entry-list span{color:var(--muted);font-size:12px;overflow-wrap:anywhere}
@@ -76,12 +77,8 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
   margin-top:18px;padding-top:14px;border-top:1px solid var(--line);
 }
 
-/* 新加的屏蔽词单独入场；整表是 innerHTML 重绘，靠 .is-new 只点亮真正新增的那几个。 */
-@keyframes blockingChipIn{from{opacity:0;scale:.9}to{opacity:1;scale:1}}
-.blocking-word-list li.is-new{animation:blockingChipIn .22s cubic-bezier(.22,1,.36,1)}
-/* 切页签时内容淡入；同一页签内的重绘不改 display，动画不会重放。 */
-@keyframes blockingPanelIn{from{opacity:0;translate:0 4px}to{opacity:1;translate:0 0}}
-#blockingWordsPanel,#blockingEntriesPanel{animation:blockingPanelIn .2s ease}
+/* 清单增删、补位与页签高度由 ui-motion 持有，关闭或快速操作会结清旧轮。 */
+.blocking-word-list [data-blocking-exit],.blocking-entry-list [data-blocking-exit]{pointer-events:none}
 .blocking-word-list button:active{scale:.94}
 
 @media (max-width:600px){
@@ -92,5 +89,4 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
 @media (prefers-reduced-motion:reduce){
   .hide-card-btn,.blocking-word-list button{transition:none!important}
   .fav-btn:active,.hide-card-btn:active,.blocking-word-list button:active{scale:1}
-  .blocking-word-list li.is-new,#blockingWordsPanel,#blockingEntriesPanel{animation:none!important}
 }

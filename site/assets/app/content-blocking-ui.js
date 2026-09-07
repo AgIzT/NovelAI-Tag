@@ -1,9 +1,10 @@
 import { state } from './state.js';
-import { $, esc } from './utils.js';
+import { $ } from './utils.js';
 import { toast } from './feedback.js';
 import { isEntryAccessBlocked, isCodexLocked } from './access.js';
 import { findCodexMeta } from './data.js';
 import { bindBackdropDismiss, openMask, closeMask, trapFocus, focusFirstIn } from './modal.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
 import {
   getBlockingPreferences, subscribeContentBlocking, receiveBlockingStorage, contentBlockReason,
   hideContentEntry, restoreContentEntry, addBlockedWords, removeBlockedWord, setContentBlockingEnabled,
@@ -12,7 +13,9 @@ import {
 const actions = { refresh: () => {} };
 let currentTab = 'words';
 let shownEntries = 40;
-let renderedWords = new Set();   // 只给真正新增的屏蔽词加入场动画，整表重绘不闪
+const renderedLists = { words: new Map(), entries: new Map() };
+const exitingRows = new Map();
+let finishManagerMotion = null;
 let resultHiddenCount = 0;
 
 export function setBlockingUiActions(value) { Object.assign(actions, value); }
@@ -34,7 +37,8 @@ export function hideCard(entry) {
 }
 
 export function openBlockingManager(trigger = document.activeElement) {
-  renderBlockingManager();
+  settleManagerMotion();
+  renderBlockingManager({ motion: false });
   openMask($('#contentBlocking'), trigger);
 }
 
@@ -60,10 +64,136 @@ export function updateBlockingSummary(hiddenCount = resultHiddenCount) {
   }
 }
 
-function renderBlockingManager() {
+function settleManagerMotion() {
+  finishManagerMotion?.();
+  for (const finish of [...exitingRows.values()]) finish();
+  for (const records of Object.values(renderedLists)) {
+    for (const row of records.values()) cancelUiMotion(row);
+  }
+}
+
+function snapshotBlockingList(list, records, visible) {
+  if (!visible) return new Map();
+  const origin = list.getBoundingClientRect();
+  return new Map([...records.values()].map(row => {
+    const rect = row.getBoundingClientRect();
+    return [row, {
+      left: rect.left - origin.left, top: rect.top - origin.top,
+      width: rect.width, height: rect.height, opacity: Number(getComputedStyle(row).opacity),
+    }];
+  }));
+}
+
+function leaveBlockingRow(row, snapshot) {
+  row.inert = true;
+  row.setAttribute('aria-hidden', 'true');
+  row.dataset.blockingExit = '';
+  const button = row.querySelector('button');
+  button.disabled = true;
+  button.tabIndex = -1;
+  delete button.dataset.removeWord;
+  delete button.dataset.restoreEntry;
+  if (!snapshot?.width || !snapshot.height) { row.remove(); return; }
+  // 残影留在清单内离流；业务与焦点立即前进，不再保留能误触的删除入口。
+  Object.assign(row.style, {
+    position: 'absolute', left: `${snapshot.left}px`, top: `${snapshot.top}px`,
+    width: `${snapshot.width}px`, height: `${snapshot.height}px`, maxWidth: 'none',
+    margin: '0', boxSizing: 'border-box', pointerEvents: 'none',
+  });
+  row.parentElement.append(row);
+  const animation = animateUi(row, [
+    { opacity: snapshot.opacity, translate: '0 0', scale: '1' },
+    { opacity: 0, translate: '0 -4px', scale: '.97' },
+  ], { duration: 160 });
+  if (!animation) { row.remove(); return; }
+  let timer;
+  const finish = () => {
+    if (exitingRows.get(row) !== finish) return;
+    exitingRows.delete(row);
+    clearTimeout(timer);
+    cancelUiMotion(row);
+    row.remove();
+  };
+  exitingRows.set(row, finish);
+  timer = setTimeout(finish, 240);
+  animation.finished.then(finish, finish);
+}
+
+function reconcileBlockingList(kind, list, items, snapshots, visible, motions) {
+  const previous = renderedLists[kind];
+  const next = new Map();
+  for (const item of items) {
+    const key = kind === 'words' ? item : item.key;
+    let row = previous.get(key);
+    if (!row) {
+      row = document.createElement('li');
+      row.innerHTML = kind === 'words' ? '<span></span><button type="button">×</button>'
+        : '<div><b></b><span></span></div><button type="button" class="panel-action is-sm">恢复</button>';
+    }
+    const button = row.querySelector('button');
+    if (kind === 'words') {
+      row.querySelector('span').textContent = item;
+      button.dataset.removeWord = item;
+      button.setAttribute('aria-label', `取消屏蔽 ${item}`);
+    } else {
+      const locked = isCodexLocked(findCodexMeta(item.codexId)) || isEntryAccessBlocked({ ...item, _srcCodexId: item.codexId });
+      const title = locked ? '受限卡片' : item.title;
+      row.querySelector('b').textContent = title;
+      row.querySelector('span').textContent = locked ? '开启相应内容分级后可查看名称' : item.codexTitle;
+      button.dataset.restoreEntry = item.key;
+      button.setAttribute('aria-label', `恢复 ${title}`);
+    }
+    next.set(key, row);
+  }
+  for (const [key, row] of previous) {
+    if (!next.has(key)) leaveBlockingRow(row, snapshots.get(row));
+  }
+  const rows = [...next.values()];
+  rows.forEach((row, index) => {
+    if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+    row.classList.toggle('is-last', index === rows.length - 1);
+  });
+  renderedLists[kind] = next;
+  if (!visible) return;
+  const origin = list.getBoundingClientRect();
+  const positions = rows.map(row => row.getBoundingClientRect());
+  rows.forEach((row, index) => {
+    const before = snapshots.get(row);
+    const x = before ? before.left - (positions[index].left - origin.left) : 0;
+    const y = before ? before.top - (positions[index].top - origin.top) : 4;
+    if (!before || Math.abs(x) > .5 || Math.abs(y) > .5 || before.opacity < .99) {
+      const animation = animateUi(row, [
+        { opacity: before?.opacity ?? 0, translate: `${x}px ${y}px` },
+        { opacity: 1, translate: '0 0' },
+      ]);
+      if (animation) motions.set(row, animation);
+    }
+  });
+}
+
+function renderBlockingManager({ tab = currentTab, motion = true } = {}) {
   const prefs = getBlockingPreferences();
   const mask = $('#contentBlocking');
   if (!mask) return;
+  const shell = mask.querySelector('.blocking-views');
+  const views = { words: $('#blockingWordsPanel'), entries: $('#blockingEntriesPanel') };
+  const lists = { words: $('#blockingWordList'), entries: $('#blockingEntryList') };
+  const moving = Boolean(motion && !mask.hidden && mask.classList.contains('show'));
+  const previousTab = currentTab;
+  const previousView = views[previousTab];
+  const oldHeight = moving ? shell.getBoundingClientRect().height : 0;
+  const oldOpacity = moving ? getComputedStyle(previousView).opacity : '1';
+  const oldTranslate = moving ? getComputedStyle(previousView).translate : 'none';
+  const snapshots = Object.fromEntries(Object.entries(lists).map(([kind, list]) => [kind,
+    snapshotBlockingList(list, renderedLists[kind], moving && kind === previousTab && tab === previousTab),
+  ]));
+  const focused = document.activeElement;
+  const focusedRows = [...renderedLists[previousTab].values()];
+  const focusedIndex = focusedRows.findIndex(row => row.contains(focused));
+  // 快速操作先取画面中的位置与高度，再结清旧轮；迟到回调不能收起新的当前页。
+  settleManagerMotion();
+  currentTab = tab;
+  const motions = new Map();
   $('#blockingEnabled').checked = prefs.enabled;
   $('#blockingPaused').hidden = prefs.enabled;
   $('#blockingWordsTab').textContent = `屏蔽词 ${prefs.words.length}`;
@@ -74,19 +204,67 @@ function renderBlockingManager() {
     tab.setAttribute('aria-selected', String(active));
     tab.tabIndex = active ? 0 : -1;
   }
-  $('#blockingWordsPanel').hidden = currentTab !== 'words';
-  $('#blockingEntriesPanel').hidden = currentTab !== 'entries';
-  $('#blockingWordList').innerHTML = prefs.words.map(word => `<li${renderedWords.has(word) ? '' : ' class="is-new"'}><span>${esc(word)}</span><button type="button" data-remove-word="${esc(word)}" aria-label="取消屏蔽 ${esc(word)}">×</button></li>`).join('');
-  renderedWords = new Set(prefs.words);
+  for (const [kind, view] of Object.entries(views)) {
+    view.hidden = kind !== currentTab;
+    view.inert = kind !== currentTab;
+    view.setAttribute('aria-hidden', String(kind !== currentTab));
+  }
+  reconcileBlockingList('words', lists.words, prefs.words, snapshots.words, moving && tab === previousTab && tab === 'words', motions);
+  reconcileBlockingList('entries', lists.entries, prefs.entries.slice(0, shownEntries), snapshots.entries,
+    moving && tab === previousTab && tab === 'entries', motions);
   $('#blockingWordsEmpty').hidden = Boolean(prefs.words.length);
-  $('#blockingEntryList').innerHTML = prefs.entries.slice(0, shownEntries).map(item => {
-    const locked = isCodexLocked(findCodexMeta(item.codexId)) || isEntryAccessBlocked({ ...item, _srcCodexId: item.codexId });
-    const title = locked ? '受限卡片' : item.title;
-    const source = locked ? '开启相应内容分级后可查看名称' : item.codexTitle;
-    return `<li><div><b>${esc(title)}</b><span>${esc(source)}</span></div><button type="button" class="panel-action is-sm" data-restore-entry="${esc(item.key)}" aria-label="恢复 ${esc(title)}">恢复</button></li>`;
-  }).join('');
   $('#blockingEntriesEmpty').hidden = Boolean(prefs.entries.length);
   $('#blockingMoreEntries').hidden = prefs.entries.length <= shownEntries;
+  if (moving) animateManagerChange(shell, views, { previousTab, oldHeight, oldOpacity, oldTranslate, motions });
+  if (moving && tab === previousTab && focusedIndex >= 0) {
+    const retained = [...renderedLists[tab].values()];
+    const target = focused.isConnected && !focused.closest('[inert]') ? focused
+      : retained[Math.min(focusedIndex, retained.length - 1)]?.querySelector('button')
+        || (tab === 'words' ? $('#blockingWordInput') : $('#blockingEntriesTab'));
+    if (document.activeElement !== target) target.focus({ preventScroll: true });
+  }
+}
+
+function animateManagerChange(shell, views, { previousTab, oldHeight, oldOpacity, oldTranslate, motions }) {
+  const previous = views[previousTab];
+  const next = views[currentTab];
+  const changedTab = previous !== next;
+  const newHeight = shell.getBoundingClientRect().height;
+  const shellStyle = shell.style.cssText;
+  const previousStyle = previous.style.cssText;
+  let timer;
+  const finish = () => {
+    if (finishManagerMotion !== finish) return;
+    finishManagerMotion = null;
+    clearTimeout(timer);
+    for (const element of motions.keys()) cancelUiMotion(element);
+    if (changedTab) previous.hidden = true;
+    previous.style.cssText = previousStyle;
+    shell.style.cssText = shellStyle;
+  };
+  finishManagerMotion = finish;
+  const play = (element, frames, options) => {
+    const animation = animateUi(element, frames, options);
+    if (animation) motions.set(element, animation);
+    return animation;
+  };
+  if (changedTab) {
+    const direction = currentTab === 'entries' ? 1 : -1;
+    previous.hidden = false;
+    Object.assign(previous.style, { position: 'absolute', inset: '0 0 auto', pointerEvents: 'none' });
+    const outgoing = play(previous, [
+      { opacity: oldOpacity, translate: oldTranslate }, { opacity: 0, translate: `${-direction * 8}px 0` },
+    ], { duration: 150, easing: 'ease-out' });
+    play(next, [{ opacity: 0, translate: `${direction * 10}px 0` }, { opacity: 1, translate: '0 0' }]);
+    outgoing?.finished.then(() => { if (finishManagerMotion === finish) previous.hidden = true; }, () => {});
+  }
+  if (Math.abs(oldHeight - newHeight) > .5) {
+    play(shell, [{ height: `${oldHeight}px` }, { height: `${newHeight}px` }]);
+  }
+  if (!motions.size) { finish(); return; }
+  shell.style.overflow = 'clip';
+  timer = setTimeout(finish, 320);
+  Promise.allSettled([...motions.values()].map(animation => animation.finished)).then(finish);
 }
 
 export function promptBlockedEntry(entry, reveal) {
@@ -108,14 +286,22 @@ export function promptBlockedEntry(entry, reveal) {
 export function setupContentBlocking() {
   const mask = $('#contentBlocking');
   if (!mask) return;
+  // 浏览器 Back 也会走共享遮罩状态；关闭时清掉退场残影和未完成的高度动画。
+  new MutationObserver(() => {
+    if (mask.hidden || !mask.classList.contains('show')) settleManagerMotion();
+  }).observe(mask, { attributes: true, attributeFilter: ['class', 'hidden'] });
+  const closePanel = panel => {
+    if (panel === mask) settleManagerMotion();
+    closeMask(panel);
+  };
   $('#blockingSettingsBtn').onclick = event => openBlockingManager(event.currentTarget);
   $('#blockingResultBtn').onclick = event => openBlockingManager(event.currentTarget);
   for (const [id, closeId] of [['contentBlocking', 'blockingClose'], ['blockingReveal', 'blockingRevealClose']]) {
     const panel = $(`#${id}`);
-    $(`#${closeId}`).onclick = () => closeMask(panel);
-    bindBackdropDismiss(panel, () => closeMask(panel));
+    $(`#${closeId}`).onclick = () => closePanel(panel);
+    bindBackdropDismiss(panel, () => closePanel(panel));
     panel.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMask(panel); }
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closePanel(panel); }
       else trapFocus(event, panel);
     });
   }
@@ -127,7 +313,7 @@ export function setupContentBlocking() {
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopImmediatePropagation();
-      closeMask(top);
+      closePanel(top);
     } else if (event.key === 'Tab' && !top.contains(document.activeElement)) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -138,7 +324,10 @@ export function setupContentBlocking() {
   $('#blockingEnabled').onchange = event => {
     if (showSaveError(setContentBlockingEnabled(event.target.checked))) renderBlockingManager();
   };
-  const chooseTab = tab => { currentTab = tab.dataset.blockingTab; renderBlockingManager(); tab.focus(); };
+  const chooseTab = tab => {
+    if (currentTab !== tab.dataset.blockingTab) renderBlockingManager({ tab: tab.dataset.blockingTab });
+    tab.focus({ preventScroll: true });
+  };
   const tabs = [...mask.querySelectorAll('[data-blocking-tab]')];
   tabs.forEach((tab, index) => {
     tab.onclick = () => chooseTab(tab);
@@ -165,13 +354,11 @@ export function setupContentBlocking() {
   };
   $('#blockingWordList').onclick = event => {
     const button = event.target.closest('[data-remove-word]');
-    if (button && !showSaveError(removeBlockedWord(button.dataset.removeWord))) $('#blockingWordInput').focus();
+    if (button && !button.closest('[inert]')) showSaveError(removeBlockedWord(button.dataset.removeWord));
   };
   $('#blockingEntryList').onclick = event => {
     const button = event.target.closest('[data-restore-entry]');
-    if (button && !showSaveError(restoreContentEntry(button.dataset.restoreEntry))) {
-      ($('#blockingEntryList button') || $('#blockingEntriesTab')).focus();
-    }
+    if (button && !button.closest('[inert]')) showSaveError(restoreContentEntry(button.dataset.restoreEntry));
   };
   $('#blockingMoreEntries').onclick = () => { shownEntries += 40; renderBlockingManager(); };
   subscribeContentBlocking(() => { actions.refresh(); renderBlockingManager(); updateBlockingSummary(); });

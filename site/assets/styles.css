@@ -957,6 +957,12 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
   transition:opacity .14s linear;
   transition-delay:var(--filter-delay,0ms);
 }
+.masonry.is-blocking-update .card:not(.card-retiring){
+  transition:transform .24s cubic-bezier(.22,1,.36,1),opacity .14s linear;
+}
+.card.card-retiring{opacity:0;pointer-events:none;transition:none}
+/* 列表高度立即采用新结果；末卡/尾卡只在短暂退场时允许画出新边界，结束恢复 paint containment。 */
+.masonry.has-retiring-cards{contain:layout}
 .masonry.is-relayouting .card{
   transition:
     transform .32s cubic-bezier(.22,1,.36,1),
@@ -2531,9 +2537,10 @@ html.vt-arrived.intro-arm .topbar,html.vt-arrived.intro-arm .sidebar,
 html.vt-arrived.intro-arm .main,html.vt-arrived.intro-arm .float-actions,
 html.vt-arrived.intro-arm .brand,html.vt-arrived.intro-arm .topbar::after{animation:none}
 
-/* 常用控件的触摸/鼠标按压；不覆盖定位 transform 或已有入场 animation。 */
+/* 常用控件的触摸/鼠标按压；不覆盖定位 transform 或已有入场 animation。
+   面板动作按钮的过渡由 ui-kit.css 持有，保留它的 hover translate。 */
 .topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
-.nsfw-actions button,.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
+.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
 .feedback-public-state button,.feedback-fallback button,.rail-chip{
   transition:background .16s,color .16s,border-color .16s,box-shadow .16s,transform .16s,scale .14s ease;
 }
@@ -2602,7 +2609,7 @@ html.motion-off{scroll-behavior:auto!important}
 }
 .search-filter-close,.search-filter-add,.search-filter-examples button,.search-filter-footer button,
 .search-filter-chip-remove,.update-pop-more,.update-pop-links button,.announcements-tab,.update-row{
-  transition:background .16s,color .16s,border-color .16s,box-shadow .16s,scale .16s ease,filter .16s;
+  transition:background .16s,color .16s,border-color .16s,box-shadow .16s,translate .16s,scale .16s ease,filter .16s;
 }
 .search-filter-form :is(input,select){transition:border-color .16s,box-shadow .16s,background .16s}
 .search-filter-close:active,.search-filter-add:active:not(:disabled),.search-filter-examples button:active,

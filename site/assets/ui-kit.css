@@ -86,5 +86,5 @@
 }
 @media (prefers-reduced-motion:reduce){
   .bar-btn,.panel-action,.seg-tabs>button,.seg-tabs::before{transition:none!important}
-  .bar-btn:active,.panel-action:active,.seg-tabs>button:active{scale:1}
+  .bar-btn:active:not(:disabled),.panel-action:active:not(:disabled),.seg-tabs>button:active:not(:disabled){scale:1}
 }

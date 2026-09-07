@@ -28,6 +28,7 @@
 | `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
 | `preview_blocking.py` | 屏蔽试用分支的双击预览入口；读取工作区 launch 登记，复用或启动本 worktree 的预览服务 | 只读本地服务，打开浏览器；不启动编辑器 |
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |
+| `test_blocking_manager_motion.mjs` | 屏蔽清单节点复用、退场隔离、焦点、快速切页/关闭、跨标签更新与动效兜底回归 | 只读，内存 DOM/动画与存储夹具；真实几何仍须浏览器验证 |
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`） | 只读，写测试输出 |
 | `benchmark_search_v1.mjs` | 搜索 V1 与旧匹配逻辑的本地中位耗时对比；数据缺失时明确 SKIP | 只读 |
 | `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率；**图片参数解析的唯一公共入口**，格式与审计流程见下方“操作说明去向” | 只读；审计写 CSV |

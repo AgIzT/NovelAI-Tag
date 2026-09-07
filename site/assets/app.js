@@ -899,7 +899,7 @@ setBlockingUiActions({ refresh: () => {
   if (state.lightbox?.entry && isContentBlocked(state.lightbox.entry)) {
     closeLightbox({ historyMode: 'replace', immediate: true });
   }
-  applyFilter();
+  applyFilter({ transition: 'blocking' });
   if ($('#historyPanel') && !$('#historyPanel').hidden) renderHistoryPanel();
 } });
 

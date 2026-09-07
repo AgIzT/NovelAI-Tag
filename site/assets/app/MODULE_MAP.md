@@ -30,7 +30,7 @@
 | `access.js` | 法典级与词条级 NSFW / R18G 判定、锁定提示 | — | `state.js`、`feedback.js` | 所有内容分级入口的单一判断层；调用方不得自行拼另一套门控 |
 | `content-blocking-core.js` | 个人屏蔽清单规范化、字面整词/短语匹配、正向字段投影 | — | — | 负面、目录、备注不参与；逐图 rawTag 按现有正向契约读取 |
 | `content-blocking.js` | 本地屏蔽清单、稳定身份匹配、缓存与跨标签页同步 | 独立 localStorage、关键词匹配 WeakMap、变更订阅 | `state.js`、`data.js`、`favorites-backup-core.js`、`content-blocking-core.js` | 复用身份兼容，独立于收藏状态；保存成功才提交内存；编辑后失效词条缓存 |
-| `content-blocking-ui.js` | 屏蔽管理、卡片隐藏/撤销、结果提示与主动打开时临时查看 | 页签、分页、结果命中数 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`modal.js`、`content-blocking.js` | 注入刷新动作；调用方先执行分级门控；临时查看不修改持久清单 |
+| `content-blocking-ui.js` | 屏蔽管理、卡片隐藏/撤销、结果提示与主动打开时临时查看 | 页签、分页、结果命中数、按键复用的行节点与退场/高度动效 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`modal.js`、`ui-motion.js`、`content-blocking.js` | 保存与刷新不等待动画；关闭/快切结清局部动效，移除项立即 inert；调用方先执行分级门控；临时查看不修改持久清单 |
 | `media.js` | 图片能力判断、资源路径、版本参数、缩略图与原图 URL | — | `state.js` | 只解决资源定位，不判断“用户是否有权看原图” |
 | `nai-sd.js` | `naiToSd`、`fmtSdWeight`、`formatCopyText` | — | — | 无 DOM 的格式转换层，主站和共创广场可复用 |
 | `sd-mode.js` | SD 模式的 localStorage 读写契约 | — | — | 共创广场通过同一存储契约同步，不导入主站 `state` |
@@ -67,7 +67,7 @@
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
 | `codex-ui.js` | 法典选择器、目录树、横幅、分类轨、结果 / 空态、随机浏览与归档 UI；`exampleModel` 覆盖书卡 / 横幅的原图状态签；`codexCoverStyle` 共用封面位置与缩放 | 动作注入、访问视图缓存、目录监听、分支动效、提示 / 面板状态 | `state.js`、`utils.js`、`access.js`、`data.js`、`media.js`、`feedback.js`、`browser-history.js`、`modal.js`、`ui-motion.js` | 注入 `loadCodex`、`applySearch`、`applyFilter`、`openLightbox`、`syncUrlState`、`updateVirtualCards`；编辑器可追加 `decorateDoor` |
-| `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效 | 动作注入、布局缓存、虚拟窗口、重排与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js` | 注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`、`hideCard`；不静态导入 `lightbox.js` 或 `report.js` |
+| `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效；屏蔽成员变更的节点复用 | 动作注入、布局缓存、虚拟窗口、重排、限时退场残影与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js`、`ui-motion.js` | 屏蔽保存后复用剩余节点/图片/同宽实测高度；退场不持有业务状态且立即 inert，清空/重排结清；注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`、`hideCard`；不静态导入 `lightbox.js` 或 `report.js` |
 | `lightbox.js` | 灯箱开关、跨词条步进、预载、原图 / 分享 / 收藏 / 反馈与 FLIP 辅助 | 当前序号、关闭计时、焦点与缩略图身份、预载缓存 | `state.js`、`utils.js`、`masonry.js`、`search.js`、`copy.js`、`nai-sd.js`、`history.js`、`router.js`、`data.js`、`media.js`、`original-capability.js`、`access.js`、`report.js`、`browser-history.js`、`favorites.js`、`modal.js`、`content-blocking.js`、`content-blocking-ui.js` | 原图提示按真实来源的 `exampleModel` 标明模型；背景关闭复用手势门并保留滑图后的 click 抑制；灯箱动效维护方式见本地私有文档 `docs/经验/前端灯箱FLIP动效.md` |
 | `report.js` | 反馈提交、上下文打包、公开进度列表和兜底复制 | 当前提交上下文、触发点、公开列表 / 筛选状态与页签动效 | `state.js`、`utils.js`、`feedback.js`、`modal.js`、`media.js`、`original-capability.js`、`feedback-progress.js`、`local-ownership.js`、`clipboard.js`、`clipboard-fallback.js`、`ui-motion.js` | 拥有反馈业务；由瀑布流动作注入调用，不反向依赖瀑布流 |
 | `announcements.js` | 动态面板：公告 / 更新 / 反馈三页签切换、公告加载与未读角标 | 公告数据、加载状态与在途 Promise、当前页签与切换动效 | `ui-motion.js`、`utils.js`、`modal.js`、`history.js`、`updates.js`、`../data-source.js` | 数据读取走统一数据源，不自行拼发布路径；只把当前打开的那一栏标记为已读，未翻到的栏保留红点 |
