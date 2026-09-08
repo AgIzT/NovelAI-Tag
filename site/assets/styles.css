@@ -439,7 +439,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .search-wrap{flex:1;min-width:240px;max-width:520px;position:relative;display:flex;align-items:center}
 #search{
   width:100%;border:1px solid var(--line);background:var(--card);color:var(--text);
-  height:var(--topbar-control-h);border-radius:999px;padding:0 125px 0 66px;outline:none;
+  height:var(--topbar-control-h);border-radius:999px;padding:0 115px 0 66px;outline:none;
   -webkit-appearance:none;appearance:none;
   transition:border-color .14s,box-shadow .14s,background .14s;
 }
@@ -469,7 +469,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .search-scope:hover{background:var(--tagbg);color:var(--accent)}
 .search-scope:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .search-clear{
-  position:absolute;right:94px;top:50%;transform:translateY(-50%);
+  position:absolute;right:84px;top:50%;transform:translateY(-50%);
   width:25px;height:25px;border:none;border-radius:50%;padding:0;
   display:grid;place-items:center;background:var(--tagbg);color:var(--muted);
   transition:background .12s,color .12s,scale .12s;
@@ -481,19 +481,30 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .search-clear:hover{background:var(--accent-soft);color:var(--accent);scale:1.04}
 .search-clear:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .search-clear[hidden]{display:none!important}
+/* 搜索框内是「范围 | 输入 | 筛选」三段；两端都是轻量标签，不做撑满高度的实心块。 */
 .search-filter-trigger{
-  position:absolute;right:1px;top:1px;bottom:1px;z-index:1;
-  min-width:68px;border:0;border-radius:999px;padding:0 10px;
-  display:inline-flex;align-items:center;justify-content:center;gap:4px;
-  background:var(--tagbg);color:var(--muted);font-weight:700;
-  transition:background .12s,color .12s,box-shadow .12s;
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:1;
+  height:24px;border:0;border-radius:7px;padding:0 8px;
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  background:transparent;color:var(--muted);font-weight:700;cursor:pointer;
+  transition:background .12s,color .12s;
 }
-.search-filter-trigger:hover,.search-filter-trigger[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent)}
+.search-filter-trigger::before{
+  content:"";position:absolute;left:-6px;top:4px;bottom:4px;width:1px;
+  background:var(--line);opacity:.85;pointer-events:none;
+}
+.search-filter-trigger:hover{background:var(--tagbg);color:var(--accent)}
+.search-filter-trigger[aria-expanded="true"],.search-filter-trigger.has-filters{background:var(--accent-soft);color:var(--accent)}
+/* 面板展开与「已有条件」共用底色，靠这层细描边区分。 */
 .search-filter-trigger[aria-expanded="true"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 28%,transparent)}
+.search-filter-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .search-filter-trigger svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+/* 角标绝对定位，条件数变化不会改按钮宽度，右侧竖线和清空键都不会被推着跳。 */
 .search-filter-count{
-  min-width:18px;height:18px;border-radius:999px;padding:0 5px;display:inline-grid;place-items:center;
-  background:var(--accent);color:#fff;font-size:10px;font-weight:900;line-height:1;
+  position:absolute;right:-3px;top:-4px;
+  min-width:14px;height:14px;border-radius:999px;padding:0 4px;display:grid;place-items:center;
+  background:var(--accent);color:#fff;font-size:9px;font-weight:900;line-height:1;
+  box-shadow:0 0 0 2px var(--card);
 }
 .search-exit,.mobile-search-btn{display:none}
 .search-exit{
@@ -2144,8 +2155,8 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     box-shadow:var(--shadow);
   }
   .search-scope{left:62px;height:24px;min-width:48px;border-radius:7px;padding:0 7px}
-  .search-clear{right:94px;width:30px;height:30px}
-  .search-filter-trigger{border-radius:16px}
+  .search-clear{right:90px;width:30px;height:30px}
+  .search-filter-trigger{height:30px;border-radius:9px}
   .search-exit{display:grid}
   .search-filter-panel{
     left:0;right:0;top:calc(100% + 8px);width:auto;max-height:calc(100dvh - 76px - env(safe-area-inset-bottom));
@@ -2280,10 +2291,11 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .topbar{gap:4px}
   #search{padding-left:100px;padding-right:92px}
   .search-scope{left:48px;width:44px;min-width:44px;padding:0 4px}
-  .search-clear{right:54px}
-  .search-filter-trigger{width:44px;min-width:44px;padding:0}
+  .search-clear{right:58px}
+  /* 只剩图标时两个圆钮自成一组，竖线反而碍事；宽度保留 44px 的触摸区。 */
+  .search-filter-trigger{width:44px;padding:0}
+  .search-filter-trigger::before{display:none}
   .search-filter-trigger>span{display:none}
-  .search-filter-count{position:absolute;right:4px;top:3px;min-width:14px;height:14px;padding:0 3px;font-size:9px}
 }
 
 /* ---------- 页面动效：入场编排 / 悬浮层退场 / 跨页过渡 ----------
