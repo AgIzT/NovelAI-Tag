@@ -19,7 +19,6 @@ import { setupReport, openReportDialog } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
 import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
 import { refreshRelayAccess } from './tag-relay.js';
-import { setupHomeShortcutGuide } from './home-shortcut.js';
 import { dismissResumePrompt } from './resume-prompt.js';
 import {
   closeHistoryLayer,
@@ -696,7 +695,6 @@ export function bindUI() {
     });
   }
   setupOnboarding();
-  setupHomeShortcutGuide();
   const globalReportBtn = $('#globalReportBtn');
   if (globalReportBtn) {
     globalReportBtn.onclick = () => {

@@ -1239,8 +1239,6 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(lightboxSource, /pre\.textContent = naiToSd\(source\)/);
   assert.match(appSource, /state\.allowNsfw = localStorage\.getItem\(NSFW_STORAGE_KEY\) === '1';[\s\S]*if \(state\.allowNsfw\) localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
   assert.match(uiSource, /localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
-  assert.match(indexSource, /id="homeShortcutBtn"[^>]*role="menuitem"[^>]*hidden/);
-  assert.match(uiSource, /setupHomeShortcutGuide\(\)/);
   assert.match(indexSource, /class="search-match-chip" hidden/);
   assert.match(masonrySource, /hiddenSearchMatch\(e, highlightTerms\)/);
   assert.match(indexSource, /class="zoom-btn"[^>]*type="button"[^>]*aria-label="放大查看"/);

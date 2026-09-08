@@ -1959,11 +1959,6 @@ body.dark .lightbox{background:rgba(7,9,15,.58)}
 .resume-prompt-never:hover{color:var(--accent)}
 .resume-prompt-close{flex:none;width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--tagbg);color:var(--muted);font-size:18px}
 .resume-prompt-close:hover{border-color:var(--accent);color:var(--accent)}
-.home-shortcut-panel{max-width:420px;text-align:center}
-.home-shortcut-panel>img{display:block;border-radius:22%;margin:2px auto 13px;box-shadow:0 9px 24px rgba(13,99,71,.2)}
-.home-shortcut-panel ol{display:grid;gap:8px;margin:15px 0 18px;padding:0;counter-reset:home-shortcut;text-align:left;list-style:none}
-.home-shortcut-panel li{counter-increment:home-shortcut;display:grid;grid-template-columns:28px 1fr;align-items:center;gap:9px;min-height:34px;color:var(--text);font-size:12px;line-height:1.45}
-.home-shortcut-panel li::before{content:counter(home-shortcut);display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:900}
 .lightbox-original-status[hidden]{display:none!important}
 .lightbox-original-status[data-state="ready"]{color:#3d8b5d}
 .lightbox-original-status[data-state="failed"]{color:var(--new)}
