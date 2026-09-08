@@ -95,6 +95,24 @@ body.dark .more-menu{border-color:rgba(255,255,255,.12)}
   cursor:pointer;transition:background .12s,color .12s;
 }
 .more-item:hover,.more-item:focus-visible{background:var(--tagbg);outline:none}
+/* 菜单分四组：内容与工具 / 偏好 / 帮助与反馈 / 关于；组间一条细线，比 11 项平铺好扫。 */
+.more-group+.more-group{margin-top:6px;padding-top:6px;border-top:1px solid var(--popover-line)}
+/* 深浅色与设置只在窄屏收进菜单，桌面整组隐藏，免得留下一条空分隔线。 */
+.more-group-compact{display:none}
+/* 源码入口频次最低，压成页脚行，不跟上面的功能项抢视觉重量。 */
+.more-item-slim{padding:7px 10px;color:var(--muted)}
+.more-item-slim svg{width:16px;height:16px}
+.more-item-slim b{font-size:12px;font-weight:600}
+/* 快捷键面板列的全是物理键（/ ? G Esc ←→），触屏设备没有键盘可按。 */
+@media (hover:none) and (pointer:coarse){
+  #shortcutBtn{display:none}
+}
+/* 窄屏菜单以标题为主：说明文字一行省 15px，各项因此等高。 */
+@media (max-width:600px){
+  .more-item small{display:none}
+  /* 中转站在右下角有常驻悬浮按钮，还带在库条数角标；窄屏菜单里不再重复一行。 */
+  #tagRelayMenuLink{display:none}
+}
 .topbar-compact-action{display:none}
 .more-item svg{
   flex:none;width:19px;height:19px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none;
@@ -2114,6 +2132,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 @media (max-width:900px){
   .topbar .brand,.topbar .theme-btn,.topbar .settings-top-btn{display:none}
   .topbar-compact-action{display:flex}
+  .more-group-compact{display:block}
   .sd-badge{
     width:var(--topbar-control-h);padding:0;justify-content:center;border-radius:9px;
     font-size:0;box-shadow:none;

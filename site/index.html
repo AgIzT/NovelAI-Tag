@@ -252,50 +252,54 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
       </button>
       <div id="moreMenu" class="more-menu" role="menu" hidden>
-        <button id="themeMenuBtn" class="more-item topbar-compact-action" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z"/></svg>
-          <span><b>切换深色模式</b></span>
-        </button>
-        <button id="settingsMenuBtn" class="more-item topbar-compact-action" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span><b>设置</b></span>
-        </button>
-        <button id="globalReportBtn" class="more-item" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
-          <span><b>反馈与进度</b><small>提交反馈 · 查看处理进展</small></span>
-        </button>
-        <a id="communityBrowseLink" class="more-item" href="/strings.html" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
-          <span><b>浏览共创广场</b><small>查看图片与提示词作品</small></span>
-        </a>
-        <button id="tagRelayMenuLink" class="more-item" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
-          <span><b>Tag 中转站</b><small>打开组合工作台</small></span>
-        </button>
-        <a class="more-item" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
-          <span><b>GitHub 仓库</b><small>查看项目源码</small></span>
-        </a>
-        <button id="shortcutBtn" class="more-item" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 13h.01M6 13h8M8 17h8"/></svg>
-          <span><b>快捷键</b><small>查看当前可用操作</small></span>
-        </button>
-        <button id="onboardingBtn" class="more-item" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h9a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3z"/><path d="M17 8h2a2 2 0 0 1 2 2v10h-4M9 9h4M9 13h4"/></svg>
-          <span><b>使用引导</b><small>重看复制、搜索与反馈说明</small></span>
-        </button>
-        <button id="homeShortcutBtn" class="more-item" type="button" role="menuitem" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 5.5h4M12 17v-7M9.5 12.5 12 10l2.5 2.5"/></svg>
-          <span><b>添加到主屏幕</b><small>查看当前手机的浏览器步骤</small></span>
-        </button>
-        <button id="historyBtn" class="more-item" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
-          <span><b>浏览与收藏</b><small>浏览记录 · 收藏备份</small></span>
-        </button>
-        <button id="aboutBtn" class="more-item" type="button" role="menuitem">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v5"/><path d="M12 8h.01"/></svg>
-          <span><b>关于本站</b><small>友链、技巧和鸣谢</small></span>
-        </button>
+        <div class="more-group" role="group" aria-label="内容与工具">
+          <a id="communityBrowseLink" class="more-item" href="/strings.html" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
+            <span><b>浏览共创广场</b><small>查看图片与提示词作品</small></span>
+          </a>
+          <button id="tagRelayMenuLink" class="more-item" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
+            <span><b>Tag 中转站</b><small>打开组合工作台</small></span>
+          </button>
+          <button id="historyBtn" class="more-item" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
+            <span><b>浏览与收藏</b><small>浏览记录 · 收藏备份</small></span>
+          </button>
+        </div>
+        <div class="more-group more-group-compact" role="group" aria-label="偏好">
+          <button id="settingsMenuBtn" class="more-item topbar-compact-action" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span><b>设置</b></span>
+          </button>
+          <button id="themeMenuBtn" class="more-item topbar-compact-action" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z"/></svg>
+            <span><b>切换深色模式</b></span>
+          </button>
+        </div>
+        <div class="more-group" role="group" aria-label="帮助与反馈">
+          <button id="onboardingBtn" class="more-item" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h9a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3z"/><path d="M17 8h2a2 2 0 0 1 2 2v10h-4M9 9h4M9 13h4"/></svg>
+            <span><b>使用引导</b><small>重看复制、搜索与反馈说明</small></span>
+          </button>
+          <button id="shortcutBtn" class="more-item" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 13h.01M6 13h8M8 17h8"/></svg>
+            <span><b>快捷键</b><small>查看当前可用操作</small></span>
+          </button>
+          <button id="globalReportBtn" class="more-item" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
+            <span><b>反馈与进度</b><small>提交反馈 · 查看处理进展</small></span>
+          </button>
+        </div>
+        <div class="more-group" role="group" aria-label="关于">
+          <button id="aboutBtn" class="more-item" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v5"/><path d="M12 8h.01"/></svg>
+            <span><b>关于本站</b><small>友链、技巧和鸣谢</small></span>
+          </button>
+          <a class="more-item more-item-slim" href="https://github.com/AgIzT/NovelAI-Tag" target="_blank" rel="noopener" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.2-6-2.6M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.2-.4 6.5-1.6 6.5-7A5.4 5.4 0 0 0 19 4a5 5 0 0 0-.1-3.5S17.7.1 15 2a13.4 13.4 0 0 0-6 0C6.3.1 5.1.5 5.1.5A5 5 0 0 0 5 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.3 6.6 6.5 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
+            <span><b>GitHub 仓库</b></span>
+          </a>
+        </div>
       </div>
     </div>
   </div>
