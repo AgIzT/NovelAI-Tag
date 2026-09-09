@@ -608,6 +608,18 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     { id: 'without-original', hasOriginal: false },
   ];
   state.codex = { id: 'virtual-view', hasOriginal: true };
+  const noParameterJpeg = {
+    _srcCodexId: 'with-original',
+    image: 'preview.jpg', original: 'submitted.jpg',
+    images: [{ path: 'preview.jpg', original: 'submitted.jpg', _hasOriginal: false }],
+  };
+  const unavailableOriginal = normalizeImageList(noParameterJpeg)[0];
+  assert.equal(unavailableOriginal.original, 'submitted.jpg', '来源备份路径应保留');
+  assert.equal(entryImageCanUseOriginal(noParameterJpeg, unavailableOriginal), false,
+    '整本有原图时，单张明确无原图的 JPG 也不能被顶层 original 放行');
+  assert.equal(lightboxOriginalAction(entryImageCanUseOriginal(noParameterJpeg, unavailableOriginal)).disabled, true);
+  assert.equal(normalizeImageList({ ...noParameterJpeg, images: [unavailableOriginal] })[0]._hasOriginal, false,
+    '再次归一化应保留逐图禁用标记');
   assert.equal(
     entrySourceAllowsOriginal({ _srcCodexId: 'without-original' }),
     false,

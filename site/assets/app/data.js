@@ -261,7 +261,10 @@ export function normalizeImageList(entry) {
     if (primaryIndex > 0) out.unshift(out.splice(primaryIndex, 1)[0]);
     if (entry.original && out[0]?.path === entry.image) {
       out[0].original = entry.original;
-      out[0]._hasOriginal = true;
+      // 来源文件可留作资产备份，但显式禁用的原图能力不能被顶层路径恢复。
+      out[0]._hasOriginal = !(entry.images || []).some(item =>
+        item?._hasOriginal === false
+        && (item.path || item.image || item.url || item.src) === entry.image);
     }
   }
   if (!out.length && entry.original) {
