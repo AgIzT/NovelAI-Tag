@@ -2380,6 +2380,11 @@ html.vt-arrived .float-actions{animation:none}
 /* 换法典（同文档过渡）：横幅几何全法典恒定 → 独立成组原地交叉变形；
    vt-codex 只存活于切换过渡期间，由 app.js loadCodex 打标 */
 .codex-banner{view-transition-name:codex-banner}
+/* ⚠ 换法典时顶栏必须退出独立成组：换书前后顶栏几何完全一致，单独成组一点收益也没有，
+   反而多一个「快照尺寸 ≠ 组尺寸就整块拉伸」的风险点——浏览器给 ::view-transition-old/new
+   的是 width/height=组尺寸 + object-fit:fill，任何一次捕捉对不上，整条顶栏会被拉成
+   几倍大的错误画面闪一下。跨页过渡（index ↔ 共创广场）不带 vt-codex，仍保留 site-topbar 变形。 */
+html.vt-codex .topbar{view-transition-name:none}
 html.vt-codex::view-transition-old(root){animation-duration:.16s}
 html.vt-codex::view-transition-new(root){animation-duration:.3s}
 html.vt-codex::view-transition-old(codex-banner),

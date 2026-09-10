@@ -165,8 +165,13 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
   /* 换法典用同文档 View Transition 做整页交叉淡化（数据已就绪，回调内纯同步渲染，不冻结页面）；
      首次进站没有旧画面、减少动效、老浏览器 → 直接渲染 */
   if (wasSwitching && transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
-    /* 先等选择菜单/面板退场（~180ms）再开始变形——切换动效别被浮层挡住白播一场 */
-    await new Promise(r => setTimeout(r, 170));
+    /* 先等选择菜单/面板退场再开始变形——切换动效别被浮层挡住白播一场。
+       ⚠ 这个数必须大于最慢的浮层退场时长：.codex-menu / .search-filter-panel / .updates-popover
+       都是 `display .22s allow-discrete`（styles.css），退场期间浮层仍然占屏。原来的 170ms
+       是浮层还只有 ~180ms 时定的，2026-09-05 浮层改成 220ms 后就赶不上了——旧快照会把
+       整块法典面板一起拍进去，跟着整场过渡当残影飘。220 + 60 留余量：实测只留 20ms
+       余量时仍有边界个例赶不上。改 CSS 里那三个 .22s 时，这里要跟着改。 */
+    await new Promise(r => setTimeout(r, 280));
     if (seq !== codexLoadSeq) return;
     /* vt-codex 只存活于本次过渡：横幅独立变形等换法典专属动画全挂它名下 */
     const h = document.documentElement;
