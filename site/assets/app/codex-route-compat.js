@@ -2,12 +2,20 @@
 // 否则同名分类无法判断来自哪本书；只有目标树真实存在时才应用迁移。
 const MERGED_PATHS = [
   { target: 'artist_nai45_personal', sources: ['artist_nai45_personal', 'artist_300', 'artist_45_collection'], prefix: '单画师词典' },
-  { target: 'artist_nai45_personal', sources: ['artist_nai45_strings'], prefix: '画师串词典' },
+  { target: 'artist_nai45_personal', sources: ['artist_nai45_strings'], prefix: '画风组词典' },
   { target: 'nai45_community_pack', sources: ['mengshen_pack'], prefix: '梦神 · 社区图包' },
   { target: 'nai45_community_pack', sources: ['community_ai_misc'], prefix: '社区 · AI杂图' },
 ];
 
 const RENAMED_PATHS = [
+  {
+    /* 「画师串词典」并入 artist_nai45_personal 后又改名为「画风组词典」。
+       两种年份的书签都要接住：并册前的走上面 MERGED_PATHS 的 prefix，
+       并册后改名前的（路径里已经带着旧分类名）走这条。 */
+    codex: 'artist_nai45_personal',
+    from: ['画师串词典'],
+    to: '画风组词典',
+  },
   {
     codex: 'nai5_community_pack',
     from: ['梦神 · N5精选图包'],

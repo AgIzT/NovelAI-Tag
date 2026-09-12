@@ -7,7 +7,7 @@ const artists = {
   id: 'artist_nai45_personal',
   tree: [
     node('单画师词典', [node('相同分类'), node('画师/A')]),
-    node('画师串词典', [node('相同分类'), node('W.O.F_画风', [node('复古')])]),
+    node('画风组词典', [node('相同分类'), node('W.O.F_画风', [node('复古')])]),
   ],
 };
 const packs = {
@@ -26,9 +26,9 @@ const nai5Packs = {
 };
 const normalize = (codex, source, path) => normalizeCodexRoutePath(codex, path, source);
 
-assert.deepEqual(normalize(artists, 'artist_nai45_strings', ['W.O.F_画风', '复古']), ['画师串词典', 'W.O.F_画风', '复古']);
+assert.deepEqual(normalize(artists, 'artist_nai45_strings', ['W.O.F_画风', '复古']), ['画风组词典', 'W.O.F_画风', '复古']);
 assert.deepEqual(normalize(artists, 'artist_nai45_personal', ['相同分类']), ['单画师词典', '相同分类']);
-assert.deepEqual(normalize(artists, 'artist_nai45_strings', ['相同分类']), ['画师串词典', '相同分类']);
+assert.deepEqual(normalize(artists, 'artist_nai45_strings', ['相同分类']), ['画风组词典', '相同分类']);
 assert.deepEqual(normalize(artists, 'artist_300', ['画师/A']), ['单画师词典', '画师/A']);
 assert.deepEqual(normalize(packs, 'mengshen_pack', ['人物']), ['梦神 · 社区图包', '人物']);
 assert.deepEqual(normalize(packs, 'community_ai_misc', ['人物']), ['社区 · AI杂图', '人物']);
@@ -62,16 +62,24 @@ assert.deepEqual(
   ['梦神 · N5社区图包', '韩网整理', '常规'],
 );
 assert.deepEqual(normalize(artists, 'artist_nai45_personal', []), [], '当前书的全部不变');
-assert.deepEqual(normalize(artists, 'artist_nai45_strings', []), ['画师串词典'], '旧分书首页进入对应分区');
+assert.deepEqual(normalize(artists, 'artist_nai45_strings', []), ['画风组词典'], '旧分书首页进入对应分区');
 assert.deepEqual(normalize(artists, 'unknown', ['W.O.F_画风']), []);
 assert.deepEqual(normalize(artists, 'artist_nai45_strings', ['已删除']), []);
 assert.deepEqual(normalizeRoutePath(artists.tree, 'W.O.F_画风'), []);
 assert.deepEqual(normalize({ id: 'favorites', tree: [node('来源')] }, artists.id, ['来源']), ['来源']);
 
-const canonicalPath = ['画师串词典', 'W.O.F_画风'];
+const canonicalPath = ['画风组词典', 'W.O.F_画风'];
 assert.deepEqual(normalize(artists, 'artist_nai45_strings', canonicalPath), canonicalPath);
 assert.deepEqual(normalize(artists, artists.id, normalize(artists, 'artist_nai45_strings', canonicalPath)), canonicalPath);
-assert.deepEqual(canonicalPath, ['画师串词典', 'W.O.F_画风'], '不修改调用方数组');
+assert.deepEqual(canonicalPath, ['画风组词典', 'W.O.F_画风'], '不修改调用方数组');
+/* 「画师串词典」并入 artist_nai45_personal 后又改名为「画风组词典」。
+   两种年份的书签都得接住，少一条那批旧书签就会归一成空路径、直接掉回"全部"：
+   并册前的按源书 id 补当前分类名，并册后改名前的按旧分类名改写。 */
+assert.deepEqual(
+  normalize(artists, artists.id, ['画师串词典', 'W.O.F_画风']),
+  ['画风组词典', 'W.O.F_画风'],
+  '并册后改名前的旧书签仍要归一到当前分类',
+);
 // 兼容程序先部署时仍读取旧树：不能提前加上不存在的合并层级。
 assert.deepEqual(normalize({ id: artists.id, tree: [node('旧目录')] }, artists.id, ['旧目录']), ['旧目录']);
 assert.deepEqual(normalize({ id: 'artist_nai45_strings', tree: [node('W.O.F_画风')] }, 'artist_nai45_strings', ['W.O.F_画风']), ['W.O.F_画风']);
@@ -84,7 +92,7 @@ const hasData = await stat(dataDir).then(value => value.isDirectory()).catch(err
 if (hasData) {
   let checked = 0;
   for (const [id, sources] of [
-    ['artist_nai45_personal', { '单画师词典': 'artist_nai45_personal', '画师串词典': 'artist_nai45_strings' }],
+    ['artist_nai45_personal', { '单画师词典': 'artist_nai45_personal', '画风组词典': 'artist_nai45_strings' }],
     ['nai45_community_pack', { '梦神 · 社区图包': 'mengshen_pack', '社区 · AI杂图': 'community_ai_misc' }],
   ]) {
     const book = JSON.parse(await readFile(new URL(`${id}.json`, dataDir), 'utf8'));
