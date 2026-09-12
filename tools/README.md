@@ -30,6 +30,7 @@
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |
 | `test_blocking_manager_motion.mjs` | 屏蔽清单节点复用、退场隔离、焦点、快速切页/关闭、跨标签更新与动效兜底回归 | 只读，内存 DOM/动画与存储夹具；真实几何仍须浏览器验证 |
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`） | 只读，写测试输出 |
+| `verify_favorites_v2.py` | 收藏夹迁移、整理、撤销、故障、多标签页和性能的真实浏览器回归；用 `--base-url` 指定工作区配置中的预览 | 仅允许回环地址；使用独立浏览器配置并写 `output/favorites-v2-validation/`，不操作用户浏览器数据 |
 | `benchmark_search_v1.mjs` | 搜索 V1 与旧匹配逻辑的本地中位耗时对比；数据缺失时明确 SKIP | 只读 |
 | `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率；**图片参数解析的唯一公共入口**，格式与审计流程见下方“操作说明去向” | 只读；审计写 CSV |
 | `cleanup_output.py` | 按保留策略清理 `output/`（详见文件头；`单项工具/清理输出.bat` 的内核） | 默认 dry-run；`--apply` 才删 |
@@ -45,6 +46,7 @@
 | `retire_r2_assets.py` | **只读预演已纳入版本，执行端未上线**：消费下架报告中的精确对象键，计划退役或删除已不再被发布数据引用的 R2 资源；无通配删除 | 默认计划会对 R2 发带鉴权的只读 HEAD；历史 release / 激活隔离、clean rollback、失败恢复与逐次授权门闭合前，`--apply` 被代码硬阻断 |
 | `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
 | `build_local_edition.py` | `单项工具/打包本地版.bat` 的内核：按白名单生成独立本地发行包 + ZIP（见本地私有文档 `docs/decisions/独立本地发行版.md`） | 不改仓库数据；默认写 `output/local-edition/` |
+| `local_edition_version.py` | 构建器与本地启动器共用的本地版版本号 | 库文件，不单独运行 |
 | `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 启动即补建发行根目录及缺失的 `codexes.json` / `media.json`，随后开启可写编辑服务并默认打开浏览器；源码直跑会以仓库根为发行根，仓库内禁止日常直接运行 |
 | `backfill_pack_character_prompts.py` | 从原图幂等回填图包的 NAI V4 角色提示词（2026-08-31 两本并册后默认只跑合并册；逐条取原图本来就走 `assetCodexId`） | 默认不改正式数据，但会覆盖写 `output/pack_character_prompts/report.json`；`--apply` 才另写正式 JSON |
 | `lint_docs.py` | **文档体检**：索引、死链、引用、台账、易漂数字/端口、预算和孤儿文档；流程见本地私有文档 `docs/经验/文档规整.md` | 读取项目；覆盖写 `output/docs-lint-report.txt` |
@@ -98,11 +100,13 @@
 
 - Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
+- Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
 - Node · 数据与路由：`test_entry_aliases.mjs`（同书套图合并的收藏、深链及分享门控）、`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
 - Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。
 - Node · 主站状态与交互：`test_browser_history.mjs`、`test_history_storage.mjs`、`test_edit_client.mjs`、`test_search_data.mjs`、`test_search_directories.mjs`、`test_render_ui.mjs`、`test_modal_dismiss.mjs`、`test_copy.mjs`、`test_beta_banner.mjs`、`test_local_ownership.mjs`、`test_resume_prompt.mjs`、`test_masonry_viewport.mjs`、`test_skeleton_transition.mjs`。
 - Node · 收藏与中转站：`test_favorites_backup.mjs`、`test_favorites_runtime.mjs`、`test_favorites_origin_migration.mjs`、`test_favorites_transfer.mjs`、`test_tag_relay_access.mjs`、`test_tag_relay_core.mjs`、`test_tag_relay_store.mjs`。
+- Node · 收藏夹 V2：`test_favorites_library_core.mjs`、`test_favorites_library_store.mjs`、`test_favorites_backup_store.mjs`、`test_favorites_backup_v2.mjs`、`test_favorites_backup_ui.mjs`、`test_favorites_view.mjs`、`test_favorites_route.mjs`；浏览器模块测试加载器为 `favorites-library-test-loader.mjs`。
 
 `__pycache__/` 是 Python 缓存，忽略。
 
