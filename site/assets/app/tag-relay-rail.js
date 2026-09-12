@@ -13,6 +13,7 @@ import { prefersReducedMotion } from './utils.js';
 import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistoryLayer } from './browser-history.js';
 import { trapFocus } from './modal.js';
 import { cancelRelayAction } from './tag-relay-action.js';
+import { settleRelayMotion } from './tag-relay-motion.js';
 
 const RAIL_STORAGE_KEY = 'fadian-tag-relay-rail';
 const RAIL_LAYER_ID = 'tag-relay-rail';
@@ -101,6 +102,7 @@ function setOpenDirect(open, trigger = null) {
     /* 没走完的确认 / 命名条不能留到下一次打开——「清空最近复制」「删除方案」
        这类 danger 条尤其危险：用户以为已经放弃，回来随手一点就真执行了。 */
     cancelRelayAction();
+    settleRelayMotion();
     /* 焦点原本不在栏里就别抢回来；栏是用户主动 Tab 进去的才需要还 */
     if (heldFocus) {
       const back = lastTrigger?.isConnected ? lastTrigger : document.querySelector('#tagRelayBtn');
@@ -169,6 +171,10 @@ export function markRailDirty(changed) {
 }
 
 function bindRail() {
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', settleRelayMotion);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') settleRelayMotion();
+  });
   document.querySelector('#tagRelayBtn')?.addEventListener('click', event => toggleRelayRail(event.currentTarget));
   document.querySelector('#tagRelayMenuLink')?.addEventListener('click', () => {
     const moreButton = document.querySelector('#moreBtn');
@@ -189,6 +195,7 @@ function bindRail() {
   const hasOpenInnerLayer = () => [
     '#relayPlanList',
     '#relayPlanMenu',
+    '#relaySourceMenu',
     '#relayCopyHistory',
     '#relayInspector',
   ].some(selector => {

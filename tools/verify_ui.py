@@ -16,6 +16,7 @@ import http.client
 import json
 import os
 import random
+import re
 import shutil
 import socket
 import struct
@@ -464,7 +465,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         entry for entry in (artist_data.get("entries") or [])
         if entry.get("assetCodexId") == "artist_nai45_strings"
         and (entry.get("image") or entry.get("images"))
-        and list(entry.get("path") or [])[:1] == ["画师串词典"]
+        and list(entry.get("path") or [])[:1] == ["画风组词典"]
     )
     legacy_artist_path = list(legacy_artist_entry["path"])
     legacy_artist_source_path = legacy_artist_path[1:]
@@ -991,29 +992,91 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             # 真正派发 HTML DragEvent，而不是只看 draggable 属性。drop 回调会异步等 Web Lock；
             # 载荷 ID 若仍从会被 dragend 清空的模块变量读取，这里就不会发生换位。
             dragged_id = cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card')?.dataset.itemId")
-            cdp.eval(r"""
+            # 拖动中其余块会实时让位，所以"落到第几位"由**预览时显示的位置**定义，
+            # 而不是"拖到原来第 N 张卡上"——松手前卡片早就挪过位置了。
+            # 先记下预览把它摆在第几格，再断言提交后就在那一格。
+            previewed_index = cdp.eval(r"""
 (() => {
-  const cards = [...document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
-  if (cards.length < 2) return false;
+  const lane = document.querySelector('#relayPlanLane');
+  const cards = [...lane.querySelectorAll('.tag-relay-plan-card')];
+  if (cards.length < 2) return -1;
   const source = cards[0];
   const sourceMain = source.querySelector('.tag-relay-plan-card-main');
   const target = cards[1];
-  if (!sourceMain) return false;
+  if (!sourceMain) return -1;
   const rect = target.getBoundingClientRect();
   const dataTransfer = new DataTransfer();
-  const init = {bubbles:true, cancelable:true, dataTransfer, clientX:rect.left + rect.width / 2, clientY:rect.bottom - 2};
+  /* 明确落在槽位右半区：瞄正中点会被滞回带按住不动，测试就看不到换位。 */
+  const init = {bubbles:true, cancelable:true, dataTransfer, clientX:rect.right - 3, clientY:rect.top + rect.height / 2};
   sourceMain.dispatchEvent(new DragEvent('dragstart', init));
-  target.dispatchEvent(new DragEvent('dragover', init));
+  lane.dispatchEvent(new DragEvent('dragover', init));
+  const previewed = Number(source.style.order);   // 预览此刻把它摆在第几格
   target.dispatchEvent(new DragEvent('drop', init));
   sourceMain.dispatchEvent(new DragEvent('dragend', {bubbles:true, dataTransfer}));
-  return true;
+  return Number.isInteger(previewed) ? previewed : -1;
 })()
 """)
+            if previewed_index is None or previewed_index < 1:
+                raise CheckFailed(f"Relay {mode} drag preview did not move the dragged block: {previewed_index}")
             wait_for(
                 cdp,
-                f"document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')[1]?.dataset.itemId === {json.dumps(dragged_id)}",
+                "document.querySelectorAll('#relayPlanLane .tag-relay-plan-card')"
+                f"[{int(previewed_index)}]?.dataset.itemId === {json.dumps(dragged_id)}",
                 f"relay {mode} native drag reorder",
             )
+
+            # 拖动中的实时预览：其余块让位靠 FLIP，落点靠**网格槽位**算。
+            # ⚠ 这条盯的是"疯狂抽动"那个回归：一旦有人把落点判定改回 card.getBoundingClientRect()，
+            #   判定边界就会跟着正在播动画的卡片一起移动，指针在边界上微动就来回翻页。
+            #   下面两问只要有一个不成立，说明又踩回去了。
+            jitter = cdp.eval(r"""
+(() => {
+  const lane = document.querySelector('#relayPlanLane');
+  const cards = () => [...lane.querySelectorAll('.tag-relay-plan-card')];
+  if (cards().length < 4) return {skipped: true};
+  const key = () => cards().map(card => card.style.order || '-').join(',');
+  const source = cards()[0];
+  const main = source.querySelector('.tag-relay-plan-card-main');
+  const dataTransfer = new DataTransfer();
+  const at = (x, y) => ({bubbles: true, cancelable: true, dataTransfer, clientX: x, clientY: y});
+  const first = cards()[0].getBoundingClientRect();
+  const third = cards()[3].getBoundingClientRect();
+  const y = first.top + first.height / 2;
+  main.dispatchEvent(new DragEvent('dragstart', at(first.left + 20, first.top + 20)));
+  // ① 沿整行细扫：每跨过一个槽位才准变一次，来回抖就会远超槽位数
+  const swept = [];
+  for (let x = first.left + 10; x <= third.right - 4; x += 4) {
+    lane.dispatchEvent(new DragEvent('dragover', at(x, y)));
+    swept.push(key());
+  }
+  const sweepChanges = swept.filter((value, index) => index && value !== swept[index - 1]).length;
+  // ② 正好停在槽位中线上左右各 2px 抖 20 次：滞回带必须让它一次都不翻
+  const boundary = third.left + third.width / 2;
+  const wiggled = [];
+  for (let i = 0; i < 20; i += 1) {
+    lane.dispatchEvent(new DragEvent('dragover', at(boundary + (i % 2 ? 2 : -2), y)));
+    wiggled.push(key());
+  }
+  const wiggleFlips = wiggled.filter((value, index) => index && value !== wiggled[index - 1]).length;
+  const previewApplied = cards().some(card => card.style.order !== '');
+  main.dispatchEvent(new DragEvent('dragend', {bubbles: true, dataTransfer}));
+  return {
+    sweepChanges, wiggleFlips, previewApplied,
+    leftoverOrder: cards().filter(card => card.style.order !== '').length,
+    leftoverSource: lane.querySelectorAll('.is-drag-source').length,
+  };
+})()
+""")
+            if not jitter.get("skipped"):
+                if not jitter["previewApplied"]:
+                    raise CheckFailed(f"Relay {mode} drag preview never reordered anything: {jitter}")
+                if jitter["wiggleFlips"] != 0:
+                    raise CheckFailed(f"Relay {mode} drag preview jitters on the slot boundary: {jitter}")
+                if jitter["sweepChanges"] > 6:
+                    raise CheckFailed(f"Relay {mode} drag preview oscillates while sweeping a row: {jitter}")
+                if jitter["leftoverOrder"] or jitter["leftoverSource"]:
+                    raise CheckFailed(f"Relay {mode} drag preview was not cleaned up on dragend: {jitter}")
+            shell["dragPreview"] = jitter
 
             # 一屏化最核心的那步：点素材芯片，块直接落进上方编排区。
             # 旧流程是「复制 → 切素材 → 点加入 → 切编排」四步两切换，这里必须验到零切换。
@@ -1168,18 +1231,37 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 "dropUndoToast": drop_toast,
             }
 
-            # 点芯片只选中（分区头出工具条），编辑要再点 ✎ —— 排序才是高频操作，
-            # 不该每动一次就被浮层糊屏。
-            cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card')?.click()")
+            # 点图块只选中，块操作交给下方那条操作条 —— 排序才是高频操作，不该每动一次就被浮层糊屏。
+            # ⚠ 图墙里每块只有 88×64，塞不下常驻按钮；分区头也不许再长出块级动作。
+            cdp.eval("document.querySelector('#relayPlanLane .tag-relay-plan-card-main')?.click()")
             wait_for(
                 cdp,
-                "document.querySelector('#relayBlockTools')?.hidden === false"
-                " && document.querySelector('#relayInspector')?.hidden === true",
+                "document.querySelector('#relayPlanLane .tag-relay-plan-card.is-selected') !== null"
+                " && document.querySelector('#relayInspector')?.hidden === true"
+                # 操作条要真的出现，而且整条落在栏内
+                " && document.querySelector('#relayBlockBar')?.hidden === false"
+                " && (() => { const b = document.querySelector('#relayBlockBar').getBoundingClientRect();"
+                " const r = document.querySelector('#tagRelayRail').getBoundingClientRect();"
+                " return b.height > 24 && b.top >= r.top - 1 && b.bottom <= r.bottom + 1; })()",
                 f"relay {mode} select-only",
             )
-            cdp.eval("document.querySelector('[data-block-tool=\"edit\"]')?.click()")
-            wait_for(cdp, "document.querySelector('#relayInspector')?.hidden === false", f"relay {mode} inspector")
+            cdp.eval("document.querySelector('#relayBlockBar [data-block-tool=\"edit\"]')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayInspector')?.hidden === false",
+                f"relay {mode} inspector",
+            )
             settle(cdp, 120)
+
+            # 格式 / 连接已经收进成品披露里。滑块仍由 CSS calc 定位，但 display:none 时
+            # 量不到宽度，所以先展开再验证它确实被定位过，验完收回去。
+            cdp.eval("document.querySelector('#relayOutputToggle')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayOutputBoxes')?.hidden === false",
+                f"relay {mode} output disclosure",
+            )
+            settle(cdp, 160)
 
             compose = cdp.eval(r"""
 (() => {
@@ -1208,27 +1290,45 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
       card.draggable === false && card.querySelector('.tag-relay-plan-card-main')?.draggable === true
     )),
     directRemoveCount: rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card-remove').length,
-    directRemoveTargetsSized: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card-remove')].every(button => {
-      const rect = button.getBoundingClientRect();
-      return rect.width >= 30 && rect.height >= 30;
-    }),
+    /* 触屏没有 hover，删除的主路径是「点块 → 操作条上的 ×」，所以操作条那排必须够点；
+       图块角上那颗只是桌面的快捷键，允许小一点但不能小到按不中。 */
+    directRemoveTargetsSized: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card-remove')]
+      .every(button => {
+        const rect = button.getBoundingClientRect();
+        return rect.width >= 26 && rect.height >= 26;
+      }),
+    blockBarTargetsSized: [...rail.querySelectorAll('#relayBlockBar [data-block-tool]')]
+      .every(button => {
+        const rect = button.getBoundingClientRect();
+        return rect.width >= 30 && rect.height >= 30;
+      }),
+    blockBarTools: [...rail.querySelectorAll('#relayBlockBar [data-block-tool]')]
+      .map(button => button.dataset.blockTool).join(','),
     planCardMainsSemantic: [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')].every(card => {
       const main = card.querySelector('.tag-relay-plan-card-main');
       const remove = card.querySelector('.tag-relay-plan-card-remove');
       return main?.getAttribute('role') === 'button'
         && remove?.tagName === 'BUTTON'
-        && remove?.type === 'button';
+        && remove?.type === 'button'
+        /* 删除必须是 main 的同级真按钮：套进 draggable 的 main 里会从「×」起拖整块 */
+        && remove.parentElement === card;
     }),
-    planCardsSingleColumn: (() => {
-      const cards = [...rail.querySelectorAll('#relayPlanLane .tag-relay-plan-card')];
-      if (cards.length < 2) return false;
-      const first = cards[0].getBoundingClientRect();
-      const second = cards[1].getBoundingClientRect();
-      return Math.abs(first.left - second.left) < 2
-        && second.top >= first.bottom - 1
-        && first.width >= rail.querySelector('#relayPlanLane').clientWidth * .9;
+    /* 图墙：同一行里至少并排 3 块，每块不超过轨道宽度的一半 —— 一旦退回满宽横条就会失败 */
+    planTilesWrap: (() => {
+      const lane = rail.querySelector('#relayPlanLane');
+      const cards = [...lane.querySelectorAll('.tag-relay-plan-card')];
+      if (cards.length < 3) return false;
+      const top = cards[0].getBoundingClientRect().top;
+      const firstRow = cards.filter(card => Math.abs(card.getBoundingClientRect().top - top) < 2);
+      const width = cards[0].getBoundingClientRect().width;
+      return firstRow.length >= 3 && width <= lane.clientWidth / 2;
     })(),
-    sourceChipsDraggable: [...rail.querySelectorAll('#relaySourceList .tag-relay-chip')].every(el => el.draggable),
+    /* draggable 挂在芯片主体上而不是外壳，「负」/「×」才不会变成拖拽把手 */
+    sourceChipsDraggable: [...rail.querySelectorAll('#relaySourceList .tag-relay-chip')]
+      .every(chip => chip.querySelector('.tag-relay-chip-main')?.draggable === true
+        && chip.draggable === false),
+    /* 收起时那颗按钮自己就是当前格式的标签——它是「设置在哪」的唯一线索，不能变回一句统计。 */
+    outputSummaryLabel: rail.querySelector('#relayOutputSummary')?.textContent?.trim() || '',
     panelOverflow: pane.scrollWidth - pane.clientWidth,
     inspectorWithinRail: ir.left >= rr.left - 1 && ir.right <= rr.right + 1,
     outputWithinRail: or.left >= rr.left - 1 && or.right <= rr.right + 1,
@@ -1253,13 +1353,17 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             if (
                 compose["directRemoveCount"] != 8
                 or not compose["directRemoveTargetsSized"]
+                or not compose["blockBarTargetsSized"]
+                or compose["blockBarTools"] != "up,down,toggle,edit,remove"
                 or not compose["planCardMainsSemantic"]
             ):
-                raise CheckFailed(f"Relay {mode} direct card remove controls are incomplete: {compose}")
-            if not compose["planCardsSingleColumn"]:
-                raise CheckFailed(f"Relay {mode} plan cards are not full-width single-column bars: {compose}")
+                raise CheckFailed(f"Relay {mode} block controls are incomplete: {compose}")
+            if not compose["planTilesWrap"]:
+                raise CheckFailed(f"Relay {mode} plan blocks fell back to full-width bars: {compose}")
             if not compose["planZoneStillVisible"]:
                 raise CheckFailed(f"Relay {mode} plan zone vanished while editing: {compose}")
+            if not re.fullmatch(r"(NAI|SD|纯文本) · (逗号|逗号换行)", compose["outputSummaryLabel"]):
+                raise CheckFailed(f"Relay {mode} output disclosure must label the current format: {compose}")
             if (
                 compose["panelOverflow"] > 1
                 or compose["documentOverflow"] > 1
@@ -1267,6 +1371,14 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 or not compose["outputWithinRail"]
             ):
                 raise CheckFailed(f"Relay {mode} compose content overflows horizontally: {compose}")
+
+            # 收回披露：后面的 Escape 链验证按「成品默认收起」的常态走。
+            cdp.eval("document.querySelector('#relayOutputToggle')?.click()")
+            wait_for(
+                cdp,
+                "document.querySelector('#relayOutputBoxes')?.hidden === true",
+                f"relay {mode} output disclosure closes",
+            )
 
             shots.append(screenshot(cdp, out_dir, f"tag-relay-{mode}"))
             # Inspector / history 与 rail 外壳的 Escape 监听都挂在 rail；注册顺序若处理错，
@@ -1292,7 +1404,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 "document.querySelector('#tagRelayRail')?.classList.contains('closed')"
                 " && document.querySelector('#tagRelayRail')?.inert === true"
                 " && document.querySelector('#tagRelayRail')?.getAttribute('aria-hidden') === 'true'"
-                " && getComputedStyle(document.querySelector('#tagRelayRailBackdrop')).display === 'none'",
+                # 遮罩盖着整页，收栏后必须确实点不到。停靠态是 display:none，
+                # 抽屉 / sheet 态改成了淡出（display 一直 block），两种都算过。
+                " && (() => { const s = getComputedStyle(document.querySelector('#tagRelayRailBackdrop'));"
+                " return s.display === 'none'"
+                " || (s.visibility === 'hidden' && s.pointerEvents === 'none' && Number(s.opacity) === 0); })()",
                 f"relay {mode} closes inert",
             )
             check_no_errors(cdp)

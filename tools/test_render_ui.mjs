@@ -1455,7 +1455,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   // 页签已经不存在了：存在任何一个 role=tab 指向分区，就说明一屏化被改回去了。
   assert.doesNotMatch(indexSource, /data-rail-tab/);
   // 素材必须可拖，且载荷是带类型的快照（收藏来源不在 relayInbox 里，按 key 回查会落空）。
-  assert.match(relaySource, /chip\.draggable = !locked/);
+  assert.match(relaySource, /main\.draggable = !locked/);
+  assert.doesNotMatch(relaySource, /chip\.draggable = !locked/);
   assert.match(relaySource, /setData\(RELAY_SOURCE_MIME, JSON\.stringify\(entry\)\)/);
   // 同一词条在一个方案里只占一个槽位；完整 / 仅负向先冻结同一身份，重复分支不能给撤销。
   const addSourceBody = composeSource.slice(
@@ -1473,19 +1474,68 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(composeSource, /card\.setAttribute\('role', 'group'\)/);
   assert.match(composeSource, /main\.className = 'tag-relay-plan-card-main'[\s\S]*main\.setAttribute\('role', 'button'\)/);
   assert.match(composeSource, /remove\.className = 'tag-relay-plan-card-remove'[\s\S]*removeBlock\(item\.id, \{ planId: cardPlanId \}\)/);
-  assert.doesNotMatch(indexSource, /data-block-tool="remove"/);
+  // 块级动作只许出现在块自己的操作条里；分区头不许再长出任何一个。
+  const zoneHeadStart = indexSource.indexOf('<div class="tag-relay-zone-head">');
+  const zoneHeadBlock = indexSource.slice(zoneHeadStart, indexSource.indexOf('</div>', zoneHeadStart));
+  assert.ok(zoneHeadStart > 0);
+  assert.doesNotMatch(zoneHeadBlock, /data-block-tool/);
+  assert.match(indexSource, /id="relayBlockBar"[\s\S]*data-block-tool="remove"/);
   assert.doesNotMatch(composeSource, /main\.className = 'tag-relay-chip-main'/);
   // footer 是 compose 的兄弟：格式/连接必须从整条 rail 取；行为差异另由 access 测试驱动。
   assert.match(composeSource, /formatButtons:\s*\[\.\.\.scope\.querySelectorAll\('\[data-format\]'\)\]/);
   assert.match(composeSource, /joinButtons:\s*\[\.\.\.scope\.querySelectorAll\('\[data-join\]'\)\]/);
   // drop 进入 Web Lock 前必须把 ID 抄到局部变量，事务闭包不能再读取会被 dragend 清空的全局值。
   assert.match(composeSource, /const draggedId = event\.dataTransfer\?\.getData\(RELAY_PLAN_MIME\) \|\| dragBlockId;[\s\S]*movePlanItem\(next, targetPlanId, draggedId, targetIndex\)/);
-  // 方案头只留「N 个块」一份计数；格式/连接各自成组，窄屏换行也不会拆散标签与控件。
+  // 方案头只留一份计数；格式/连接各自成组，窄屏换行也不会拆散标签与控件。
   assert.doesNotMatch(indexSource, /tagRelayComposeCount/);
   assert.equal((indexSource.match(/class="tag-relay-output-option-group"/g) || []).length, 2);
-  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-plan-lane\{[\s\S]*grid-template-columns:minmax\(0,1fr\)/);
+
+  /* ── 2026-09 结构收敛：分区要有名字、同一个数字只留一处、块操作只在它自己的卡上 ──
+     这些是当面定下的约束，每条都要有一条会失败的断言盯着，别只写在文档里。 */
+  // ① 两个分区各有一行真标题，不再靠统计文字 / 页签当标题。
+  assert.equal((indexSource.match(/class="tag-relay-band"/g) || []).length, 2);
+  // ② 素材条数只留一处：栏头那份撤掉，计数长在「最近复制」页签上。
+  assert.doesNotMatch(indexSource, /tagRelayRailCount/);
+  assert.doesNotMatch(relaySource, /#tagRelayRailCount/);
+  assert.match(indexSource, /id="relayInboxCount"/);
+  // ③ 块操作既不在分区头、也不再是每块一份：选中后由**一条**操作条承担。
+  assert.doesNotMatch(indexSource, /relayBlockTools|relayBlockMenu/);
+  assert.doesNotMatch(composeSource, /relayBlockTools|blockMenu/);
+  assert.match(indexSource, /id="relayBlockBar"[\s\S]*data-block-tool="up"[\s\S]*data-block-tool="edit"/);
+  // 图块是"图 + 压在图底的标题"，不再有缩略图小方块和抓握纹那一列。
+  assert.match(composeSource, /card\.append\(main, seq, remove\)/);
+  assert.doesNotMatch(composeSource, /tag-relay-plan-card-thumb|tag-relay-plan-card-grip/);
+  assert.match(composeSource, /main\.style\.backgroundImage = 'url\("' \+ item\.image/);
+  // ④ 「清空最近复制」的对象是货架，必须待在素材分区自己的菜单里。
+  assert.match(indexSource, /id="relaySourceMenu"[\s\S]*id="tagRelayClear"/);
+  // ⚠ 用整份文档做 [\s\S]* 会跨到文件末尾，永远命中；只截方案菜单那一段来判。
+  const planMenuStart = indexSource.indexOf('id="relayPlanMenu"');
+  const planMenuBlock = indexSource.slice(planMenuStart, indexSource.indexOf('</div>', planMenuStart));
+  assert.ok(planMenuStart > 0);
+  assert.doesNotMatch(planMenuBlock, /tagRelayClear/);
+  // ⑤ 成品记录（原「复制历史」）与它的入口同处成品区，向上展开。
+  assert.match(indexSource, /class="tag-relay-output"[\s\S]*id="relayHistoryToggle"[\s\S]*id="relayCopyHistory"[\s\S]*<\/footer>/);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-history\{[^}]*bottom:calc\(100% - 8px\)/);
+  // ⑥ 图墙按内容长，所以方案区收缩到内容、剩余高度全归货架。
+  // 素材按剩余高度分配；方案允许收缩但保留一行，展开输出时也能操作素材。
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-plan\{flex:0 1 auto;max-height:46%;min-height:114px/);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{flex:1 1 0;min-height:88px\}/);
+  // ⑦ 图墙没有"轨道之外的死白"，落点提示整块撤掉；素材芯片的移除键仍要够点。
+  assert.doesNotMatch(indexSource, /relayLaneDrop/);
+  assert.doesNotMatch(composeSource, /laneDrop/);
+  assert.match(relayCss, /\.tag-relay-chip-x\{[^}]*width:24px;height:24px/);
+  // ⑧ 标题压在图底、悬停让开；序号是图墙里唯一的顺序线索，必须常驻。
+  assert.match(relayCss, /\.tag-relay-plan-card\.is-imaged:not\(\.is-selected\):hover \.tag-relay-plan-card-body\{opacity:0\}/);
+  assert.match(relayCss, /\.tag-relay-plan-card-seq\{[\s\S]*position:absolute/);
+  // ⑨ 立绘多是竖构图（实测 57 张里 74%），横切必须贴顶，否则从 20% 起就开始切脸。
+  assert.match(relayCss, /\.tag-relay-plan-card-main\{[\s\S]*center top\/cover/);
+  assert.doesNotMatch(relayCss, /center (?:20|35|50)%\/cover/);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-plan-lane\{[\s\S]*grid-template-columns:repeat\(auto-fill,minmax\(84px,1fr\)\)/);
+  assert.match(relayCss, /\.tag-relay-rail \.tag-relay-plan-lane\{[\s\S]*grid-auto-rows:64px/);
   assert.match(relayCss, /\.tag-relay-plan-card-body\{[\s\S]*display:flex;align-items:center/);
-  assert.match(composeSource, /event\.clientY < rect\.top \+ rect\.height \/ 2/);
+  /* 图墙是会换行的网格，插入点必须按 X 轴判定；照搬横条时代的 Y 轴会让手势和视觉相反。 */
+  assert.match(composeSource, /event\.clientX < rect\.left \+ rect\.width \/ 2/);
+  assert.doesNotMatch(composeSource, /event\.clientY < rect\.top \+ rect\.height \/ 2/);
   assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{[^}]*min-height:88px/);
   assert.match(relayCss, /\.tag-relay-primary:disabled,\.tag-relay-secondary:disabled/);
   assert.match(relaySource, /tag-relay-chip-negative/);
@@ -1532,7 +1582,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
      下一次 render 直接 closeInspector 后静默消失。 */
   assert.match(
     composeSource,
-    /function draftFromInspector\(\)[\s\S]*return \{[\s\S]*function preserveOrphanedDraft\(\)[\s\S]*orphanedDraft = draft;[\s\S]*function renderCompose\(\)[\s\S]*if \(editorTargetGone\) \{[\s\S]*preserveOrphanedDraft\(\);[\s\S]*renderOrphanedDraft\(\);/,
+    /function draftFromInspector\(\)[\s\S]*return \{[\s\S]*function preserveOrphanedDraft\(\)[\s\S]*orphanedDraft = draft;[\s\S]*function renderCompose\([\s\S]*if \(editorTargetGone\) \{[\s\S]*preserveOrphanedDraft\(\);[\s\S]*renderOrphanedDraft\(\);/,
   );
 }
 

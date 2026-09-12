@@ -467,7 +467,7 @@ const relayShell = fakeElement('aside');
 const relayRoot = fakeElement('section');
 const initiallyHidden = new Set([
   '#relayPlanList', '#relayPlanMenu', '#relayCopyHistory', '#relayInspector',
-  '#relayOutputBoxes', '#relayInlineAction', '#relayBlockTools',
+  '#relayOutputBoxes', '#relayInlineAction', '#relayBlockBar',
 ]);
 relayShell.querySelector = selector => {
   if (!pool.has(selector)) {
@@ -777,9 +777,9 @@ try {
     const [dragged, target] = ref('#relayPlanLane').children;
     const dataTransfer = makeDataTransfer();
     dragged.fire('dragstart', { dataTransfer, offsetX: 20, offsetY: 20 });
-    target.fire('dragover', { dataTransfer, clientY: 48 });
+    target.fire('dragover', { dataTransfer, clientX: 90, clientY: 25 });
     const dropTasks = (target.listeners.get('drop') || []).map(listener => listener({
-      type: 'drop', target, currentTarget: target, dataTransfer,
+      type: 'drop', target, currentTarget: target, dataTransfer, clientX: 90, clientY: 25,
       preventDefault() {}, stopPropagation() {},
     }));
     dragged.fire('dragend', { dataTransfer });
@@ -794,7 +794,7 @@ try {
     /* —— 复制历史的三条分支 —— */
     state.allowNsfw = false;
     view.render();
-    ref('#relayHistoryToggle').fire('click');   // 展开历史面板
+    ref('#relayHistoryToggle').fire('click');   // 展开成品记录面板
 
     const cards = () => ref('#relayHistoryList').children;
     assert.equal(cards().length, 4);

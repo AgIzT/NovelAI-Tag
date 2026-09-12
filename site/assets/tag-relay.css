@@ -52,7 +52,7 @@
   flex:none;display:flex;align-items:center;gap:9px;padding:14px 16px 10px;
 }
 .tag-relay-rail-head h2{margin:0;font:800 17px/1.25 var(--font-display);letter-spacing:.5px;white-space:nowrap}
-.tag-relay-rail-count{flex:1;min-width:0;color:var(--muted);font-size:11.5px}
+.tag-relay-rail-gap{flex:1;min-width:0}
 .tag-relay-rail-close{
   flex:none;width:30px;height:30px;border:0;border-radius:9px;background:transparent;
   color:var(--muted);font-size:19px;line-height:1;
@@ -136,10 +136,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
     transform:translateX(calc(100% + 16px));width:min(440px,calc(100vw - 16px));
     flex-basis:auto;border-color:var(--line);box-shadow:none;
   }
-  .tag-relay-rail:not(.closed)+.tag-relay-rail-backdrop{
-    display:block;position:fixed;inset:0;z-index:67;border:0;padding:0;
-    background:rgba(15,18,30,.3);touch-action:none;overscroll-behavior:contain;
-  }
+  /* 遮罩的完整样式在本文件末尾那条同断点规则里（带淡入淡出），这里不再写第二份——
+     同一个选择器分散两处就会变成"改一处不生效、改两处才生效"。 */
   body.rail-docked .float-actions{right:26px}
 }
 
@@ -366,8 +364,10 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-output-option-group .tag-relay-segment{min-width:0}
 .tag-relay-rail .tag-relay-output-box{margin:0}
 .tag-relay-rail .tag-relay-output-box textarea{min-height:0;font-size:11px}
-.tag-relay-output-actions{display:flex;gap:7px}
-.tag-relay-output-actions>*{flex:1;min-height:34px;font-size:12px;padding:6px 8px}
+/* 次级行：两颗通道键在左，设置与成品记录靠右；窄栏换行也不会互相挤扁。 */
+.tag-relay-output-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.tag-relay-output-actions>button{flex:none;min-height:30px;font-size:11.5px;padding:5px 11px}
+.tag-relay-output-gap{flex:1 1 0;min-width:0}
 
 /* ⚠ 统计行不能按视口宽度藏：侧栏恒宽 440px，1100px 的抽屉里没有、1300px 的停靠里有，
    同样宽的一根栏两种表现，纯属把独立页的响应式当成了侧栏的响应式。
@@ -447,13 +447,27 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-rail .tag-relay-zone{
   display:flex;flex-direction:column;gap:7px;padding:9px 14px;min-height:0;
 }
-/* 编排按内容自适应；单列横条优先给到六块的高度，空间不足时才由轨道自身滚动。 */
-.tag-relay-rail .tag-relay-zone-plan{flex:0 1 auto;max-height:min(64%,360px)}
-/* 编排轨道贴着内容走：块少时把空高度让给素材区。 */
+/* 工作台优先：给下限、并吃掉剩余空高；货架改成按内容收缩、只吃到上限。
+   原先是反过来的（方案 max-height 封顶、货架 flex:1 吃掉全部剩余），实测空方案时
+   编排区只剩 95px，比它下面那排**禁用**的输出控件（135px）还矮。 */
+/* 图墙按内容长（每行 64px），所以方案区收缩到内容大小、省下的高度全给货架——
+   这跟"满宽横条"时代的分配正好反过来：那时方案区要抢下限，现在它本来就不占地方。
+   上限 46% 是为了 20+ 块时不至于把货架挤没。 */
+/* ⚠ shrink 必须是 0：素材塞满时整栏内容会超过栏高，只要方案区可收缩，
+   它就会跟着被压掉半行图块（实测 6 块本该 2 行 134px，被压成 118px 只看得见 4 块）。
+   该滚的是货架，不是方案。 */
+.tag-relay-rail .tag-relay-zone-plan{flex:0 1 auto;max-height:46%;min-height:114px}
+.tag-relay-rail .tag-relay-zone-plan:has(.tag-relay-block-bar:not([hidden])){min-height:172px}
 .tag-relay-rail .tag-relay-zone-plan .tag-relay-plan-lane{flex:0 1 auto}
-.tag-relay-rail .tag-relay-zone-source{flex:1 1 96px;min-height:88px}
+.tag-relay-rail .tag-relay-zone-source{flex:1 1 0;min-height:88px}
 
 .tag-relay-zone-head{display:flex;align-items:center;gap:6px;min-height:24px;flex:none}
+/* 分区名：两个区都得有，否则「工作台 / 货架」全靠一条 1px 线区分。 */
+.tag-relay-band{
+  flex:none;display:inline-flex;align-items:center;gap:6px;
+  color:var(--muted);font-size:10.5px;font-weight:900;letter-spacing:1.2px;white-space:nowrap;
+}
+.tag-relay-band::before{content:'';width:3px;height:11px;border-radius:2px;background:var(--accent)}
 .tag-relay-zone-title{
   margin:0;flex:1;min-width:0;font-size:11px;font-weight:800;color:var(--muted);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -463,13 +477,32 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 }
 .tag-relay-zone-split{flex:none;height:1px;margin:2px 14px;background:var(--line)}
 
-/* 选中块时才出现的就地工具条 */
-.tag-relay-lane-tools{display:flex;gap:3px;flex:none}
-.tag-relay-lane-tools button{
-  width:24px;height:24px;border:1px solid var(--line);border-radius:7px;
-  background:var(--tagbg);color:var(--muted);font-size:11px;line-height:1;
+/* ---- 空方案：第一印象要给引导，不是一行灰字 ---- */
+.tag-relay-plan-blank{
+  flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:8px;margin:1px 0 4px;padding:16px;text-align:center;
+  border:1px dashed color-mix(in srgb,var(--accent) 46%,var(--line));border-radius:14px;
+  background:color-mix(in srgb,var(--accent-soft) 55%,transparent);
 }
-.tag-relay-lane-tools button:hover{border-color:var(--accent);color:var(--accent)}
+.tag-relay-plan-blank.is-drop-target{border-color:var(--accent);background:var(--accent-soft)}
+.tag-relay-plan-blank-ico{
+  width:44px;height:44px;display:grid;place-items:center;border-radius:13px;
+  background:var(--card);color:var(--accent);box-shadow:var(--shadow);
+}
+.tag-relay-plan-blank-ico svg{
+  width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.tag-relay-plan-blank b{color:var(--text);font-size:13.5px}
+.tag-relay-plan-blank small{display:block;max-width:250px;color:var(--muted);font-size:11.5px;line-height:1.7}
+.tag-relay-plan-blank-arrow{color:var(--accent);font-size:15px;font-weight:900}
+@media (prefers-reduced-motion:no-preference){
+  .tag-relay-plan-blank-arrow{animation:tag-relay-blank-bob 1.7s ease-in-out infinite}
+}
+@keyframes tag-relay-blank-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
+
+/* 图墙不再有"轨道之外的死白"可解释，落点提示整块撤掉：
+   方案区已经贴着内容收缩，剩余高度直接归货架。 */
 
 /* ---- 芯片轨道 ---- */
 .tag-relay-rail .tag-relay-plan-lane,
@@ -523,10 +556,11 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 }
 /* 移除键：桌面 hover 才现，触屏没有 hover，常驻但压低存在感 */
 .tag-relay-chip-x{
-  flex:none;width:18px;height:18px;margin-right:5px;padding:0;border:0;border-radius:5px;
-  background:transparent;color:var(--muted);font-size:12px;line-height:1;opacity:0;
-  transition:opacity .12s,color .12s;
+  flex:none;width:24px;height:24px;margin-right:3px;padding:0;border:0;border-radius:999px;
+  background:transparent;color:var(--muted);font-size:13px;line-height:1;opacity:0;
+  display:grid;place-items:center;transition:opacity .12s,color .12s,background .12s;
 }
+.tag-relay-chip-x:hover{background:var(--tagbg)}
 .tag-relay-chip:hover .tag-relay-chip-x,
 .tag-relay-chip .tag-relay-chip-x:focus-visible{opacity:1}
 .tag-relay-chip-x:hover{color:var(--new)}
@@ -544,21 +578,37 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-chip.is-dragging{opacity:.4}
 .tag-relay-chip.is-drop-target{border-color:var(--accent);border-style:dashed}
 
-/* ---- 成品：默认收成一行摘要 ---- */
+/* ---- 成品：主键满宽，次级动作与设置各归各位 ---- */
+.tag-relay-copy-main{
+  display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;
+  min-height:46px;padding:8px 16px;border-radius:14px;font-size:14px;text-align:left;
+}
+.tag-relay-copy-main>span:first-child{flex:1;min-width:0}
+.tag-relay-copy-hint{flex:none;font-style:normal;font-size:11px;font-weight:700;opacity:.86}
+.tag-relay-copy-hint:empty{display:none}
+/* 合并明细原先只写在收起的摘要里，展开才看得到细节；这里给它一行常驻但克制的位置。 */
+.tag-relay-output-note{
+  margin:0;padding:0 2px;color:var(--muted);font-size:10.5px;font-weight:700;line-height:1.5;
+}
+.tag-relay-output-note[hidden]{display:none}
+/* 收起时它自己就是「当前格式」的标签，不再是一条占满宽的摘要条。 */
 .tag-relay-output-summary{
-  display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
-  padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel);
-  color:var(--muted);font-size:11px;font-weight:800;text-align:left;
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;width:auto;
+  padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card);
+  color:var(--muted);font:800 11px/1.2 var(--font-prompt);white-space:nowrap;text-align:left;
 }
 .tag-relay-output-summary:hover{border-color:var(--accent);color:var(--accent)}
 .tag-relay-output-caret{flex:none;transition:transform .16s}
 .tag-relay-output-summary[aria-expanded="true"] .tag-relay-output-caret{transform:rotate(180deg)}
 .tag-relay-output-boxes{display:flex;flex-direction:column;gap:7px}
 
-/* ---- 复制历史改成浮层：一屏化之后它不能再占常驻高度 ---- */
+/* ---- 成品记录：浮层，且开在自己的入口正上方 ----
+   原先触发点在栏顶（y≈146）、面板落在栏底（y≈768），还盖住素材货架。
+   现在它是成品区的绝对定位子节点，bottom 贴着成品区顶边向上展开。 */
+.tag-relay-rail .tag-relay-output{position:relative}
 .tag-relay-rail .tag-relay-history{
-  position:absolute;left:14px;right:14px;bottom:14px;z-index:6;
-  max-height:62%;display:flex;flex-direction:column;
+  position:absolute;left:14px;right:14px;bottom:calc(100% - 8px);z-index:6;
+  max-height:min(52vh,340px);display:flex;flex-direction:column;
   border:1px solid var(--popover-line);border-radius:15px;background:var(--popover-glass);
   box-shadow:var(--popover-shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
 }
@@ -581,88 +631,142 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
    ④ 分段控件加滑块过渡；格式与连接各自作为不可拆开的原子组
    ============================================================ */
 
-/* ---- 方案块：白底横条 + 左侧紫色定位条；轨道固定单列 ---- */
+/* ---- 方案块＝图墙：一行 4 个 88×64 的横块，标题白字压在图底 ----
+   为什么不再用满宽横条：一条 440px 宽、46px 高的条里真正承载信息的只有 7~9 个字的标题，
+   右边两百多像素全是空的；6 块吃掉 306px，块一多就得滚，每块的按钮还被推到很远的右边。
+   实测（440px 栏 / 700px 高，12 块 + 18 素材）：
+     满宽横条  可见 5 块 + 7 素材 = 12 条，方案区 366px
+     图墙宽块  可见 12 块 + 14 素材 = 26 条，方案区 246px
+   ⚠ 往**宽**了要地方、不往高了要：88px 的标题能放 7~8 个字（真实语料中位 7 字、p75 9 字），
+     而省掉每行 13px 的标题行之后，总高反而和"图下写标题"差不多。 */
 .tag-relay-rail .tag-relay-plan-lane{
-  display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(46px,auto);
-  gap:5px;align-content:start;overflow-x:hidden;overflow-y:auto;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));
+  grid-auto-rows:64px;gap:6px;align-content:start;overflow-x:hidden;overflow-y:auto;
 }
 .tag-relay-plan-card{
-  position:relative;display:grid;grid-template-columns:minmax(0,1fr) 32px;gap:5px;
-  align-items:center;width:100%;min-width:0;min-height:46px;padding:5px 6px 5px 10px;overflow:hidden;
-  border:1px solid color-mix(in srgb,var(--accent) 34%,var(--line));border-radius:12px;
-  background:var(--card);color:var(--text);text-align:left;box-shadow:0 2px 8px rgba(24,28,46,.055);
-  transition:border-color .12s,box-shadow .12s,opacity .12s;
+  position:relative;display:block;width:100%;height:64px;min-height:0;padding:0;overflow:hidden;
+  border:0;border-radius:10px;background:var(--tagbg);color:var(--text);text-align:left;
+  box-shadow:0 0 0 1px rgba(28,32,58,.07) inset;
+  transition:box-shadow .12s,transform .12s,opacity .12s,filter .12s;
 }
-.tag-relay-plan-card::before{
-  content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;
-  background:var(--accent);opacity:.72;
-}
-.tag-relay-plan-card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
+.tag-relay-plan-card:hover{box-shadow:var(--shadow-hover)}
 .tag-relay-plan-card:has(.tag-relay-plan-card-main:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
-.tag-relay-plan-card.is-selected{outline:2px solid var(--accent);outline-offset:1px;background:var(--accent-soft)}
-.tag-relay-plan-card.is-off{opacity:.45}
-.tag-relay-plan-card.is-dragging{opacity:.22}
-.tag-relay-plan-card.is-locked{background:var(--tagbg);border-color:var(--line);color:var(--muted)}
-.tag-relay-plan-card.is-locked::before{background:var(--muted);opacity:.35}
-.tag-relay-plan-card.is-drop-before::after,.tag-relay-plan-card.is-drop-after::after{
-  content:'';position:absolute;left:6px;right:6px;height:3px;border-radius:999px;background:var(--accent);
-  box-shadow:0 0 0 3px var(--accent-soft);z-index:2;
-}
-.tag-relay-plan-card.is-drop-before::after{top:1px}
-.tag-relay-plan-card.is-drop-after::after{bottom:1px}
-.tag-relay-plan-drag-image{
-  position:fixed!important;left:-9999px!important;top:-9999px!important;z-index:2147483647!important;
-  opacity:1!important;background:var(--card)!important;box-shadow:var(--shadow-hover)!important;pointer-events:none!important;
-}
-.tag-relay-plan-drag-image .tag-relay-plan-card-remove{visibility:hidden}
+.tag-relay-plan-card.is-selected{box-shadow:0 0 0 2px var(--accent)}
+.tag-relay-plan-card.is-off{opacity:.5;filter:grayscale(1)}
+.tag-relay-plan-card.is-dragging{opacity:.28}
+/* 被拖的那块留在原位当“影子”，其余块围着它让位；拖影由 setDragImage 另给一张完整卡。 */
+.tag-relay-plan-card.is-drag-source{opacity:.28}
+.tag-relay-plan-card.is-locked{background:var(--tagbg);box-shadow:0 0 0 1px var(--line) inset}
+.tag-relay-plan-card.is-locked:hover{transform:none;box-shadow:0 0 0 1px var(--line) inset}
 
+/* main 铺满整块并自己承载缩略图。
+   ⚠ 纵向必须**贴顶**（center top），不是居中、也不是 20%：跨 19 本词典抽 57 张实测，
+   74% 是竖构图，20% 就已经开始把脸切到胸口以下，35% / 50% 基本只剩躯干。
+   贴顶还有个结构性好处——裁切窗口的上沿就是原图上沿，永远不可能切掉头顶。
+   对照图见 output/relay-crop-check/。 */
 .tag-relay-plan-card-main{
-  grid-column:1;grid-row:1;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;
-  align-items:center;min-width:0;min-height:34px;border-radius:8px;cursor:grab;
+  position:absolute;inset:0;display:block;cursor:grab;
+  background:var(--tagbg) center top/cover no-repeat;
 }
 .tag-relay-plan-card-main:active{cursor:grabbing}
 .tag-relay-plan-card-main:focus-visible{outline:none}
 .tag-relay-plan-card.is-locked .tag-relay-plan-card-main{cursor:not-allowed}
-
-.tag-relay-plan-card-thumb{
-  grid-column:1;grid-row:1;width:34px;height:34px;flex:none;border-radius:8px;
-  background:var(--tagbg) center/cover no-repeat;
-  display:grid;place-items:center;color:var(--accent);font:800 12px/1 var(--font-display);
+.tag-relay-plan-card-lock{
+  position:absolute;inset:0;display:grid;place-items:center;
+  color:var(--muted);font:800 13px/1 var(--font-display);
 }
+
+/* 标题条压在图底，悬停时淡出——要看图的时候它自己让开 */
 .tag-relay-plan-card-body{
-  grid-column:2;grid-row:1;min-width:0;display:flex;align-items:center;gap:8px;
+  position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:4px;
+  padding:12px 5px 4px;
+  background:linear-gradient(to top,rgba(12,14,24,.86),rgba(12,14,24,.46) 58%,transparent);
+  transition:opacity .14s;
 }
+@media (hover:hover) and (pointer:fine){
+  .tag-relay-plan-card.is-imaged:not(.is-selected):hover .tag-relay-plan-card-body{opacity:0}
+}
+.tag-relay-plan-card:not(.is-imaged) .tag-relay-plan-card-body{padding:4px 6px;background:none}
+.tag-relay-plan-card:not(.is-imaged) .tag-relay-plan-card-title{color:var(--text);text-shadow:none}
+.tag-relay-plan-card.is-locked .tag-relay-plan-card-body{background:none}
 .tag-relay-plan-card-title{
-  flex:1;min-width:0;font-size:12px;font-weight:800;line-height:1.3;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  flex:1;min-width:0;font-size:10.5px;font-weight:800;line-height:1.35;color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.tag-relay-plan-card-meta{display:flex;align-items:center;gap:4px;flex:none;flex-wrap:nowrap;min-width:0}
-.tag-relay-channel-badge{
-  flex:none;border-radius:5px;padding:1px 5px;font-size:8.5px;font-weight:900;line-height:1.35;
-}
-.tag-relay-channel-badge.is-both{background:var(--accent-soft);color:var(--accent)}
-.tag-relay-channel-badge.is-negative{background:color-mix(in srgb,var(--new) 12%,var(--card));color:var(--new)}
-.tag-relay-plan-card-seq{
-  position:static;grid-column:3;grid-row:1;align-self:center;
-  font-size:9px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;
-  pointer-events:none;
-}
-.tag-relay-plan-card-remove{
-  grid-column:2;grid-row:1;width:32px;height:32px;padding:0;border:0;border-radius:8px;
-  background:transparent;color:var(--muted);font:800 16px/1 var(--font-display);opacity:.62;cursor:pointer;
-  transition:background .12s,color .12s,opacity .12s;
-}
-.tag-relay-plan-card-remove:hover,.tag-relay-plan-card-remove:focus-visible{
-  outline:none;background:color-mix(in srgb,var(--new) 13%,transparent);color:var(--new);opacity:1;
-}
+.tag-relay-plan-card.is-locked .tag-relay-plan-card-title{color:var(--muted);text-shadow:none}
+.tag-relay-plan-card-meta{display:flex;align-items:center;gap:3px;flex:none}
 .tag-relay-plan-card-meta:empty{display:none}
-
-/* 空方案的「＋」占位卡，和真卡同尺寸，一眼看得出这里能放东西 */
-.tag-relay-plan-card.is-add{
-  background:transparent;border-style:dashed;border-color:var(--line);color:var(--muted);
-  cursor:pointer;place-items:center;grid-template-columns:1fr;justify-items:center;
+.tag-relay-channel-badge{
+  flex:none;border-radius:4px;padding:0 4px;font-size:8.5px;font-weight:900;line-height:14px;
 }
-.tag-relay-plan-card.is-add:hover{border-color:var(--accent);color:var(--accent)}
+.tag-relay-channel-badge.is-both{background:var(--accent);color:#fff}
+.tag-relay-channel-badge.is-negative{background:var(--new);color:#fff}
+
+.tag-relay-plan-card-seq{
+  position:absolute;left:4px;top:4px;z-index:1;min-width:17px;height:17px;padding:0 4px;
+  border-radius:999px;background:rgba(16,18,30,.66);color:#fff;
+  font:800 9.5px/17px var(--font-prompt);text-align:center;pointer-events:none;
+}
+/* 触屏没有 hover：那边的主删除路径是"点块 → 操作条上的 ×"，这颗只是桌面的快捷键 */
+.tag-relay-plan-card-remove{
+  position:absolute;right:3px;top:3px;z-index:2;width:28px;height:28px;padding:0;border:0;
+  border-radius:999px;background:rgba(16,18,30,.72);color:#fff;font:800 14px/1 var(--font-display);
+  display:grid;place-items:center;opacity:0;pointer-events:none;cursor:pointer;transition:opacity .12s,background .12s;
+}
+.tag-relay-plan-card:hover .tag-relay-plan-card-remove,
+.tag-relay-plan-card-remove:focus-visible{opacity:1;pointer-events:auto}
+.tag-relay-plan-card-remove:hover{background:var(--new)}
+/* 触屏没有 hover：让每块都挂一颗大「×」会盖掉 84px 图块的一角，滑动时还容易误触。
+   那边的删除主路径本来就是「点块 → 操作条上的 ×」，所以只给选中的那块露出来。 */
+@media (hover:none){
+  .tag-relay-plan-card-remove{opacity:0;pointer-events:none}
+  .tag-relay-plan-card.is-selected .tag-relay-plan-card-remove,
+  .tag-relay-plan-card.is-locked .tag-relay-plan-card-remove{opacity:.9;pointer-events:auto}
+}
+
+/* 插入线改成竖的：图墙是会换行的网格，落点在左右不在上下 */
+.tag-relay-plan-card.is-drop-before::after,.tag-relay-plan-card.is-drop-after::after{
+  content:'';position:absolute;top:2px;bottom:2px;width:3px;border-radius:999px;background:var(--accent);
+  box-shadow:0 0 0 2px var(--accent-soft);z-index:3;pointer-events:none;
+}
+.tag-relay-plan-card.is-drop-before::after{left:2px}
+.tag-relay-plan-card.is-drop-after::after{right:2px}
+.tag-relay-plan-drag-image{
+  position:fixed!important;left:-9999px!important;top:-9999px!important;z-index:2147483647!important;
+  opacity:1!important;box-shadow:var(--shadow-hover)!important;pointer-events:none!important;
+}
+.tag-relay-plan-drag-image .tag-relay-plan-card-remove{visibility:hidden}
+
+/* ---- 选中块的操作条 ----
+   代替原先"每块常驻一排按钮"。它只占一行 36px，而且只有真的选中了才出现。 */
+.tag-relay-block-bar{
+  flex:none;display:grid;grid-template-columns:26px minmax(0,1fr) repeat(5,30px);align-items:center;gap:0 4px;
+  min-height:38px;margin-top:6px;padding:3px 5px;border-radius:8px;background:var(--accent-soft);color:var(--accent);
+}
+.tag-relay-block-bar[hidden]{display:none}
+.tag-relay-block-bar-thumb{
+  flex:none;width:26px;height:26px;border-radius:7px;background:var(--card) center top/cover no-repeat;
+  display:grid;place-items:center;font:800 11px/1 var(--font-display);
+}
+.tag-relay-block-bar-thumb{grid-row:1/3;grid-column:1}
+.tag-relay-block-bar-title{grid-row:1}
+.tag-relay-block-bar-meta{grid-row:2}
+.tag-relay-block-bar [data-block-tool="up"]{grid-column:3}
+.tag-relay-block-bar [data-block-tool="down"]{grid-column:4}
+.tag-relay-block-bar [data-block-tool="toggle"]{grid-column:5}
+.tag-relay-block-bar [data-block-tool="edit"]{grid-column:6}
+.tag-relay-block-bar [data-block-tool="remove"]{grid-column:7}
+.tag-relay-block-bar-title{grid-column:2;min-width:0;font-size:11.5px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-relay-block-bar-meta{grid-column:2;min-width:0;opacity:.72;font-size:9.5px;line-height:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-relay-block-bar-gap{display:none}
+.tag-relay-block-bar button{
+  grid-row:1/3;flex:none;width:30px;height:30px;padding:0;border:0;border-radius:999px;background:transparent;
+  color:var(--accent);font-size:13px;line-height:1;display:grid;place-items:center;cursor:pointer;
+  transition:background .12s,opacity .12s;
+}
+.tag-relay-block-bar button:hover:not(:disabled),
+.tag-relay-block-bar button:focus-visible{outline:none;background:var(--card)}
+.tag-relay-block-bar button:disabled{opacity:.32;cursor:not-allowed}
 
 /* ---- 素材芯片：可以拖上去 ---- */
 .tag-relay-chip{cursor:grab}
@@ -692,12 +796,29 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-segment-slider{transition:none}
 }
 
+/* 条数长在页签上（栏头那份已撤）；分区自己的「⋯」放清空。 */
+.tag-relay-source-count{
+  margin-left:5px;padding:0 5px;border-radius:999px;background:var(--tagbg);
+  font-size:9.5px;font-weight:900;
+}
+.tag-relay-source-count:empty{display:none}
+.tag-relay-source-tabs button[aria-selected="true"] .tag-relay-source-count{background:var(--accent-soft)}
+.tag-relay-source-menu-wrap{position:relative;flex:none}
+/* 素材分区永远贴着栏底，菜单只能向上开——向下会被栏的 overflow:hidden 裁掉。 */
+.tag-relay-source-menu-wrap .tag-relay-plan-menu{top:auto;bottom:calc(100% + 6px)}
+.tag-relay-source-menu-wrap .tag-relay-plan-menu{transform-origin:bottom right}
+.tag-relay-source-menu-wrap .tag-relay-plan-menu[hidden]{translate:0 6px}
+/* 状态行只在真有话说时占位（读收藏中…），空着不留空行。 */
+.tag-relay-rail .tag-relay-zone-source>.tag-relay-source-status{
+  flex:none;margin:0;padding:0 2px;color:var(--muted);font-size:10.5px;font-weight:700;
+}
+.tag-relay-source-status:empty{display:none}
+
 /* 来源切换已经搬进分区头，旧独立页的外边距/底部 padding 必须在这里归零。 */
 .tag-relay-rail .tag-relay-zone-head .tag-relay-source-tabs{
   position:relative;flex:1;min-width:0;margin:0;padding:2px;
 }
 .tag-relay-rail .tag-relay-zone-head .tag-relay-source-tabs button{padding:5px 7px}
-.tag-relay-rail .tag-relay-zone-head .tag-relay-source-status{margin:0;padding:0;white-space:nowrap}
 
 /* 来源页签与上方「格式 / 连接」共用同一种滑块语言；旧浏览器不支持 :has 时保留原选中底色。 */
 .tag-relay-source-slider{display:none}
@@ -763,16 +884,77 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 }
 
 @media (max-width:600px){
-  .tag-relay-rail .tag-relay-zone-plan{max-height:min(60%,318px)}
-  .tag-relay-rail .tag-relay-zone-source{flex-basis:92px;min-height:84px}
-  .tag-relay-rail .tag-relay-plan-lane{grid-auto-rows:minmax(40px,auto);gap:4px}
-  .tag-relay-plan-card{grid-template-columns:minmax(0,1fr) 32px;gap:4px;min-height:40px;padding:4px 5px 4px 9px}
-  .tag-relay-plan-card-main{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;min-height:30px}
-  .tag-relay-plan-card-thumb{width:30px;height:30px;border-radius:7px;font-size:11px}
-  .tag-relay-plan-card-body{gap:6px}
-  .tag-relay-plan-card-title{font-size:11.5px;line-height:1.25}
-  .tag-relay-plan-card-seq{font-size:8.5px}
+  .tag-relay-rail .tag-relay-zone-plan{max-height:44%}
+  .tag-relay-rail .tag-relay-zone-source{min-height:88px}
+  /* 图墙的列数交给 auto-fill：390px sheet 下是 3 列（每块约 112px），标题反而更长。 */
+  .tag-relay-rail .tag-relay-plan-lane{gap:5px}
+  .tag-relay-plan-card-title{font-size:11px}
+  .tag-relay-plan-blank{padding:12px;gap:6px}
+  .tag-relay-plan-blank-ico{width:38px;height:38px}
   .tag-relay-output-option-group{gap:4px}
   .tag-relay-output-option-group>span{font-size:10px}
   .tag-relay-output-option-group .tag-relay-segment button{padding:5px 4px;font-size:10px}
+}
+
+/* Local motion only; the main atlas has its own layout and animation owners. */
+.tag-relay-motion-exit{position:absolute;z-index:4;overflow:hidden;pointer-events:none}
+.tag-relay-rail .tag-relay-output-boxes{
+  max-height:clamp(56px,calc(100dvh - 530px),260px);
+  overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
+}
+.tag-relay-rail .tag-relay-output-boxes[hidden]{max-height:0}
+.tag-relay-output-boxes>*{flex:none}
+.tag-relay-block-bar{
+  max-height:38px;opacity:1;translate:0 0;overflow:hidden;
+  transition:max-height .2s cubic-bezier(.22,1,.36,1),min-height .2s cubic-bezier(.22,1,.36,1),
+    margin .2s,padding .2s,opacity .16s,translate .2s,display .2s allow-discrete;
+}
+.tag-relay-block-bar[hidden]{
+  max-height:0;min-height:0;margin-top:0;padding-top:0;padding-bottom:0;
+  opacity:0;translate:0 -5px;pointer-events:none;
+}
+.tag-relay-rail :is(.tag-relay-add-block,.tag-relay-plan-pick,.tag-relay-plan-more,.tag-relay-history-toggle,
+  .tag-relay-output-summary,.tag-relay-rail-close,.tag-relay-plan-option,.tag-relay-chip-main){
+  transition:background .16s,border-color .16s,color .16s,scale .12s;
+}
+.tag-relay-rail button:active:not(:disabled),.tag-relay-chip-main:active{scale:.96}
+.tag-relay-plan-card:has(.tag-relay-plan-card-main:active):not(.is-dragging){scale:.97}
+.tag-relay-plan-card{transition:box-shadow .16s,opacity .16s,filter .16s,scale .12s}
+.tag-relay-plan-card.is-selected{box-shadow:0 0 0 2px var(--accent) inset}
+.tag-relay-chip{transition:border-color .16s,background .16s,color .16s,opacity .16s}
+.tag-relay-plan-lane{transition:background .16s,box-shadow .16s}
+.tag-relay-plan-blank{transition:background .16s,border-color .16s}
+@keyframes tag-relay-insert{from{opacity:0;scale:1 .5}to{opacity:1;scale:1}}
+.tag-relay-plan-card.is-drop-before::after,.tag-relay-plan-card.is-drop-after::after{
+  animation:tag-relay-insert .14s ease-out;
+}
+@starting-style{
+  .tag-relay-block-bar:not([hidden]){
+    max-height:0;min-height:0;margin-top:0;padding-top:0;padding-bottom:0;opacity:0;translate:0 -5px;
+  }
+  .tag-relay-rail .tag-relay-output-boxes:not([hidden]){max-height:0}
+}
+@media (min-width:1241px){
+  /* 收栏是把外框宽度收到 0，里面的内容不能跟着被挤扁——否则收起动画会变成"内容先塌再滑走"。 */
+  .tag-relay-rail>:is(.tag-relay-rail-head,.tag-relay-zone,.tag-relay-output){min-width:438px}
+}
+@media (max-width:1240px){
+  .tag-relay-rail-backdrop{
+    display:block;position:fixed;inset:0;z-index:67;border:0;padding:0;
+    background:rgba(15,18,30,.3);opacity:0;visibility:hidden;pointer-events:none;
+    touch-action:none;overscroll-behavior:contain;
+    transition:opacity .22s ease,visibility .22s;
+  }
+  .tag-relay-rail:not(.closed)+.tag-relay-rail-backdrop{opacity:1;visibility:visible;pointer-events:auto}
+}
+@media (max-height:480px){
+  .tag-relay-rail{overflow-y:auto;overscroll-behavior:contain}
+  .tag-relay-rail .tag-relay-zone-source{flex:none;min-height:100px}
+}
+@media (max-width:600px) and (max-height:640px){
+  .tag-relay-rail .tag-relay-output{padding:8px 14px;gap:5px}
+  .tag-relay-output-actions>button{min-height:28px;padding:4px 8px;font-size:11px}
+}
+@media (prefers-reduced-motion:reduce){
+  .tag-relay-rail *,.tag-relay-rail *::after,.tag-relay-rail-backdrop{transition:none!important;animation:none!important}
 }

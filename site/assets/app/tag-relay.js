@@ -10,6 +10,7 @@ import { findCodexMeta } from './data.js';
 import { buildFavoritesCodex } from './fav-codex.js';
 import { subscribeFavoritesChanges } from './favorites-backup.js';
 import { toast } from './feedback.js';
+import { bindOutsideDismiss } from './modal.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { requestRelayAction } from './tag-relay-action.js';
 import { clearInbox, normalizeRelayEntry, removeInboxEntry } from './tag-relay-core.js';
@@ -32,6 +33,8 @@ import {
 } from './tag-relay-compose.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { commitRelay, relayInbox, relayState, setupRelayStore, subscribeRelay } from './tag-relay-store.js';
+import { renderRelayList, settleRelayMotion } from './tag-relay-motion.js';
+import { animateUi } from './ui-motion.js';
 
 let relayBound = false;
 let warehouseRoot = null;
@@ -59,12 +62,15 @@ function sourceItem(entry, { removable = true } = {}) {
 
   const chip = document.createElement('div');
   chip.className = locked ? 'tag-relay-chip is-locked' : 'tag-relay-chip';
-  chip.draggable = !locked;
+  chip.dataset.relayMotionKey = entry.key;
 
   /* ⚠ 主体是 div + role=button，不是 <button>：Chrome 里按钮会吞掉拖拽手势，
-     draggable 的祖先根本收不到 dragstart，芯片就成了"看着能拖、拖了没反应"。 */
+     dragstart 根本不会发出来，芯片就成了"看着能拖、拖了没反应"。
+     draggable 只挂主体、不挂外壳：外壳里还有「负」和「×」两颗真按钮，
+     挂外壳会把它们也变成拖拽把手。 */
   const main = document.createElement('div');
   main.className = 'tag-relay-chip-main';
+  main.draggable = !locked;
   if (!locked) {
     main.setAttribute('role', 'button');
     main.tabIndex = 0;
@@ -103,14 +109,16 @@ function sourceItem(entry, { removable = true } = {}) {
   }
 
   if (!locked) {
-    chip.addEventListener('dragstart', event => {
-      chip.classList.add('is-dragging');
+    let dragging = false;
+    main.addEventListener('dragstart', event => {
+      dragging = true;
       event.dataTransfer.effectAllowed = 'copy';
       /* 载荷带整条快照：收藏来源的条目不在 relayInbox 里，接收方按 key 回查会落空。 */
       event.dataTransfer.setData(RELAY_SOURCE_MIME, JSON.stringify(entry));
       event.dataTransfer.setData('text/plain', entry.title || '');
+      requestAnimationFrame(() => { if (dragging && chip.isConnected) chip.classList.add('is-dragging'); });
     });
-    chip.addEventListener('dragend', () => chip.classList.remove('is-dragging'));
+    main.addEventListener('dragend', () => { dragging = false; chip.classList.remove('is-dragging'); });
   }
 
   /* 收藏来源不给「移出」：那会让人以为是在取消收藏。 */
@@ -198,6 +206,8 @@ function invalidateFavorites() {
 }
 
 function setSourceMode(next) {
+  if (sourceMode === next) return;
+  const direction = next === 'favorites' ? 1 : -1;
   sourceMode = next;
   for (const button of warehouseRoot?.querySelectorAll('[data-relay-source]') || []) {
     const on = button.dataset.relaySource === next;
@@ -208,7 +218,8 @@ function setSourceMode(next) {
      永远听到同一个名字，分不清现在看的是「最近复制」还是「收藏」。 */
   const panel = warehouseRoot?.querySelector('#relaySourcePanel');
   const activeTab = warehouseRoot?.querySelector(`[data-relay-source="${next}"]`);
-  if (panel && activeTab) panel.setAttribute('aria-label', activeTab.textContent.trim());
+  /* ⚠ 不能再用 textContent：页签里现在嵌了计数徽标，会读成「最近复制5」 */
+  if (panel && activeTab) panel.setAttribute('aria-label', activeTab.dataset.sourceLabel || activeTab.textContent.trim());
   /* 每次切过来都重建：favorites.js 的 emitFavoritesChanged 只覆盖得到订阅的场景，
      缓存着仍可能显示上一次的收藏。buildFavoritesCodex 用的是已缓存的法典，重建很便宜。 */
   if (next === 'favorites') {
@@ -217,9 +228,10 @@ function setSourceMode(next) {
   }
   renderWarehouse();
   if (next === 'favorites') void loadFavorites();
+  animateUi(panel, [{ opacity: .35, translate: `${direction * 12}px 0` }, { opacity: 1, translate: '0 0' }]);
 }
 
-function renderWarehouse() {
+function renderWarehouse({ motion = true } = {}) {
   if (!warehouseRoot) return;
   const list = warehouseRoot.querySelector('#relaySourceList');
   const empty = warehouseRoot.querySelector('#relaySourceEmpty');
@@ -228,22 +240,24 @@ function renderWarehouse() {
   const fav = sourceMode === 'favorites';
   /* inbox 的规范顺序已是新的在前（schema v2），这里不再反转 */
   const items = fav ? (favorites || []) : relayInbox();
-  list.replaceChildren(...items.map(entry => sourceItem(entry, { removable: !fav })));
-  list.hidden = items.length === 0;
+  renderRelayList(list, items.map(entry => sourceItem(entry, { removable: !fav })), { group: sourceMode, motion });
   empty.hidden = items.length !== 0 || (fav && favoritesLoading);
   /* 空态一屏化后压成一行纯文本（原先是 b + small 两行，占地方）。 */
   empty.textContent = fav
     ? '还没有收藏。点卡片标题旁的星标，词条会出现在这里。'
     : '还没有复制过词条。点卡片复制，它会自动落到这里。';
-  if (status) {
-    if (fav && favoritesLoading) status.textContent = '正在读取跨法典收藏…';
-    else status.textContent = items.length ? `${items.length} 条` : '';
+  /* 条数长在页签徽标上（说的就是那一格里有多少条）；这行只留"正在读取"这类真状态，
+     空着就不占位（CSS :empty）。原先它和栏头那份「N 条」是同一个数字的第二遍。 */
+  if (status) status.textContent = fav && favoritesLoading ? '正在读取跨法典收藏…' : '';
+  const inboxCount = relayScope().querySelector('#relayInboxCount');
+  if (inboxCount) {
+    const total = relayInbox().length;
+    inboxCount.textContent = total ? (total > 99 ? '99+' : String(total)) : '';
   }
-  /* 「清空最近复制」已并进栏头的「⋯」菜单，不在素材分区里了。 */
+  /* 「清空最近复制」回到素材分区自己的「⋯」里：它的对象是这个货架，不是方案。 */
   const clear = relayScope().querySelector('#tagRelayClear');
   if (clear) {
-    clear.hidden = fav;
-    clear.disabled = relayInbox().length === 0;
+    clear.disabled = fav || relayInbox().length === 0;
   }
 }
 
@@ -262,8 +276,8 @@ function renderRelayChrome() {
   }
   const menuHint = document.querySelector('#tagRelayMenuLink small');
   if (menuHint) menuHint.textContent = count ? `${count} 条在库` : '打开中转站';
-  const railCount = document.querySelector('#tagRelayRailCount');
-  if (railCount) railCount.textContent = count ? `${count} 条` : '';
+  /* 栏头那份「N 条」已撤：它和旁边方案的「· N」（块数）含义不同却并排，
+     而同一个素材数还同时出现在浮钮角标和素材页签上，一共三处。 */
 }
 
 /* 把方案块拖出编排区 = 移出方案。桌面时法典正文直接收 drop；抽屉 / sheet 打开时
@@ -329,6 +343,7 @@ function bindWarehouse() {
   subscribeFavoritesChanges('atlas', () => {
     invalidateFavorites();
   });
+  bindSourceMenu();
   relayScope().querySelector('#tagRelayClear')?.addEventListener('click', async event => {
     const count = relayInbox().length;
     if (!count) return;
@@ -337,7 +352,7 @@ function bindWarehouse() {
       message: `${count} 条素材会移出中转站，已有方案不会受影响。`,
       confirmLabel: '确认清空',
       danger: true,
-      trigger: event.currentTarget,
+      trigger: relayScope().querySelector('#relaySourceMenuBtn'),
     });
     if (!accepted) return;
     const result = await commitRelay(next => clearInbox(next), { changed: 'inbox' });
@@ -346,13 +361,78 @@ function bindWarehouse() {
   });
 }
 
+/* 素材分区的「⋯」：和栏头那颗方案菜单同一套开合规矩（Esc / 方向键 / 点外部收起）。 */
+function bindSourceMenu() {
+  const scope = relayScope();
+  const button = scope.querySelector('#relaySourceMenuBtn');
+  const menu = scope.querySelector('#relaySourceMenu');
+  if (!button || !menu) return;
+  const items = () => [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+  const close = ({ restoreFocus = false } = {}) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) button.focus({ preventScroll: true });
+  };
+  const open = (focus = 'first') => {
+    menu.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    const list = items();
+    (focus === 'last' ? list.at(-1) : list[0])?.focus({ preventScroll: true });
+  };
+  button.addEventListener('click', event => {
+    event.stopPropagation();
+    if (menu.hidden) open();
+    else close({ restoreFocus: true });
+  });
+  button.addEventListener('keydown', event => {
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    open(event.key === 'ArrowUp' ? 'last' : 'first');
+  });
+  menu.addEventListener('click', event => {
+    if (event.target.closest('[role="menuitem"]')) close();
+  });
+  menu.addEventListener('keydown', event => {
+    const list = items();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      close({ restoreFocus: true });
+      return;
+    }
+    if (!list.length) return;
+    if (event.key === 'Tab') {
+      setTimeout(() => close(), 0);
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = Math.max(0, list.indexOf(document.activeElement));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? list.length - 1
+        : (current + (event.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
+    list[next].focus({ preventScroll: true });
+  });
+  scope.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || menu.hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    close({ restoreFocus: true });
+  });
+  bindOutsideDismiss([menu, button], () => close());
+}
+
 /* 分级开关由 ui.js 直接改内存 state，中转站收不到任何事件——必须由那边显式喊一声。
    收藏缓存一并作废：它按当时的锁态映射过 access 标记。 */
 export function refreshRelayAccess() {
+  settleRelayMotion();
   invalidateFavorites();
-  renderWarehouse();
+  renderWarehouse({ motion: false });
   refreshComposeAccess();
-  renderCompose();
+  renderCompose({ motion: false });
 }
 
 export function setupTagRelay() {

@@ -89,9 +89,10 @@
 | `tag-relay-snapshot.js` | 活词条转可序列化快照、真实来源键与快照锁定判断 | — | `access.js`、`data.js`、`media.js`、`state.js`、`tag-relay-core.js` | 分级与 `_srcCodexId` 在收入时冻结；锁定判断读当前内存权限，不绕到 localStorage |
 | `tag-relay-store.js` | `relayState`、`commitRelay`、复制收入、订阅与跨标签页同步 | 唯一内存副本、订阅表、并发 / 广播状态 | `feedback.js`、`tag-relay-core.js`、`tag-relay-snapshot.js` | 状态的唯一所有者且不导入视图；`commitRelay` 是异步唯一写入口，调用方必须 `await` |
 | `tag-relay-action.js` | 侧栏内的命名、确认和取消操作条 | 当前操作、引用与焦点返回点 | — | 轻量内联交互，不另叠浏览器原生 `prompt` / `confirm` |
-| `tag-relay-rail.js` | 侧栏外壳、开关、响应式模态判定、分区定位与脏标记 | 外壳 / 背景引用、当前分区、渲染器与脏集合 | `utils.js`、`browser-history.js`、`modal.js`、`tag-relay-action.js` | `setRailPaneRenderers` 注入素材和编排渲染器，避免外壳与内容互相静态导入；停靠态不是历史层 |
-| `tag-relay-compose.js` | 方案块编辑、排序、输出预览 / 复制、历史恢复与访问刷新 | DOM 引用、选中项、输出格式、连接方式、拖拽 / 编辑器状态 | `feedback.js`、`copy.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`modal.js` | 成品复制关闭再次格式转换且不携带词条来源，避免二次转换和回流收入 |
-| `tag-relay.js` | 中转站接线、素材仓库、收藏来源与入口计数 | 绑定标记、素材根、来源模式、收藏缓存 / 加载状态 | `access.js`、`data.js`、`fav-codex.js`、`favorites-backup.js`、`feedback.js`、`media.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-rail.js`、`tag-relay-compose.js`、`tag-relay-snapshot.js`、`tag-relay-store.js` | 初始化 store、rail、action、compose，并把 `renderWarehouse` / `renderCompose` 注入外壳；不改写主站共享法典状态 |
+| `tag-relay-rail.js` | 侧栏外壳、开关、响应式模态判定、分区定位与脏标记 | 外壳 / 背景引用、当前分区、渲染器与脏集合 | `utils.js`、`browser-history.js`、`modal.js`、`tag-relay-action.js`、`tag-relay-motion.js` | `setRailPaneRenderers` 注入素材和编排渲染器，避免外壳与内容互相静态导入；停靠态不是历史层 |
+| `tag-relay-motion.js` | 中转站局部 FLIP 重排、入场 / 移除过渡与动画中断 | 列表快照、退出残影与动画句柄 | `ui-motion.js`、`utils.js` | 只管理中转站列表节点；快速重绘、收栏、隐藏页和 reduced-motion 会同步清理 |
+| `tag-relay-compose.js` | 方案块编辑、排序、输出预览 / 复制、历史恢复与访问刷新 | DOM 引用、选中项、输出格式、连接方式、拖拽 / 编辑器状态 | `feedback.js`、`copy.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`tag-relay-motion.js`、`ui-motion.js`、`modal.js` | 成品复制关闭再次格式转换且不携带词条来源，拖入素材会按落点插入，焦点按 itemId 恢复 |
+| `tag-relay.js` | 中转站接线、素材仓库、收藏来源与入口计数 | 绑定标记、素材根、来源模式、收藏缓存 / 加载状态 | `access.js`、`data.js`、`fav-codex.js`、`favorites-backup.js`、`feedback.js`、`media.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-rail.js`、`tag-relay-compose.js`、`tag-relay-motion.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`ui-motion.js` | 初始化 store、rail、action、compose，并把 `renderWarehouse` / `renderCompose` 注入外壳；不改写主站共享法典状态 |
 
 ## 本地编辑器
 
