@@ -20,13 +20,13 @@
 | `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
 | `import_docx_codex.py` | 导入结构特殊、带内嵌图片的 Word 法典（解构原典用） | 默认只出报告；`--apply` 才写 |
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
-| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
+| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；WebP 上传显式使用 `image/webp`，不依赖系统 MIME 表；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
 | `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
 | `build_updates_index.py` | 重建跨书更新索引 `site/data/updates.json`（顶栏动态气泡与「公告/更新/反馈」面板的更新页签读它）。判定规则与前端 `data.js` 的 `updateFilterDefinitions`/`entryMatchesUpdateFilter` 逐条对齐，改一侧必须同步另一侧；发布数据链自动跑，也可 `--dry-run` / `--report` 单独看结果 | 只写 `site/data/updates.json` |
 | `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条只入词条名；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
-| `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
-| `preview_blocking.py` | 屏蔽试用分支的双击预览入口；读取工作区 launch 登记，复用或启动本 worktree 的预览服务 | 只读本地服务，打开浏览器；不启动编辑器 |
+| `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；WebP 在站内与原图路由显式使用 `image/webp`；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
+| `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |
 | `test_blocking_manager_motion.mjs` | 屏蔽清单节点复用、退场隔离、焦点、快速切页/关闭、跨标签更新与动效兜底回归 | 只读，内存 DOM/动画与存储夹具；真实几何仍须浏览器验证 |
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`） | 只读，写测试输出 |

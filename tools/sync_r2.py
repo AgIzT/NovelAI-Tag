@@ -140,6 +140,8 @@ def image_dimensions(path):
 
 
 def guess_type(path):
+    if Path(path).suffix.lower() == ".webp":
+        return "image/webp"
     typ = mimetypes.guess_type(str(path))[0]
     return typ or "application/octet-stream"
 

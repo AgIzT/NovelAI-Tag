@@ -1,12 +1,39 @@
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
-from tools import sync_r2
+from tools import preview_server, sync_r2
+
+
+class MediaMimeTests(unittest.TestCase):
+    def test_webp_and_unknown_types_without_system_mapping(self):
+        with tempfile.TemporaryDirectory() as tmp, patch("mimetypes.guess_type", return_value=(None, None)):
+            root = Path(tmp)
+            originals = root / "originals"
+            originals.mkdir()
+            with patch.object(preview_server, "ROOT", str(root)), patch.object(preview_server, "ORIG", str(originals)):
+                for filename, expected in (("sample.webp", "image/webp"), ("sample.WEBP", "image/webp"),
+                                           ("sample.unknown", "application/octet-stream")):
+                    with self.subTest(filename=filename):
+                        source = originals / filename
+                        source.write_bytes(b"original bytes")
+                        self.assertEqual(sync_r2.guess_type(source), expected)
+                        handler = object.__new__(preview_server.Handler)
+                        handler.path = "/originals/" + filename
+                        handler.wfile = io.BytesIO()
+                        handler.send_response = Mock()
+                        handler.send_header = Mock()
+                        handler.end_headers = Mock()
+                        self.assertEqual(handler.guess_type(str(source)), expected)
+                        handler._serve_original()
+                        handler.send_response.assert_called_once_with(200)
+                        handler.send_header.assert_any_call("Content-Type", expected)
+                        self.assertEqual(handler.wfile.getvalue(), source.read_bytes())
 
 
 class CollectAssetsCoverTests(unittest.TestCase):

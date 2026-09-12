@@ -2,7 +2,6 @@
 """Local preview server for site/ plus originals/ image cache."""
 import argparse
 import http.server
-import mimetypes
 import os
 import socketserver
 import urllib.parse
@@ -15,6 +14,8 @@ PORT = 8766
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, ".webp": "image/webp"}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=SITE, **kwargs)
 
@@ -67,7 +68,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         with open(target, "rb") as fh:
             body = fh.read()
         self.send_response(200)
-        self.send_header("Content-Type", mimetypes.guess_type(target)[0] or "application/octet-stream")
+        self.send_header("Content-Type", self.guess_type(target))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
