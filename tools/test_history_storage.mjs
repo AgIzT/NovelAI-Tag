@@ -121,15 +121,15 @@ try {
     classList: { toggle: () => {} },
     setAttribute: () => {},
   };
-  assert.doesNotThrow(() => favoritesModule.toggleFav({ id: 'entry-1', title: 'Entry One' }, button));
-  assert.equal(state.favs.has('test-codex:entry-1'), true);
+  const favoriteResult = await favoritesModule.toggleFav({ id: 'entry-1', title: 'Entry One' }, button);
+  assert.equal(favoriteResult.ok, false);
+  assert.equal(state.favs.has('test-codex:entry-1'), false, '写入失败不能点亮收藏星标');
 
   assert.deepEqual(
     warnings.map(args => args[0]),
     [
       '[history] 无法保存最近浏览记录',
       '[history] 无法保存浏览位置',
-      '[favorites] 无法保存收藏',
     ],
   );
 
@@ -193,7 +193,7 @@ try {
   state.suppressUrlSync = true;
   const merged = {
     id: 'artist_nai45_personal', aliases: ['artist_nai45_strings'], title: '合并画师词典',
-    tree: [{ name: '画师串词典', children: [{ name: 'W.O.F_画风', children: [] }] }],
+    tree: [{ name: '画风组词典', children: [{ name: 'W.O.F_画风', children: [] }] }],
   };
   state.codexes = [merged];
   state.codex = merged;
@@ -202,11 +202,11 @@ try {
   state.siteSearchView = false;
   state.lastBrowse = { codexId: 'artist_nai45_strings', path: ['W.O.F_画风'], q: '', entryId: 'wof-1' };
   await historyModule.resumeLastBrowse();
-  assert.deepEqual(state.activePath, ['画师串词典', 'W.O.F_画风']);
+  assert.deepEqual(state.activePath, ['画风组词典', 'W.O.F_画风']);
   const recent = { codexId: 'artist_nai45_strings', path: ['W.O.F_画风'], entryId: 'wof-1' };
   state.activePath = [];
   await historyModule.openRecentEntry(recent);
-  assert.deepEqual(state.activePath, ['画师串词典', 'W.O.F_画风']);
+  assert.deepEqual(state.activePath, ['画风组词典', 'W.O.F_画风']);
   const loads = [];
   historyModule.setHistoryActions({ loadCodex: async (id, options) => loads.push({ id, options }) });
   state.codex = { id: 'another' };

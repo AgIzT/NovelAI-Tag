@@ -4,6 +4,7 @@ import { isEntryAccessBlocked } from './access.js';
 import { isContentBlocked, subscribeContentBlocking } from './content-blocking.js';
 import { thumbUrl } from './media.js';
 import { toast } from './feedback.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { bindBackdropDismiss, bindOutsideDismiss, focusFirstIn, trapFocus } from './modal.js';
 import { registerHistoryLayer, openHistoryLayer, closeHistoryLayer, forgetHistoryLayer, topHistoryLayerId } from './browser-history.js';
 import { librarySnapshot, commitLibrary, subscribeLibrary } from './favorites-library-store.js';
@@ -40,6 +41,39 @@ let mutationBusy = false;
 let folderNavigationSeq = 0;
 const openers = new Map();
 const selectionInert = new WeakMap();
+const selectionSemantics = new WeakMap();
+const motionElements = new Map();
+let railEntered = false;
+
+function favoriteMotion(node, frames, options) {
+  if (document.visibilityState === 'hidden') return;
+  const animation = animateUi(node, frames, options);
+  if (!animation) return;
+  motionElements.set(node, animation);
+  const release = () => { if (motionElements.get(node) === animation) motionElements.delete(node); };
+  animation.finished.then(release, release);
+}
+function stopFavoriteMotion(node) {
+  cancelUiMotion(node);
+  motionElements.delete(node);
+}
+function syncMotionVisibility() {
+  const hidden = document.visibilityState === 'hidden';
+  document.documentElement.classList.toggle('favorites-motion-paused', hidden);
+  if (hidden) for (const node of motionElements.keys()) stopFavoriteMotion(node);
+}
+function enterRail() {
+  if (railEntered || !state.favoritesView || (narrow && byId(IDS.drawer)?.hidden)) return;
+  railEntered = true;
+  const rows = [...byId('favoritesRail').querySelectorAll('.favorites-folder-row')];
+  rows.forEach((row, index) => {
+    const delay = Math.min(index * 18, 108), duration = delay + 132;
+    // animateUi 固定 fill:none，等待要放进帧内，否则延迟期间会先亮再闪回首帧。
+    favoriteMotion(row, [{ opacity: 0, translate: '0 4px', offset: 0 },
+      { opacity: 0, translate: '0 4px', offset: delay / duration },
+      { opacity: 1, translate: '0 0', offset: 1 }], { duration });
+  });
+}
 
 export function setFavoritesViewActions(next = {}) { Object.assign(actions, next); }
 
@@ -296,6 +330,7 @@ export function renderFavoritesRail() {
     const row = [...rail.querySelectorAll('[data-folder-id]')].find(node => node.dataset.folderId === activeRow);
     row?.querySelector(activeMore ? '.favorites-folder-more' : '.favorites-folder-open')?.focus({ preventScroll: true });
   } else if (activeCreate) rail.querySelector('.favorites-new-button')?.focus({ preventScroll: true });
+  enterRail();
 }
 function sortSelect() {
   const select = element('select', 'favorites-sort');
@@ -399,12 +434,19 @@ function showLayerDirect(id, trigger = document.activeElement) {
   if (trigger?.isConnected) openers.set(id, trigger);
   mask.hidden = false;
   mask.inert = false;
+  const panel = mask.querySelector('.favorites-dialog');
+  favoriteMotion(mask, [{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'ease' });
+  favoriteMotion(panel, [{ opacity: 0, translate: id === IDS.drawer ? '0 101%' : '0 8px' }, { opacity: 1, translate: '0 0' }],
+    { duration: id === IDS.drawer ? 220 : 180, easing: 'cubic-bezier(.22,.61,.36,1)' });
+  if (id === IDS.drawer) enterRail();
   focusFirstIn(mask);
   syncModalState();
 }
 function closeLayerDirect(id) {
   const mask = byId(id);
   if (!mask) return;
+  stopFavoriteMotion(mask);
+  stopFavoriteMotion(mask.querySelector('.favorites-dialog'));
   mask.hidden = true;
   mask.inert = true;
   if (id === IDS.drawer) byId('favoritesFoldersBtn')?.setAttribute('aria-expanded', 'false');
@@ -456,6 +498,7 @@ function makeMask(id, className, label) {
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-label', label);
+  dialog.setAttribute('aria-labelledby', id + 'Title');
   mask.append(dialog);
   document.body.append(mask);
   registerHistoryLayer(id, { isOpen: () => !mask.hidden, open: () => showLayerDirect(id), close: () => closeLayerDirect(id) });
@@ -472,7 +515,7 @@ function makeMask(id, className, label) {
 }
 function closeMenu() {
   const menu = byId('favoritesMenu');
-  if (menu) menu.hidden = true;
+  if (menu) { stopFavoriteMotion(menu); menu.hidden = true; }
   menuTrigger?.setAttribute('aria-expanded', 'false');
 }
 function openMenu(id, trigger, fromHeader = false) {
@@ -496,6 +539,7 @@ function openMenu(id, trigger, fromHeader = false) {
     menu.append(button('删除收藏夹', 'favorites-menu-item is-danger', () => { closeMenu(); openFolderDialog(menuFolder, 'delete', trigger); }));
   }
   menu.hidden = false;
+  favoriteMotion(menu, [{ opacity: 0, translate: '0 -6px' }, { opacity: 1, translate: '0 0' }], { duration: 180 });
   const rect = trigger.getBoundingClientRect();
   menu.style.left = Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)) + 'px';
   menu.style.top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 8)) + 'px';
@@ -549,6 +593,7 @@ function openFolderDialog(id, mode, trigger) {
   const root = byId(IDS.dialog).firstElementChild;
   root.replaceChildren();
   const title = element('h2', '', mode === 'delete' ? '删除「' + folder.name + '」？' : '重命名收藏夹');
+  title.id = IDS.dialog + 'Title';
   root.append(title);
   const field = mode === 'rename' ? input('收藏夹名称') : null;
   if (field) { field.value = folder.name; root.append(field); }
@@ -623,6 +668,8 @@ function renderOrganizeList() {
   byId('favoritesOrganizeSubtitle').textContent = organizeKeys.length === 1 ? entry?.title || '' : '已选 ' + organizeKeys.length + ' 项';
   const scroll = list.scrollTop;
   const focused = document.activeElement?.dataset.folderCheck;
+  const previousChecks = new Map([...list.children].map(row => [row.dataset.folderCheck, row.querySelector('.favorites-check')]));
+  const previousStates = new Map([...list.children].map(row => [row.dataset.folderCheck, row.getAttribute('aria-checked')]));
   list.replaceChildren();
   const query = byId('favoritesOrganizeSearch').value.trim();
   const found = folders().filter(folder => folder.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
@@ -642,9 +689,15 @@ function renderOrganizeList() {
     row.setAttribute('role', 'checkbox');
     row.setAttribute('aria-checked', status);
     row.disabled = mutationBusy || !organizeKeys.length;
-    row.append(element('span', 'favorites-check', status === 'true' ? '✓' : status === 'mixed' ? '−' : ''), cover(folder.id),
+    // 同一提交可能连续刷新头部和面板；保留状态未变的勾选节点，避免截断刚启动的动效。
+    const check = previousStates.get(folder.id) === status && previousChecks.get(folder.id)
+      || element('span', 'favorites-check', status === 'true' ? '✓' : status === 'mixed' ? '−' : '');
+    row.append(check, cover(folder.id),
       element('span', 'favorites-folder-name', folder.name), element('span', 'favorites-count', String(countVisible(folderKeys(folder.id)))));
     list.append(row);
+    if (status === 'true' && previousStates.has(folder.id) && previousStates.get(folder.id) !== 'true') {
+      favoriteMotion(row.querySelector('.favorites-check'), [{ scale: 1 }, { scale: 1.12 }, { scale: 1 }], { duration: 120 });
+    }
   }
   if (!found.length && query) {
     list.append(element('p', 'favorites-panel-empty', '没有叫「' + query + '」的收藏夹'));
@@ -706,6 +759,19 @@ function updateCardSelections() {
   }
 }
 function syncSelectionControls(card) {
+  if (state.favSelecting) {
+    if (!selectionSemantics.has(card)) selectionSemantics.set(card,
+      new Map(['role', 'tabindex', 'aria-checked'].map(name => [name, card.getAttribute(name)])));
+    card.setAttribute('role', 'checkbox');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-checked', String(Boolean(state.favSelected?.has(card.dataset.favoriteKey))));
+  } else if (selectionSemantics.has(card)) {
+    for (const [name, value] of selectionSemantics.get(card)) {
+      if (value === null) card.removeAttribute(name);
+      else card.setAttribute(name, value);
+    }
+    selectionSemantics.delete(card);
+  }
   for (const control of card.querySelectorAll('button:not(.favorite-select-check), a')) {
     if (state.favSelecting) {
       if (!selectionInert.has(control)) selectionInert.set(control, control.inert);
@@ -719,7 +785,10 @@ function syncSelectionControls(card) {
 function renderBatchBar() {
   const bar = byId('favoritesBatchBar');
   if (!bar) return;
+  const wasHidden = bar.hidden;
   bar.hidden = !state.favoritesView || !state.favSelecting;
+  if (bar.hidden) stopFavoriteMotion(bar);
+  else if (wasHidden) favoriteMotion(bar, [{ opacity: 0, translate: '-50% 12px' }, { opacity: 1, translate: '-50% 0' }], { duration: 180 });
   if (bar.hidden) return;
   const keys = selectedKeys();
   const focused = bar.contains(document.activeElement) ? document.activeElement.dataset.favBatch : null;
@@ -769,6 +838,8 @@ export function decorateFavoriteCard(card, entry) {
   card.classList.add('favorite-library-card');
   const checkbox = button('', 'favorite-select-check');
   checkbox.setAttribute('role', 'checkbox');
+  checkbox.tabIndex = -1;
+  checkbox.setAttribute('aria-hidden', 'true');
   checkbox.setAttribute('aria-label', '选择「' + String(entry.title || '') + '」');
   checkbox.setAttribute('aria-checked', String(Boolean(state.favSelected?.has(entryKey(entry)))));
   checkbox.hidden = !state.favSelecting;
@@ -790,6 +861,7 @@ export function decorateFavoriteCard(card, entry) {
         const chip = element('span', 'favorite-folder-badge', folder.name);
         chip.title = folder.name;
         row.append(chip);
+        favoriteMotion(chip, [{ opacity: 0, translate: '0 4px' }, { opacity: 1, translate: '0 0' }], { duration: 160 });
       }
       if (badges.length > 2) row.append(element('span', 'favorite-folder-badge favorite-folder-overflow', '+' + (badges.length - 2)));
       foot.append(row);
@@ -842,6 +914,8 @@ export function syncFavoritesView() {
 export function setupFavoritesView() {
   if (bound || !globalThis.document?.body) return;
   bound = true;
+  syncMotionVisibility();
+  document.addEventListener('visibilitychange', syncMotionVisibility);
   narrow = window.matchMedia('(max-width: 859px)').matches;
   if (!(state.favSelected instanceof Set)) state.favSelected = new Set();
   if (!state.favSort) state.favSort = 'recent';
@@ -875,11 +949,13 @@ export function setupFavoritesView() {
   }
   const drawer = makeMask(IDS.drawer, 'favorites-drawer-mask', '收藏夹');
   const drawerHead = element('header', 'favorites-drawer-head');
-  drawerHead.append(element('h2', '', '收藏夹'), button('完成', 'favorites-action', () => closeLayer(IDS.drawer)));
+  const drawerTitle = element('h2', '', '收藏夹'); drawerTitle.id = IDS.drawer + 'Title';
+  drawerHead.append(drawerTitle, button('完成', 'favorites-action', () => closeLayer(IDS.drawer)));
   const drawerRail = element('div', 'favorites-drawer-rail'); drawerRail.id = 'favoritesDrawerRail';
   drawer.append(drawerHead, drawerRail);
   const organize = makeMask(IDS.organize, 'favorites-organize-mask', '整理到收藏夹');
-  organize.append(element('h2', '', '整理到收藏夹'));
+  const organizeTitle = element('h2', '', '整理到收藏夹'); organizeTitle.id = IDS.organize + 'Title';
+  organize.append(organizeTitle);
   const subtitle = element('p', 'favorites-organize-subtitle'); subtitle.id = 'favoritesOrganizeSubtitle';
   const search = input('搜索收藏夹'); search.id = 'favoritesOrganizeSearch';
   const list = element('div', 'favorites-organize-list'); list.id = 'favoritesOrganizeList';

@@ -48,7 +48,7 @@
 .favorites-action:hover, .favorites-sort:hover { background: var(--tagbg); }
 .favorites-action.is-primary { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 .favorites-action.is-danger, .favorites-menu-item.is-danger { color: var(--danger-text); }
-.favorites-action:disabled, .favorites-organize-row:disabled { opacity: .5; cursor: default; }
+.favorites-action:disabled, .favorites-organize-row:disabled { opacity: .4; cursor: not-allowed; }
 .favorites-unsorted-guide { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; margin-top: 10px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 13px; }
 .favorites-unsorted-guide .favorites-action { background: var(--panel); color: var(--accent); flex: none; }
 .favorites-sources { display: flex; flex-wrap: nowrap; gap: 6px; padding: 0 0 9px; margin-bottom: 6px; overflow-x: auto; scrollbar-width: thin; }
@@ -72,8 +72,6 @@
   transition: opacity .16s ease, translate .18s cubic-bezier(.22,.61,.36,1);
 }
 .favorites-mask[hidden] .favorites-dialog { opacity: 0; translate: 0 8px; }
-.favorites-mask:not([hidden]) { animation: favoritesMaskIn .16s ease backwards; }
-.favorites-mask:not([hidden]) .favorites-dialog { animation: favoritesDialogIn .18s cubic-bezier(.22,.61,.36,1) backwards; }
 .favorites-dialog h2 { margin: 0; font: 600 18px/1.4 var(--font-ui); overflow-wrap: anywhere; }
 .favorites-dialog p { margin: 0; }
 .favorites-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; flex: none; }
@@ -88,7 +86,7 @@
 .favorites-organize-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px; min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--text); text-align: left; font: 13px/1.4 var(--font-ui); cursor: pointer; }
 .favorites-organize-row:hover { background: var(--tagbg); }
 .favorites-check { display: grid; place-items: center; width: 18px; height: 18px; box-sizing: border-box; flex: none; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; font-weight: 700; }
-.favorites-organize-row[aria-checked="true"] .favorites-check { background: var(--accent); border-color: var(--accent); color: var(--panel); animation: favoritesCheckIn .12s ease; }
+.favorites-organize-row[aria-checked="true"] .favorites-check { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 .favorites-organize-row[aria-checked="mixed"] .favorites-check { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .favorites-panel-empty { padding: 16px 8px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .favorites-organize-new { flex: none; border-top: 1px solid var(--line); padding-top: 12px; }
@@ -118,7 +116,6 @@
 .favorites-drawer-mask { z-index: 85; place-items: end center; padding: 0; }
 .favorites-drawer-mask .favorites-dialog { width: min(520px, 100%); max-height: 74vh; max-height: 74dvh; border-radius: 18px 18px 0 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); overflow: hidden; transition-duration: .22s; }
 .favorites-drawer-mask[hidden] .favorites-dialog { translate: 0 101%; }
-.favorites-drawer-mask:not([hidden]) .favorites-dialog { animation: favoritesDrawerIn .22s cubic-bezier(.22,.61,.36,1) backwards; }
 .favorites-drawer-head { display: flex; align-items: center; justify-content: space-between; flex: none; }
 .favorites-drawer-rail { min-height: 0; overflow: auto; }
 .favorites-drawer-rail .favorites-library-rail { overflow: visible; }
@@ -145,10 +142,6 @@
 .favorites-menu :is(button,select):focus-visible, .favorites-batch-bar button:focus-visible,
 .favorite-organize-button:focus-visible, .favorite-select-check:focus-visible,
 .favorites-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@keyframes favoritesMaskIn { from { opacity: 0; } }
-@keyframes favoritesDialogIn { from { opacity: 0; translate: 0 8px; } }
-@keyframes favoritesDrawerIn { from { translate: 0 101%; } }
-@keyframes favoritesCheckIn { 50% { scale: 1.12; } }
 @media (min-width: 860px) and (max-width: 1099px) {
   .favorites-library-view #sidebar { flex-basis: 208px; width: 208px; }
 }
@@ -170,6 +163,10 @@
   .favorites-folders-button { padding-inline: 7px; font-size: 11px; }
   .favorites-dialog { padding: 16px; }
   .favorites-heading .favorites-count { font-size: 11px; }
+}
+:is(.favorites-motion-paused, .motion-off) :is(.favorites-mask, .favorites-dialog, .favorites-menu,
+  .favorites-batch-bar, .favorites-folder-row, .favorites-check, .favorite-folder-badge, .favorite-library-card) {
+  animation: none !important; transition: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .favorites-mask, .favorites-dialog, .favorites-menu, .favorites-batch-bar, .favorites-folder-row,

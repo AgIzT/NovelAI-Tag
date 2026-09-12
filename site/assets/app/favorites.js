@@ -9,7 +9,10 @@ import { emitFavoritesChanged } from './favorites-backup.js';
 import { addLibraryItem, libraryKeys, removeLibraryItems } from './favorites-library-core.js';
 import { commitLibrary, librarySnapshot } from './favorites-library-store.js';
 
-const favoriteActions = { applyFilter: () => {}, refreshFavoritesView: () => {} };
+const favoriteActions = {
+  applyFilter: () => {}, refreshFavoritesView: () => {}, openOrganize: () => {},
+  restoreRemoved: () => { throw new Error('Favorite undo is not configured'); },
+};
 let codexLookupSource = null;
 let codexLookup = null;
 let deferredFavoritesViewRefresh = false;
@@ -99,13 +102,15 @@ export async function toggleFav(e, btn, options = {}) {
         codexes: state.codexes,
         snap: {
           title: e.title, tags: String(e.tags || '').slice(0, 400),
-          image: typeof image === 'string' ? image : (image?.file || e.image || ''),
-          w: image?.w || e.w, h: image?.h || e.h, rating: e.rating,
+          image: typeof image === 'string' ? image : (image?.path || e.image || ''),
+          w: Number(image?.w || image?.width || e.imageWidth || e.width || e.thumbWidth || e.w),
+          h: Number(image?.h || image?.height || e.imageHeight || e.height || e.thumbHeight || e.h), rating: e.rating,
           srcTitle: e._srcCodexTitle || ownerCodex(e)?.title || '', rev: e.assetRev,
         },
       });
-    } else removeLibraryItems(draft, keys);
-    return on;
+    }
+    const removed = on ? null : removeLibraryItems(draft, keys);
+    return { on, removed };
   });
   if (!outcome.ok) return outcome;
   state.favs = new Set(libraryKeys(librarySnapshot()));
@@ -120,6 +125,19 @@ export async function toggleFav(e, btn, options = {}) {
       favoriteActions.refreshFavoritesView({ transition: 'filter' });
     }
   }
-  toast(on ? `已收藏：${e.title}` : `已取消收藏：${e.title}`);
+  const action = on
+    ? { label: '整理', onClick: () => favoriteActions.openOrganize([k], btn) }
+    : { label: '撤销', onClick: async () => {
+      const restored = await commitLibrary(draft => favoriteActions.restoreRemoved(draft, outcome.result.removed), { changed: 'items', silent: true });
+      if (!restored.ok) { toast('撤销没能完成', '!'); return false; }
+      state.favs = new Set(libraryKeys(librarySnapshot()));
+      const active = isFav(e);
+      setFavoriteButtonState(btn, active);
+      syncRenderedFavoriteButtons(e, active);
+      if (options.deferViewRefresh && state.lightbox?.entry) deferredFavoritesViewRefresh = true;
+      else await favoriteActions.refreshFavoritesView({ transition: 'filter' });
+      return true;
+    } };
+  toast(on ? `已收藏：${e.title}` : `已取消收藏：${e.title}`, '✓', action);
   return outcome;
 }

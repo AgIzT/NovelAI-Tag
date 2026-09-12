@@ -15,6 +15,8 @@ const masonryActions = {
   toggleFav: () => {},
   reportEntry: () => {},
   hideCard: () => {},
+  decorateFavoriteCard: () => {},
+  favoriteBadgeHeight: () => 0,
 };
 
 const FILTER_EXIT_MS = 140;
@@ -345,8 +347,9 @@ export function invalidateBodyMetrics(e) {
 }
 
 export function estimateBodyMetrics(e, width) {
+  const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.density === state.density) return cached.value;
+  if (cached && cached.width === width && cached.density === state.density && cached.badgeHeight === badgeHeight) return cached.value;
   const cfg = densityConfig();
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
@@ -355,10 +358,10 @@ export function estimateBodyMetrics(e, width) {
   const tagsHeight = clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
   const value = {
-    height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + cfg.bodyPadBottom),
+    height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, density: state.density, value });
+  bodyMetricsCache.set(e, { width, density: state.density, badgeHeight, value });
   return value;
 }
 
@@ -622,7 +625,7 @@ export function makeCard(placement) {
     node.classList.add('no-img');
   }
 
-  const packMode = state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
+  const packMode = !state.favoritesView && (state.codex?.type === 'pack' || e._srcType === 'pack');
   const copyHint = node.querySelector('.copy-hint');
   if (copyHint && packMode) {
     copyHint.textContent = hasImage ? '点击查看' : '暂无图片';
@@ -636,6 +639,7 @@ export function makeCard(placement) {
     }
     masonryActions.copyEntry(e, node);
   };
+  masonryActions.decorateFavoriteCard(node, e);
   return node;
 }
 
