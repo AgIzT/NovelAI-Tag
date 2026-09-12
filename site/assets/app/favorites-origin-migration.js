@@ -1,11 +1,9 @@
 import {
   FAVORITES_BACKUP_LIMITS,
   FavoritesBackupError,
-  commitFavoritesRestore,
   createFavoritesBackup,
-  createFavoritesRestorePlan,
-  readStoredFavorites,
 } from './favorites-backup-core.js';
+import { restoreLibraryFavorites } from './favorites-backup-store.js';
 
 export const FAVORITES_MIGRATION_VERSION = 1;
 export const FAVORITES_MIGRATION_PATH = '/_favorites-migration-202607.html';
@@ -108,11 +106,12 @@ export function isTrustedFavoritesMigrationEvent(event, {
   );
 }
 
-export function createFavoritesMigrationRestore({
+export async function createFavoritesMigrationRestore({
   message,
   nonce,
   storage,
   codexes = [],
+  restoreFavorites = restoreLibraryFavorites,
 } = {}) {
   if (!isRecord(message)
     || message.type !== FAVORITES_MIGRATION_MESSAGES.payload
@@ -140,16 +139,8 @@ export function createFavoritesMigrationRestore({
     codexes,
     exportedAt: new Date(),
   });
-  const current = readStoredFavorites(storage, codexes);
-  const plan = createFavoritesRestorePlan({
-    backup,
-    currentAtlasKeys: current.atlasKeys,
-    currentCommunityIds: current.communityIds,
-    mode: 'merge',
-    codexes,
-  });
-  const result = commitFavoritesRestore(storage, plan);
-  return { backup, current, plan, result };
+  const restored = await restoreFavorites({ backup, mode: 'merge', storage, codexes });
+  return { backup, ...restored };
 }
 
 function writeMigrationMarker(storage, value) {
@@ -295,11 +286,12 @@ export function setupFavoritesOriginMigration(options = {}) {
 
       try {
         const codexes = await options.getCodexes?.() || [];
-        const migrated = createFavoritesMigrationRestore({
+        const migrated = await createFavoritesMigrationRestore({
           message: event.data,
           nonce,
           storage,
           codexes,
+          restoreFavorites: options.restoreFavorites,
         });
         const incoming = migrated.plan.stats.all.incoming;
         const marker = {

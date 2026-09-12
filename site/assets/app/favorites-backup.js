@@ -6,16 +6,15 @@ import {
   registerHistoryLayer,
 } from './browser-history.js';
 import {
-  ATLAS_FAVORITES_STORAGE_KEY,
   COMMUNITY_FAVORITES_STORAGE_KEY,
   FAVORITES_BACKUP_LIMITS,
   FavoritesBackupError,
-  commitFavoritesRestore,
   createFavoritesRestorePlan,
   parseFavoritesBackup,
-  readStoredFavorites,
   serializeFavoritesBackup,
 } from './favorites-backup-core.js';
+import { readLibraryFavorites, restoreLibraryFavorites } from './favorites-backup-store.js';
+import { FAVORITES_LIBRARY_STORAGE_KEY } from './favorites-library-core.js';
 import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
 import { fetchDataJson } from '../data-source.js';
 import { decodeFavoritesTransfer, encodeFavoritesTransfer } from './favorites-transfer.js';
@@ -32,7 +31,7 @@ function runCallback(callback, detail) {
 
 export function subscribeFavoritesChanges(scope, callback) {
   if (!['atlas', 'community'].includes(scope) || typeof callback !== 'function') return () => {};
-  const storageKey = scope === 'atlas' ? ATLAS_FAVORITES_STORAGE_KEY : COMMUNITY_FAVORITES_STORAGE_KEY;
+  const storageKey = scope === 'atlas' ? FAVORITES_LIBRARY_STORAGE_KEY : COMMUNITY_FAVORITES_STORAGE_KEY;
   const onChanged = event => {
     const scopes = event.detail?.scopes || [];
     if (scopes.includes(scope)) runCallback(callback, event.detail || {});
@@ -82,6 +81,7 @@ function friendlyError(error) {
   if (!(error instanceof FavoritesBackupError)) {
     return error?.message || '处理收藏备份时发生未知错误。';
   }
+  if (error.details?.reason) return error.message;
   const messages = {
     INVALID_JSON: '无法读取：文件不是有效的 JSON。',
     INVALID_FORMAT: '这不是法典图鉴的收藏备份。',
@@ -206,7 +206,7 @@ export function setupFavoritesBackup(options = {}) {
     }
   };
 
-  const readCurrent = async () => readStoredFavorites(localStorage, await resolveCodexes());
+  const readCurrent = async () => readLibraryFavorites({ storage: localStorage, codexes: await resolveCodexes() });
 
   const refreshCounts = async () => {
     const current = await readCurrent();
@@ -311,7 +311,7 @@ export function setupFavoritesBackup(options = {}) {
     selectedFileName = label;
     const codexes = await resolveCodexes();
     parsedBackup = parseFavoritesBackup(text, codexes);
-    const current = readStoredFavorites(localStorage, codexes);
+    const current = await readLibraryFavorites({ storage: localStorage, codexes });
     if (localEdition) {
       parsedBackup = {
         ...parsedBackup,
@@ -368,11 +368,16 @@ export function setupFavoritesBackup(options = {}) {
     }
   };
 
-  const restore = async plan => {
+  const restore = async previewPlan => {
     setBusy(true);
     setError('');
     try {
-      const result = commitFavoritesRestore(localStorage, plan);
+      const { result, plan } = await restoreLibraryFavorites({
+        backup: parsedBackup,
+        mode: previewPlan.mode,
+        codexes: await resolveCodexes(),
+        preserveCommunity: localEdition,
+      });
       emitFavoritesChanged(localEdition ? ['atlas'] : ['atlas', 'community']);
       await refreshCounts();
       if (preview) preview.hidden = true;
@@ -412,7 +417,7 @@ export function setupFavoritesBackup(options = {}) {
     setStatus('');
     try {
       const codexes = await resolveCodexes();
-      const current = readStoredFavorites(localStorage, codexes);
+      const current = await readLibraryFavorites({ storage: localStorage, codexes });
       if (!current.atlasKeys.length && (localEdition || !current.communityIds.length)) {
         setStatus(current.skippedCount
           ? `暂无有效收藏可备份。${skippedStatus(current.skippedCount)}`
@@ -442,7 +447,7 @@ export function setupFavoritesBackup(options = {}) {
     setStatus('');
     try {
       const codexes = await resolveCodexes();
-      const current = readStoredFavorites(localStorage, codexes);
+      const current = await readLibraryFavorites({ storage: localStorage, codexes });
       if (!current.atlasKeys.length && (localEdition || !current.communityIds.length)) {
         setStatus('暂无收藏可备份。');
         return;

@@ -8,8 +8,9 @@ import { findRelatedDirectories, listSearchDirectories } from './app/search-dire
 import { renderRelatedDirectories, renderSearchFilters, renderSearchStatus } from './app/search-ui.js';
 import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
 import { isFav, setFavoritesActions, toggleFav } from './app/favorites.js';
-import { ATLAS_FAVORITES_STORAGE_KEY, readStoredFavorites } from './app/favorites-backup-core.js';
-import { setupFavoritesBackup, subscribeFavoritesChanges } from './app/favorites-backup.js';
+import { setupFavoritesBackup, subscribeFavoritesChanges, emitFavoritesChanged } from './app/favorites-backup.js';
+import { libraryKeys } from './app/favorites-library-core.js';
+import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibraryStore, subscribeLibrary } from './app/favorites-library-store.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
@@ -192,8 +193,6 @@ export async function init() {
     configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
     setLoading('');
-    const savedFavs = safeJsonParse(localStorage.getItem(ATLAS_FAVORITES_STORAGE_KEY), []);
-    state.favs = new Set(Array.isArray(savedFavs) ? savedFavs : []);
     state.recentEntries = normalizeRecentEntries(safeJsonParse(localStorage.getItem(RECENT_STORAGE_KEY), []));
     state.lastBrowse = normalizeLastBrowse(safeJsonParse(localStorage.getItem(LAST_BROWSE_STORAGE_KEY), null));
     state.allowNsfw = localStorage.getItem(NSFW_STORAGE_KEY) === '1';
@@ -211,6 +210,9 @@ export async function init() {
     state.searchScope = normalizeSearchScope(localStorage.getItem(SEARCH_SCOPE_STORAGE_KEY));
     const { codexes, media, about } = await loadBootstrapData();
     state.codexes = codexes;
+    await ensureLibrary();
+    state.favs = new Set(libraryKeys(librarySnapshot()));
+    setupLibraryStore();
     state.media = { ...state.media, ...media };
     state.about = about;
     primeResourceHints({ media: state.media, codexes: state.codexes });
@@ -304,8 +306,8 @@ async function syncAtlasFavoritesFromStorage(detail = {}) {
      经 refreshFavoritesView 处理（还带 deferViewRefresh 供灯箱延后）。这里再 applyFilter /
      openFavoritesView 一次，等于每点一颗星就把整条虚拟瀑布流销毁重建，顺带把 deferViewRefresh
      整个架空。中转站侧栏收藏列另有自己的订阅（只置脏、切页签才重建），不依赖这条路径。 */
-  if (detail?.reason === 'toggle') return;
-  state.favs = new Set(readStoredFavorites(localStorage, state.codexes).atlasKeys);
+  if (['toggle', 'library', 'storage'].includes(detail?.reason)) return;
+  state.favs = new Set(libraryKeys(librarySnapshot()));
   if (!state.codex) return;
   if (state.favoritesView) {
     await openFavoritesView({
@@ -872,6 +874,16 @@ setHistoryActions({
 });
 
 setFavoritesActions({ applyFilter, refreshFavoritesView });
+
+setLibraryStoreActions({
+  getCodexes: () => state.codexes,
+  emitFavoritesChanged,
+  openBackup: () => document.querySelector('[data-favorites-backup-open]')?.click(),
+});
+subscribeLibrary((snapshot, detail) => {
+  state.favs = new Set(libraryKeys(snapshot));
+  if (['storage', 'pageshow'].includes(detail?.source)) void syncAtlasFavoritesFromStorage({ reason: 'remote' });
+});
 
 setMasonryActions({
   openLightbox,

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { loadFavoritesTestModules } from './favorites-library-test-loader.mjs';
 
 const favoritesUrl = new URL('../site/assets/app/favorites.js', import.meta.url);
 const state = {
@@ -11,12 +12,31 @@ const state = {
 const lookupSources = [];
 const lookupArguments = [];
 const emittedChanges = [];
-globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments, emittedChanges };
+const messages = [];
+const bytes = new Map([['fadian-favs', JSON.stringify([...state.favs])]]);
+let rejectWrite = false;
+const storage = {
+  getItem: key => bytes.get(key) ?? null,
+  setItem(key, value) {
+    if (rejectWrite && key === 'fadian-favs-v2') throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+    bytes.set(key, String(value));
+  },
+  removeItem: key => bytes.delete(key),
+};
+const { library, store: stores } = await loadFavoritesTestModules();
+const store = stores.createLibraryStore({ getStorage: () => storage, getCodexes: () => state.codexes,
+  getLocks: () => ({ request: async (_name, _options, fn) => fn({}) }), notify: (...args) => messages.push(args) });
+await store.ensureLibrary();
+globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments, emittedChanges, messages, library, store };
 
-const coreImport = /import \{\s*ATLAS_FAVORITES_STORAGE_KEY,\s*atlasFavoriteStorageKeys,\s*createCodexLookup,\s*\} from '\.\/favorites-backup-core\.js';/;
+const coreImport = /import \{\s*atlasFavoriteStorageKeys,\s*createCodexLookup,\s*\} from '\.\/favorites-backup-core\.js';/;
 const favoritesSource = (await readFile(favoritesUrl, 'utf8'))
   .replace("import { state } from './state.js';", 'const state = globalThis.__favoritesRuntimeTest.state;')
-  .replace("import { toast } from './feedback.js';", 'const toast = () => {};')
+  .replace("import { toast } from './feedback.js';", 'const toast = (...args) => globalThis.__favoritesRuntimeTest.messages.push(args);')
+  .replace("import { addLibraryItem, libraryKeys, removeLibraryItems } from './favorites-library-core.js';",
+    'const { addLibraryItem, libraryKeys, removeLibraryItems } = globalThis.__favoritesRuntimeTest.library;')
+  .replace("import { commitLibrary, librarySnapshot } from './favorites-library-store.js';",
+    'const { commitLibrary, librarySnapshot } = globalThis.__favoritesRuntimeTest.store;')
   .replace(
     "import { emitFavoritesChanged } from './favorites-backup.js';",
     'const emitFavoritesChanged = (scopes, reason) => globalThis.__favoritesRuntimeTest.emittedChanges.push({ scopes, reason });',
@@ -82,7 +102,7 @@ assert.equal(lookupArguments.at(-1).source, reloadedCodexes);
   favorites.setFavoritesActions({ refreshFavoritesView: () => { refreshes += 1; } });
   globalThis.localStorage = { setItem() {} };
 
-  favorites.toggleFav(entry, lightboxButton, { deferViewRefresh: true });
+  await favorites.toggleFav(entry, lightboxButton, { deferViewRefresh: true });
   assert.deepEqual(emittedChanges.pop(), { scopes: ['atlas'], reason: 'toggle' });
   assert.equal(favorites.isFav(entry), false);
   assert.equal(refreshes, 0);
@@ -93,7 +113,7 @@ assert.equal(lookupArguments.at(-1).source, reloadedCodexes);
   assert.equal(refreshes, 1);
   assert.equal(favorites.flushDeferredFavoritesViewRefresh(), false, '重复关闭不应重复刷新');
 
-  favorites.toggleFav(entry, lightboxButton, { deferViewRefresh: true });
+  await favorites.toggleFav(entry, lightboxButton, { deferViewRefresh: true });
   assert.equal(favorites.isFav(entry), true, '刷新前仍应能把当前词条重新收藏');
   assert.equal(lightboxButton.getAttribute('aria-pressed'), 'true');
   assert.equal(cardButton.textContent, '★');
@@ -101,20 +121,23 @@ assert.equal(lookupArguments.at(-1).source, reloadedCodexes);
   assert.equal(refreshes, 2);
 }
 
-// 保留对 localStorage 受限/写入失败的既有容错。
-const previousStorage = globalThis.localStorage;
-const previousWarn = console.warn;
-let warned = false;
-globalThis.localStorage = { setItem() { throw new Error('storage denied'); } };
-console.warn = () => { warned = true; };
-try {
-  assert.doesNotThrow(() => favorites.saveFavs());
-  assert.equal(warned, true);
-} finally {
-  console.warn = previousWarn;
-  if (previousStorage === undefined) delete globalThis.localStorage;
-  else globalThis.localStorage = previousStorage;
-  delete globalThis.__favoritesRuntimeTest;
-}
+// 落盘失败时不换内存、不发成功事件、不改星标、不弹成功提示。
+rejectWrite = true;
+const before = [...state.favs];
+const eventCount = emittedChanges.length;
+messages.length = 0;
+let buttonTouched = false;
+const outcome = await favorites.toggleFav({ id: 'alpha-2', title: '第二条' }, {
+  set textContent(_) { buttonTouched = true; },
+});
+assert.equal(outcome.ok, false);
+assert.equal(outcome.reason, 'quota');
+assert.deepEqual([...state.favs], before);
+assert.equal(emittedChanges.length, eventCount);
+assert.equal(buttonTouched, false);
+assert.equal(messages.some(([message]) => message.startsWith('已收藏')), false);
+assert.equal(messages.at(-1)[0], '收藏没能保存：浏览器存储已满');
+assert.equal((await favorites.saveFavs()).ok, false);
+delete globalThis.__favoritesRuntimeTest;
 
 console.log('favorites runtime: all tests passed');

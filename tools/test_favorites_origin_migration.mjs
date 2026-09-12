@@ -2,25 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 
-const coreFile = new URL('../site/assets/app/favorites-backup-core.js', import.meta.url);
-const migrationFile = new URL('../site/assets/app/favorites-origin-migration.js', import.meta.url);
+import { loadFavoritesTestModules } from './favorites-library-test-loader.mjs';
+
+const { core, library, store, backupStore, migration } = await loadFavoritesTestModules();
 const rescueFile = new URL('../site/_favorites-migration-202607.html', import.meta.url);
-const coreSource = await readFile(coreFile, 'utf8');
-const coreDataUrl = `data:text/javascript;base64,${Buffer.from(coreSource).toString('base64')}`;
-const migrationSource = (await readFile(migrationFile, 'utf8')).replace(
-  "from './favorites-backup-core.js'",
-  `from '${coreDataUrl}'`,
-);
-const migration = await import(
-  `data:text/javascript;base64,${Buffer.from(migrationSource).toString('base64')}`
-);
-
-const {
-  ATLAS_FAVORITES_STORAGE_KEY,
-  COMMUNITY_FAVORITES_STORAGE_KEY,
-  FavoritesBackupError,
-} = await import(coreDataUrl);
-
+const { ATLAS_FAVORITES_STORAGE_KEY, COMMUNITY_FAVORITES_STORAGE_KEY, FavoritesBackupError } = core;
+const { FAVORITES_LIBRARY_STORAGE_KEY } = library;
 const {
   FAVORITES_MIGRATION_CACHE_BUSTER_PARAM,
   FAVORITES_MIGRATION_CACHE_BUSTER_VALUE,
@@ -29,7 +16,7 @@ const {
   FAVORITES_MIGRATION_VERSION,
   buildFavoritesMigrationUrl,
   createFavoritesMigrationNonce,
-  createFavoritesMigrationRestore,
+  createFavoritesMigrationRestore: migrate,
   isTrustedFavoritesMigrationEvent,
   readFavoritesMigrationMarker,
   setupFavoritesOriginMigration,
@@ -176,8 +163,20 @@ class FakeWindow extends EventTarget {
   }
 }
 
-function expectCode(code, fn) {
-  assert.throws(fn, error => error instanceof FavoritesBackupError && error.code === code);
+async function expectCode(code, fn) {
+  await assert.rejects(fn, error => error instanceof FavoritesBackupError && error.code === code);
+}
+
+const storageAdapters = new WeakMap();
+function adapterFor(storage, codexes = []) {
+  if (!storageAdapters.has(storage)) {
+    const libraryStore = store.createLibraryStore({ getStorage: () => storage, getLocks: () => null, getCodexes: () => codexes, eventTarget: null });
+    storageAdapters.set(storage, backupStore.createFavoritesBackupStore(libraryStore));
+  }
+  return storageAdapters.get(storage);
+}
+function createFavoritesMigrationRestore(options) {
+  return migrate({ ...options, restoreFavorites: adapterFor(options.storage, options.codexes).restore });
 }
 
 function payload(nonce, favorites = { atlasKeys: [], communityIds: [] }) {
@@ -288,7 +287,7 @@ const mergeMessage = payload('merge-nonce', {
   ],
   communityIds: ['community-old', 'community-existing', 'community-old'],
 });
-const merged = createFavoritesMigrationRestore({
+const merged = await createFavoritesMigrationRestore({
   message: mergeMessage,
   nonce: 'merge-nonce',
   storage: mergeStorage,
@@ -312,7 +311,7 @@ assert.deepEqual(merged.plan.stats.all, {
 });
 
 // 重复迁移幂等；旧域为空时也只规范化并保留当前集合。
-const repeated = createFavoritesMigrationRestore({
+const repeated = await createFavoritesMigrationRestore({
   message: mergeMessage,
   nonce: 'merge-nonce',
   storage: mergeStorage,
@@ -321,7 +320,7 @@ const repeated = createFavoritesMigrationRestore({
 assert.equal(repeated.plan.stats.all.added, 0);
 assert.equal(repeated.plan.stats.all.duplicate, 4);
 assert.deepEqual(repeated.result, merged.result);
-const empty = createFavoritesMigrationRestore({
+const empty = await createFavoritesMigrationRestore({
   message: payload('empty-nonce'),
   nonce: 'empty-nonce',
   storage: mergeStorage,
@@ -346,7 +345,7 @@ const ownerMigrationMessage = payload('owner-migration', {
   ],
   communityIds: [],
 });
-const ownerMigrated = createFavoritesMigrationRestore({
+const ownerMigrated = await createFavoritesMigrationRestore({
   message: ownerMigrationMessage,
   nonce: 'owner-migration',
   storage: ownerMigrationStorage,
@@ -360,7 +359,7 @@ assert.deepEqual(ownerMigrated.result.atlasKeys, [
 ]);
 assert.equal(ownerMigrated.plan.stats.atlas.added, 3);
 assert.equal(ownerMigrated.plan.stats.atlas.duplicate, 1);
-const ownerRepeated = createFavoritesMigrationRestore({
+const ownerRepeated = await createFavoritesMigrationRestore({
   message: ownerMigrationMessage,
   nonce: 'owner-migration',
   storage: ownerMigrationStorage,
@@ -371,31 +370,31 @@ assert.equal(ownerRepeated.plan.stats.atlas.duplicate, 4);
 assert.deepEqual(ownerRepeated.result, ownerMigrated.result);
 
 // 畸形消息、字段限制、数量上限和 2 MiB 上限全部在写入前拒绝。
-expectCode('INVALID_MIGRATION_MESSAGE', () => createFavoritesMigrationRestore({
+await expectCode('INVALID_MIGRATION_MESSAGE', () => createFavoritesMigrationRestore({
   message: { ...mergeMessage, version: 2 },
   nonce: 'merge-nonce',
   storage: mergeStorage,
   codexes,
 }));
-expectCode('INVALID_MIGRATION_MESSAGE', () => createFavoritesMigrationRestore({
+await expectCode('INVALID_MIGRATION_MESSAGE', () => createFavoritesMigrationRestore({
   message: mergeMessage,
   nonce: 'wrong',
   storage: mergeStorage,
   codexes,
 }));
-expectCode('INVALID_MIGRATION_PAYLOAD', () => createFavoritesMigrationRestore({
+await expectCode('INVALID_MIGRATION_PAYLOAD', () => createFavoritesMigrationRestore({
   message: { ...mergeMessage, communityIds: undefined },
   nonce: 'merge-nonce',
   storage: mergeStorage,
   codexes,
 }));
-expectCode('INVALID_ATLAS_ITEM', () => createFavoritesMigrationRestore({
+await expectCode('INVALID_ATLAS_ITEM', () => createFavoritesMigrationRestore({
   message: payload('bad-atlas', { atlasKeys: ['missing-separator'], communityIds: [] }),
   nonce: 'bad-atlas',
   storage: mergeStorage,
   codexes,
 }));
-expectCode('INVALID_COMMUNITY_ITEM', () => createFavoritesMigrationRestore({
+await expectCode('INVALID_COMMUNITY_ITEM', () => createFavoritesMigrationRestore({
   message: payload('bad-community', {
     atlasKeys: [],
     communityIds: ['x'.repeat(257)],
@@ -404,7 +403,7 @@ expectCode('INVALID_COMMUNITY_ITEM', () => createFavoritesMigrationRestore({
   storage: mergeStorage,
   codexes,
 }));
-expectCode('TOO_MANY_ITEMS', () => createFavoritesMigrationRestore({
+await expectCode('TOO_MANY_ITEMS', () => createFavoritesMigrationRestore({
   message: payload('too-many', {
     atlasKeys: [],
     communityIds: Array(30001).fill('same'),
@@ -413,7 +412,7 @@ expectCode('TOO_MANY_ITEMS', () => createFavoritesMigrationRestore({
   storage: mergeStorage,
   codexes,
 }));
-expectCode('MIGRATION_TOO_LARGE', () => createFavoritesMigrationRestore({
+await expectCode('MIGRATION_TOO_LARGE', () => createFavoritesMigrationRestore({
   message: payload('too-large', {
     atlasKeys: [],
     communityIds: ['x'.repeat(2 * 1024 * 1024)],
@@ -423,7 +422,7 @@ expectCode('MIGRATION_TOO_LARGE', () => createFavoritesMigrationRestore({
   codexes,
 }));
 
-// 第二键写入失败时，事务核心恢复两个原始值。
+// 社区协调写入失败时，两类收藏保留恢复前状态。
 const originalAtlas = '["alpha:alpha-before"]';
 const originalCommunity = '["community-before"]';
 const rollbackStorage = new MemoryStorage({
@@ -431,7 +430,7 @@ const rollbackStorage = new MemoryStorage({
   [COMMUNITY_FAVORITES_STORAGE_KEY]: originalCommunity,
 });
 rollbackStorage.failOnceFor = COMMUNITY_FAVORITES_STORAGE_KEY;
-expectCode('STORAGE_WRITE_FAILED', () => createFavoritesMigrationRestore({
+await expectCode('STORAGE_WRITE_FAILED', () => createFavoritesMigrationRestore({
   message: payload('rollback', {
     atlasKeys: ['beta:beta-old'],
     communityIds: ['community-old'],
@@ -460,11 +459,14 @@ assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), originalC
   let changed = 0;
   let refreshed = 0;
   let openedTarget = '';
+  let releaseRestore;
+  const restoreGate = new Promise(resolve => { releaseRestore = resolve; });
   const controller = setupFavoritesOriginMigration({
     window: windowApi,
     document: documentApi,
     root: documentApi,
     storage,
+    restoreFavorites: async options => { await restoreGate; return adapterFor(storage, codexes).restore(options); },
     oldOrigin: 'https://old.example',
     newOrigin: 'https://new.example',
     currentOrigin: 'https://new.example',
@@ -525,6 +527,11 @@ assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), originalC
     }),
   });
   await tick();
+  assert.equal(readFavoritesMigrationMarker(storage), null, '恢复尚未落盘时不写成功标记');
+  assert.equal(changed, 0, '恢复尚未完成时不广播');
+  assert.equal(posted.length, 1, '恢复尚未完成时不通知旧域成功');
+  releaseRestore();
+  for (let attempts = 0; attempts < 100 && changed === 0; attempts++) await tick(10);
   assert.deepEqual(JSON.parse(storage.getItem(ATLAS_FAVORITES_STORAGE_KEY)), [
     'alpha:alpha-current',
     'alpha:alpha-old',
