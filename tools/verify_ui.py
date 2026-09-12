@@ -129,6 +129,12 @@ def first_imaged_entry_id(codex_id: str) -> str:
     raise RuntimeError(f"No imaged entry was found in {data_path}")
 
 
+def load_codex_list() -> list[dict]:
+    """书目现况。分类下有几本会随收录变化，别在用例里写死。"""
+    index_path = ROOT / "site" / "data" / "codexes.json"
+    return json.loads(index_path.read_text(encoding="utf-8"))
+
+
 def update_filter_config(codex_id: str) -> list[dict]:
     index_path = ROOT / "site" / "data" / "codexes.json"
     index = json.loads(index_path.read_text(encoding="utf-8"))
@@ -447,6 +453,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     entry_id = first_imaged_entry_id("suozhang")
     no_original_entry_id = first_imaged_entry_id("composition_style")
     update_filters = update_filter_config("suozhang")
+    # 分类下有几本是会变的（2026-09 新增《更衣人偶》），按书目现况取，别写死。
+    composition_ids = [
+        str(item.get("id"))
+        for item in load_codex_list()
+        if str(item.get("type") or "") == "composition"
+    ]
     old_update = next((item for item in update_filters if not item["latest"]), None)
     latest_update = next((item for item in update_filters if item["latest"]), None)
     r18_update_filters = update_filter_config("suozhang_r18")
@@ -1427,6 +1439,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "app before announcements")
         cdp.eval("document.querySelector('#announcementsBtn')?.click()")
+        # ⚠ 桌面宽度下这颗按钮开的是顶栏动态气泡，不是三页签面板（见 ui.js 的 announceBtn.onclick）；
+        #    面板要再点气泡里的「公告」才进。移动端才是一步直达。
+        wait_for(
+            cdp,
+            "!document.querySelector('#updatesPopover')?.hidden",
+            "updates popover",
+            timeout=12,
+        )
+        cdp.eval("document.querySelector('#updatesPopover [data-updates-open=\"announcements\"]')?.click()")
         wait_for(cdp, "!document.querySelector('#announcementsPanel')?.hidden && document.querySelectorAll('.announcement-item').length >= 2", "announcements panel", timeout=12)
         settle(cdp, 280)
         data = cdp.eval("""
@@ -1720,14 +1741,16 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, f"document.querySelectorAll('#updateFilterControls [data-update-filter]').length === {len(update_filters)}", "regular update buttons")
+        # ⚠ 不要写死"两条"：更新批次是会长的，写死就等着下一批数据把它撞红。
         expected = [
-            f"{old_update['label']} · {old_update['count']}",
-            f"NEW {latest_update['label']} · {latest_update['count']}",
+            (f"NEW {item['label']} · {item['count']}" if item["latest"] else f"{item['label']} · {item['count']}")
+            for item in update_filters
         ]
         initial = cdp.eval("[...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn=>({id:btn.dataset.updateFilter,text:btn.innerText.replace(/\\s+/g,' ').trim(),pressed:btn.getAttribute('aria-pressed'),latest:btn.classList.contains('is-latest')}))")
         if [item["text"] for item in initial] != expected or any(item["pressed"] != "false" for item in initial):
             raise CheckFailed(f"Regular update buttons mismatch: expected={expected!r}, actual={initial}")
-        if initial[0]["latest"] or not initial[1]["latest"]:
+        latest_flags = [item["latest"] for item in initial]
+        if latest_flags.count(True) != 1 or not latest_flags[-1]:
             raise CheckFailed(f"Only the latest update button may carry NEW styling: {initial}")
 
         old_id = json.dumps(old_update["id"], ensure_ascii=False)
@@ -2081,7 +2104,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         clear_errors(cdp)
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelector('#codexBtn') && document.querySelectorAll('.card').length >= 1", "codex picker ready")
-        cdp.eval("""
+        cdp.eval(("""
 (() => {
   document.querySelector('#codexBtn')?.click();
   const stringType = document.querySelector('#codexMenu .codex-type[data-type="string"]');
@@ -2099,7 +2122,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   if (!compositionType) throw new Error('composition type item not found');
   compositionType.click();
   const compositionIds = [...document.querySelectorAll('#codexMenu .codex-item[data-id]')].map(node => node.dataset.id);
-  const expectedComposition = ['composition_style', 'qianteng'];
+  const expectedComposition = __COMPOSITION_IDS__;
   if (JSON.stringify(compositionIds) !== JSON.stringify(expectedComposition)) {
     throw new Error(`composition order mismatch: ${compositionIds.join(',')}`);
   }
@@ -2108,7 +2131,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   target.click();
   return true;
 })()
-""")
+""").replace("__COMPOSITION_IDS__", json.dumps(composition_ids, ensure_ascii=False)))
         wait_for(cdp, "document.querySelector('#codexBtnText')?.textContent.includes('衣柜')", "wardrobe selected", timeout=10)
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "wardrobe cards", timeout=10)
         settle(cdp, 350)
@@ -2153,7 +2176,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed(f"Legacy suozhang favorite did not resolve to the merged codex: {data['cards']!r}")
         if any(card["favorite"] != "★" for card in data["cards"]):
             raise CheckFailed(f"Resolved historical favorites lost their active star: {data['cards']!r}")
-        if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "一键找回":
+        if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "找回旧收藏":
             raise CheckFailed("Favorites backup dialog is missing the permanent pages.dev migration entry")
         fallback_url = urllib.parse.urlparse(data["migrationFallback"])
         fallback_query = urllib.parse.parse_qs(fallback_url.query)
@@ -2202,7 +2225,10 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         data = cdp.eval("({cards: document.querySelectorAll('.card').length, mobileSearch: !!document.querySelector('#mobileSearchBtn'), result: document.querySelector('#resultInfo')?.textContent || '', updates: [...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn=>btn.innerText.replace(/\\s+/g,' ').trim()), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth})")
         if not data["mobileSearch"]:
             raise CheckFailed("Mobile search button missing")
-        expected_updates = [f"{old_update['label']} · {old_update['count']}", f"NEW {latest_update['label']} · {latest_update['count']}"]
+        expected_updates = [
+            (f"NEW {item['label']} · {item['count']}" if item["latest"] else f"{item['label']} · {item['count']}")
+            for item in update_filters
+        ]
         if data["updates"] != expected_updates or data["overflow"] > 1:
             raise CheckFailed(f"Mobile update controls are missing or overflowed: {data}")
         check_no_errors(cdp)
@@ -2839,7 +2865,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
           button: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '',
           fallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '',
         })""")
-        if migration_entry["title"] != "从旧 pages.dev 找回" or migration_entry["button"] != "一键找回":
+        if migration_entry["title"] != "从旧 pages.dev 找回" or migration_entry["button"] != "找回旧收藏":
             raise CheckFailed("Community backup dialog is missing the permanent pages.dev migration entry")
         fallback_url = urllib.parse.urlparse(migration_entry["fallback"])
         fallback_query = urllib.parse.parse_qs(fallback_url.query)
