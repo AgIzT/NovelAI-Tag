@@ -220,4 +220,109 @@ const realSet = dropped.storage.setItem.bind(dropped.storage);
 dropped.storage.setItem = (key, value) => { if (key !== KEY) realSet(key, value); };
 assert.equal((await dropped.commitLibrary(next => addLibraryItem(next, 'alpha:lost'))).reason, 'storage');
 assert.deepEqual(libraryKeys(dropped.librarySnapshot()), ['alpha:original']);
+
+// 损坏恢复只允许用户确认过的精确原文，普通提交仍保护原文。
+const rescue = make(new MemoryStorage({ [KEY]: '{broken', [V1]: '["alpha:stale"]' }));
+assert.equal((await rescue.commitLibrary(next => addLibraryItem(next, 'alpha:no'))).reason, 'corrupt');
+assert.equal((await rescue.commitLibrary(next => addLibraryItem(next, 'alpha:restored'), {
+  replaceCorrupt: true, expectedCorruptRaw: '{broken',
+})).ok, true);
+assert.deepEqual(libraryKeys(rescue.librarySnapshot()), ['alpha:restored']);
+assert.deepEqual(rescue.librarySnapshot(), JSON.parse(rescue.storage.getItem(KEY)));
+const rescueChanged = make(new MemoryStorage({ [KEY]: '{new-corruption' }));
+assert.equal((await rescueChanged.commitLibrary(() => assert.fail('不能运行过期恢复'), {
+  replaceCorrupt: true, expectedCorruptRaw: '{old-corruption',
+})).reason, 'stale');
+assert.equal(rescueChanged.storage.getItem(KEY), '{new-corruption');
+const alreadyRepaired = make(new MemoryStorage({ [KEY]: raw() }));
+assert.equal((await alreadyRepaired.commitLibrary(() => assert.fail('有效库不走损坏替换'), {
+  replaceCorrupt: true, expectedCorruptRaw: raw(),
+})).reason, 'stale');
+assert.equal(alreadyRepaired.storage.getItem(KEY), raw());
+const rescueFailure = make(new MemoryStorage({ [KEY]: '{broken', [COMMUNITY]: '["before"]' }));
+rescueFailure.storage.beforeWrite = key => { if (key === KEY) throw quota(); };
+assert.equal((await rescueFailure.commitLibrary(next => addLibraryItem(next, 'alpha:restored'), {
+  replaceCorrupt: true, expectedCorruptRaw: '{broken',
+  companionWrites: [{ key: COMMUNITY, value: '["after"]' }],
+})).reason, 'quota');
+assert.equal(rescueFailure.storage.getItem(KEY), '{broken');
+assert.equal(rescueFailure.storage.getItem(COMMUNITY), '["before"]');
+assert.equal(rescueFailure.broadcasts.length, 0);
+const recoverId = JSON.stringify({ libraryId: 'existing-library', version: 2, broken: true });
+const identityRescue = make(new MemoryStorage({ [KEY]: recoverId }));
+assert.equal((await identityRescue.commitLibrary(next => addLibraryItem(next, 'alpha:restored'), {
+  replaceCorrupt: true, expectedCorruptRaw: recoverId,
+})).ok, true);
+assert.equal(identityRescue.librarySnapshot().libraryId, 'existing-library');
+
+// 浏览器有独立 renderer 缓存：即使主锁串行，下一页也可能尚未收到上次写入。
+class TestLockManager {
+  queues = new Map();
+  held = new Map();
+  rejectFence = false;
+  request(name, options, callback) {
+    if (this.rejectFence && name.includes(':fence:')) return Promise.reject(new Error('fence denied'));
+    const previous = this.queues.get(name) || Promise.resolve();
+    const request = previous.then(async () => {
+      const token = Symbol(name);
+      this.held.set(token, { name, mode: options.mode });
+      try { return await callback(); } finally { this.held.delete(token); }
+    });
+    this.queues.set(name, request.catch(() => {}));
+    return request;
+  }
+  async query() { return { held: [...this.held.values()], pending: [] }; }
+}
+const browserLocks = new TestLockManager();
+const browserDisk = new Map([[KEY, raw()]]);
+const rendererCaches = [];
+function rendererStorage() {
+  const storage = new MemoryStorage(Object.fromEntries(browserDisk));
+  rendererCaches.push(storage);
+  storage.setItem = (key, value) => {
+    storage.beforeWrite?.(key, value);
+    storage.values.set(key, String(value));
+    browserDisk.set(key, String(value));
+    for (const peer of rendererCaches) {
+      if (peer === storage) continue;
+      setTimeout(() => peer.values.set(key, String(value)), 25);
+    }
+  };
+  return storage;
+}
+const rendererA = make(rendererStorage(), { getLocks: () => browserLocks });
+const rendererB = make(rendererStorage(), { getLocks: () => browserLocks });
+const rendererResults = await Promise.all([
+  rendererA.commitLibrary(next => createFolder(next, '并发甲')),
+  rendererB.commitLibrary(next => createFolder(next, '并发乙')),
+]);
+assert.ok(rendererResults.every(result => result.ok));
+assert.deepEqual(JSON.parse(browserDisk.get(KEY)).folders.map(folder => folder.name), ['并发甲', '并发乙'],
+  'Web Lock 内必须等待上一提交信号可见，不能覆盖尚未传播到本页的已成功数据');
+assert.equal(browserLocks.held.size, 2, '每个写入页最多保留一个瞬时新鲜度标记');
+rendererA.setupLibraryStore(); rendererB.setupLibraryStore();
+rendererA.events.fire('pagehide', {}); rendererB.events.fire('pagehide', {});
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(browserLocks.held.size, 0, '离页释放标记');
+const fenceUnavailable = new TestLockManager();
+fenceUnavailable.rejectFence = true;
+const deniedFence = make(new MemoryStorage({ [KEY]: raw() }), { getLocks: () => fenceUnavailable });
+assert.equal((await deniedFence.commitLibrary(() => assert.fail('没有屏障不能改写'))).reason, 'lock');
+assert.equal(deniedFence.storage.getItem(KEY), raw());
+assert.equal(deniedFence.broadcasts.length, 0);
+
+// 信号写入也是事务的一部分；信号失败不可留下“成功主键 + 无可验证屏障”。
+const signalFailure = make(new MemoryStorage({ [KEY]: raw(), [COMMUNITY]: '["before"]', [LIBRARY_SIGNAL_KEY]: 'old-signal' }));
+await signalFailure.ensureLibrary();
+const signalBefore = signalFailure.librarySnapshot();
+signalFailure.storage.beforeWrite = (key, value) => { if (key === LIBRARY_SIGNAL_KEY && value !== 'old-signal') throw quota(); };
+assert.equal((await signalFailure.commitLibrary(next => addLibraryItem(next, 'alpha:signal-failed'), {
+  companionWrites: [{ key: COMMUNITY, value: '["after"]' }],
+})).reason, 'quota');
+assert.equal(signalFailure.storage.getItem(KEY), raw());
+assert.equal(signalFailure.storage.getItem(COMMUNITY), '["before"]');
+assert.equal(signalFailure.storage.getItem(LIBRARY_SIGNAL_KEY), 'old-signal');
+assert.equal(signalFailure.librarySnapshot(), signalBefore);
+assert.equal(signalFailure.broadcasts.length, 0);
+
 console.log('favorites library store: migration, persistence, failures, locks, cross-tab, companion rollback passed');

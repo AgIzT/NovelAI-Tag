@@ -55,6 +55,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/styles.css">
 <link rel="stylesheet" href="assets/content-blocking.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
+<link rel="stylesheet" href="assets/favorites-library.css">
 <link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/app/state.js">
@@ -794,7 +795,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="favorites-backup-mark" aria-hidden="true">⇄</span>
         <div>
           <h2 id="favoritesBackupTitle">收藏备份与恢复</h2>
-          <p id="favoritesBackupIntro">只包含两处收藏标识，不含浏览记录、设置、图片或 Prompt；文件只在当前设备处理，不会上传。</p>
+          <p id="favoritesBackupIntro">备份包含收藏、收藏夹、归类和备注。导出 JSON 文件或复制迁移文本，可在另一台设备恢复。</p>
         </div>
       </div>
       <button id="favoritesBackupClose" class="favorites-backup-close" type="button" aria-label="关闭收藏备份弹窗">×</button>
@@ -817,7 +818,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <dt>法典图鉴</dt>
             <dd><strong id="favoritesCurrentAtlas">0</strong><span> 条</span></dd>
           </div>
-          <div>
+          <div data-favorites-community-stat>
             <dt>共创广场</dt>
             <dd><strong id="favoritesCurrentCommunity">0</strong><span> 条</span></dd>
           </div>

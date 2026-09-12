@@ -23,6 +23,7 @@ const routerActions = {
   updateVirtualCards: () => {},
   applyHistoryRoute: async () => {},
   restoreHistoryScroll: async () => {},
+  favoritesFolderCode: () => '',
 };
 
 const DEFAULT_DOCUMENT_TITLE = '法典图鉴 · NovelAI 提示词';
@@ -66,6 +67,7 @@ export function readUrlState() {
     path,
     // 目录短码；旧的 path= 参数仍然照读，读到就优先用它，短码只是没有 path 时的来源。
     pathCode: params.get('p') || '',
+    folderCode: params.get('fd') || '',
     q: params.get('q') || '',
     // f 允许重复；空值和非法值也必须原样交给搜索解析器，才能显示错误而不是退化成宽泛搜索。
     searchFilters: params.getAll('f'),
@@ -88,6 +90,11 @@ export function captureAtlasRoute(entryOverride) {
     entry: entryOverride === undefined ? (state.lightbox.entry?.id || '') : String(entryOverride || ''),
     imageIndex: Math.max(0, Number(state.lightbox.index) || 0),
     updateFilter: String(state.updateFilter || ''),
+    ...(state.favoritesView ? {
+      folderCode: routerActions.favoritesFolderCode(),
+      favSource: state.favSource || '',
+      favSort: state.favSort || 'recent',
+    } : {}),
   };
 }
 
@@ -183,7 +190,9 @@ export function atlasUrlForRoute(route) {
   const path = route.path || [];
   // 中文目录名逐字 percent-encode 是 9 个字符一个汉字，改发短码，反解在 path-code.js。
   const code = encodePathCode(path);
-  if (code) params.set('p', code);
+  if (route.favorites) {
+    if (route.folderCode) params.set('fd', route.folderCode);
+  } else if (code) params.set('p', code);
   if (route.entry) params.set('entry', route.entry);
   const query = params.toString();
   return `${base}${query ? `?${query}` : ''}`;

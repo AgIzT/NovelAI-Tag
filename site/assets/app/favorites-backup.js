@@ -9,12 +9,9 @@ import {
   COMMUNITY_FAVORITES_STORAGE_KEY,
   FAVORITES_BACKUP_LIMITS,
   FavoritesBackupError,
-  createFavoritesRestorePlan,
-  parseFavoritesBackup,
-  serializeFavoritesBackup,
 } from './favorites-backup-core.js';
-import { readLibraryFavorites, restoreLibraryFavorites } from './favorites-backup-store.js';
-import { FAVORITES_LIBRARY_STORAGE_KEY } from './favorites-library-core.js';
+import { readLibraryFavorites, readFavoritesRecovery, restoreLibraryFavorites, serializeLibraryFavorites } from './favorites-backup-store.js';
+import { FAVORITES_LIBRARY_STORAGE_KEY, createLibraryRestorePlan, parseLibraryBackup } from './favorites-library-core.js';
 import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
 import { fetchDataJson } from '../data-source.js';
 import { decodeFavoritesTransfer, encodeFavoritesTransfer } from './favorites-transfer.js';
@@ -37,7 +34,7 @@ export function subscribeFavoritesChanges(scope, callback) {
     if (scopes.includes(scope)) runCallback(callback, event.detail || {});
   };
   const onStorage = event => {
-    if (event.storageArea !== localStorage) return;
+    try { if (event.storageArea !== localStorage) return; } catch { return; }
     if (event.key === null || event.key === storageKey) {
       runCallback(callback, { scopes: [scope], reason: 'storage' });
     }
@@ -61,15 +58,15 @@ function localDateStamp(now = new Date()) {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-function downloadJson(text) {
+function downloadJson(text, { recovery = false } = {}) {
   const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
-  if (blob.size > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
+  if (!recovery && blob.size > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
     throw new FavoritesBackupError('FILE_TOO_LARGE', '生成的备份超过 2 MiB，无法导出');
   }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `novelai-tag-favorites-${localDateStamp()}.json`;
+  link.download = `novelai-tag-favorites-${recovery ? 'recovery-' : ''}${localDateStamp()}.json`;
   link.hidden = true;
   document.body.appendChild(link);
   link.click();
@@ -85,7 +82,7 @@ function friendlyError(error) {
   const messages = {
     INVALID_JSON: '无法读取：文件不是有效的 JSON。',
     INVALID_FORMAT: '这不是法典图鉴的收藏备份。',
-    UNSUPPORTED_VERSION: '该备份版本不受支持；如果版本较新，请更新站点后再试。',
+    UNSUPPORTED_VERSION: '该备份版本不受支持；如果版本较新，更新站点后再试。',
     INVALID_ROOT: '备份内容不完整或已经损坏，未进行恢复。',
     INVALID_FAVORITES: '备份内容不完整或已经损坏，未进行恢复。',
     INVALID_ATLAS: '备份缺少法典图鉴收藏，未进行恢复。',
@@ -96,7 +93,7 @@ function friendlyError(error) {
     FILE_TOO_LARGE: '文件超过 2 MiB，无法作为收藏备份处理。',
     STORAGE_READ_FAILED: '无法读取当前浏览器收藏，未进行恢复。',
     STORAGE_WRITE_FAILED: '浏览器存储空间不足或不可用，收藏未发生变化。',
-    STORAGE_ROLLBACK_FAILED: '收藏写入失败，且无法完整恢复原数据；请立即重新导出当前收藏进行核对。',
+    STORAGE_ROLLBACK_FAILED: '收藏写入失败，且无法完整恢复原数据；重新导出当前收藏进行核对。',
   };
   return messages[error.code] || error.message || '备份内容无效，未进行恢复。';
 }
@@ -107,19 +104,19 @@ function formatExportedAt(value) {
   return Number.isNaN(date.getTime()) ? '未记录' : date.toLocaleString('zh-CN');
 }
 
-function appendStatCard(root, title, stats, mode) {
+function appendStatCard(root, title, stats, mode, unit = '条') {
   const card = document.createElement('section');
   card.className = 'favorites-backup-stat';
   const heading = document.createElement('b');
   heading.textContent = title;
   const detail = document.createElement('span');
   const parts = [
-    `备份 ${stats.incoming} 条`,
-    `当前 ${stats.current} 条`,
-    `新增 ${stats.added} 条`,
-    `已存在 ${stats.duplicate} 条`,
+    `备份 ${stats.incoming} ${unit}`,
+    stats.current === null ? '当前无法读取' : `当前 ${stats.current} ${unit}`,
+    `新增 ${stats.added} ${unit}`,
+    `已存在 ${stats.duplicate} ${unit}`,
   ];
-  if (mode === 'replace') parts.push(`将移除 ${stats.removed} 条`);
+  if (mode === 'replace' && stats.current !== null) parts.push(`将移除 ${stats.removed} ${unit}`);
   detail.textContent = parts.join(' · ');
   card.append(heading, detail);
   root.appendChild(card);
@@ -160,7 +157,11 @@ export function setupFavoritesBackup(options = {}) {
   let selectedFileName = '';
   let parsedBackup = null;
   let plans = null;
+  let planErrors = {};
   let busy = false;
+  let corruptRecovery = null;
+  let exportedCorruptRaw = null;
+  let pendingReplace = null;
 
   const setStatus = message => {
     if (!status) return;
@@ -181,7 +182,9 @@ export function setupFavoritesBackup(options = {}) {
     if (fileInput) fileInput.disabled = busy;
     if (textInput) textInput.disabled = busy;
     if (importTextButton) importTextButton.disabled = busy;
-    if (restoreButton) restoreButton.disabled = busy || restoreButton.dataset.noop === '1';
+    if (restoreButton) restoreButton.disabled = busy || restoreButton.dataset.noop === '1'
+      || Boolean(corruptRecovery && exportedCorruptRaw !== corruptRecovery.libraryRaw);
+    modeInputs.forEach(input => { input.disabled = busy || Boolean(corruptRecovery && input.value === 'merge'); });
     if (replaceConfirmButton) replaceConfirmButton.disabled = busy;
     if (exportButton) exportButton.disabled = busy || exportButton.dataset.empty === '1';
     if (exportTextButton) exportTextButton.disabled = busy || exportTextButton.dataset.empty === '1';
@@ -206,26 +209,42 @@ export function setupFavoritesBackup(options = {}) {
     }
   };
 
-  const readCurrent = async () => readLibraryFavorites({ storage: localStorage, codexes: await resolveCodexes() });
+  const readCurrent = async () => {
+    const codexes = await resolveCodexes();
+    try {
+      const current = await readLibraryFavorites({ codexes });
+      corruptRecovery = null;
+      return current;
+    } catch (error) {
+      if (error.code !== 'CORRUPT') throw error;
+      const current = readFavoritesRecovery({ codexes });
+      corruptRecovery = current.recovery;
+      setError('当前收藏数据无法读取。先导出原始数据，再选择备份覆盖恢复。');
+      return current;
+    }
+  };
 
   const refreshCounts = async () => {
     const current = await readCurrent();
-    if (currentAtlas) currentAtlas.textContent = String(current.atlasKeys.length);
+    if (currentAtlas) currentAtlas.textContent = corruptRecovery ? '无法读取' : String(current.atlasKeys.length);
     if (currentCommunity) currentCommunity.textContent = String(current.communityIds.length);
     const visibleCount = current.atlasKeys.length
       + (localEdition ? 0 : current.communityIds.length);
-    const empty = visibleCount === 0;
+    const empty = !corruptRecovery && visibleCount === 0 && current.library.folders.length === 0;
     if (exportButton) {
+      exportButton.textContent = corruptRecovery ? '导出当前原始数据' : '导出 JSON';
       exportButton.dataset.empty = empty ? '1' : '0';
       exportButton.disabled = busy || empty;
       exportButton.title = empty ? '暂无收藏可备份' : '';
     }
     if (exportTextButton) {
-      exportTextButton.dataset.empty = empty ? '1' : '0';
-      exportTextButton.disabled = busy || empty;
+      exportTextButton.dataset.empty = empty || corruptRecovery ? '1' : '0';
+      exportTextButton.disabled = busy || empty || Boolean(corruptRecovery);
       exportTextButton.title = empty ? '暂无收藏可备份' : '';
     }
     if (current.skippedCount) setStatus(skippedStatus(current.skippedCount));
+    if (parsedBackup && !preview?.hidden && !busy) buildPlans(current, await resolveCodexes());
+    setBusy(busy);
     return current;
   };
 
@@ -252,6 +271,14 @@ export function setupFavoritesBackup(options = {}) {
     if (!plans || !summary || !restoreButton) return;
     const plan = plans[mode];
     summary.replaceChildren();
+    restoreButton.textContent = mode === 'replace' ? '覆盖恢复' : '合并恢复';
+    if (!plan) {
+      restoreButton.dataset.noop = '1';
+      restoreButton.disabled = true;
+      setError(friendlyError(planErrors[mode]));
+      return;
+    }
+    if (!corruptRecovery) setError('');
 
     const meta = document.createElement('div');
     meta.className = 'favorites-backup-file';
@@ -265,7 +292,8 @@ export function setupFavoritesBackup(options = {}) {
 
     const grid = document.createElement('div');
     grid.className = 'favorites-backup-stats';
-    appendStatCard(grid, '法典图鉴', plan.stats.atlas, mode);
+    appendStatCard(grid, '法典图鉴', corruptRecovery ? { ...plan.stats.atlas, current: null } : plan.stats.atlas, mode);
+    appendStatCard(grid, '收藏夹', corruptRecovery ? { ...plan.stats.folders, current: null } : plan.stats.folders, mode, '个');
     if (!localEdition) appendStatCard(grid, '共创广场', plan.stats.community, mode);
     summary.appendChild(grid);
 
@@ -276,13 +304,13 @@ export function setupFavoritesBackup(options = {}) {
       summary.appendChild(warning);
     }
 
-    const visibleStats = localEdition ? plan.stats.atlas : plan.stats.all;
-    const noChange = visibleStats.added === 0 && visibleStats.removed === 0;
+    const noChange = !corruptRecovery && !plan.hasChanges;
     restoreButton.dataset.noop = noChange ? '1' : '0';
     restoreButton.dataset.mode = mode;
-    restoreButton.disabled = busy || noChange;
+    restoreButton.disabled = busy || noChange
+      || Boolean(corruptRecovery && exportedCorruptRaw !== corruptRecovery.libraryRaw);
     restoreButton.textContent = mode === 'replace' ? '覆盖恢复' : '合并恢复';
-    if (noChange) setStatus('无需恢复：备份中的收藏与当前收藏一致。');
+    if (noChange) setStatus('备份中的收藏、收藏夹和备注与当前一致。');
     else setStatus('');
   };
 
@@ -290,6 +318,8 @@ export function setupFavoritesBackup(options = {}) {
     selectedFileName = '';
     parsedBackup = null;
     plans = null;
+    planErrors = {};
+    pendingReplace = null;
     if (preview) preview.hidden = true;
     showReplaceConfirm(false, { historyMode: 'forget' });
     if (summary) summary.replaceChildren();
@@ -303,6 +333,23 @@ export function setupFavoritesBackup(options = {}) {
     setError('');
   };
 
+  const buildPlans = (current, codexes) => {
+    const incoming = localEdition
+      ? { ...parsedBackup, favorites: { ...parsedBackup.favorites, community: current.communityIds } }
+      : parsedBackup;
+    const common = { backup: incoming, currentLibrary: current.library, currentCommunityIds: current.communityIds, codexes };
+    plans = {};
+    planErrors = {};
+    for (const mode of ['merge', 'replace']) {
+      try { plans[mode] = createLibraryRestorePlan({ ...common, mode }); }
+      catch (error) { planErrors[mode] = error; }
+    }
+    if (corruptRecovery) {
+      modeInputs.forEach(input => { input.checked = input.value === 'replace'; });
+    }
+    renderPlan(selectedMode());
+  };
+
   const prepareImportText = async (text, label) => {
     const bytes = new TextEncoder().encode(String(text || '')).byteLength;
     if (bytes > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
@@ -310,34 +357,11 @@ export function setupFavoritesBackup(options = {}) {
     }
     selectedFileName = label;
     const codexes = await resolveCodexes();
-    parsedBackup = parseFavoritesBackup(text, codexes);
-    const current = await readLibraryFavorites({ storage: localStorage, codexes });
-    if (localEdition) {
-      parsedBackup = {
-        ...parsedBackup,
-        // 底层恢复事务仍会同时写两处存储；把当前共创值原样带入计划，
-        // 确保本地版既不导入备份中的共创收藏，也不清空同源已有数据。
-        favorites: { ...parsedBackup.favorites, community: current.communityIds },
-      };
-    }
-    plans = {
-      merge: createFavoritesRestorePlan({
-        backup: parsedBackup,
-        currentAtlasKeys: current.atlasKeys,
-        currentCommunityIds: current.communityIds,
-        mode: 'merge',
-        codexes,
-      }),
-      replace: createFavoritesRestorePlan({
-        backup: parsedBackup,
-        currentAtlasKeys: current.atlasKeys,
-        currentCommunityIds: current.communityIds,
-        mode: 'replace',
-        codexes,
-      }),
-    };
+    parsedBackup = parseLibraryBackup(text, codexes);
+    const current = await readCurrent();
+    buildPlans(current, codexes);
     if (preview) preview.hidden = false;
-    renderPlan('merge');
+    renderPlan(selectedMode());
     if (current.skippedCount) {
       const currentStatus = status?.textContent || '';
       setStatus(`${currentStatus}${currentStatus ? ' ' : ''}${skippedStatus(current.skippedCount)}`);
@@ -368,27 +392,36 @@ export function setupFavoritesBackup(options = {}) {
     }
   };
 
-  const restore = async previewPlan => {
+  const restore = async (previewPlan, incomingBackup = parsedBackup, recoveryRaw = corruptRecovery?.libraryRaw) => {
+    if (!previewPlan) return;
+    if (recoveryRaw !== undefined && exportedCorruptRaw !== recoveryRaw) {
+      setError('当前原始数据尚未导出，使用「导出当前原始数据」保存后再恢复。');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
       const { result, plan } = await restoreLibraryFavorites({
-        backup: parsedBackup,
+        backup: incomingBackup,
         mode: previewPlan.mode,
         codexes: await resolveCodexes(),
         preserveCommunity: localEdition,
+        ...(recoveryRaw === undefined ? {} : { expectedCorruptRaw: recoveryRaw }),
       });
+      corruptRecovery = null;
+      exportedCorruptRaw = null;
+      if (preview) preview.hidden = true;
       emitFavoritesChanged(localEdition ? ['atlas'] : ['atlas', 'community']);
       await refreshCounts();
       if (preview) preview.hidden = true;
       showReplaceConfirm(false);
       if (plan.mode === 'replace') {
         setStatus(localEdition
-          ? `覆盖完成：本地法典收藏 ${result.atlasKeys.length} 条。`
-          : `覆盖完成：法典图鉴 ${result.atlasKeys.length} 条，共创广场 ${result.communityIds.length} 条。`);
+          ? `覆盖完成：本地法典收藏 ${result.atlasKeys.length} 条，收藏夹 ${plan.stats.folders.total} 个。`
+          : `覆盖完成：法典图鉴 ${result.atlasKeys.length} 条，共创广场 ${result.communityIds.length} 条，收藏夹 ${plan.stats.folders.total} 个。`);
       } else {
         const visibleStats = localEdition ? plan.stats.atlas : plan.stats.all;
-        setStatus(`恢复完成：新增 ${visibleStats.added} 条收藏，${visibleStats.duplicate} 条已存在。`);
+        setStatus(`恢复完成：新增 ${visibleStats.added} 条收藏，${visibleStats.duplicate} 条已存在，收藏夹 ${plan.stats.folders.total} 个。`);
       }
       closeButton?.focus();
     } catch (error) {
@@ -417,22 +450,30 @@ export function setupFavoritesBackup(options = {}) {
     setStatus('');
     try {
       const codexes = await resolveCodexes();
-      const current = await readLibraryFavorites({ storage: localStorage, codexes });
-      if (!current.atlasKeys.length && (localEdition || !current.communityIds.length)) {
+      const current = await readCurrent();
+      if (corruptRecovery) {
+        const recovery = localEdition ? { ...corruptRecovery, communityRaw: null } : corruptRecovery;
+        downloadJson(JSON.stringify(recovery, null, 2), { recovery: true });
+        exportedCorruptRaw = corruptRecovery.libraryRaw;
+        if (plans) renderPlan(selectedMode());
+        setStatus('原始数据已导出。选择收藏备份后可覆盖恢复。');
+        return;
+      }
+      if (!current.atlasKeys.length && !current.library.folders.length && (localEdition || !current.communityIds.length)) {
         setStatus(current.skippedCount
           ? `暂无有效收藏可备份。${skippedStatus(current.skippedCount)}`
           : '暂无收藏可备份。');
         return;
       }
-      downloadJson(serializeFavoritesBackup({
-        atlasKeys: current.atlasKeys,
+      downloadJson(serializeLibraryFavorites({
+        library: current.library,
         communityIds: localEdition ? [] : current.communityIds,
         codexes,
         exportedAt: new Date().toISOString(),
       }));
       const exported = localEdition
-        ? `备份已导出：本地法典收藏 ${current.atlasKeys.length} 条。`
-        : `备份已导出：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条。`;
+        ? `备份已导出：本地法典收藏 ${current.atlasKeys.length} 条，收藏夹 ${current.library.folders.length} 个。`
+        : `备份已导出：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条，收藏夹 ${current.library.folders.length} 个。`;
       setStatus(`${exported}${skippedStatus(current.skippedCount)}`);
     } catch (error) {
       setError(friendlyError(error));
@@ -447,13 +488,14 @@ export function setupFavoritesBackup(options = {}) {
     setStatus('');
     try {
       const codexes = await resolveCodexes();
-      const current = await readLibraryFavorites({ storage: localStorage, codexes });
-      if (!current.atlasKeys.length && (localEdition || !current.communityIds.length)) {
+      const current = await readCurrent();
+      if (corruptRecovery) { setError('当前收藏数据无法读取，使用「导出当前原始数据」保存。'); return; }
+      if (!current.atlasKeys.length && !current.library.folders.length && (localEdition || !current.communityIds.length)) {
         setStatus('暂无收藏可备份。');
         return;
       }
-      const json = serializeFavoritesBackup({
-        atlasKeys: current.atlasKeys,
+      const json = serializeLibraryFavorites({
+        library: current.library,
         communityIds: localEdition ? [] : current.communityIds,
         codexes,
         exportedAt: new Date().toISOString(),
@@ -462,7 +504,7 @@ export function setupFavoritesBackup(options = {}) {
       const result = await writeClipboardText(transfer);
       if (!result.ok) {
         const shown = showClipboardFallback(transfer, { trigger: exportTextButton });
-        setStatus(shown ? '自动复制未成功，已打开手动复制面板。' : '自动复制未成功，请改用 JSON 文件。');
+        setStatus(shown ? '自动复制未成功，已打开手动复制面板。' : '自动复制未成功，改用 JSON 文件。');
         return;
       }
       setStatus(`${transfer.length > 10_000 ? '迁移文本较长，聊天工具可能截断；建议同时保留 JSON 文件。' : '迁移文本已复制，可发送给自己并在另一台设备粘贴恢复。'}${skippedStatus(current.skippedCount)}`);
@@ -497,7 +539,7 @@ export function setupFavoritesBackup(options = {}) {
     const source = textInput?.value || '';
     resetImport();
     if (!source.trim()) {
-      setError('请先粘贴迁移文本或 JSON。');
+      setError('粘贴迁移文本或 JSON 后再恢复。');
       return;
     }
     setBusy(true);
@@ -522,6 +564,7 @@ export function setupFavoritesBackup(options = {}) {
     const mode = selectedMode();
     if (mode === 'replace') {
       const plan = plans.replace;
+      pendingReplace = { plan, backup: parsedBackup, recoveryRaw: corruptRecovery?.libraryRaw };
       if (replaceMessage) {
         const willClearVisible = localEdition
           ? plan.stats.atlas.current > 0 && plan.stats.atlas.total === 0
@@ -533,6 +576,11 @@ export function setupFavoritesBackup(options = {}) {
           : (willClearVisible
               ? '备份为空，覆盖后会清空法典图鉴与共创广场的全部收藏。建议先导出当前备份。'
               : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条法典收藏和 ${plan.stats.community.removed} 条共创收藏。建议先导出当前备份。`);
+      }
+      if (replaceMessage) {
+        replaceMessage.textContent = corruptRecovery
+          ? '当前收藏数据无法读取。确认覆盖后，将用选中的备份替换当前收藏、收藏夹、归类和备注。'
+          : replaceMessage.textContent + ' 收藏夹、归类和备注将按备份恢复。';
       }
       showReplaceConfirm(true);
       replaceBack?.focus();
@@ -546,7 +594,7 @@ export function setupFavoritesBackup(options = {}) {
     restoreButton?.focus();
   });
   replaceConfirmButton?.addEventListener('click', () => {
-    if (plans?.replace) restore(plans.replace);
+    if (pendingReplace) restore(pendingReplace.plan, pendingReplace.backup, pendingReplace.recoveryRaw);
   });
 
   subscribeFavoritesChanges('atlas', refreshCounts);

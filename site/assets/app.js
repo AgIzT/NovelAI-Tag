@@ -2,15 +2,16 @@ import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
-import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, buildTreeFromEntries, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
+import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
 import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults } from './app/search.js';
 import { findRelatedDirectories, listSearchDirectories } from './app/search-directories.js';
 import { renderRelatedDirectories, renderSearchFilters, renderSearchStatus } from './app/search-ui.js';
 import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
-import { isFav, setFavoritesActions, toggleFav } from './app/favorites.js';
+import { favKey, isFav, setFavoritesActions, toggleFav } from './app/favorites.js';
 import { setupFavoritesBackup, subscribeFavoritesChanges, emitFavoritesChanged } from './app/favorites-backup.js';
 import { libraryKeys } from './app/favorites-library-core.js';
 import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibraryStore, subscribeLibrary } from './app/favorites-library-store.js';
+import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesEntries, decorateFavoriteCard, folderBadges, openOrganize, restoreFavoriteObjects, refreshOpenOrganize } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
@@ -19,8 +20,8 @@ import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
-import { pathFromCode } from './app/path-code.js';
-import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderCategoryRail, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
+import { encodePathCode, pathFromCode } from './app/path-code.js';
+import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
 import { setUpdatesActions } from './app/updates.js';
@@ -34,6 +35,22 @@ import { setupContentBlocking, hideCard, setBlockingUiActions, updateBlockingSum
 
 let codexLoadSeq = 0;
 let favoritesBackupBound = false;
+let favoritesFolderHistoryActive = false;
+let favoritesRefreshSeq = 0;
+let favoritesPreviewEntries = [];
+let favoritesPreviewStamp = '';
+const favoriteItemsStamp = () => libraryKeys(librarySnapshot()).join('\n');
+async function prepareFavoritesEntries() {
+  const stamp = favoriteItemsStamp();
+  const entries = (await buildFavoritesCodex()).entries;
+  if (stamp !== favoriteItemsStamp()) return prepareFavoritesEntries();
+  favoritesPreviewEntries = entries;
+  favoritesPreviewStamp = stamp;
+}
+const favoritesFolderCode = () => state.favFolder === '_unsorted' ? '_unsorted'
+  : encodePathCode([librarySnapshot().folders.find(folder => folder.id === state.favFolder)?.name].filter(Boolean));
+const resolveFavoriteFolder = code => code === '_unsorted' ? code
+  : librarySnapshot().folders.find(folder => encodePathCode([folder.name]) === code)?.id || '';
 let searchDirectoryOptionCache = { directories: null, sourceView: false, options: [] };
 const codexPickerTitle = c => c?.selectorTitle || c?.title || '';
 const setOnlyFavControl = checked => {
@@ -79,6 +96,11 @@ const historyRouteNeedsCanonicalization = (route, normalizedRoute) => Boolean(
   || JSON.stringify(searchFilterValues(route)) !== JSON.stringify(searchFilterValues(normalizedRoute))
   // 旧 id 只用于判定并册前的目录来源；一旦迁移完成，历史记录与地址栏都写回正式 id。
   || Boolean(route?.codex && route.codex !== normalizedRoute?.codex)
+  || Boolean(route?.favorites && (
+    String(route.folderCode || '') !== String(normalizedRoute?.folderCode || '')
+    || String(route.favSource || '') !== String(normalizedRoute?.favSource || '')
+    || String(route.favSort || 'recent') !== String(normalizedRoute?.favSort || 'recent')
+  ))
 );
 const announceCodexLoaded = codex => {
   document.dispatchEvent(new CustomEvent('codex:loaded', { detail: { codex } }));
@@ -128,12 +150,13 @@ function renderCodexView(codex, seq, {
   updateCodexPickerState();
   const urlState = resolveUrlState(c);
   applyViewUrlState(urlState, c);
+  favoritesFolderHistoryActive = false;
   // 短码要等法典树到手才能反解；旧的 path= 参数还在的话优先用它，免得老链接改语义。
   const requestedPath = urlState?.path?.length
     ? urlState.path
     : pathFromCode(c.tree, urlState?.pathCode || '');
   const nextPath = normalizeCodexRoutePath(c, requestedPath, urlState?.codex || c.id);
-  state.activePath = !state.allowR18g && isR18gPath(nextPath) ? [] : nextPath;
+  state.activePath = state.favoritesView || (!state.allowR18g && isR18gPath(nextPath)) ? [] : nextPath;
   state.query = resolveQuery(urlState);
   state.searchFilterValues = resolveFilters(urlState);
   compileSearchState();
@@ -141,8 +164,9 @@ function renderCodexView(codex, seq, {
   state.recentRandomIds = [];
   $('#search').value = state.query;
   updateSearchClear();
+  syncFavoritesView();
   renderTree();
-  renderCodexHeader();
+  if (!state.favoritesView) renderCodexHeader();
   if (options.saveBrowse === false) suppressBrowseStateSave(2000);
   applyFilter({ resetScroll: true });
   syncUrlState({
@@ -224,6 +248,7 @@ export async function init() {
     setupTreeSpy();
     bindUI();
     setupContentBlocking();
+    setupFavoritesView();
     bindFavoritesBackup();
     state.pendingUrlState = readUrlState();
     const wantsFavorites = state.pendingUrlState.favorites || state.pendingUrlState.codex === FAVORITES_CODEX_ID;
@@ -310,18 +335,8 @@ async function syncAtlasFavoritesFromStorage(detail = {}) {
   state.favs = new Set(libraryKeys(librarySnapshot()));
   if (!state.codex) return;
   if (state.favoritesView) {
-    await openFavoritesView({
-      urlState: {
-        codex: state.browseCodex?.id || '',
-        favorites: true,
-        path: state.activePath.slice(),
-        q: state.query,
-        searchFilters: [...state.searchFilterValues],
-        scope: state.searchScope,
-      },
-      historyMode: 'replace',
-      saveBrowse: false,
-    });
+    await refreshFavoritesView({ transition: 'none' });
+    syncUrlState({ historyMode: 'replace', saveBrowse: false });
     return;
   }
   applyFilter({ transition: 'none' });
@@ -423,7 +438,12 @@ export async function openFavoritesView(options = {}) {
         && (options.urlState.favorites || options.urlState.codex === FAVORITES_CODEX_ID)
         ? options.urlState
         : null,
-      applyViewUrlState: urlState => applyUrlSearchScope(urlState),
+      applyViewUrlState: urlState => {
+        applyUrlSearchScope(urlState);
+        state.favFolder = resolveFavoriteFolder(urlState?.folderCode || '');
+        state.favSource = urlState?.favSource || '';
+        state.favSort = ['recent', 'oldest', 'title'].includes(urlState?.favSort) ? urlState.favSort : 'recent';
+      },
       resolveQuery: urlState => urlState?.q || '',
     });
     await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
@@ -685,13 +705,13 @@ export function applyFilter(options = {}) {
   }
   // 普通本书/收藏搜索沿用既有语义：搜索整本，而不是被搜索前浏览过的目录暗中收窄。
   // 只有全站搜索允许搜索词与当前来源目录并存；严格目录交集由 dir: 筛选承担。
-  if (state.activePath.length && (state.siteSearchView || !plan.hasActiveSearch)) list = byActivePath(list);
+  if (!state.favoritesView && state.activePath.length && (state.siteSearchView || !plan.hasActiveSearch)) list = byActivePath(list);
   const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
   if (state.favoritesView) list = list.filter(isFav);   // 收藏视图里取消收藏即时消卡
   const unblocked = list.filter(entry => !isContentBlocked(entry));
   const blockedCount = list.length - unblocked.length;
-  state.list = rankSearchResults(unblocked, plan);
+  state.list = state.favoritesView ? filterFavoritesEntries(unblocked) : rankSearchResults(unblocked, plan);
   const relatedDirectories = !plan.hasErrors && plan.positiveTerms.length
     ? findRelatedDirectories({
       codex: state.codex,
@@ -705,30 +725,28 @@ export function applyFilter(options = {}) {
   state.relatedDirectoryCount = Number(relatedDirectories.totalCount) || relatedDirectories.length;
   renderSearchExperience(plan, directoryOptions);
   updateResultBar();
+  if (state.favoritesView) {
+    syncFavoritesView();
+    renderFavoritesRail();
+    renderFavoritesHeader();
+  }
   renderList(options);
   updateBlockingSummary(blockedCount);
 }
 
-/* 收藏视图内取消收藏后：从仍被收藏的词条重算合成法典的条目/计数/目录树，刷新顶栏、横幅进度、
-   分类轨道与目录树。applyFilter 只重过滤 state.list，不动这些在 buildFavoritesCodex 时烤进合成
-   法典的字段，故单独在此就地更新（不重放 chipIn 入场、不重绘横幅封面，保持“取消即消卡”的顺滑）。 */
-function refreshFavoritesView(options = {}) {
+/* 取消、撤销和远端恢复后从活法典重新合成，不能在旧 entries 上做破坏性过滤：
+   已取消的项可能立刻被撤销补回。请求代次阻止过期结果覆盖已切换的视图。 */
+async function refreshFavoritesView(options = {}) {
   if (!state.favoritesView || !state.codex) { applyFilter(options); return; }
-  const c = state.codex;
-  c.entries = c.entries.filter(isFav);
-  c.entryCount = c.entries.length;
-  c.imagedCount = c.entries.filter(hasEntryImage).length;
-  c.tree = buildTreeFromEntries(c.entries);
-  state.activePath = normalizeRoutePath(c.tree, state.activePath);   // 清空的来源分组从路径里剔除
+  const seq = ++favoritesRefreshSeq;
+  const viewSeq = codexLoadSeq;
+  const c = await buildFavoritesCodex();
+  if (seq !== favoritesRefreshSeq || viewSeq !== codexLoadSeq || !state.favoritesView) return;
+  state.codex = c;
+  state.activePath = [];
   const meta = $('#codexMeta');
   if (meta) meta.textContent = `${c.version} · ${c.entryCount} 条`;
-  const pct = c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0;
-  const bpFill = document.querySelector('#codexBanner .bp-fill');
-  const bpText = document.querySelector('#codexBanner .bp-text');
-  if (bpFill) bpFill.style.width = `${pct}%`;
-  if (bpText) bpText.textContent = `${c.imagedCount} / ${c.entryCount} 已配图`;
-  renderTree();
-  renderCategoryRail({ animate: false });
+  syncFavoritesView();
   applyFilter(options);
 }
 
@@ -764,6 +782,9 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
   const urlState = {
     codex: targetLocked || targetUnknown ? targetId : (route.codex || targetId),
     favorites: Boolean(route.favorites),
+    folderCode: String(route.folderCode || ''),
+    favSource: String(route.favSource || ''),
+    favSort: route.favSort || 'recent',
     scope: route.siteSearch ? 'site' : (route.scope || 'codex'),
     path: Array.isArray(route.path) ? route.path : [],
     q: String(route.q || ''),
@@ -873,7 +894,23 @@ setHistoryActions({
   updateVirtualCards,
 });
 
-setFavoritesActions({ applyFilter, refreshFavoritesView });
+setFavoritesActions({ applyFilter, refreshFavoritesView, openOrganize,
+  restoreRemoved: (doc, snapshot) => restoreFavoriteObjects(doc, snapshot, 'items'),
+});
+
+setFavoritesViewActions({
+  applyFilter, refreshFavoritesView, entryKey: favKey,
+  prepareEntries: prepareFavoritesEntries,
+  getEntries: () => state.favoritesView ? state.codex?.entries || [] : favoritesPreviewEntries,
+  updateRoute: options => {
+    if (options.historyMode === 'folder') {
+      const historyMode = favoritesFolderHistoryActive ? 'replace' : 'push';
+      favoritesFolderHistoryActive = true;
+      syncUrlState({ ...options, historyMode, transition: 'filter', saveBrowse: false });
+    } else syncUrlState({ ...options, saveBrowse: false });
+  },
+});
+setRouterActions({ favoritesFolderCode });
 
 setLibraryStoreActions({
   getCodexes: () => state.codexes,
@@ -882,6 +919,11 @@ setLibraryStoreActions({
 });
 subscribeLibrary((snapshot, detail) => {
   state.favs = new Set(libraryKeys(snapshot));
+  // 归属/夹名变化不会使活词条失效；面板开着时只有新增/替换素材才需要补回源。
+  if (!state.favoritesView && $('#favoritesOrganize') && !$('#favoritesOrganize').hidden
+      && favoritesPreviewStamp !== favoriteItemsStamp()) {
+    void prepareFavoritesEntries().then(refreshOpenOrganize).catch(error => console.warn('[favorites] 整理来源刷新失败', error));
+  }
   if (['storage', 'pageshow'].includes(detail?.source)) void syncAtlasFavoritesFromStorage({ reason: 'remote' });
 });
 
@@ -890,6 +932,8 @@ setMasonryActions({
   copyEntry,
   toggleFav,
   hideCard,
+  decorateFavoriteCard,
+  favoriteBadgeHeight: entry => state.favoritesView && folderBadges(entry).length ? 24 : 0,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 

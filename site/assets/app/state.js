@@ -91,6 +91,11 @@ export const state = {
   codex: null,        // 当前法典数据
   browseCodex: null,  // 临时视图背后的真实当前法典
   favoritesView: false,
+  favFolder: '',      // '' 全部、_unsorted 未分类，其余为收藏夹 id
+  favSource: '',
+  favSort: 'recent',
+  favSelecting: false,
+  favSelected: new Set(),
   siteSearchView: false,
   codexes: [],
   codexCache: new Map(),
@@ -118,7 +123,7 @@ export const state = {
   allowR18g: false,  // R18G/重口内容默认完全隐藏，需多重确认开启
   sdMode: false,      // 复制时把 NAI 权重转成 Stable Diffusion 格式
   density: DEFAULT_DENSITY,
-  favs: new Set(),    // 收藏集合，键为 codexId:entryId
+  favs: new Set(),    // V2 store 的派生键集合，键为 codexId:entryId
   loadedImages: new Set(),
   seenAnimated: new Set(),
   recentRandomIds: [],

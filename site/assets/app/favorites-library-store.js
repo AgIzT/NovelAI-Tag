@@ -12,6 +12,8 @@ export const LIBRARY_LOCK_KEY = FAVORITES_LIBRARY_STORAGE_KEY + ':lock';
 export const LIBRARY_SIGNAL_KEY = FAVORITES_LIBRARY_STORAGE_KEY + ':signal';
 const LOCK_TTL = 2000;
 const LOCK_WAIT = 48;
+const FENCE_PREFIX = FAVORITES_LIBRARY_STORAGE_KEY + ':fence:';
+const FENCE_WAIT = 3000;
 
 function isQuotaError(error) {
   return error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED'
@@ -53,6 +55,7 @@ export function createLibraryStore({
   let initialized = false;
   let bound = false;
   let sequence = 0;
+  let heldFence = null;
   const origin = newLibraryId();
   const listeners = new Set();
   const actions = { getCodexes, emitFavoritesChanged, openBackup };
@@ -85,6 +88,8 @@ export function createLibraryStore({
       notifySafely('收藏数据无法读取，先导出备份再恢复。', '!', {
         label: '备份与恢复', onClick: () => actions.openBackup(),
       });
+    } else if (reason === 'stale') {
+      notifySafely('收藏内容已变化，重新打开备份与恢复后再操作。', '!');
     } else if (reason === 'rollback') {
       notifySafely('收藏恢复未完成，打开备份与恢复检查当前内容。', '!', {
         label: '备份与恢复', onClick: () => actions.openBackup(),
@@ -130,7 +135,7 @@ export function createLibraryStore({
     return current;
   }
   // 与 relay 相同的旧浏览器兜底：localStorage 的读写不是原子互斥；
-  // 真正的跨页并发保证来自下方 Web Locks，这把短锁只降低碰撞概率。
+  // 无 Web Locks 时，这把短锁只降低碰撞概率，不承诺跨页并发安全。
   function withStorageLock(storage, callback) {
     const token = newLibraryId();
     const deadline = Date.now() + LOCK_WAIT;
@@ -158,6 +163,54 @@ export function createLibraryStore({
       }
     }
   }
+  function signalFence(storage) {
+    let signal;
+    try { signal = JSON.parse(storage.getItem(LIBRARY_SIGNAL_KEY) || 'null'); } catch { return null; }
+    return Number.isSafeInteger(signal?.epoch) && signal.epoch > 0
+      && typeof signal.nonce === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(signal.nonce)
+      ? { epoch: signal.epoch, nonce: signal.nonce } : null;
+  }
+  async function waitForStorageFence(storage, locks) {
+    const deadline = Date.now() + FENCE_WAIT;
+    do {
+      // Web Locks 的互斥 IPC 不会刷新另一 renderer 的 localStorage 缓存。
+      // 这里读取锁服务中的瞬时标记；信号键可见后，同次提交更早写入的主键才可读。
+      const state = await locks.query();
+      const fences = (state.held || []).flatMap(lock => {
+        if (!lock.name.startsWith(FENCE_PREFIX)) return [];
+        const [epochText, nonce] = lock.name.slice(FENCE_PREFIX.length).split(':');
+        const epoch = Number(epochText);
+        return Number.isSafeInteger(epoch) && epoch > 0 && nonce ? [{ epoch, nonce }] : [];
+      });
+      const latest = fences.sort((a, b) => b.epoch - a.epoch)[0];
+      const visible = signalFence(storage);
+      if (!latest || (visible && (visible.epoch > latest.epoch
+          || (visible.epoch === latest.epoch && visible.nonce === latest.nonce)))) {
+        return Math.max(latest?.epoch || 0, visible?.epoch || 0);
+      }
+      // 等条件，不以经过几毫秒替代新鲜度证明；超时宁可让用户重试。
+      if (Date.now() >= deadline) throw new Error('storage fence timeout');
+      await new Promise(resolve => setTimeout(resolve, 8));
+    } while (true);
+  }
+  async function holdStorageFence(locks, epoch) {
+    const fence = { epoch, nonce: newLibraryId() };
+    let release, acquired, failed;
+    const held = new Promise(resolve => { release = resolve; });
+    const ready = new Promise((resolve, reject) => { acquired = resolve; failed = reject; });
+    try {
+      Promise.resolve(locks.request(FENCE_PREFIX + epoch + ':' + fence.nonce, { mode: 'shared' }, () => {
+        acquired();
+        return held;
+      })).catch(failed);
+      await ready;
+      return { ...fence, release };
+    } catch (error) { release(); throw error; }
+  }
+  function releaseStorageFence() {
+    heldFence?.release();
+    heldFence = null;
+  }
   async function withLock(callback) {
     const access = storageAccess();
     if (!access.ok) return access;
@@ -166,9 +219,25 @@ export function createLibraryStore({
     if (typeof locks?.request !== 'function') return withStorageLock(access.storage, callback);
     let started = false;
     try {
-      return await locks.request(LIBRARY_LOCK_KEY, { mode: 'exclusive' }, () => {
+      return await locks.request(LIBRARY_LOCK_KEY, { mode: 'exclusive' }, async () => {
         started = true;
-        return callback(access.storage);
+        let nextFence = null;
+        // 只有完整 LockManager 才有可验证的新鲜度屏障。旧实现仍采用原互斥能力。
+        if (typeof locks.query === 'function') {
+          try {
+            const epoch = await waitForStorageFence(access.storage, locks);
+            nextFence = await holdStorageFence(locks, epoch + 1);
+          } catch (error) { return { ok: false, reason: 'lock', error }; }
+        }
+        try {
+          const result = callback(access.storage, nextFence);
+          if (result.ok && result.written && nextFence) {
+            releaseStorageFence();
+            heldFence = nextFence;
+            nextFence = null;
+          }
+          return result;
+        } finally { nextFence?.release(); }
       });
     } catch (error) {
       // 锁服务拒绝可降级；callback 已运行的异常不可重放，否则一个动作可能执行两遍。
@@ -193,7 +262,7 @@ export function createLibraryStore({
     storage.setItem(key, value);
     if (storage.getItem(key) !== value) throw new Error('storage readback mismatch');
   }
-  function writeTransaction(storage, normalized, { companionWrites, migration = false } = {}) {
+  function writeTransaction(storage, normalized, { companionWrites, migration = false, fence, changed = 'all' } = {}) {
     // 完成标记与完整文档属于同一份原子 setItem 字节，回读成功后才发布内存。
     if (migration) normalized.migratedFrom = 'v1';
     const budget = trimLibraryToBudget(normalized);
@@ -211,7 +280,13 @@ export function createLibraryStore({
       }
       previous.push([FAVORITES_LIBRARY_STORAGE_KEY, storage.getItem(FAVORITES_LIBRARY_STORAGE_KEY)]);
       writeVerified(storage, FAVORITES_LIBRARY_STORAGE_KEY, JSON.stringify(normalized));
-      return { ok: true, next: normalized, trimmed: budget.trimmed };
+      // 信号是传播屏障，不是第二份收藏真相。失败必须连同主键和社区原字节一起回滚。
+      previous.push([LIBRARY_SIGNAL_KEY, storage.getItem(LIBRARY_SIGNAL_KEY)]);
+      writeVerified(storage, LIBRARY_SIGNAL_KEY, JSON.stringify({
+        changed, rev: origin + '-' + ++sequence,
+        ...(fence ? { epoch: fence.epoch, nonce: fence.nonce } : {}),
+      }));
+      return { ok: true, next: normalized, trimmed: budget.trimmed, written: true };
     } catch (error) {
       const rollbackErrors = restoreWrites(storage, previous);
       return {
@@ -226,8 +301,6 @@ export function createLibraryStore({
     try { storage.setItem(ATLAS_FAVORITES_STORAGE_KEY, JSON.stringify(libraryKeys(next))); } catch (error) {
       console.warn('[favorites-library] 旧版镜像写入失败', error);
     }
-    // 成功后才发信号。数据 storage 事件自己触发重读，信号只是提示，不是另一份真相。
-    try { storage.setItem(LIBRARY_SIGNAL_KEY, JSON.stringify({ changed, rev: origin + '-' + ++sequence })); } catch {}
     try { actions.emitFavoritesChanged(['atlas'], 'library'); } catch (error) {
       console.warn('[favorites-library] 变更事件未发出', error);
     }
@@ -248,32 +321,57 @@ export function createLibraryStore({
       return { ok: false, reason: error instanceof FavoritesLibraryError ? 'corrupt' : 'storage', error };
     }
   }
+  function readForCorruptReplacement(storage, codexes, expectedRaw) {
+    let raw;
+    try { raw = storage.getItem(FAVORITES_LIBRARY_STORAGE_KEY); } catch (error) {
+      return { ok: false, reason: 'storage', error };
+    }
+    // 只有备份面板明确确认覆盖的那一份原文可替换；不能覆盖别页已修好的库。
+    if (typeof expectedRaw !== 'string' || raw !== expectedRaw) return { ok: false, reason: 'stale' };
+    try {
+      validDocument(raw, codexes);
+      return { ok: false, reason: 'stale' };
+    } catch (error) {
+      if (!(error instanceof FavoritesLibraryError)) return { ok: false, reason: 'storage', error };
+    }
+    let libraryId;
+    try { libraryId = JSON.parse(raw)?.libraryId; } catch { /* 无法读取原库身份时生成新的本地身份。 */ }
+    return {
+      ok: true, migration: false,
+      next: normalizeLibrary({ libraryId, migratedFrom: 'v1' }, { codexes }),
+    };
+  }
   async function ensureLibrary(options = {}) {
     const codexes = codexIndex(options);
     // 快照先建立，只用于迁移失败时继续显示 V1；绝不将这个旧快照作为写入依据。
     librarySnapshot();
-    const transaction = await withLock(storage => {
+    const transaction = await withLock((storage, fence) => {
       const read = transactionRead(storage, codexes);
       if (!read.ok) return read;
-      if (!read.migration) return { ok: true, next: read.next, storage, migrated: false };
-      const saved = writeTransaction(storage, read.next, { migration: true });
-      return { ...saved, storage, migrated: saved.ok };
+      const saved = read.migration
+        ? writeTransaction(storage, read.next, { migration: true, fence })
+        : { ok: true, next: read.next };
+      if (saved.ok) {
+        initialized = true;
+        adopt(saved.next, { changed: 'all', source: read.migration ? 'migration' : 'load' });
+        if (read.migration) mirrorAndAnnounce(storage, saved.next, 'all');
+      }
+      return { ...saved, storage, migrated: saved.ok && read.migration };
     });
     if (!transaction.ok) {
       if (!options.silent) reportFailure(transaction);
       return { ...transaction, snapshot: current };
     }
-    initialized = true;
-    adopt(transaction.next, { changed: 'all', source: transaction.migrated ? 'migration' : 'load' });
-    if (transaction.migrated) mirrorAndAnnounce(transaction.storage, transaction.next, 'all');
     return { ok: true, snapshot: current, migrated: transaction.migrated };
   }
   async function commitLibrary(mutator, options = {}) {
     const { changed = 'all', silent = false, companionWrites } = options;
     const codexes = codexIndex(options);
     librarySnapshot();
-    const transaction = await withLock(storage => {
-      const read = transactionRead(storage, codexes);
+    const transaction = await withLock((storage, fence) => {
+      const read = options.replaceCorrupt
+        ? readForCorruptReplacement(storage, codexes, options.expectedCorruptRaw)
+        : transactionRead(storage, codexes);
       if (!read.ok) return read;
       let result;
       try {
@@ -291,19 +389,19 @@ export function createLibraryStore({
         read.next.updatedAt = new Date().toISOString();
         normalized = normalizeLibrary(read.next, { codexes });
       } catch (error) { return { ok: false, reason: 'validation', error, result }; }
-      return {
-        ...writeTransaction(storage, normalized, { companionWrites, migration: read.migration }),
-        result, storage,
-      };
+      const saved = writeTransaction(storage, normalized, { companionWrites, migration: read.migration, fence, changed });
+      if (saved.ok) {
+        initialized = true;
+        adopt(saved.next, { changed, source: 'local' });
+        mirrorAndAnnounce(storage, saved.next, changed);
+      }
+      return { ...saved, result, storage };
     });
     if (!transaction.ok) {
       if (!silent) reportFailure(transaction);
       return { ok: false, reason: transaction.reason, result: transaction.result,
         error: transaction.error, rollbackErrors: transaction.rollbackErrors };
     }
-    initialized = true;
-    adopt(transaction.next, { changed, source: 'local' });
-    mirrorAndAnnounce(transaction.storage, transaction.next, changed);
     return { ok: true, result: transaction.result };
   }
   function subscribeLibrary(listener) {
@@ -331,8 +429,10 @@ export function createLibraryStore({
         return;
       }
       if (event.key !== null && event.key !== FAVORITES_LIBRARY_STORAGE_KEY) return;
+      if (event.key === null || event.newValue === null) releaseStorageFence();
       reloadFromStorage('storage');
     });
+    eventTarget.addEventListener('pagehide', releaseStorageFence);
     eventTarget.addEventListener('pageshow', event => {
       if (event?.persisted) reloadFromStorage('pageshow');
     });
