@@ -1,8 +1,11 @@
+import http.client
 import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from PIL import Image
@@ -184,6 +187,56 @@ class CollectAssetsCoverTests(unittest.TestCase):
         assets, issues, _, _ = sync_r2.collect_assets()
         self.assertEqual(assets, [])
         self.assertEqual(issues, ["invalid cover path: demo/../../private.txt"])
+
+
+class R2IncompleteResponseTests(unittest.TestCase):
+    def config(self):
+        return {"account_id": "test", "access_key_id": "test", "secret_access_key": "test",
+                "bucket": "test", "image_prefix": "images", "original_prefix": "originals",
+                "request_retries": 2, "retry_base_delay": 0}
+
+    def response(self, body, truncate=False):
+        # Exercise the same HTTPResponse.read() failure seen on the real R2 request.
+        wire_body = body[:-7] if truncate else body
+        wire = b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + wire_body
+        response = http.client.HTTPResponse(Mock(makefile=Mock(return_value=io.BytesIO(wire))))
+        response.begin()
+        return response
+
+    def page(self, name, token=""):
+        return (f'<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                f'<Contents><Key>images/{name}.jpg</Key><Size>10</Size></Contents>'
+                f'<IsTruncated>{str(bool(token)).lower()}</IsTruncated>'
+                f'<NextContinuationToken>{token}</NextContinuationToken></ListBucketResult>').encode()
+
+    def test_incomplete_second_page_retries_same_cursor_and_keeps_all_objects(self):
+        first, second = self.page("first", "next-page"), self.page("second")
+        with patch.object(sync_r2.urllib.request, "urlopen", side_effect=[
+            self.response(first), self.response(second, truncate=True), self.response(second),
+        ]) as urlopen, redirect_stdout(io.StringIO()) as output:
+            objects = sync_r2.R2Client(self.config()).list_objects_v2("images")
+        self.assertEqual(set(objects), {"images/first.jpg", "images/second.jpg"})
+        requests = [call.args[0] for call in urlopen.call_args_list]
+        self.assertEqual(len(requests), 3)
+        self.assertNotIn("continuation-token", requests[0].full_url)
+        self.assertIn("continuation-token=next-page", requests[1].full_url)
+        self.assertEqual(requests[1].full_url, requests[2].full_url)
+        self.assertTrue(all(request.get_method() == "GET" for request in requests))
+        self.assertIn("request retry 1/2", output.getvalue())
+        self.assertIn("IncompleteRead", output.getvalue())
+
+    def test_repeated_incomplete_listing_stops_before_upload_or_manifest_write(self):
+        body = self.page("first")
+        args = SimpleNamespace(dry_run=False, check_only=False, verbose=False)
+        with patch.object(sync_r2.urllib.request, "urlopen", side_effect=[
+            self.response(body, truncate=True) for _ in range(3)
+        ]) as urlopen, patch.object(sync_r2.R2Client, "put_file") as upload, \
+                patch.object(sync_r2, "write_manifest") as manifest, redirect_stdout(io.StringIO()):
+            with self.assertRaises(http.client.IncompleteRead):
+                sync_r2.sync_assets(args, self.config(), [], manifest_objects={})
+        self.assertEqual(urlopen.call_count, 3)
+        upload.assert_not_called()
+        manifest.assert_not_called()
 
 
 if __name__ == "__main__":

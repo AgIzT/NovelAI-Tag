@@ -20,7 +20,7 @@
 | `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
 | `import_docx_codex.py` | 导入结构特殊、带内嵌图片的 Word 法典（解构原典用） | 默认只出报告；`--apply` 才写 |
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
-| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；WebP 上传显式使用 `image/webp`，不依赖系统 MIME 表；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
+| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；读取响应中途断开（`IncompleteRead`）会按既有上限与退避重试当前请求，分页成功前不推进游标；WebP 上传显式使用 `image/webp`，不依赖系统 MIME 表；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
 | `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
 | `build_updates_index.py` | 重建跨书更新索引 `site/data/updates.json`（顶栏动态气泡与「公告/更新/反馈」面板的更新页签读它）。判定规则与前端 `data.js` 的 `updateFilterDefinitions`/`entryMatchesUpdateFilter` 逐条对齐，改一侧必须同步另一侧；发布数据链自动跑，也可 `--dry-run` / `--report` 单独看结果 | 只写 `site/data/updates.json` |
 | `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条只入词条名；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
@@ -96,7 +96,7 @@
 
 测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
-- Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
+- Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
 - Node · 数据与路由：`test_entry_aliases.mjs`（同书套图合并的收藏、深链及分享门控）、`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。

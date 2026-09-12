@@ -15,6 +15,7 @@ import concurrent.futures
 import datetime as dt
 import hashlib
 import hmac
+import http.client
 import json
 import mimetypes
 import os
@@ -50,7 +51,10 @@ DEFAULT_REQUEST_TIMEOUT = 180.0
 DEFAULT_REQUEST_RETRIES = 4
 RETRYABLE_UPLOAD_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
 RETRYABLE_REQUEST_STATUSES = RETRYABLE_UPLOAD_STATUSES
-RETRYABLE_REQUEST_EXCEPTIONS = (TimeoutError, urllib.error.URLError, ConnectionError, OSError)
+# A response cut off during read() raises HTTPException, not OSError.
+RETRYABLE_REQUEST_EXCEPTIONS = (
+    TimeoutError, urllib.error.URLError, ConnectionError, OSError, http.client.IncompleteRead,
+)
 
 
 def load_json(path, default=None):

@@ -262,6 +262,29 @@ def _thumbnail(source: Path, destination: Path) -> tuple[int, int]:
         return image.size
 
 
+def _validate_preserved_jpeg(path: Path, policy: dict[str, Any]) -> None:
+    """Allow a frozen, byte-identical source JPEG at its audited dimensions."""
+    if not isinstance(policy, dict) or policy.get("mode") != "source-jpeg":
+        raise ValueError("invalid preserved display policy")
+    digest = policy.get("sha256")
+    width, height = policy.get("width"), policy.get("height")
+    if (not isinstance(digest, str) or len(digest) != 64
+            or any(c not in "0123456789abcdef" for c in digest)
+            or type(width) is not int or type(height) is not int
+            or min(width, height) <= 0):
+        raise ValueError("preserved display policy needs frozen hash and dimensions")
+    if sha256_file(path) != digest:
+        raise ValueError("preserved display source hash mismatch")
+    with Image.open(path) as image:
+        if image.format != "JPEG" or image.mode not in ("RGB", "L"):
+            raise ValueError("preserved display must be an RGB/L JPEG")
+        if image.size != (width, height):
+            raise ValueError("preserved display source dimensions mismatch")
+        if image.getexif().get(274, 1) != 1:
+            raise ValueError("preserved display needs upright source orientation")
+        image.verify()
+
+
 def write_asset_from_path(task: dict[str, Any]) -> dict[str, Any]:
     source = Path(task["sourcePath"])
     entry_id = str(task["entryId"])
@@ -273,6 +296,13 @@ def write_asset_from_path(task: dict[str, Any]) -> dict[str, Any]:
     thumb_name = f"{entry_id}{suffix}" if preserve_display else f"{entry_id}.jpg"
     original = original_dir / original_name
     thumb = thumb_dir / thumb_name
+    display_policy = task.get("displayPolicy")
+    if display_policy is not None:
+        if not preserve_display:
+            raise ValueError("displayPolicy requires preserveDisplay")
+        _validate_preserved_jpeg(source, display_policy)
+        if task.get("sha256") != display_policy["sha256"]:
+            raise ValueError("display policy and task source hash differ")
     shutil.copy2(source, original)
     copied_sha = sha256_file(original)
     expected_sha = str(task.get("sha256") or "")
@@ -285,7 +315,7 @@ def write_asset_from_path(task: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError(f"display copy hash mismatch: {source}")
         with Image.open(thumb) as image:
             width, height = image.size
-        if max(width, height) > MAX_DIM:
+        if max(width, height) > MAX_DIM and display_policy is None:
             raise RuntimeError(f"preserved display image exceeds {MAX_DIM}px: {source}")
     else:
         width, height = _thumbnail(source, thumb)
@@ -328,6 +358,7 @@ def write_asset_bundle_from_paths(task: dict[str, Any]) -> dict[str, Any]:
             "thumbDir": task["thumbDir"],
             "originalDir": task["originalDir"],
             "preserveDisplay": source.get("preserveDisplay", task.get("preserveDisplay", False)),
+            "displayPolicy": source.get("displayPolicy"),
         })
         image = dict(asset["images"][0])
         image_fields = source.get("imageFields") or {}
@@ -354,7 +385,10 @@ def write_asset_bundle_from_paths(task: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_asset(entry: dict[str, Any], thumb_dir: Path, original_dir: Path) -> list[str]:
+def validate_asset(
+    entry: dict[str, Any], thumb_dir: Path, original_dir: Path,
+    *, display_policies: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
     issues: list[str] = []
     entry_id = str(entry.get("id") or "")
     image_items = entry.get("images") or []
@@ -388,12 +422,19 @@ def validate_asset(entry: dict[str, Any], thumb_dir: Path, original_dir: Path) -
             issues.append(f"{label}:missing_thumb")
         if not original.is_file():
             issues.append(f"{label}:missing_original")
+        display_policy = (display_policies or {}).get(thumb_name)
+        if display_policy is not None:
+            try:
+                _validate_preserved_jpeg(thumb, display_policy)
+                _validate_preserved_jpeg(original, display_policy)
+            except Exception as exc:
+                issues.append(f"{label}:preserved_display_invalid:{exc}")
         if thumb.is_file():
             try:
                 with Image.open(thumb) as image:
                     if index == 1 and image.size != (entry.get("imageWidth"), entry.get("imageHeight")):
                         issues.append(f"{label}:thumb_dimensions")
-                    if max(image.size) > MAX_DIM:
+                    if max(image.size) > MAX_DIM and display_policy is None:
                         issues.append(f"{label}:thumb_too_large")
             except Exception as exc:
                 issues.append(f"{label}:thumb_unreadable:{type(exc).__name__}")
