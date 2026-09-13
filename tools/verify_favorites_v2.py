@@ -179,16 +179,17 @@ def run(base, out, cdp):
         ui.wait_for(cdp, "document.querySelectorAll('.favorite-library-card').length>0", 'stable refresh', timeout=30)
         modules()
         test('migrated order survives refresh '+str(index+1), "assert(JSON.stringify(qa.s.list.map(qa.fav.favKey))===sessionStorage.getItem('qa-favorite-order'),'refresh stable');return true;")
-    test('pack favorite main click copies and selection intercepts controls', """
+    # 图包词条在收藏墙里沿用来源册的「点卡看图」；只有选择模式才拦下主点击。
+    test('pack favorite keeps view-on-click and selection intercepts controls', """
       qa.s.favSource='nai45_community_pack';qa.app.applyFilter({transition:'none'});
       assert(qa.s.list.length>0&&qa.s.list[0]._srcType==='pack','pack fixture');
       let copied=0,opened=0;
       qa.masonry.setMasonryActions({copyEntry:()=>copied++,openLightbox:()=>opened++});
       try{
-        document.querySelector('.card').click(); assert(copied===1&&opened===0,'favorite pack main click copies');
+        document.querySelector('.card').click(); assert(opened===1&&copied===0,'favorite pack main click opens image');
         [...document.querySelectorAll('.favorites-desktop-controls button')].find(b=>b.textContent==='选择').click();
         document.querySelector('.card .fav-btn').click();
-        assert(copied===1&&opened===0&&qa.s.favSelected.size===1,'selection stops star and copy');
+        assert(opened===1&&copied===0&&qa.s.favSelected.size===1,'selection stops star and open');
       }finally{qa.masonry.setMasonryActions({copyEntry:qa.copy.copyEntry,openLightbox:qa.lightbox.openLightbox});}
       [...document.querySelectorAll('#favoritesBatchBar button')].find(b=>b.textContent==='完成').click();
       await new Promise(r=>setTimeout(r,200));qa.s.favSource='';qa.app.applyFilter({transition:'none'});return true;

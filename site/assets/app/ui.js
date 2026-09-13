@@ -38,6 +38,7 @@ const THEME_ICONS = {
 
 const uiActions = {
   loadCodex: async () => {},
+  toggleFavoritesFolders: () => false,
   openFavoritesView: async () => {},
   openSiteSearchView: async () => {},
   exitSiteSearchView: () => {},
@@ -540,6 +541,8 @@ export function bindUI() {
     forgetHistoryLayer('mobile-sidebar');
   });
   $('#menuBtn').onclick = () => {
+    // 收藏视图窄屏时这颗按钮唤起收藏夹抽屉；宽屏仍是折叠/展开左栏。
+    if (uiActions.toggleFavoritesFolders($('#menuBtn'))) return;
     const opening = sidebar.classList.contains('closed');
     if (mobileQuery.matches && !opening && closeHistoryLayer('mobile-sidebar')) return;
     const replaceLayer = mobileQuery.matches && opening && topHistoryLayerId() === 'banner-about';

@@ -449,7 +449,7 @@ function closeLayerDirect(id) {
   stopFavoriteMotion(mask.querySelector('.favorites-dialog'));
   mask.hidden = true;
   mask.inert = true;
-  if (id === IDS.drawer) byId('favoritesFoldersBtn')?.setAttribute('aria-expanded', 'false');
+  if (id === IDS.drawer) byId('menuBtn')?.setAttribute('aria-expanded', 'false');
   restoreLayerFocus(id);
   syncModalState();
 }
@@ -886,8 +886,24 @@ export function syncFavoritesView() {
   if (!bound) return;
   const active = Boolean(state.favoritesView);
   document.body.classList.toggle('favorites-library-view', active);
-  for (const id of ['favoritesRail', 'favoritesHeader', 'favoritesSources', 'favoritesFoldersBtn']) {
+  for (const id of ['favoritesRail', 'favoritesHeader', 'favoritesSources']) {
     if (byId(id)) byId(id).hidden = !active;
+  }
+  /* narrow 现算：resize 回调有 2px 步长门槛，跨断点时可能整次跳过，
+     缓存值会把收藏夹栏留在已隐藏的容器里，届时两处都点不开。 */
+  narrow = window.matchMedia('(max-width: 859px)').matches;
+  if (active) placeRail();
+  const menu = byId('menuBtn');
+  if (menu) {
+    menu.title = active ? '收藏夹' : '目录';
+    menu.setAttribute('aria-label', menu.title);
+    if (active && narrow) {
+      menu.setAttribute('aria-controls', IDS.drawer);
+      menu.setAttribute('aria-expanded', String(!byId(IDS.drawer)?.hidden));
+    } else {
+      menu.removeAttribute('aria-controls');
+      menu.removeAttribute('aria-expanded');
+    }
   }
   if (!active && wasActive) {
     closeMenu();
@@ -906,11 +922,37 @@ export function syncFavoritesView() {
       endSelection({ historyMode: 'none' });
       routeChanged();
     }
-    const host = narrow ? byId('favoritesDrawerRail') : railHome;
-    if (host && byId('favoritesRail').parentElement !== host) host.append(byId('favoritesRail'));
+    placeRail();
   }
   updateCardSelections();
 }
+/* 收藏夹栏的归属只认当前宽度。resize 回调有 2px 步长门槛、跨断点时可能整次跳过，
+   缓存的 narrow 会把它留在已隐藏的容器里——抽屉打开却是空的，两处都进不去。 */
+function placeRail() {
+  const rail = byId('favoritesRail');
+  if (!rail || !state.favoritesView) return;
+  narrow = window.matchMedia('(max-width: 859px)').matches;
+  const host = narrow ? byId('favoritesDrawerRail') : railHome;
+  if (host && rail.parentElement !== host) host.append(rail);
+}
+
+/* 收藏视图复用顶栏那颗目录按钮：窄屏唤起抽屉，宽屏折叠/展开收藏夹栏。
+   独立按钮会让顶栏在进出收藏时整体位移，也拿不回「收起侧栏看大图」这个动作。 */
+export function toggleFavoritesFolders(trigger) {
+  if (!state.favoritesView) return false;
+  if (window.matchMedia('(max-width: 859px)').matches) {
+    const mask = byId(IDS.drawer);
+    if (!mask) return false;
+    placeRail();
+    if (mask.hidden) {
+      showLayer(IDS.drawer, trigger);
+      trigger?.setAttribute?.('aria-expanded', 'true');
+    } else closeLayer(IDS.drawer);
+    return true;
+  }
+  return false;
+}
+
 export function setupFavoritesView() {
   if (bound || !globalThis.document?.body) return;
   bound = true;
@@ -935,17 +977,6 @@ export function setupFavoritesView() {
     const sources = byId('favoritesSources') || element('nav', 'favorites-sources');
     sources.id = 'favoritesSources'; sources.hidden = true; sources.setAttribute('aria-label', '收藏来源');
     byId('codexBanner')?.after(header, sources);
-  }
-  if (!byId('favoritesFoldersBtn')) {
-    const trigger = button('收藏夹 ▾', 'bar-btn favorites-folders-button', () => {
-      showLayer(IDS.drawer, trigger);
-      trigger.setAttribute('aria-expanded', 'true');
-    });
-    trigger.id = 'favoritesFoldersBtn';
-    trigger.hidden = true;
-    trigger.setAttribute('aria-controls', IDS.drawer);
-    trigger.setAttribute('aria-expanded', 'false');
-    (document.querySelector('.topbar-actions') || document.querySelector('.topbar'))?.prepend(trigger);
   }
   const drawer = makeMask(IDS.drawer, 'favorites-drawer-mask', '收藏夹');
   const drawerHead = element('header', 'favorites-drawer-head');
@@ -1008,6 +1039,7 @@ export function setupFavoritesView() {
     previousWidth = window.innerWidth;
     const next = window.matchMedia('(max-width: 859px)').matches;
     closeMenu();
+    placeRail();
     if (next !== narrow) {
       narrow = next;
       /* resize 不是打开抽屉；手机会话跨回桌面时仍消费原来的 history layer。 */

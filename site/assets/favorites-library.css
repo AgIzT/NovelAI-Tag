@@ -1,5 +1,4 @@
 /* 收藏空间沿用站点主题；卡片定位与高度仍归 masonry 管理。 */
-.favorites-library-view #menuBtn,
 .favorites-library-view #resultInfo,
 .favorites-library-view #tree,
 .favorites-library-view #sidebar .sb-head,
@@ -11,10 +10,13 @@
   border: 1px solid var(--line); box-shadow: var(--shadow);
   translate: none; transform: none;
 }
+.favorites-library-view #sidebar.closed {
+  flex-basis: 0; width: 0; padding-left: 0; padding-right: 0;
+  border-color: transparent; box-shadow: none; overflow: hidden;
+}
 .favorites-library-rail { width: 100%; min-height: 0; overflow: auto; scrollbar-width: thin; }
 .favorites-library-rail[hidden], .favorites-library-header[hidden], .favorites-sources[hidden],
-.favorites-folders-button[hidden], .favorite-select-check[hidden],
-.favorites-error[hidden] { display: none !important; }
+.favorite-select-check[hidden], .favorites-error[hidden] { display: none !important; }
 .favorites-section-title { color: var(--muted); font-size: 11px; letter-spacing: .08em; font-weight: 600; padding: 8px 10px; }
 .favorites-section-head { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
 .favorites-new-button { border: 0; padding: 8px 4px; background: transparent; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; flex: none; }
@@ -55,7 +57,6 @@
 .favorites-source-chip { display: inline-flex; align-items: center; gap: 6px; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; background: var(--panel); color: var(--muted); font: 500 12px/1.3 var(--font-ui); cursor: pointer; }
 .favorites-source-chip.is-active { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .favorites-source-dot { width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--source-hue) 58% 52%); flex: none; }
-.favorites-folders-button { display: none; }
 .favorites-mask {
   position: fixed; inset: 0; z-index: 95; display: grid; place-items: center;
   padding: 16px; background: var(--overlay); font-family: var(--font-ui);
@@ -147,7 +148,6 @@
 }
 @media (max-width: 859px) {
   .favorites-library-view #sidebar, .favorites-library-view #sidebarBackdrop { display: none !important; }
-  .favorites-library-view .favorites-folders-button { display: inline-flex; align-items: center; white-space: nowrap; }
   .favorites-desktop-controls { display: none; }
   .favorites-head-more.is-system { display: block; }
   .favorites-content-head { min-height: 45px; gap: 6px; }
@@ -160,7 +160,6 @@
   .favorites-library-view .main { padding-bottom: 140px; }
 }
 @media (max-width: 420px) {
-  .favorites-folders-button { padding-inline: 7px; font-size: 11px; }
   .favorites-dialog { padding: 16px; }
   .favorites-heading .favorites-count { font-size: 11px; }
 }

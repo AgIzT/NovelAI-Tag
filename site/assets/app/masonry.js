@@ -625,7 +625,7 @@ export function makeCard(placement) {
     node.classList.add('no-img');
   }
 
-  const packMode = !state.favoritesView && (state.codex?.type === 'pack' || e._srcType === 'pack');
+  const packMode = state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
   const copyHint = node.querySelector('.copy-hint');
   if (copyHint && packMode) {
     copyHint.textContent = hasImage ? '点击查看' : '暂无图片';

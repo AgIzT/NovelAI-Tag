@@ -11,7 +11,7 @@ import { favKey, isFav, setFavoritesActions, toggleFav } from './app/favorites.j
 import { setupFavoritesBackup, subscribeFavoritesChanges, emitFavoritesChanged } from './app/favorites-backup.js';
 import { libraryKeys } from './app/favorites-library-core.js';
 import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibraryStore, subscribeLibrary } from './app/favorites-library-store.js';
-import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesEntries, decorateFavoriteCard, folderBadges, openOrganize, restoreFavoriteObjects, refreshOpenOrganize } from './app/favorites-view.js';
+import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesEntries, decorateFavoriteCard, folderBadges, openOrganize, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
@@ -937,7 +937,7 @@ setMasonryActions({
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 
-setUiActions({ loadCodex, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory });
+setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory });
 
 /* 更新时间线的行点击：换书 + 落到该批次的筛选，等于替用户按了一次结果栏里的
    「NEW x.xx更新」。换书本身会重置 updateFilter，所以必须在 loadCodex 之后再写。 */
