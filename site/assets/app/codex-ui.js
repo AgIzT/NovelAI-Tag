@@ -1388,11 +1388,13 @@ export function renderCodexHeader() {
   const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
+  const home = virtualView ? null : authorHomepage(c);
   banner.innerHTML =
     `<div class="banner-cover">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
     `<div class="banner-info">` +
     `<div class="banner-title">${esc(c.title)}</div>` +
-    `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}</div>` +
+    `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}` +
+    `${home ? renderAuthorHomepage(home) : ''}</div>` +
     `<div class="banner-progress"><div class="bp-track"><div class="bp-fill" style="width:${pct}%"></div></div>` +
     `<span class="bp-text">${c.imagedCount} / ${c.entryCount} 已配图</span></div>` +
     `</div>`;
@@ -1486,6 +1488,41 @@ function safeExternalLinks(links) {
   });
 }
 
+/* 作者主页：贡献者里与 author 同名且带 url 的那位才上横幅；合集书 author 是多人拼接，天然不命中，只在气泡里可点 */
+const BILIBILI_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 3.5 10 6.2M16.5 3.5 14 6.2"/><rect x="3" y="6.2" width="18" height="13.6" rx="3.2"/><path d="M9 11.2v3M15 11.2v3"/></svg>';
+const ARROW_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9.5 8H16v6.5"/></svg>';
+
+function homepagePlatform(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === 'b23.tv' || host === 'bilibili.com' || host.endsWith('.bilibili.com')) return 'bilibili';
+  } catch {}
+  return '';
+}
+
+function contributorHomepage(p) {
+  if (!p || typeof p !== 'object' || !p.name) return null;
+  const url = safeHttpUrl(p.url);
+  return url ? { name: p.name, url, platform: homepagePlatform(url) } : null;
+}
+
+function authorHomepage(c) {
+  const author = String(c.author || '').trim();
+  if (!author) return null;
+  const people = Array.isArray(c.contributors) ? c.contributors : [];
+  for (const p of people) {
+    if (p && typeof p === 'object' && String(p.name || '').trim() === author) return contributorHomepage(p);
+  }
+  return null;
+}
+
+function renderAuthorHomepage(home) {
+  const bili = home.platform === 'bilibili';
+  const title = `在新标签页打开 ${home.name} 的${bili ? ' B 站' : ''}主页`;
+  return `<a class="banner-home${bili ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener" title="${esc(title)}">` +
+    `${bili ? BILIBILI_ICON : EXT_ICON}<span>${bili ? '前往作者B站主页' : '前往作者主页'}</span>${ARROW_ICON}</a>`;
+}
+
 function positionBannerPop(pop, banner) {
   const r = banner.getBoundingClientRect();
   const isMobile = window.matchMedia('(max-width: 600px)').matches;
@@ -1562,7 +1599,10 @@ export function renderBannerAbout(c, banner) {
       const name = typeof p === 'string' ? p : (p.name || '');
       const role = typeof p === 'string' ? '' : (p.role || '');
       if (!name) continue;
-      html += `<span class="bp-chip">${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}</span>`;
+      const home = contributorHomepage(p);
+      html += home
+        ? `<a class="bp-chip is-link${home.platform === 'bilibili' ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener">${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}${ARROW_ICON}</a>`
+        : `<span class="bp-chip">${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}</span>`;
     }
     html += '</div>';
   }
@@ -1632,7 +1672,11 @@ export function renderCodexArchive() {
     (contributors.length ? `<div class="archive-section"><h3>贡献者</h3><div class="archive-chips">${contributors.map(p => {
       const name = typeof p === 'string' ? p : (p.name || '');
       const role = typeof p === 'string' ? '' : (p.role || '');
-      return name ? `<span>${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}</span>` : '';
+      const home = contributorHomepage(p);
+      if (!name) return '';
+      return home
+        ? `<a class="is-link${home.platform === 'bilibili' ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener">${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}${ARROW_ICON}</a>`
+        : `<span>${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}</span>`;
     }).join('')}</div></div>` : '') +
     (links.length ? `<div class="archive-section"><h3>相关链接</h3>${links.map(l => `<a class="archive-link" href="${esc(l.url)}" target="_blank" rel="noopener">${EXT_ICON}<span>${esc(l.label || l.url)}</span></a>`).join('')}</div>` : '') +
     `<div class="archive-section"><h3>说明</h3><p>例图与法典内容版权归各自作者所有，本站仅作可视化整理与索引，感谢所有法典作者的无私分享。</p></div>`;
