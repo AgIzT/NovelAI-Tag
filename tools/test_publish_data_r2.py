@@ -2,13 +2,15 @@ import json
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+import urllib.error
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 
 from tools.publish_data_r2 import (
     POINTER_CACHE_CONTROL,
+    R2DataClient,
     activate_release,
     build_release_plan,
     check_public_release,
@@ -49,6 +51,22 @@ class FakeClient:
     def get_json(self, key):
         item = self.objects.get(key)
         return json.loads(item["body"].decode("utf-8")) if item else None
+
+
+class FakePublicResponse:
+    headers = {"Access-Control-Allow-Origin": "https://novelai.quicktagcloud.com"}
+
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self.body
 
 
 def seed_pointer(client, release):
@@ -246,6 +264,44 @@ class PublishDataR2Tests(unittest.TestCase):
             client = FakeClient()
             publish_release(client, plan)
             self.assertEqual(client.get_json("data/current.json")["release"], plan.release)
+
+
+class PublishNetworkRetryTests(unittest.TestCase):
+    def check(self, plan, responses):
+        with patch("tools.publish_data_r2.urllib.request.urlopen", side_effect=responses) as urlopen,                 patch("tools.publish_data_r2.time.sleep"), redirect_stdout(io.StringIO()) as output:
+            try:
+                check_public_release("https://assets.quicktagcloud.com", "https://novelai.quicktagcloud.com",
+                                     "data", plan)
+            finally:
+                self.calls, self.output = urlopen.call_count, output.getvalue()
+
+    def test_public_release_check_retries_a_dropped_connection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_data(Path(tmp))
+            plan = build_release_plan(Path(tmp))
+        dropped = urllib.error.URLError(ConnectionResetError(10054, "connection reset"))
+        self.check(plan, [dropped, FakePublicResponse(plan.manifest_bytes)])
+        self.assertEqual(self.calls, 2)
+        self.assertIn("public check retry 1/3: connection dropped by network or proxy", self.output)
+
+    def test_public_release_check_fails_at_once_when_the_object_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_data(Path(tmp))
+            plan = build_release_plan(Path(tmp))
+        refused = urllib.error.HTTPError("https://assets.quicktagcloud.com", 403, "Forbidden", {}, io.BytesIO())
+        with self.assertRaisesRegex(RuntimeError, "public release check failed"):
+            self.check(plan, [refused, FakePublicResponse(plan.manifest_bytes)])
+        self.assertEqual(self.calls, 1)
+
+    def test_release_upload_retries_back_off_with_a_cap(self):
+        client = R2DataClient({"account_id": "test", "access_key_id": "test",
+                               "secret_access_key": "test", "bucket": "test"})
+        upload = Mock(side_effect=urllib.error.URLError(FileNotFoundError(2, "No such file or directory")))
+        with patch("tools.publish_data_r2.time.sleep") as sleep, redirect_stdout(io.StringIO()) as output,                 self.assertRaises(urllib.error.URLError):
+            client._put_with_retries(upload, "data/releases/r-00000000000000000000/demo.json")
+        self.assertEqual(upload.call_count, 7)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2, 4, 8, 10, 10])
+        self.assertIn("connection dropped by network or proxy", output.getvalue())
 
 
 if __name__ == "__main__":

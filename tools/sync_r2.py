@@ -16,10 +16,12 @@ import datetime as dt
 import hashlib
 import hmac
 import http.client
+import io
 import json
 import mimetypes
 import os
 import posixpath
+import ssl
 import sys
 import tempfile
 import threading
@@ -45,16 +47,37 @@ DEFAULT_IMAGE_PREFIX = "images"
 DEFAULT_ORIGINAL_PREFIX = "originals"
 ORIGINAL_PRIORITY = {"png": 0, "jpg": 1, "jpeg": 2, "webp": 3, "gif": 4, "avif": 5}
 DEFAULT_UPLOAD_WORKERS = 16
-DEFAULT_UPLOAD_RETRIES = 3
+DEFAULT_UPLOAD_RETRIES = 6
 DEFAULT_RETRY_BASE_DELAY = 1.0
-DEFAULT_REQUEST_TIMEOUT = 180.0
-DEFAULT_REQUEST_RETRIES = 4
+MAX_RETRY_DELAY = 10.0
+# Seconds a connection may go without progress. Healthy R2 handshakes take a few
+# seconds; a stalled one is dropped and retried instead of freezing the console.
+DEFAULT_REQUEST_TIMEOUT = 30.0
+DEFAULT_REQUEST_RETRIES = 8
+UPLOAD_PROGRESS_EVERY = 25
 RETRYABLE_UPLOAD_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
 RETRYABLE_REQUEST_STATUSES = RETRYABLE_UPLOAD_STATUSES
 # A response cut off during read() raises HTTPException, not OSError.
 RETRYABLE_REQUEST_EXCEPTIONS = (
     TimeoutError, urllib.error.URLError, ConnectionError, OSError, http.client.IncompleteRead,
 )
+
+
+def retry_delay(base_delay, attempt):
+    return min(MAX_RETRY_DELAY, max(0.0, float(base_delay)) * (2 ** (attempt - 1)))
+
+
+def describe_request_error(ex):
+    # Windows Python can report a connection closed mid-TLS as
+    # "[Errno 2] No such file or directory"; name what actually happened.
+    reason = ex.reason if isinstance(ex, urllib.error.URLError) and isinstance(ex.reason, BaseException) else ex
+    if isinstance(reason, TimeoutError):
+        return f"network stalled past the request timeout ({reason})"
+    if isinstance(reason, (ssl.SSLEOFError, ConnectionResetError, ConnectionAbortedError, BrokenPipeError)) or (
+        isinstance(reason, FileNotFoundError) and not reason.filename
+    ):
+        return f"connection dropped by network or proxy ({reason})"
+    return str(ex)
 
 
 def load_json(path, default=None):
@@ -475,7 +498,7 @@ class R2Client:
         return "&".join(f"{name}={value}" for name, value in pairs)
 
     def _retry_wait(self, attempt):
-        return max(0.0, self.retry_base_delay) * (2 ** (attempt - 1))
+        return retry_delay(self.retry_base_delay, attempt)
 
     def _request_label(self, method, key, query):
         label = f"{method} {key or '<bucket>'}"
@@ -526,7 +549,10 @@ class R2Client:
         url = self.endpoint + canonical_uri
         if canonical_query:
             url += "?" + canonical_query
-        req = urllib.request.Request(url, data=body if method != "HEAD" else None, headers=headers, method=method)
+        # sendall() of one bytes body must finish within the socket timeout; a file
+        # object goes out in small blocks, so the timeout only fires on a stall.
+        data = None if method == "HEAD" else (io.BytesIO(body) if body else body)
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=timeout or self.request_timeout) as res:
                 return res.status, {k.lower(): v for k, v in res.headers.items()}, res.read()
@@ -551,7 +577,10 @@ class R2Client:
                 if attempt >= attempts:
                     raise
                 wait = self._retry_wait(attempt)
-                print(f"request retry {attempt}/{attempts - 1} {label}: {ex}; wait {wait:.1f}s", flush=True)
+                print(
+                    f"request retry {attempt}/{attempts - 1} {label}: {describe_request_error(ex)}; wait {wait:.1f}s",
+                    flush=True,
+                )
                 if wait:
                     time.sleep(wait)
                 continue
@@ -682,16 +711,15 @@ def remote_needs_upload(remote_objects, manifest_objects, key, path, sha):
 
 def put_file_with_retries(client, key, path, sha, cache_control, retries, base_delay, log_retry=None):
     attempts = max(1, int(retries) + 1)
-    delay = max(0.0, float(base_delay))
     for attempt in range(1, attempts + 1):
         try:
             status, headers, body = client.put_file(key, path, sha, cache_control)
         except Exception as ex:
             if attempt >= attempts:
                 raise
-            wait = delay * (2 ** (attempt - 1))
+            wait = retry_delay(base_delay, attempt)
             if log_retry:
-                log_retry(f"retry {attempt}/{attempts - 1} {key}: {ex}; wait {wait:.1f}s")
+                log_retry(f"retry {attempt}/{attempts - 1} {key}: {describe_request_error(ex)}; wait {wait:.1f}s")
             if wait:
                 time.sleep(wait)
             continue
@@ -701,7 +729,7 @@ def put_file_with_retries(client, key, path, sha, cache_control, retries, base_d
         if status not in RETRYABLE_UPLOAD_STATUSES or attempt >= attempts:
             return status, headers, body, attempt
 
-        wait = delay * (2 ** (attempt - 1))
+        wait = retry_delay(base_delay, attempt)
         if log_retry:
             log_retry(f"retry {attempt}/{attempts - 1} {key}: status {status}; wait {wait:.1f}s")
         if wait:
@@ -777,12 +805,13 @@ def sync_strings_assets(args, cfg, assets):
             except Exception as ex:
                 with lock:
                     counts["fail"] += 1
-                    failures.append(f"{key}: {ex}")
+                    failures.append(f"{key}: {describe_request_error(ex)}")
             finally:
                 with lock:
                     done[0] += 1
-                if done[0] % 250 == 0 or done[0] == len(pending):
-                    print(f"strings upload: {done[0]}/{len(pending)}, fail {counts['fail']}", flush=True)
+                    n, nfail = done[0], counts["fail"]
+                if n % UPLOAD_PROGRESS_EVERY == 0 or n == len(pending):
+                    print(f"strings upload: {n}/{len(pending)}, fail {nfail}", flush=True)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(_upload, pending))
@@ -882,12 +911,12 @@ def sync_assets(args, cfg, assets, manifest_objects=None):
             except Exception as ex:
                 with lock:
                     counts["fail"] += 1
-                    failures.append(f"{key}: {ex}")
+                    failures.append(f"{key}: {describe_request_error(ex)}")
             finally:
                 with lock:
                     done[0] += 1
                     n, nfail = done[0], counts["fail"]
-                if n % 250 == 0 or n == len(pending):
+                if n % UPLOAD_PROGRESS_EVERY == 0 or n == len(pending):
                     print(f"upload progress: {n}/{len(pending)}, fail {nfail}", flush=True)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
@@ -928,9 +957,11 @@ def main():
     parser.add_argument("--retries", type=int, default=None,
                         help="Retry failed uploads this many times (default %d)." % DEFAULT_UPLOAD_RETRIES)
     parser.add_argument("--retry-base-delay", type=float, default=None,
-                        help="Initial retry backoff in seconds (default %.1f)." % DEFAULT_RETRY_BASE_DELAY)
+                        help="Initial retry backoff in seconds, doubling up to %.0f (default %.1f)."
+                        % (MAX_RETRY_DELAY, DEFAULT_RETRY_BASE_DELAY))
     parser.add_argument("--request-timeout", type=float, default=None,
-                        help="Per R2 HTTP request timeout in seconds (default %.0f)." % DEFAULT_REQUEST_TIMEOUT)
+                        help="Seconds an R2 connection may stall before the request is retried (default %.0f)."
+                        % DEFAULT_REQUEST_TIMEOUT)
     parser.add_argument("--request-retries", type=int, default=None,
                         help="Retry transient R2 request failures this many times (default %d)." % DEFAULT_REQUEST_RETRIES)
     args = parser.parse_args()
