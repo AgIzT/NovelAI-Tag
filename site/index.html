@@ -55,6 +55,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/styles.css">
 <link rel="stylesheet" href="assets/content-blocking.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
+<link rel="stylesheet" href="assets/favorites-library.css">
 <link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/app/state.js">
@@ -386,14 +387,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <aside id="tagRelayRail" class="tag-relay-rail closed" aria-label="Tag 中转站">
     <header class="tag-relay-rail-head">
       <h2 id="tagRelayRailTitle">中转站</h2>
-      <div class="tag-relay-plan-picker">
+      <div id="relayPlanPicker" class="tag-relay-plan-picker">
         <!-- 原生 select 只保留为状态值桥；可见交互由下方自定义 listbox 承担，避免系统下拉样式割裂。 -->
         <select id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"></select>
-        <button id="relayPlanPickerBtn" class="tag-relay-plan-pick" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="relayPlanList">
-          <span id="relayPlanPickerLabel">当前方案</span>
-          <svg class="tag-relay-plan-pick-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
-        </button>
-        <div id="relayPlanList" class="tag-relay-plan-list" role="listbox" aria-label="选择方案" hidden></div>
+        <!-- 公共 select-menu.js 在这里挂载可见方案选择器。 -->
       </div>
       <div class="tag-relay-plan-menu-wrap">
         <button id="relayPlanMenuBtn" class="tag-relay-plan-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="方案操作">⋯</button>
@@ -794,7 +791,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="favorites-backup-mark" aria-hidden="true">⇄</span>
         <div>
           <h2 id="favoritesBackupTitle">收藏备份与恢复</h2>
-          <p id="favoritesBackupIntro">只包含两处收藏标识，不含浏览记录、设置、图片或 Prompt；文件只在当前设备处理，不会上传。</p>
+          <p id="favoritesBackupIntro">备份包含收藏、收藏夹、归类和备注。导出 JSON 文件或复制迁移文本，可在另一台设备恢复。</p>
         </div>
       </div>
       <button id="favoritesBackupClose" class="favorites-backup-close" type="button" aria-label="关闭收藏备份弹窗">×</button>
@@ -817,7 +814,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <dt>法典图鉴</dt>
             <dd><strong id="favoritesCurrentAtlas">0</strong><span> 条</span></dd>
           </div>
-          <div>
+          <div data-favorites-community-stat>
             <dt>共创广场</dt>
             <dd><strong id="favoritesCurrentCommunity">0</strong><span> 条</span></dd>
           </div>

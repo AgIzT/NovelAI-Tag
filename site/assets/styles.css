@@ -1536,17 +1536,8 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
   display:inline-block;font-size:10px;font-weight:800;letter-spacing:.5px;color:#fff;
   background:var(--accent);border-radius:999px;padding:1px 7px;margin-left:6px;vertical-align:middle;
 }
-.feedback-field input,.feedback-field select,.feedback-field textarea,
-.feedback-fallback textarea{
-  width:100%;border:1px solid var(--line);border-radius:12px;
-  background:var(--card);color:var(--text);font-family:inherit;font-size:13px;line-height:1.55;
-  padding:8px 11px;outline:none;resize:vertical;
-}
+/* 输入表面统一由 ui-kit.css 的 panel-input 家族提供。 */
 .feedback-field textarea{min-height:92px}
-.feedback-field input:focus,.feedback-field select:focus,.feedback-field textarea:focus,
-.feedback-fallback textarea:focus{
-  border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);
-}
 .feedback-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 .feedback-context{
   border:1px solid var(--line);border-radius:13px;background:var(--tagbg);
@@ -1940,8 +1931,9 @@ body.dark .archive-chips>a.is-bilibili{color:#ff8db0;background:rgba(251,114,153
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.has-action{
-  display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 6px 4px 14px;pointer-events:auto;
+  display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 6px 4px 14px;
 }
+.toast.has-action.show{pointer-events:auto}
 .toast-message{display:block;min-width:0;overflow-wrap:anywhere}
 .toast.has-action .toast-message{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .toast-action{
@@ -2609,13 +2601,11 @@ html.vt-arrived.intro-arm .brand,html.vt-arrived.intro-arm .topbar::after{animat
 .tree-row{transition:background .16s,color .16s}
 .tw-arrow{transition:transform .2s cubic-bezier(.22,1,.36,1),scale .14s ease}
 .tw-arrow[role="button"]:active{scale:.88}
-.feedback-field :is(input,select,textarea),.feedback-fallback textarea{transition:border-color .16s,box-shadow .16s,background .16s}
 @media (prefers-reduced-motion:reduce){
   .topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
   .nsfw-actions button,.feedback-tab,.bar-btn,.panel-action,.feedback-progress-filters button,.feedback-progress-intro button,
   .feedback-public-state button,.feedback-fallback button,.rail-chip,.tree-row,.tw-arrow,
-  .search-scope,.search-scope-label,.seg-tabs::before,
-  .feedback-field :is(input,select,textarea),.feedback-fallback textarea{transition:none!important}
+  .search-scope,.search-scope-label,.seg-tabs::before{transition:none!important}
   :is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
   .nsfw-actions button,.feedback-tab,.bar-btn,.panel-action,.feedback-progress-filters button,.feedback-progress-intro button,
   .feedback-public-state button,.feedback-fallback button,.rail-chip,.tw-arrow):active:not(:disabled),

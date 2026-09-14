@@ -445,10 +445,17 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(loaded.img.onerror, null);
 }
 
-// 灯箱键盘守卫覆盖输入控件、contentEditable、已 preventDefault 事件与上层反馈弹层。
+// 灯箱键盘守卫覆盖输入控件、contentEditable、已 preventDefault 事件与真实模态候选。
 {
-  const feedbackPanel = { hidden: true };
-  dom.set('#feedbackPanel', feedbackPanel);
+  const previousQueryAll = document.querySelectorAll;
+  const feedbackPanel = {
+    hidden: true,
+    parentElement: null,
+    closest(selector) { return selector.includes('[hidden]') ? (this.hidden ? this : null) : this; },
+    getClientRects() { return this.hidden ? [] : [{}]; },
+    contains(element) { return element === this; },
+  };
+  document.querySelectorAll = selector => selector.includes('[aria-modal="true"]') ? [feedbackPanel] : [];
   const plain = new FakeHTMLElement('DIV');
   assert.equal(isLightboxKeydownBlocked({ target: plain, defaultPrevented: false }), false);
   assert.equal(isLightboxKeydownBlocked({ target: new FakeHTMLElement('TEXTAREA'), defaultPrevented: false }), true);
@@ -458,6 +465,36 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(isLightboxKeydownBlocked({ target: plain, defaultPrevented: true }), true);
   feedbackPanel.hidden = false;
   assert.equal(isLightboxKeydownBlocked({ target: plain, defaultPrevented: false }), true);
+  document.querySelectorAll = previousQueryAll;
+}
+
+// 收藏结果仅在当前候选真实命中屏蔽时提供上下文入口，设置说明始终保留。
+{
+  const { updateBlockingSummary } = await import('../site/assets/app/content-blocking-ui.js');
+  const previous = { favoritesView: state.favoritesView, list: state.list, searchPlan: state.searchPlan };
+  const resultButton = { hidden: false, classList: fakeClassList() };
+  const settingsSummary = { textContent: '' };
+  const empty = { textContent: '这个收藏夹还没有内容' };
+  dom.set('#blockingResultBtn', resultButton);
+  dom.set('#blockingSettingsSummary', settingsSummary);
+  dom.set('#empty', empty);
+  state.favoritesView = true;
+  state.list = [];
+  state.searchPlan = { hasActiveSearch: false };
+  updateBlockingSummary(0);
+  assert.equal(resultButton.hidden, true);
+  assert.equal(empty.textContent, '这个收藏夹还没有内容');
+  assert.ok(settingsSummary.textContent);
+  state.list = [{}];
+  updateBlockingSummary(2);
+  assert.equal(resultButton.hidden, false);
+  assert.equal(resultButton.textContent, '已屏蔽 2 项');
+  state.favoritesView = false;
+  updateBlockingSummary(0);
+  assert.equal(resultButton.hidden, false);
+  assert.equal(resultButton.textContent, '屏蔽管理');
+  Object.assign(state, previous);
+  dom.delete('#blockingResultBtn'); dom.delete('#blockingSettingsSummary'); dom.delete('#empty');
 }
 
 // 邻图仍同时预热缩略图和原图；缓存失败可重试，且超过 300 项会淘汰最旧 URL。
@@ -1562,21 +1599,39 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   /* 抛入芯片只提层级、不改外观；z-index 必须高过侧栏(68)，否则最后一段会钻到栏底下。 */
   assert.match(stylesSource, /\.copy-seed-chip\.is-relay-toss\{[^}]*z-index:95/);
   assert.doesNotMatch(stylesSource, /copyRelayBeacon/, '实心底+信标环那版已回退，别再长回来');
-  // 方案选择不再暴露系统 select；可见按钮 + listbox 与来源滑块都必须在 DOM 中。
+  // 两个业务实际导入同一选择器，DOM 与键盘契约由公共模块实现。
+  const [selectSource, uiKitSource, favoritesSource] = await Promise.all([
+    '../site/assets/app/select-menu.js', '../site/assets/ui-kit.css', '../site/assets/app/favorites-view.js',
+  ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
   assert.match(indexSource, /id="relayPlanSelect" hidden tabindex="-1" aria-hidden="true"/);
-  assert.match(indexSource, /id="relayPlanPickerBtn"[\s\S]*aria-haspopup="listbox"[\s\S]*aria-controls="relayPlanList"/);
-  assert.match(indexSource, /id="relayPlanList" class="tag-relay-plan-list" role="listbox"/);
+  assert.match(indexSource, /id="relayPlanPicker" class="tag-relay-plan-picker"/);
+  for (const source of [composeSource, favoritesSource]) {
+    assert.match(source, /import \{ createSelectMenu \} from '\.\/select-menu\.js'/);
+    assert.match(source, /createSelectMenu\(\{/);
+  }
+  assert.match(composeSource, /planPicker\.button\.id = 'relayPlanPickerBtn'/);
+  assert.match(composeSource, /planPicker\.list\.id = 'relayPlanList'/);
+  assert.match(selectSource, /setAttribute\('aria-haspopup', 'listbox'\)/);
+  assert.match(selectSource, /setAttribute\('role', 'listbox'\)/);
+  assert.match(selectSource, /ArrowDown[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/);
   assert.match(indexSource, /class="tag-relay-source-slider" aria-hidden="true"/);
-  assert.match(composeSource, /\[role="option"\][\s\S]*ArrowDown[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/);
   assert.match(railSource, /querySelector\('#relayPlanPickerBtn'\)/);
   assert.match(railSource, /const hasOpenInnerLayer = \(\) => \[[\s\S]*#relayCopyHistory[\s\S]*#relayInspector[\s\S]*cancelRelayAction\(\);[\s\S]*if \(hasOpenInnerLayer\(\)\) return/);
-  // 与格式 / 连接同源的滑块语言，以及各披露面板统一的入退场与减弱动效兜底。
+  // 选择器只有一份样式/动画；中转站仅持有布局与密度参数。
+  assert.doesNotMatch(relayCss, /\.tag-relay-plan-(?:list|pick)(?:\{|\[|:|>)/);
+  assert.match(uiKitSource, /\.ui-select-list\{[\s\S]*display \.18s allow-discrete/);
+  assert.match(uiKitSource, /\.ui-select-list\[hidden\]\{display:none/);
+  assert.match(uiKitSource, /@starting-style\{\.ui-select-list:not\(\[hidden\]\)/);
+  assert.match(uiKitSource, /@media\(prefers-reduced-motion:reduce\)[\s\S]*ui-select-list[\s\S]*transition:none!important/);
+  assert.match(uiKitSource, /\.panel-input,\.feedback-field input[\s\S]*border-radius:12px/);
+  assert.doesNotMatch(stylesSource, /\.feedback-field input,\.feedback-field select,\.feedback-field textarea,[\s\S]{0,60}width:100%;border/);
+  // 来源滑块与其余披露面板仍保留自己的业务动效。
   assert.match(relayCss, /@supports selector\(:has\(\*\)\)[\s\S]*tag-relay-source-slider[\s\S]*transition:translate \.24s/);
-  assert.match(relayCss, /tag-relay-plan-list[\s\S]*tag-relay-output-boxes[\s\S]*display \.18s allow-discrete/);
-  assert.match(relayCss, /tag-relay-plan-list\[hidden\],[^\{]+\{\s*display:none/);
+  assert.match(relayCss, /tag-relay-plan-menu[\s\S]*tag-relay-output-boxes[\s\S]*display \.18s allow-discrete/);
+  assert.match(relayCss, /tag-relay-plan-menu\[hidden\]\{\s*display:none/);
   assert.match(relayCss, /tag-relay-output-boxes\[hidden\],[^\{]+\{\s*display:none/);
   assert.match(relayCss, /tag-relay-history\[hidden\],[^\{]+tag-relay-inspector\[hidden\]\{\s*display:none/);
-  assert.match(relayCss, /@starting-style[\s\S]*tag-relay-plan-list:not\(\[hidden\]\)[\s\S]*tag-relay-inspector:not\(\[hidden\]\)/);
+  assert.match(relayCss, /@starting-style[\s\S]*tag-relay-plan-menu:not\(\[hidden\]\)[\s\S]*tag-relay-inspector:not\(\[hidden\]\)/);
   assert.match(relayCss, /@media \(prefers-reduced-motion:reduce\)[\s\S]*tag-relay-source-slider[\s\S]*transition:none!important/);
   /* 方案被另一标签页切走或删掉时，正在编辑的内容必须转成可另存的草稿，不能由
      下一次 render 直接 closeInspector 后静默消失。 */

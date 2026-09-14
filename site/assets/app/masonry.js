@@ -15,6 +15,8 @@ const masonryActions = {
   toggleFav: () => {},
   reportEntry: () => {},
   hideCard: () => {},
+  decorateFavoriteCard: () => {},
+  favoriteBadgeHeight: () => 0,
 };
 
 const FILTER_EXIT_MS = 140;
@@ -118,7 +120,8 @@ function renderBlockingList(m) {
   }
   if (lostFocusIndex !== undefined && (!active.isConnected || active.closest('[inert]'))) {
     const next = state.nodes.get(lostFocusIndex) || [...state.nodes.values()].at(-1);
-    (next?.querySelector('.hide-card-btn') || $('#blockingResultBtn'))?.focus({ preventScroll: true });
+    // 收藏墙的卡没有「不想看」按钮，焦点落到补位卡的星标上。
+    (next?.querySelector('.hide-card-btn') || next?.querySelector('.fav-btn') || $('#blockingResultBtn'))?.focus({ preventScroll: true });
   }
   if (animate) blockingMotionTimer = window.setTimeout(() => {
     blockingMotionTimer = 0;
@@ -289,7 +292,9 @@ export function computeLayout({ previous } = {}) {
     const entry = state.list[i];
     const col = shortestIndex(colHeights);
     const measured = previous?.get(entry);
-    const retained = measured?.width === itemWidth ? measured : null;
+    const badgeHeight = masonryActions.favoriteBadgeHeight(entry);
+    // 收藏夹徽章行出现/消失时旧实测高度已失效，改回估高，由测高回写再校准。
+    const retained = measured?.width === itemWidth && (measured.badgeHeight || 0) === badgeHeight ? measured : null;
     const imageHeight = retained?.imageHeight ?? estimateImageHeight(entry, itemWidth);
     const body = estimateBodyMetrics(entry, itemWidth);
     const height = retained?.height ?? Math.ceil(imageHeight + body.height);
@@ -306,6 +311,7 @@ export function computeLayout({ previous } = {}) {
       height,
       imageHeight,
       tagsHeight: retained?.tagsHeight ?? body.tagsHeight,
+      badgeHeight,
     });
     colHeights[col] += height + cfg.gap;
   }
@@ -345,8 +351,9 @@ export function invalidateBodyMetrics(e) {
 }
 
 export function estimateBodyMetrics(e, width) {
+  const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.density === state.density) return cached.value;
+  if (cached && cached.width === width && cached.density === state.density && cached.badgeHeight === badgeHeight) return cached.value;
   const cfg = densityConfig();
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
@@ -355,10 +362,10 @@ export function estimateBodyMetrics(e, width) {
   const tagsHeight = clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
   const value = {
-    height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + cfg.bodyPadBottom),
+    height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, density: state.density, value });
+  bodyMetricsCache.set(e, { width, density: state.density, badgeHeight, value });
   return value;
 }
 
@@ -636,6 +643,7 @@ export function makeCard(placement) {
     }
     masonryActions.copyEntry(e, node);
   };
+  masonryActions.decorateFavoriteCard(node, e);
   return node;
 }
 

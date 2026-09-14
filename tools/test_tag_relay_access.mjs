@@ -356,6 +356,7 @@ function fakeElement(tag = 'div') {
   const node = {
     tagName: String(tag).toUpperCase(),
     children: [],
+    get lastElementChild() { return node.children.at(-1) || null; },
     listeners: new Map(),
     dataset: {},
     style: {
@@ -387,6 +388,7 @@ function fakeElement(tag = 'div') {
     closest(selector) {
       if (String(selector).includes('tag-relay-rail')) return node;
       if (selector === '[data-plan-id]' && node.dataset.planId) return node;
+      if (selector === '[role="option"]' && node.getAttribute('role') === 'option') return node;
       return null;
     },
     fire(type, event = {}) {
@@ -470,6 +472,8 @@ const initiallyHidden = new Set([
   '#relayOutputBoxes', '#relayInlineAction', '#relayBlockBar',
 ]);
 relayShell.querySelector = selector => {
+  const mounted = [...pool.values()].flatMap(node => elementsIn(node, child => '#' + child.id === selector))[0];
+  if (mounted) return mounted;
   if (!pool.has(selector)) {
     const node = fakeElement('div');
     node.hidden = initiallyHidden.has(selector);
@@ -547,6 +551,7 @@ globalThis.document = {
   addEventListener() {},
   removeEventListener() {},
   createElement: tag => fakeElement(tag),
+  createElementNS: (_namespace, tag) => fakeElement(tag),
   querySelector: () => null,
   querySelectorAll: () => [],
   getElementById: () => null,
@@ -890,6 +895,7 @@ try {
       const mask = fakeElement('div');
       mask.id = 'clipboardFallback';
       mask.hidden = false;                 // 面板正开着
+      mask.classList.add('show');
       mask.querySelector = () => area;
       globalThis.document.getElementById = id => (id === 'clipboardFallback' ? mask : null);
 

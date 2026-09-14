@@ -408,40 +408,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
    ============================================================ */
 
 /* ---- 栏头：吞掉原来的方案条 ---- */
-.tag-relay-plan-picker{position:relative;flex:1;min-width:0;max-width:154px}
-.tag-relay-rail .tag-relay-plan-pick{
-  width:100%;min-width:0;height:26px;display:flex;align-items:center;gap:5px;
-  border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);
-  font-size:11.5px;font-weight:800;padding:0 7px;text-align:left;
-}
-.tag-relay-plan-pick:hover,.tag-relay-plan-pick[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
-.tag-relay-plan-pick:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.tag-relay-plan-pick>span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag-relay-plan-pick-arrow{
-  flex:none;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;
-  stroke-linecap:round;stroke-linejoin:round;transition:rotate .16s cubic-bezier(.22,1,.36,1);
-}
-.tag-relay-plan-pick[aria-expanded="true"] .tag-relay-plan-pick-arrow{rotate:180deg}
-.tag-relay-plan-list{
-  position:absolute;left:0;top:calc(100% + 6px);z-index:6;
-  width:max(100%,190px);max-width:min(260px,calc(100vw - 28px));max-height:min(46vh,288px);
-  display:flex;flex-direction:column;gap:2px;overflow-y:auto;overscroll-behavior:contain;padding:6px;
-  border:1px solid var(--popover-line);border-radius:12px;background:var(--popover-glass);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
-}
-.tag-relay-plan-list [role="option"]{
-  width:100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;
-  border:0;border-radius:8px;background:transparent;color:var(--text);padding:7px 9px;
-  text-align:left;font-size:11.5px;font-weight:700;cursor:pointer;
-}
-.tag-relay-plan-list [role="option"]:hover,.tag-relay-plan-list [role="option"]:focus-visible{
-  outline:none;background:var(--tagbg);color:var(--accent);
-}
-.tag-relay-plan-list [role="option"][aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
-.tag-relay-plan-list [role="option"]>span:first-child{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag-relay-plan-list [role="option"]>small{flex:none;color:var(--muted);font-size:9.5px;font-weight:700;white-space:nowrap}
-.tag-relay-plan-option-check{flex:none;width:12px;color:var(--accent);text-align:center;font-size:10px;font-weight:900}
+.tag-relay-plan-picker{flex:1;min-width:0;max-width:154px;--select-height:26px;--select-font-size:11.5px}
 
 /* ---- 分区骨架 ---- */
 .tag-relay-rail .tag-relay-zone{
@@ -838,7 +805,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 
 /* 隐藏态仍由 HTML hidden 同步维护；display 的离散过渡只负责把可见退场撑到末帧，
    不延迟 aria-expanded，也不让 JS 等动画。位移使用独立 translate，避免占用 transform。 */
-.tag-relay-plan-list,.tag-relay-plan-menu,
+.tag-relay-plan-menu,
 .tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,
 .tag-relay-rail .tag-relay-inspector,.tag-relay-inline-action{
   opacity:1;translate:0 0;scale:1;
@@ -851,9 +818,9 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
     translate .18s cubic-bezier(.22,1,.36,1),scale .18s cubic-bezier(.22,1,.36,1),
     display .22s allow-discrete;
 }
-.tag-relay-plan-list,.tag-relay-plan-menu{transform-origin:top center}
+.tag-relay-plan-menu{transform-origin:top center}
 .tag-relay-rail .tag-relay-history,.tag-relay-rail .tag-relay-inspector{transform-origin:bottom center}
-.tag-relay-plan-list[hidden],.tag-relay-plan-menu[hidden]{
+.tag-relay-plan-menu[hidden]{
   display:none;opacity:0;translate:0 -6px;scale:.97;pointer-events:none;
 }
 .tag-relay-output-boxes[hidden],.tag-relay-inline-action[hidden]{
@@ -863,7 +830,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   display:none;opacity:0;translate:0 9px;scale:.985;pointer-events:none;
 }
 @starting-style{
-  .tag-relay-plan-list:not([hidden]),.tag-relay-plan-menu:not([hidden]){
+  .tag-relay-plan-menu:not([hidden]){
     opacity:0;translate:0 -6px;scale:.97;
   }
   .tag-relay-output-boxes:not([hidden]),.tag-relay-inline-action:not([hidden]){
@@ -875,8 +842,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 }
 
 @media (prefers-reduced-motion:reduce){
-  .tag-relay-plan-pick-arrow,.tag-relay-source-slider,
-  .tag-relay-plan-list,.tag-relay-plan-menu,
+  .tag-relay-source-slider,
+  .tag-relay-plan-menu,
   .tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,
   .tag-relay-rail .tag-relay-inspector,.tag-relay-inline-action{
     transition:none!important;
@@ -913,11 +880,11 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   max-height:0;min-height:0;margin-top:0;padding-top:0;padding-bottom:0;
   opacity:0;translate:0 -5px;pointer-events:none;
 }
-.tag-relay-rail :is(.tag-relay-add-block,.tag-relay-plan-pick,.tag-relay-plan-more,.tag-relay-history-toggle,
-  .tag-relay-output-summary,.tag-relay-rail-close,.tag-relay-plan-option,.tag-relay-chip-main){
+.tag-relay-rail :is(.tag-relay-add-block,.tag-relay-plan-more,.tag-relay-history-toggle,
+  .tag-relay-output-summary,.tag-relay-rail-close,.tag-relay-chip-main){
   transition:background .16s,border-color .16s,color .16s,scale .12s;
 }
-.tag-relay-rail button:active:not(:disabled),.tag-relay-chip-main:active{scale:.96}
+.tag-relay-rail button:not(.ui-select-button):not(.ui-select-option):active:not(:disabled),.tag-relay-chip-main:active{scale:.96}
 .tag-relay-plan-card:has(.tag-relay-plan-card-main:active):not(.is-dragging){scale:.97}
 .tag-relay-plan-card{transition:box-shadow .16s,opacity .16s,filter .16s,scale .12s}
 .tag-relay-plan-card.is-selected{box-shadow:0 0 0 2px var(--accent) inset}

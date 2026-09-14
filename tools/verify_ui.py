@@ -911,11 +911,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             )
             picker_open = cdp.eval(
                 "({optionCount: document.querySelectorAll('#relayPlanList [role=\"option\"]').length,"
-                " selected: document.querySelector('#relayPlanList [aria-selected=\"true\"]')?.dataset.planId || ''})"
+                " selected: document.querySelector('#relayPlanList [aria-selected=\"true\"]')?.dataset.value || ''})"
             )
             if picker_open["optionCount"] != 2 or picker_open["selected"] != "qa-plan":
                 raise CheckFailed(f"Relay {mode} plan picker options are wrong: {picker_open}")
-            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan-alt\"]')?.click()")
+            cdp.eval("document.querySelector('#relayPlanList [data-value=\"qa-plan-alt\"]')?.click()")
             wait_for(
                 cdp,
                 "document.querySelector('#relayPlanSelect')?.value === 'qa-plan-alt'"
@@ -933,7 +933,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 " && document.querySelector('#relayPlanList')?.hidden === false",
                 f"relay {mode} reopens plan picker",
             )
-            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan\"]')?.click()")
+            cdp.eval("document.querySelector('#relayPlanList [data-value=\"qa-plan\"]')?.click()")
             wait_for(
                 cdp,
                 "document.querySelector('#relayPlanSelect')?.value === 'qa-plan'"
@@ -2153,12 +2153,31 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ])
         cdp.eval(
             "localStorage.setItem('fadian-nsfw-ok', '1'); "
+            "localStorage.removeItem('fadian-favs-v2'); "
+            "localStorage.removeItem('fadian-favs-v2:lock'); "
+            "localStorage.removeItem('fadian-favs-v2:signal'); "
             f"localStorage.setItem('fadian-favs', JSON.stringify({favorite_keys}))"
         )
         # 故意仍按旧 id 进：合并后 artist_nai45_strings 只是别名，这一行顺带钉住别名路由没断
         navigate(cdp, base + "?codex=artist_nai45_strings&fav=1")
         wait_for(cdp, "!document.querySelector('#favoritesViewBackupBtn')?.hidden", "favorites backup entry")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 3", "favorite cards", timeout=15)
+        # 先清 V2 再整页导航，明确测试首次迁移，不能让旧镜像注入绕过唯一真相。
+        migrated_library = cdp.eval("JSON.parse(localStorage.getItem('fadian-favs-v2') || 'null')")
+        expected_keys = {
+            f"suozhang:{entry_id}",
+            "artist_nai45_personal:mengshen_pack-0001",
+            "suozhang_r18:codex_6e699406-0001",
+        }
+        if (
+            not migrated_library
+            or migrated_library.get("migratedFrom") != "v1"
+            or {item.get("key") for item in migrated_library.get("items", [])} != expected_keys
+            or any(item.get("addedAt") is not None or not item.get("importedAt") for item in migrated_library.get("items", []))
+            or migrated_library.get("folders") != []
+            or migrated_library.get("memberships") != []
+        ):
+            raise CheckFailed(f"Historical favorites did not migrate completely to unclassified V2: {migrated_library!r}")
         cdp.eval("document.querySelector('#favoritesViewBackupBtn').click()")
         wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.hidden", "favorites backup dialog")
         settle(cdp, 250)
@@ -2186,7 +2205,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             or fallback_query.get("bridge") != ["20260721"]
         ):
             raise CheckFailed("Favorites migration fallback does not target the rescue page")
-        cdp.eval("document.querySelector('#favoritesBackupClose')?.click(); localStorage.removeItem('fadian-favs'); localStorage.removeItem('fadian-nsfw-ok')")
+        cdp.eval("document.querySelector('#favoritesBackupClose')?.click(); localStorage.removeItem('fadian-favs'); localStorage.removeItem('fadian-favs-v2'); localStorage.removeItem('fadian-favs-v2:lock'); localStorage.removeItem('fadian-favs-v2:signal'); localStorage.removeItem('fadian-nsfw-ok')")
         check_no_errors(cdp)
         return data
 

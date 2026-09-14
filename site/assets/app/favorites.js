@@ -2,13 +2,17 @@ import { state } from './state.js';
 import { toast } from './feedback.js';
 import { findCodexMeta } from './data.js';
 import {
-  ATLAS_FAVORITES_STORAGE_KEY,
   atlasFavoriteStorageKeys,
   createCodexLookup,
 } from './favorites-backup-core.js';
 import { emitFavoritesChanged } from './favorites-backup.js';
+import { addLibraryItem, libraryKeys, removeLibraryItems } from './favorites-library-core.js';
+import { commitLibrary, librarySnapshot } from './favorites-library-store.js';
 
-const favoriteActions = { applyFilter: () => {}, refreshFavoritesView: () => {} };
+const favoriteActions = {
+  applyFilter: () => {}, refreshFavoritesView: () => {}, openOrganize: () => {},
+  restoreRemoved: () => { throw new Error('Favorite undo is not configured'); },
+};
 let codexLookupSource = null;
 let codexLookup = null;
 let deferredFavoritesViewRefresh = false;
@@ -41,12 +45,14 @@ export function favKeys(e, codex = ownerCodex(e)) {
 export function favKey(e) { return favKeys(e)[0]; }
 export function isFav(e) { return favKeys(e).some(key => state.favs.has(key)); }
 
-export function saveFavs() {
-  try {
-    localStorage.setItem(ATLAS_FAVORITES_STORAGE_KEY, JSON.stringify([...state.favs]));
-  } catch (error) {
-    console.warn('[favorites] 无法保存收藏', error);
-  }
+export async function saveFavs() {
+  const keys = new Set(state.favs);
+  const outcome = await commitLibrary(draft => {
+    removeLibraryItems(draft, draft.items.filter(item => !keys.has(item.key)).map(item => item.key));
+    for (const key of keys) addLibraryItem(draft, key, { codexes: state.codexes });
+  });
+  state.favs = new Set(libraryKeys(librarySnapshot()));
+  return outcome;
 }
 
 export function setFavoriteButtonState(btn, on) {
@@ -84,12 +90,30 @@ export function flushDeferredFavoritesViewRefresh(options = { transition: 'filte
   return true;
 }
 
-export function toggleFav(e, btn, options = {}) {
+export async function toggleFav(e, btn, options = {}) {
   const keys = favKeys(e);
   const k = keys[0];
-  if (isFav(e)) keys.forEach(key => state.favs.delete(key));
-  else state.favs.add(k);
-  saveFavs();
+  const outcome = await commitLibrary(draft => {
+    const on = !draft.items.some(item => keys.includes(item.key));
+    if (on) {
+      // 快照仅为后续阶段采集；rating 不能作为访问依据，渲染仍须回源经过 access.js。
+      const image = e.images?.[0];
+      addLibraryItem(draft, k, {
+        codexes: state.codexes,
+        snap: {
+          title: e.title, tags: String(e.tags || '').slice(0, 400),
+          image: typeof image === 'string' ? image : (image?.path || e.image || ''),
+          w: Number(image?.w || image?.width || e.imageWidth || e.width || e.thumbWidth || e.w),
+          h: Number(image?.h || image?.height || e.imageHeight || e.height || e.thumbHeight || e.h), rating: e.rating,
+          srcTitle: e._srcCodexTitle || ownerCodex(e)?.title || '', rev: e.assetRev,
+        },
+      });
+    }
+    const removed = on ? null : removeLibraryItems(draft, keys);
+    return { on, removed };
+  });
+  if (!outcome.ok) return outcome;
+  state.favs = new Set(libraryKeys(librarySnapshot()));
   emitFavoritesChanged(['atlas'], 'toggle');
   const on = isFav(e);
   setFavoriteButtonState(btn, on);
@@ -101,5 +125,19 @@ export function toggleFav(e, btn, options = {}) {
       favoriteActions.refreshFavoritesView({ transition: 'filter' });
     }
   }
-  toast(on ? `已收藏：${e.title}` : `已取消收藏：${e.title}`);
+  const action = on
+    ? { label: '整理', onClick: () => favoriteActions.openOrganize([k], btn) }
+    : { label: '撤销', onClick: async () => {
+      const restored = await commitLibrary(draft => favoriteActions.restoreRemoved(draft, outcome.result.removed), { changed: 'items', silent: true });
+      if (!restored.ok) { toast('撤销没能完成', '!'); return false; }
+      state.favs = new Set(libraryKeys(librarySnapshot()));
+      const active = isFav(e);
+      setFavoriteButtonState(btn, active);
+      syncRenderedFavoriteButtons(e, active);
+      if (options.deferViewRefresh && state.lightbox?.entry) deferredFavoritesViewRefresh = true;
+      else await favoriteActions.refreshFavoritesView({ transition: 'filter' });
+      return true;
+    } };
+  toast(on ? `已收藏：${e.title}` : `已取消收藏：${e.title}`, '✓', action);
+  return outcome;
 }

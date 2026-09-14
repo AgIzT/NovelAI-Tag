@@ -21,7 +21,7 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `../app.js` | 主站组合根；`init`、`loadCodex`、`openRelatedDirectory`、收藏 / 全站搜索视图、筛选与搜索编排 | 法典加载序号、收藏备份绑定标记、目录选项缓存 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`search.js`、`search-directories.js`、`search-ui.js`、`media.js`、`favorites.js`、`favorites-backup-core.js`、`favorites-backup.js`、`fav-codex.js`、`site-search.js`、`masonry.js`、`lightbox.js`、`copy.js`、`report.js`、`router.js`、`codex-route-compat.js`、`path-code.js`、`codex-ui.js`、`history.js`、`ui.js`、`onboarding.js`、`intro.js`、`resume-prompt.js`、`browser-history.js`、`tag-relay.js`、`content-blocking.js`、`content-blocking-ui.js` | 把 `q + f` 编译为统一搜索计划，先做权限过滤再统计结果 / 目录；全部 `set*Actions(...)` 先于 `init()`，本地编辑器满足探测条件后才动态导入 `edit.js` |
+| `../app.js` | 主站组合根；`init`、`loadCodex`、`openRelatedDirectory`、收藏 / 全站搜索视图、筛选与搜索编排 | 法典加载序号、收藏备份绑定标记、目录选项缓存 | `app/state.js`、`app/utils.js`、`app/feedback.js`、`app/access.js`、`app/data.js`、`app/search.js`、`app/search-directories.js`、`app/search-ui.js`、`app/media.js`、`app/favorites.js`、`app/favorites-backup.js`、`app/favorites-library-core.js`、`app/favorites-library-store.js`、`app/favorites-view.js`、`app/fav-codex.js`、`app/site-search.js`、`app/masonry.js`、`app/lightbox.js`、`app/copy.js`、`app/report.js`、`app/router.js`、`app/codex-route-compat.js`、`app/path-code.js`、`app/codex-ui.js`、`app/history.js`、`app/ui.js`、`app/updates.js`、`app/onboarding.js`、`app/intro.js`、`app/resume-prompt.js`、`app/browser-history.js`、`app/tag-relay.js`、`app/content-blocking.js`、`app/content-blocking-ui.js` | 把 `q + f` 编译为统一搜索计划，先做权限过滤再统计结果 / 目录；全部 `set*Actions(...)` 先于 `init()`，本地编辑器满足探测条件后才动态导入 `edit.js` |
 | `../data-source.js` | 选择并读取 R2、同源代理或本地数据；`initializeDataSource`、`fetchDataJson*`、`getDataSource` | 初始化 Promise、当前数据源与 release 上下文 | — | 主站与共创广场共享；同一批引导数据必须来自同一 release，失败时整批切换来源 |
 | `state.js` | 全局运行态、存储键、密度和搜索范围规范化 | 共享 `state` 对象，含规范搜索草稿 / 筛选 / 语法问题 / 计划、相关目录及总数 | — | 只放跨模块运行态；模块私有状态留在所属模块 |
 | `utils.js` | DOM 查询、转义、安全 URL、路径比较、动效偏好、滚动与数值工具 | — | — | 无业务状态的通用工具层 |
@@ -38,7 +38,8 @@
 | `clipboard.js` | `writeClipboardText`；统一返回 Clipboard API、旧式复制或手动复制结果 | — | — | 无 UI 的能力层；失败后的面板由调用方交给 `clipboard-fallback.js` |
 | `clipboard-fallback.js` | 手动复制面板的显示、关闭与敏感文本清除 | 延迟创建的面板实例 | `modal.js` | 撤销分级权限时必须清空 DOM 中残留的待复制文本 |
 | `ui-motion.js` | 局部界面动效的启动 / 取消与偏好门控；`animateUi`、`cancelUiMotion` | 按元素保存的动画句柄 | `utils.js` | 只取消自身持有的动画，结束释放合成样式；不持有业务状态 |
-| `modal.js` | 遮罩开关、焦点陷阱、历史层登记；`bindBackdropDismiss` / `bindOutsideDismiss` | 遮罩计时器、焦点返回点与各关闭绑定的指针起终点 | `utils.js`、`browser-history.js` | 外部点击关闭统一检查同次指针的起终点；保留键盘 click，绑定返回解绑函数；各弹层复用遮罩 / 焦点机制 |
+| `modal.js` | 共享遮罩生命周期与历史登记、焦点陷阱；`configureMask`、`topInteractionLayer`、`isGlobalShortcutBlocked`、外点关闭绑定 | 遮罩计时器、opener / 配置 / 打开顺序 WeakMap、单次键盘事件的顶层缓存与指针起终点 | `utils.js`、`browser-history.js` | `configureMask` 合并 `onOpen` / `onClose` / `restoreFocus`，逻辑关闭即 inert，退场完成后回焦；`historyMode:none` 不覆盖业务自有历史 handler；按实际可交互 DOM 判顶层，同一事件不穿透到刚露出的下层；外点绑定返回解绑函数 |
+| `select-menu.js` | 公共单选菜单工厂 `createSelectMenu`；开合、键盘、受控值与销毁 | 实例选项 / 当前值、DOM 引用、事件解绑表与 Tab 延迟关闭计时器；唯一列表 ID 序号 | `modal.js` | 收藏排序与中转站方案共同使用 `.ui-select-*`；业务保存成功后 `setValue` / 重绘，`setOptions` 按 value 保焦；父容器重绘前 `destroy` 清理文档监听和计时器；Tab 交给原生移焦及外层焦点陷阱 |
 | `browser-history.js` | 页面无关的路由记录、`beginLayeredSearch`、覆盖层栈、恢复令牌与滚动检查点 | 当前记录、恢复状态、待返回操作、层注册表与计时器 | — | 页面通过 `configureBrowserHistory` 注入 `captureRoute`、`urlForRoute`、`applyRoute`、`restoreScroll`、`isEmptySearchRoute` |
 | `feedback.js` | 加载态、骨架屏与可操作 toast | 骨架屏和 toast 的计时 / 焦点状态 | `utils.js` | 只提供反馈表面，不拥有业务提交 |
 | `feedback-progress.js` | 反馈状态元数据、关闭态判断与公开进度流 | — | — | 浏览器与管理端共享的纯数据契约 |
@@ -51,13 +52,17 @@
 | `search.js` | `q + f` 查询解析 / 序列化、字段筛选、稳定相关性排序、短语高亮与缓存失效 | 默认文本、字段值、筛选 needle 与目录短码的每词条 `WeakMap` 缓存 | `state.js`、`media.js`、`favorites.js`、`path-code.js` | 默认召回严格限于标题、标签和角色正向提示词；已知非法语法 fail-closed；编辑器原地改词条后必须调用 `invalidateSearchableText` |
 | `search-directories.js` | 构建目录选项、相关目录排序与缓存失效 | 按 entries 身份、来源模式、法典身份和权限态缓存目录表 | `state.js`、`access.js`、`path-code.js` | 只生成权限过滤后的真实来源目录；最终同级顺序取真实 tree，最多展示 5 项但保留完整 `totalCount` |
 | `search-ui.js` | 中文筛选构造器 / popover、chip、错误 / 零结果状态与相关目录渲染 | 注入动作及委托点击所需的筛选 / 目录引用及条件标签动效 | `ui-motion.js` | 不拥有搜索或历史状态；注入添加 / 删除 / 清空筛选、示例、打开目录和状态动作 |
-| `router.js` | URL 读写、规范标题、分享路径、同书 `entryAliases` 旧词条深链、`hasActiveSearchRoute`、`beginAtlasLayeredSearch` 与词条深链 | `routerActions` | `state.js`、`utils.js`、`search.js`、`path-code.js`、`media.js`、`favorites-backup-core.js`、`feedback.js`、`access.js`、`browser-history.js` | `q` 保存正向输入，规范筛选用重复 `f`，浏览目录仍用 `p`；首次搜索保留 push，后续变更 replace，移动搜索保留分层 Back；规范地址规则见本地私有文档 `docs/decisions/短链与地址栏规范地址.md` |
+| `router.js` | URL 读写、规范标题、分享路径、同书 `entryAliases` 旧词条深链、`hasActiveSearchRoute`、`beginAtlasLayeredSearch` 与词条深链 | `routerActions` | `state.js`、`utils.js`、`path-code.js`、`search.js`、`media.js`、`favorites-backup-core.js`、`feedback.js`、`access.js`、`browser-history.js` | `q` 保存正向输入，规范筛选用重复 `f`，普通浏览目录仍用 `p`，收藏夹用 `fd` 且忽略旧 `p`；首次搜索保留 push，后续变更 replace，移动搜索保留分层 Back；规范地址规则见本地私有文档 `docs/decisions/短链与地址栏规范地址.md` |
 | `copy.js` | 词条 / 文本复制、组合提示词、最近记录、复制动效与中转站收入 | 已复制样式的计时器 `WeakMap` | `state.js`、`feedback.js`、`history.js`、`clipboard.js`、`clipboard-fallback.js`、`nai-sd.js`、`copy-fx.js`、`tag-relay-rail.js`、`tag-relay-store.js`、`tag-relay-snapshot.js`、`access.js`、`data.js` | 只有复制成功后才提交最近记录和中转站收入；带来源的复制先冻结并复核分级，无法确认时保持锁定 |
-| `favorites.js` | 收藏键、读写、按钮状态、切换收藏 | 动作注入、法典别名缓存、延迟刷新标记 | `state.js`、`feedback.js`、`data.js`、`favorites-backup-core.js`、`favorites-backup.js` | 注入 `applyFilter`、`refreshFavoritesView`；虚拟视图通过 `_srcCodexId` 还原真实归属 |
-| `favorites-backup-core.js` | 备份格式、校验、归属归一、同书 `entryAliases` 单跳解析与历史键闭包、恢复计划、双键提交与回滚 | — | — | 浏览器无关的纯逻辑；公开备份契约只在这里定义 |
+| `favorites.js` | 收藏键、读写、按钮状态、切换收藏 | 动作注入、法典别名缓存、延迟刷新标记 | `state.js`、`feedback.js`、`data.js`、`favorites-backup-core.js`、`favorites-backup.js`、`favorites-library-core.js`、`favorites-library-store.js` | 注入 `applyFilter`、`refreshFavoritesView`、整理与撤销动作；保存成功后才改星标；虚拟视图通过 `_srcCodexId` 还原真实归属 |
+| `favorites-backup-core.js` | 备份格式、校验、归属归一、同书 `entryAliases` 单跳解析与历史键闭包、恢复计划、双键提交与回滚 | — | — | 浏览器无关的纯逻辑；保留 V1 格式与身份兼容；V2 文档/备份契约由 favorites-library-core.js 定义 |
+| `favorites-library-core.js` | V2 文档规范化、收藏夹与归属 CRUD、迁移、快照预算、备份 V2 与合并；`seedPresetFolders` 按 `presetsSeeded` 记账只播种一次预制夹 | — | `favorites-backup-core.js` | 纯逻辑；沿用 V1 稳定身份；仅淘汰 snap，绝不裁剪收藏或关系 |
+| `favorites-library-store.js` | 收藏库唯一写入口、迁移、回读验证、跨页订阅与损坏库定向恢复；载入时补播预制夹，与迁移同一次原子写入 | 不可变内存文档、锁与订阅 | `feedback.js`、`favorites-backup-core.js`、`favorites-library-core.js` | 注入法典索引、事件广播与备份入口；先落盘后更新 state 派生值；禁止导入视图 |
+| `favorites-backup-store.js` | V2 备份读写协调、导出封装预算及损坏原文导出 | — | `favorites-backup-core.js`、`favorites-library-core.js`、`favorites-library-store.js` | 锁内重算恢复计划；社区副写失败补偿；损坏覆盖必须匹配用户确认时的原文字节 |
+| `favorites-view.js` | 收藏夹栏、来源筛选、统一计数、整理面板、选择模式、拖放与最小对象撤销；`refreshFavoriteBadges` 为复用节点就地对齐徽章 | 可见索引、面板/选择历史层、异步打开意图序号、语义回焦与单选菜单实例 | `state.js`、`access.js`、`content-blocking.js`、`media.js`、`feedback.js`、`ui-motion.js`、`modal.js`、`select-menu.js`、`browser-history.js`、`favorites-library-store.js`、`favorites-library-core.js` | 注入筛选、重建、路由和真实词条读取；snap 不参与显示或分级；批量动作与当前可见结果求交；命名/整理共用 settings / modal，排序由 select-menu 管理；回焦按稳定身份重新定位；导航作废待打开意图，后台取消局部动效 |
 | `favorites-transfer.js` | 有大小上限的 gzip / base64url 文本传输编解码 | — | — | 使用浏览器原生压缩流，不支持时回退原始 JSON |
-| `favorites-origin-migration.js` | 旧 Pages 域收藏迁移 URL、可信消息、标记与恢复桥 | — | `favorites-backup-core.js` | 由收藏备份流程和独立救援页调用；缘由见本地私有文档 `docs/decisions/旧Pages域收藏迁移桥.md` |
-| `favorites-backup.js` | 收藏导入导出面板、同页 / 跨页变更通知与旧域迁移入口 | 对话框状态、法典索引 Promise | `modal.js`、`browser-history.js`、`favorites-backup-core.js`、`favorites-origin-migration.js`、`../data-source.js`、`favorites-transfer.js`、`clipboard.js`、`clipboard-fallback.js` | 页面提供法典索引；只广播受影响 scope，各页面自行重读内存收藏 |
+| `favorites-origin-migration.js` | 旧 Pages 域收藏迁移 URL、可信消息、标记与恢复桥 | — | `favorites-backup-core.js`、`favorites-backup-store.js` | 由收藏备份流程和独立救援页调用；缘由见本地私有文档 `docs/decisions/旧Pages域收藏迁移桥.md` |
+| `favorites-backup.js` | 收藏导入导出面板、同页 / 跨页变更通知与旧域迁移入口 | 对话框状态、法典索引 Promise | `modal.js`、`browser-history.js`、`favorites-backup-core.js`、`favorites-backup-store.js`、`favorites-library-core.js`、`favorites-origin-migration.js`、`../data-source.js`、`favorites-transfer.js`、`clipboard.js`、`clipboard-fallback.js` | 页面提供法典索引；只广播受影响 scope，各页面自行重读内存收藏 |
 | `fav-codex.js` | 构建“全部收藏”虚拟法典 | — | `state.js`、`data.js`、`access.js`、`media.js`、`favorites-backup-core.js` | 不写入 `state.codexes`；给条目补 `_src*`，并暴露各真实来源的 `_sourceDirectoryTrees` 供目录排序 |
 | `site-search.js` | 构建并失效“全站搜索”虚拟法典 | 成功结果缓存、在途 Promise、失效代次 | `state.js`、`data.js`、`access.js`、`media.js` | 只缓存完整成功且非降级的结果；编辑后显式失效；条目携带 `_src*`，并按来源顺序暴露 `_sourceDirectoryTrees` |
 | `history.js` | 最近复制、浏览快照、恢复、打开历史条目与滚动复位 | `historyActions`、保存计时 / 抑制状态、恢复代次；最近记录屏蔽核验的法典缓存 | `state.js`、`utils.js`、`media.js`、`router.js`、`codex-route-compat.js`、`access.js`、`feedback.js`、`data.js`、`fav-codex.js`、`site-search.js`、`browser-history.js`、`content-blocking.js`、`favorites-backup-core.js` | 注入 `loadCodex`、两个虚拟视图入口、`openEntryDeepLink`、`renderTree`、`applyFilter`、`updateVirtualCards`；不得反向导入 `copy.js` |
@@ -67,7 +72,7 @@
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
 | `codex-ui.js` | 法典选择器、目录树、横幅、分类轨、结果 / 空态、随机浏览与归档 UI；`exampleModel` 覆盖书卡 / 横幅的原图状态签；`codexCoverStyle` 共用封面位置与缩放；贡献者 `url` 让气泡 / 档案里的贡献者可点，与 `author` 同名者另上横幅作者主页按钮 | 动作注入、访问视图缓存、目录监听、分支动效、提示 / 面板状态 | `state.js`、`utils.js`、`access.js`、`data.js`、`media.js`、`feedback.js`、`browser-history.js`、`modal.js`、`ui-motion.js` | 注入 `loadCodex`、`applySearch`、`applyFilter`、`openLightbox`、`syncUrlState`、`updateVirtualCards`；编辑器可追加 `decorateDoor` |
-| `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效；屏蔽成员变更的节点复用 | 动作注入、布局缓存、虚拟窗口、重排、限时退场残影与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js`、`ui-motion.js` | 屏蔽保存后复用剩余节点/图片/同宽实测高度；退场不持有业务状态且立即 inert，清空/重排结清；注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`、`hideCard`；不静态导入 `lightbox.js` 或 `report.js` |
+| `masonry.js` | 虚拟瀑布流、卡片、图片加载、测高、重排与入场动效；屏蔽成员变更的节点复用 | 动作注入、布局缓存、虚拟窗口、重排、限时退场残影与动效状态 | `state.js`、`utils.js`、`feedback.js`、`search.js`、`media.js`、`copy.js`、`favorites.js`、`codex-ui.js`、`ui-motion.js` | 屏蔽保存后复用剩余节点/图片/同宽实测高度；退场不持有业务状态且立即 inert，清空/重排结清；注入 `openLightbox`、`copyEntry`、`toggleFav`、`reportEntry`、`hideCard`、收藏卡装饰和徽章估高；不静态导入 `lightbox.js` 或 `report.js` |
 | `lightbox.js` | 灯箱开关、跨词条步进、预载、原图 / 分享 / 收藏 / 反馈与 FLIP 辅助 | 当前序号、关闭计时、焦点与缩略图身份、预载缓存 | `state.js`、`utils.js`、`masonry.js`、`search.js`、`copy.js`、`nai-sd.js`、`history.js`、`router.js`、`data.js`、`media.js`、`original-capability.js`、`access.js`、`report.js`、`browser-history.js`、`favorites.js`、`modal.js`、`content-blocking.js`、`content-blocking-ui.js` | 原图提示按真实来源的 `exampleModel` 标明模型；背景关闭复用手势门并保留滑图后的 click 抑制；灯箱动效维护方式见本地私有文档 `docs/经验/前端灯箱FLIP动效.md` |
 | `report.js` | 反馈提交、上下文打包、公开进度列表和兜底复制 | 当前提交上下文、触发点、公开列表 / 筛选状态与页签动效 | `state.js`、`utils.js`、`feedback.js`、`modal.js`、`media.js`、`original-capability.js`、`feedback-progress.js`、`local-ownership.js`、`clipboard.js`、`clipboard-fallback.js`、`ui-motion.js` | 拥有反馈业务；由瀑布流动作注入调用，不反向依赖瀑布流 |
 | `announcements.js` | 动态面板：公告 / 更新 / 反馈三页签切换、公告加载与未读角标 | 公告数据、加载状态与在途 Promise、当前页签与切换动效 | `ui-motion.js`、`utils.js`、`modal.js`、`history.js`、`updates.js`、`../data-source.js` | 数据读取走统一数据源，不自行拼发布路径；只把当前打开的那一栏标记为已读，未翻到的栏保留红点 |
@@ -91,7 +96,7 @@
 | `tag-relay-action.js` | 侧栏内的命名、确认和取消操作条 | 当前操作、引用与焦点返回点 | — | 轻量内联交互，不另叠浏览器原生 `prompt` / `confirm` |
 | `tag-relay-rail.js` | 侧栏外壳、开关、响应式模态判定、分区定位与脏标记 | 外壳 / 背景引用、当前分区、渲染器与脏集合 | `utils.js`、`browser-history.js`、`modal.js`、`tag-relay-action.js`、`tag-relay-motion.js` | `setRailPaneRenderers` 注入素材和编排渲染器，避免外壳与内容互相静态导入；停靠态不是历史层 |
 | `tag-relay-motion.js` | 中转站局部 FLIP 重排、入场 / 移除过渡与动画中断 | 列表快照、退出残影与动画句柄 | `ui-motion.js`、`utils.js` | 只管理中转站列表节点；快速重绘、收栏、隐藏页和 reduced-motion 会同步清理 |
-| `tag-relay-compose.js` | 方案块编辑、排序、输出预览 / 复制、历史恢复与访问刷新 | DOM 引用、选中项、输出格式、连接方式、拖拽 / 编辑器状态 | `feedback.js`、`copy.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`tag-relay-motion.js`、`ui-motion.js`、`modal.js` | 成品复制关闭再次格式转换且不携带词条来源，拖入素材会按落点插入，焦点按 itemId 恢复 |
+| `tag-relay-compose.js` | 方案块编辑、排序、输出预览 / 复制、历史恢复与访问刷新 | DOM / 公共方案选择器引用、选中项、输出格式、连接方式、拖拽 / 编辑器状态 | `feedback.js`、`copy.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`tag-relay-motion.js`、`ui-motion.js`、`modal.js`、`select-menu.js` | 成品复制关闭再次格式转换且不携带词条来源，拖入素材会按落点插入，方案选择由公共 listbox 处理，提交结束后回读真实值；块焦点按 itemId 恢复 |
 | `tag-relay.js` | 中转站接线、素材仓库、收藏来源与入口计数 | 绑定标记、素材根、来源模式、收藏缓存 / 加载状态 | `access.js`、`data.js`、`fav-codex.js`、`favorites-backup.js`、`feedback.js`、`media.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-rail.js`、`tag-relay-compose.js`、`tag-relay-motion.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`ui-motion.js` | 初始化 store、rail、action、compose，并把 `renderWarehouse` / `renderCompose` 注入外壳；不改写主站共享法典状态 |
 
 ## 本地编辑器
@@ -106,6 +111,8 @@
 - `app.js` 是主站唯一组合根：所有 `set*Actions(...)` 必须先于 `init()`；新增跨层回调优先在这里接线。
 - `router.js`、`history.js`、`codex-ui.js` 通过注入调用瀑布流，避免反向静态依赖；`masonry.js` 同理通过动作注入打开灯箱和反馈。
 - `browser-history.js` 必须保持页面无关。历史层的底层 open / close handler 不得自己改 history；用户动作包装器才决定 push、replace 或 back。完整套路见本地私有文档 `docs/经验/浏览器历史状态管理.md`。
+- 视觉顶层与全局快捷键归属统一由 `modal.js` 判断，不能把 history 顶层直接当作模态：选择模式不是模态，停靠中转站也不是。全局监听先检查 `isGlobalShortcutBlocked(event, owner)`；局部列表/菜单自己处理按键并保留 Tab 的焦点管理。
+- `ui-kit.css` 提供 `.bar-btn`、`.panel-action`、`.panel-input` 与 `.ui-select-*` 共用表面；名称/整理弹窗沿用 `styles.css` 的 settings 家族。功能样式只写业务布局和必要变量，不再复制按钮、输入与选择器几何。
 - 内容分级统一经过 `access.js`；快照、历史或虚拟视图无法证明可访问时，保持 fail-closed。
 - 个人屏蔽独立于内容分级：`app.js` 过滤最终结果，卡片由动作注入执行隐藏，灯箱在分级判定后拦截并提供临时查看；`app.js` 初始化管理入口，`ui.js` 把面板纳入快捷键遮挡。最近记录在关键词启用时先加载真实词条核验，再渲染缩略图；`edit.js` 失效匹配缓存。清单仅覆盖主图鉴，收藏关系、共创广场和中转站编排状态仍各自管理。
 - 收藏和全站搜索是临时虚拟法典，不进入 `state.codexes`；跨法典消费者必须用 `_src*` 回到真实来源。

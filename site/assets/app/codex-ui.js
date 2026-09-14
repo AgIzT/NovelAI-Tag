@@ -777,6 +777,7 @@ function setTreeBranchExpanded(item, expanded, { animate = true } = {}) {
 }
 
 export function renderTree() {
+  if (state.favoritesView) return;
   const nav = $('#tree');
   const shouldAnimate = nav.dataset.codexId !== (state.codex?.id || '');
   clearTimeout(treeEnterTimer);
@@ -1421,6 +1422,7 @@ export function renderCodexHeader() {
 /* 顶部横向分类轨道（chip rail）。animate=false 用于就地刷新（如收藏视图内取消收藏后重算计数），
    避免 chipIn 入场错峰在每次删收藏时重放。 */
 export function renderCategoryRail({ animate = true } = {}) {
+  if (state.favoritesView) return;
   const rail = $('#chipRail');
   if (!rail) return;
   rail.innerHTML = '';

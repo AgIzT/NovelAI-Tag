@@ -8,6 +8,7 @@
 import { toast } from './feedback.js';
 import { copyText } from './copy.js';
 import { bindOutsideDismiss } from './modal.js';
+import { createSelectMenu } from './select-menu.js';
 import { requestRelayAction } from './tag-relay-action.js';
 import {
   appendBlockToPlan,
@@ -38,6 +39,7 @@ import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { prefersReducedMotion } from './utils.js';
 
 let refs = null;
+let planPicker = null;
 
 /* 拖拽载荷类型：方案块（重排 / 拖到素材区移出）与素材（拖进方案）各一种，
    接收方只看 dataTransfer.types 就能分辨，不必跨模块共享变量。 */
@@ -899,34 +901,11 @@ function renderPlanControls() {
     option.selected = item.id === state.activePlanId;
     return option;
   }));
-  /* 块数已经写在「当前方案 · N 个素材块」那行了；这里再挂一个「· N」会和栏头旁边
-     的素材条数凑成两个不解释的数字。可访问名仍带上，读屏用户听得到。 */
-  refs.planPickerLabel.textContent = current ? current.name : '选择方案';
-  refs.planPickerBtn.setAttribute(
-    'aria-label',
-    current ? `当前方案：${current.name}，${current.items.length} 个素材块` : '选择方案',
-  );
-  refs.planList.replaceChildren(...state.plans.map((item, index) => {
-    const option = document.createElement('button');
-    option.type = 'button';
-    option.id = `relayPlanOption${index}`;
-    option.className = 'tag-relay-plan-option';
-    option.dataset.planId = item.id;
-    option.setAttribute('role', 'option');
-    option.setAttribute('aria-selected', String(item.id === state.activePlanId));
-    option.tabIndex = -1;
-
-    const name = document.createElement('span');
-    name.textContent = item.name;
-    const count = document.createElement('small');
-    count.textContent = `${item.items.length} 个素材块`;
-    const check = document.createElement('span');
-    check.className = 'tag-relay-plan-option-check';
-    check.setAttribute('aria-hidden', 'true');
-    check.textContent = item.id === state.activePlanId ? '✓' : '';
-    option.append(name, count, check);
-    return option;
-  }));
+  planPicker.setOptions(state.plans.map(item => ({
+    value: item.id, label: item.name, description: `${item.items.length} 个素材块`,
+  })));
+  planPicker.setValue(state.activePlanId);
+  planPicker.setTriggerLabel(current ? `当前方案：${current.name}，${current.items.length} 个素材块` : '选择方案');
   refs.deletePlan.disabled = state.plans.length <= 1;
 }
 
@@ -1147,33 +1126,13 @@ async function copyOutput(channel, trigger) {
 /* ---------------- 绑定 ---------------- */
 
 function bindPlanBar() {
-  const picker = refs.planPickerBtn;
-  const list = refs.planList;
   const menu = refs.planMenu;
-  const planOptions = () => [...list.querySelectorAll('[role="option"]')];
   const menuItems = () => [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
-  const closePicker = ({ restoreFocus = false } = {}) => {
-    list.hidden = true;
-    picker.setAttribute('aria-expanded', 'false');
-    if (restoreFocus) picker.focus({ preventScroll: true });
-  };
+  const closePicker = options => planPicker.close(options);
   const closeMenu = ({ restoreFocus = false } = {}) => {
     menu.hidden = true;
     refs.planMenuBtn.setAttribute('aria-expanded', 'false');
     if (restoreFocus) refs.planMenuBtn.focus({ preventScroll: true });
-  };
-  const openPicker = (focus = 'selected') => {
-    closeMenu();
-    list.hidden = false;
-    picker.setAttribute('aria-expanded', 'true');
-    const options = planOptions();
-    const selected = options.find(option => option.getAttribute('aria-selected') === 'true');
-    const target = focus === 'first'
-      ? options[0]
-      : focus === 'last'
-        ? options.at(-1)
-        : selected || options[0];
-    target?.focus({ preventScroll: true });
   };
   const openMenu = (focus = 'first') => {
     closePicker();
@@ -1182,68 +1141,22 @@ function bindPlanBar() {
     const items = menuItems();
     (focus === 'last' ? items.at(-1) : items[0])?.focus({ preventScroll: true });
   };
-  const selectPlan = async (planId, { restoreFocus = true } = {}) => {
+  const selectPlan = async planId => {
     if (!planId) return;
-    closePicker({ restoreFocus });
-    refs.planSelect.value = planId;
+    closePicker();
     await commitRelay(next => setActivePlan(next, planId), { changed: 'plan' });
+    // 包括失败后的回读：可见选择与旧 select 值桥都只呈现实际存下的方案。
+    renderPlanControls();
   };
-
-  /* 隐藏原生 select 只是旧调用方的值桥；可见交互统一走带动画的 listbox。 */
-  refs.planSelect.addEventListener('change', () => selectPlan(refs.planSelect.value, { restoreFocus: false }));
-  picker.addEventListener('click', event => {
-    event.stopPropagation();
-    if (list.hidden) openPicker();
-    else closePicker({ restoreFocus: true });
-  });
-  picker.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !list.hidden) {
-      event.preventDefault();
-      event.stopPropagation();
-      closePicker({ restoreFocus: true });
-      return;
-    }
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    openPicker(event.key === 'ArrowUp' || event.key === 'End' ? 'last' : (event.key === 'Home' ? 'first' : 'selected'));
-  });
-  list.addEventListener('click', event => {
-    const option = event.target?.closest?.('[data-plan-id]');
-    if (!option || !list.contains(option)) return;
-    void selectPlan(option.dataset.planId);
-  });
-  list.addEventListener('keydown', event => {
-    const options = planOptions();
-    if (!options.length) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      closePicker({ restoreFocus: true });
-      return;
-    }
-    if (event.key === 'Tab') {
-      /* 先让浏览器完成原生 Tab 移焦，再收起浮层；同步隐藏当前焦点会让部分浏览器
-         从 body 重新开始遍历，键盘用户一下跳回页面最前面。 */
-      setTimeout(() => closePicker(), 0);
-      return;
-    }
-    if (event.key === 'Enter' || event.key === ' ') {
-      const option = event.target?.closest?.('[data-plan-id]');
-      if (!option) return;
-      event.preventDefault();
-      void selectPlan(option.dataset.planId);
-      return;
-    }
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const current = Math.max(0, options.indexOf(document.activeElement));
-    const next = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? options.length - 1
-        : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
-    options[next].focus({ preventScroll: true });
-  });
+  planPicker = createSelectMenu({ label: '选择方案', onChange: selectPlan, onOpen: closeMenu });
+  planPicker.button.id = 'relayPlanPickerBtn';
+  planPicker.list.id = 'relayPlanList';
+  planPicker.button.setAttribute('aria-controls', planPicker.list.id);
+  refs.planPickerHost.append(planPicker.element);
+  refs.planPickerBtn = planPicker.button;
+  refs.planList = planPicker.list;
+  /* 隐藏原生 select 只是旧调用方的值桥；可见交互由公共 listbox 负责。 */
+  refs.planSelect.addEventListener('change', () => selectPlan(refs.planSelect.value));
 
   refs.planMenuBtn.addEventListener('click', event => {
     event.stopPropagation();
@@ -1277,9 +1190,6 @@ function bindPlanBar() {
         ? items.length - 1
         : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
     items[next].focus({ preventScroll: true });
-  });
-  bindOutsideDismiss([list, picker], () => {
-    if (!list.hidden) closePicker();
   });
   bindOutsideDismiss([menu, refs.planMenuBtn], () => {
     if (!menu.hidden) closeMenu();
@@ -1594,9 +1504,7 @@ function bindEscape(root) {
     if (!refs.planList.hidden) {
       event.preventDefault();
       event.stopPropagation();
-      refs.planList.hidden = true;
-      refs.planPickerBtn.setAttribute('aria-expanded', 'false');
-      refs.planPickerBtn.focus({ preventScroll: true });
+      planPicker.close({ restoreFocus: true });
       return;
     }
     if (!refs.planMenu.hidden) {
@@ -1635,7 +1543,7 @@ export function setupRelayCompose(root) {
     root,
     planSelect: q('#relayPlanSelect'),
     planPickerBtn: q('#relayPlanPickerBtn'),
-    planPickerLabel: q('#relayPlanPickerLabel'),
+    planPickerHost: q('#relayPlanPicker'),
     planList: q('#relayPlanList'),
     planMenuBtn: q('#relayPlanMenuBtn'),
     planMenu: q('#relayPlanMenu'),

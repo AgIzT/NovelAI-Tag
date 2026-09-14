@@ -88,3 +88,66 @@
   .bar-btn,.panel-action,.seg-tabs>button,.seg-tabs::before{transition:none!important}
   .bar-btn:active:not(:disabled),.panel-action:active:not(:disabled),.seg-tabs>button:active:not(:disabled){scale:1}
 }
+/* ---------- 面板输入：反馈与收藏等表单共用 ---------- */
+.panel-input,.feedback-field input,.feedback-field select,.feedback-field textarea,
+.feedback-fallback textarea{
+  box-sizing:border-box;width:100%;min-width:0;border:1px solid var(--line);border-radius:12px;
+  background:var(--card);color:var(--text);font-family:inherit;font-size:13px;line-height:1.55;
+  padding:8px 11px;outline:none;resize:vertical;
+  transition:border-color .16s,box-shadow .16s,background .16s;
+}
+.panel-input:focus,.feedback-field input:focus,.feedback-field select:focus,.feedback-field textarea:focus,
+.feedback-fallback textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.panel-input::placeholder{color:var(--muted)}
+
+/* ---------- 单选菜单：收藏排序与中转站方案共用 ---------- */
+.ui-select{position:relative;min-width:0;max-width:100%}
+.ui-select-button{
+  width:100%;min-width:0;min-height:var(--select-height,32px);display:flex;align-items:center;gap:5px;
+  border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);
+  font:700 var(--select-font-size,12px)/1.25 var(--font-ui);padding:5px 9px;text-align:left;cursor:pointer;
+  transition:border-color .16s,color .16s,background .16s,box-shadow .16s,scale .14s ease;
+}
+.ui-select-button:hover,.ui-select-button[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
+.ui-select-button:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.ui-select-button:active:not(:disabled){scale:.97}
+.ui-select-button:disabled,.ui-select-option:disabled{opacity:.46;cursor:not-allowed}
+.ui-select-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ui-select-arrow{
+  flex:none;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;transition:rotate .16s cubic-bezier(.22,1,.36,1);
+}
+.ui-select-button[aria-expanded="true"] .ui-select-arrow{rotate:180deg}
+.ui-select-list{
+  position:absolute;left:0;top:calc(100% + 6px);z-index:6;
+  width:max(100%,190px);max-width:min(260px,calc(100vw - 28px));max-height:min(46vh,288px);
+  box-sizing:border-box;display:flex;flex-direction:column;gap:2px;overflow-y:auto;overscroll-behavior:contain;padding:6px;
+  border:1px solid var(--popover-line);border-radius:12px;background:var(--popover-glass);color:var(--text);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+  opacity:1;translate:0 0;scale:1;transform-origin:top left;
+  transition:opacity .16s ease,translate .18s cubic-bezier(.22,1,.36,1),
+    scale .18s cubic-bezier(.22,1,.36,1),display .18s allow-discrete;
+}
+.ui-select-option{
+  width:100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  border:0;border-radius:8px;background:transparent;color:var(--text);padding:7px 9px;
+  text-align:left;font:700 var(--select-font-size,12px)/1.4 var(--font-ui);cursor:pointer;
+}
+.ui-select-option:hover:not(:disabled),.ui-select-option:focus-visible{outline:none;background:var(--tagbg);color:var(--accent)}
+.ui-select-option[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
+.ui-select-option-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ui-select-option-note{flex:none;color:var(--muted);font-size:9.5px;font-weight:700;white-space:nowrap}
+.ui-select-option-check{flex:none;width:12px;color:var(--accent);text-align:center;font-size:10px;font-weight:900}
+.ui-select-list[hidden]{display:none;opacity:0;translate:0 -6px;scale:.97;pointer-events:none}
+@starting-style{.ui-select-list:not([hidden]){opacity:0;translate:0 -6px;scale:.97}}
+@media(max-width:600px){
+  .ui-select-button,.ui-select-option{min-height:var(--select-touch-height,44px)}
+}
+@media(prefers-reduced-motion:reduce){
+  .ui-select-button,.ui-select-arrow,.ui-select-list,.panel-input,
+  .feedback-field input,.feedback-field select,.feedback-field textarea,.feedback-fallback textarea{transition:none!important}
+  .ui-select-button:active:not(:disabled){scale:1}
+}
+.motion-off :is(.ui-select-button,.ui-select-arrow,.ui-select-list,.panel-input){transition:none!important}
+.motion-off .ui-select-button:active:not(:disabled){scale:1}

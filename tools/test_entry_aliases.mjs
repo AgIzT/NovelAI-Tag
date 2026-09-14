@@ -5,6 +5,7 @@ const values = new Map();
 globalThis.localStorage = {
   getItem: key => values.get(key) ?? null,
   setItem: (key, value) => values.set(key, String(value)),
+  removeItem: key => values.delete(key),
 };
 globalThis.window = { addEventListener() {}, dispatchEvent() {}, matchMedia: () => ({ matches: false }) };
 globalThis.document = {
@@ -16,6 +17,8 @@ const core = await import('../site/assets/app/favorites-backup-core.js');
 const { state } = await import('../site/assets/app/state.js');
 const { openEntryDeepLink, setRouterActions } = await import('../site/assets/app/router.js');
 const { isFav, toggleFav } = await import('../site/assets/app/favorites.js');
+const libraryStore = await import('../site/assets/app/favorites-library-store.js');
+const { FAVORITES_LIBRARY_STORAGE_KEY, libraryKeys } = await import('../site/assets/app/favorites-library-core.js');
 const { buildFavoritesCodex } = await import('../site/assets/app/fav-codex.js');
 const { renderShareResponse } = await import('../functions/_share.js');
 
@@ -57,7 +60,12 @@ const entry = {
 state.codex = { ...meta, entries: [entry] };
 state.codexes = codexes;
 state.codexCache = new Map([[codexId, Promise.resolve(state.codex)]]);
-state.favs = new Set(keys);
+values.set(core.ATLAS_FAVORITES_STORAGE_KEY, JSON.stringify(keys));
+libraryStore.setLibraryStoreActions({ getCodexes: () => state.codexes });
+libraryStore.subscribeLibrary(snapshot => { state.favs = new Set(libraryKeys(snapshot)); });
+assert.equal((await libraryStore.ensureLibrary()).ok, true);
+assert.deepEqual([...state.favs], [keys[0]], '六个历史键迁移为同一个规范身份');
+assert.deepEqual(JSON.parse(values.get(FAVORITES_LIBRARY_STORAGE_KEY)).items.map(item => item.key), [keys[0]]);
 state.list = [];
 state.placements = [];
 state.nodes = new Map();
@@ -74,10 +82,17 @@ assert.equal(wall.entries.length, 1, '六个历史收藏只呈现一张套图卡
 assert.equal(wall.entries[0].images.length, 6);
 assert.equal(wall.dataNotice, '');
 assert.equal(isFav(entry), true);
-toggleFav(entry);
+assert.equal((await toggleFav(entry)).ok, true);
 assert.deepEqual([...state.favs], [], '取消收藏清除规范键与全部历史键');
+assert.deepEqual(JSON.parse(values.get(FAVORITES_LIBRARY_STORAGE_KEY)).items, []);
+assert.deepEqual(JSON.parse(values.get(core.ATLAS_FAVORITES_STORAGE_KEY)), []);
 for (const key of keys.slice(1)) {
-  state.favs = new Set([key]);
+  const restored = await libraryStore.commitLibrary(draft => {
+    draft.items = [{ key, addedAt: null, note: '' }];
+    draft.memberships = [];
+  });
+  assert.equal(restored.ok, true, key);
+  assert.deepEqual([...state.favs], [keys[0]], key);
   assert.equal(isFav(entry), true, key);
   wall = await buildFavoritesCodex();
   assert.equal(wall.entries.length, 1, key);

@@ -12,7 +12,7 @@ import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntrie
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
-import { bindBackdropDismiss, bindOutsideDismiss, openMask, closeMask, registerMaskHistory, trapFocus } from './modal.js';
+import { bindBackdropDismiss, bindOutsideDismiss, openMask, closeMask, registerMaskHistory, trapFocus, topInteractionLayer, isGlobalShortcutBlocked } from './modal.js';
 import { setupAnnouncements, openAnnouncementsPanel, updateAnnouncementBadge } from './announcements.js';
 import { loadUpdates, renderUpdatesDigest, handleUpdateRowClick } from './updates.js';
 import { setupReport, openReportDialog } from './report.js';
@@ -38,6 +38,7 @@ const THEME_ICONS = {
 
 const uiActions = {
   loadCodex: async () => {},
+  toggleFavoritesFolders: () => false,
   openFavoritesView: async () => {},
   openSiteSearchView: async () => {},
   exitSiteSearchView: () => {},
@@ -540,6 +541,8 @@ export function bindUI() {
     forgetHistoryLayer('mobile-sidebar');
   });
   $('#menuBtn').onclick = () => {
+    // 收藏视图窄屏时这颗按钮唤起收藏夹抽屉；宽屏仍是折叠/展开左栏。
+    if (uiActions.toggleFavoritesFolders($('#menuBtn'))) return;
     const opening = sidebar.classList.contains('closed');
     if (mobileQuery.matches && !opening && closeHistoryLayer('mobile-sidebar')) return;
     const replaceLayer = mobileQuery.matches && opening && topHistoryLayerId() === 'banner-about';
@@ -732,7 +735,6 @@ export function bindUI() {
   const nsfwMask = $('#nsfwConfirm');
   const shortcutMask = $('#shortcutHelp');
   const historyMask = $('#historyPanel');
-  const favoritesBackupMask = $('#favoritesBackupPanel');
   const aboutMask = $('#about');
   const archiveMask = $('#codexArchive');
   const announcementsMask = $('#announcementsPanel');
@@ -972,34 +974,27 @@ export function bindUI() {
   ], () => {
     closeBannerAbout({ historyMode: 'back' });
   });
+  // 这里只登记本模块拥有的关闭动作；模态识别与顶层顺序统一由 modal 管理。
+  const dismissMasks = new Map([
+    [nsfwMask, cancelNsfwConfirm], [r18gMask, cancelR18gConfirm],
+    ...[settingsMask, shortcutMask, historyMask, aboutMask, archiveMask, announcementsMask, feedbackMask, onboardingMask]
+      .filter(Boolean).map(mask => [mask, () => closeMask(mask)]),
+  ]);
   window.addEventListener('keydown', ev => {
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Escape' || ev.defaultPrevented) return;
+    const top = topInteractionLayer(ev);
+    if (top) {
+      const dismiss = dismissMasks.get(top);
+      if (dismiss) { ev.preventDefault(); dismiss(); }
+      else if (top === $('#tagRelayRail') && isRelayRailModal()) { ev.preventDefault(); closeRelayRail(); }
+      return;
+    }
     if (document.body.classList.contains('search-mode')) {
       ev.preventDefault();
       setSearchMode(false, { restoreButton: true });
       return;
     }
-    if (!nsfwMask.hidden) {
-      ev.preventDefault();
-      cancelNsfwConfirm();
-      return;
-    }
-    if (r18gMask && !r18gMask.hidden) {
-      ev.preventDefault();
-      cancelR18gConfirm();
-      return;
-    }
     if (!moreMenu.hidden) { closeMore({ focusButton: true }); return; }
-    if (!settingsMask.hidden) { closeMask(settingsMask); return; }
-    if (!shortcutMask.hidden) { closeMask(shortcutMask); return; }
-    if (!historyMask.hidden) { closeMask(historyMask); return; }
-    if (!aboutMask.hidden) { closeMask(aboutMask); return; }
-    if (!archiveMask.hidden) { closeMask(archiveMask); return; }
-    if (announcementsMask && !announcementsMask.hidden) { closeMask(announcementsMask); return; }
-    if (feedbackMask && !feedbackMask.hidden) { closeMask(feedbackMask); return; }
-    if (onboardingMask && !onboardingMask.hidden) { closeMask(onboardingMask); return; }
-    /* 只有浮层形态的中转站栏才吃 Esc；停靠态是页面家具（同左侧目录栏），不该抢 */
-    if (isRelayRailModal()) { closeRelayRail(); return; }
     closeBannerAbout({ historyMode: 'back' });
   });
   bindLightboxControls({ mobileQuery });
@@ -1046,34 +1041,19 @@ export function bindUI() {
     const tag = el && el.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable;
   };
-  const overlayOpen = () =>
-    Boolean(document.querySelector('#contentBlocking.show, #blockingReveal.show')) ||
-    !$('#lightbox').hidden ||
-    !settingsMask.hidden ||
-    !nsfwMask.hidden ||
-    (r18gMask && !r18gMask.hidden) ||
-    !shortcutMask.hidden ||
-    !historyMask.hidden ||
-    (favoritesBackupMask && !favoritesBackupMask.hidden) ||
-    !aboutMask.hidden ||
-    !archiveMask.hidden ||
-    (announcementsMask && !announcementsMask.hidden) ||
-    (feedbackMask && !feedbackMask.hidden) ||
-    (onboardingMask && !onboardingMask.hidden) ||
-    isRelayRailModal();
   window.addEventListener('keydown', ev => {
-    if (ev.ctrlKey || ev.metaKey || ev.altKey || typingTarget()) return;
-    if (ev.key === '?' && !overlayOpen()) {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey || typingTarget() || isGlobalShortcutBlocked(ev)) return;
+    if (ev.key === '?') {
       ev.preventDefault();
       openMask(shortcutMask);
       return;
     }
-    if (ev.key.toLowerCase() === 'g' && !overlayOpen()) {
+    if (ev.key.toLowerCase() === 'g') {
       ev.preventDefault();
       scrollToTop();
       return;
     }
-    if (ev.key === '/' && !overlayOpen()) {
+    if (ev.key === '/') {
       ev.preventDefault();
       if (mobileQuery.matches) setSearchMode(true);
       searchInput.focus();

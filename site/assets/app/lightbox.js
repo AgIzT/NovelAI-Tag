@@ -18,7 +18,7 @@ import { openReportDialog } from './report.js';
 import { isContentBlocked } from './content-blocking.js';
 import { hideCard, promptBlockedEntry } from './content-blocking-ui.js';
 import { goBackFrom } from './browser-history.js';
-import { bindBackdropDismiss } from './modal.js';
+import { bindBackdropDismiss, isGlobalShortcutBlocked } from './modal.js';
 import {
   flushDeferredFavoritesViewRefresh,
   isFav,
@@ -482,8 +482,7 @@ export function isLightboxKeydownBlocked(ev) {
   const target = ev.target instanceof HTMLElement ? ev.target : document.activeElement;
   const tag = target?.tagName;
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
-  const feedbackPanel = $('#feedbackPanel');
-  return Boolean(ev.defaultPrevented || typing || (feedbackPanel && !feedbackPanel.hidden));
+  return Boolean(typing || isGlobalShortcutBlocked(ev, $('#lightbox')));
 }
 
 export function renderCharacterPrompts(entry) {
@@ -983,9 +982,9 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   window.addEventListener('keydown', ev => {
     if ($('#lightbox').hidden) return;
     if (isLightboxKeydownBlocked(ev)) return;
-    if (ev.key === 'Escape') closeLightbox();
-    if (ev.key === 'ArrowLeft') stepLightbox(-1);
-    if (ev.key === 'ArrowRight') stepLightbox(1);
+    if (ev.key === 'Escape') { ev.preventDefault(); closeLightbox(); }
+    if (ev.key === 'ArrowLeft') { ev.preventDefault(); stepLightbox(-1); }
+    if (ev.key === 'ArrowRight') { ev.preventDefault(); stepLightbox(1); }
   });
 
 
