@@ -96,6 +96,17 @@
 .favorite-library-card .card-path { flex: 1; min-width: 0; }
 .favorite-organize-button { flex: none; min-height: 36px; }
 .favorite-library-card .card-img-wrap .favorite-organize-button { position: absolute; top: 8px; left: 8px; z-index: 8; }
+/* 图上的整理入口跟主站卡片动作（.report-card-btn）同一套：鼠标设备悬停或键盘聚焦才显现，
+   触屏常驻。满屏常驻会给以图为主的瀑布流每张图都压一块标签。无图卡的入口在标题行，照旧常驻。 */
+.favorite-library-card .card-img-wrap .favorite-organize-button {
+  opacity: 0; pointer-events: none;
+  transition: opacity .12s, border-color .15s, background .15s, color .15s, box-shadow .15s, translate .15s, scale .14s ease;
+}
+.favorite-library-card:hover .card-img-wrap .favorite-organize-button,
+.favorite-library-card:focus-within .card-img-wrap .favorite-organize-button { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .favorite-library-card .card-img-wrap .favorite-organize-button { opacity: 1; pointer-events: auto; }
+}
 .favorite-library-card .card-badges { top: 52px; }
 .favorite-library-card.no-img .favorite-organize-button { margin-left: 0; }
 .favorites-selecting .favorite-organize-button { visibility: hidden; }
