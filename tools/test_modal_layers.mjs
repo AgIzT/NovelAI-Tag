@@ -42,6 +42,9 @@ globalThis.document = {
   querySelectorAll: () => nodes.filter(node => node.attributes.get('aria-modal') === 'true' || node.attributes.has('data-modal-root')),
 };
 const tick = (delay = 0) => new Promise(resolve => setTimeout(resolve, delay));
+// 聚焦走双 rAF（此处以 setTimeout(0) 模拟）。按固定毫秒等待在机器繁忙时会和嵌套回调同批到期、
+// 抢在内层 rAF 前断言；逐帧串行等待，每一帧都排在上一帧产生的回调之后。
+const frames = async (count = 3) => { for (let n = 0; n < count; n++) await tick(); };
 const reset = () => { nodes.splice(1); document.activeElement = body; reduced = false; };
 const button = (id, parent = body) => { const node = new Element(id, { parent }); node.focusable = true; return node; };
 const makeMask = (id, z = 70) => new Element(id, { parent: body, modal: true, z, hidden: true });
@@ -111,7 +114,7 @@ await test('close notifies immediately, restores after exit, and rapid reopen ca
     restoreFocus: (_mask, opener) => { calls.push('restore:' + opener.id); opener.focus(); },
   });
   openMask(mask, first, { historyMode: 'none' });
-  await tick(10);
+  await frames();
   assert.equal(document.activeElement, input);
   closeMask(mask, { historyMode: 'none' });
   closeMask(mask, { historyMode: 'none' });
