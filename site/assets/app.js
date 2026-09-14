@@ -11,7 +11,7 @@ import { favKey, isFav, setFavoritesActions, toggleFav } from './app/favorites.j
 import { setupFavoritesBackup, subscribeFavoritesChanges, emitFavoritesChanged } from './app/favorites-backup.js';
 import { libraryKeys } from './app/favorites-library-core.js';
 import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibraryStore, subscribeLibrary } from './app/favorites-library-store.js';
-import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesScope, filterFavoritesEntries, decorateFavoriteCard, folderBadges, openOrganize, invalidateOrganizeRequest, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
+import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesScope, filterFavoritesEntries, decorateFavoriteCard, refreshFavoriteBadges, folderBadges, openOrganize, invalidateOrganizeRequest, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
@@ -37,6 +37,7 @@ let codexLoadSeq = 0;
 let favoritesBackupBound = false;
 let favoritesFolderHistoryActive = false;
 let favoritesRefreshSeq = 0;
+let favoritesBuiltKeys = new Set();
 let favoritesPreviewEntries = [];
 let favoritesPreviewStamp = '';
 const favoriteItemsStamp = () => libraryKeys(librarySnapshot()).join('\n');
@@ -419,8 +420,10 @@ export async function openFavoritesView(options = {}) {
   setLoading('');
   clearMasonry();
   try {
+    const builtKeys = new Set(state.favs);   // buildFavoritesCodex 同步读取 state.favs 后才进入 await
     const codex = await buildFavoritesCodex();
     if (seq !== codexLoadSeq) return;
+    favoritesBuiltKeys = builtKeys;
     const wasSwitching = Boolean(state.codex);
     const render = () => renderCodexView(codex, seq, {
       options,
@@ -734,6 +737,7 @@ export function applyFilter(options = {}) {
     syncFavoritesView();
     renderFavoritesRail();
     renderFavoritesHeader();
+    refreshFavoriteBadges();
   }
   renderList(options);
   updateBlockingSummary(blockedCount);
@@ -743,10 +747,20 @@ export function applyFilter(options = {}) {
    已取消的项可能立刻被撤销补回。请求代次阻止过期结果覆盖已切换的视图。 */
 async function refreshFavoritesView(options = {}) {
   if (!state.favoritesView || !state.codex) { applyFilter(options); return; }
+  /* 取消收藏、移出、撤销都不会引入合成时没有的条目：现有条目对象仍在 state.codex 里，
+     只需重算列表，走「不想看」同一条原地移除/插回路径，后面的卡补上来、滚动位置不动。
+     整份重建会换掉条目对象、清空瀑布流，页面高度瞬间塌陷，浏览器把滚动夹回顶部。
+     只有真出现新收藏键（别页新增、导入）才重建。 */
   const seq = ++favoritesRefreshSeq;
+  if ([...state.favs].every(key => favoritesBuiltKeys.has(key))) {
+    applyFilter({ ...options, transition: 'blocking' });
+    return;
+  }
   const viewSeq = codexLoadSeq;
+  const builtKeys = new Set(state.favs);
   const c = await buildFavoritesCodex();
   if (seq !== favoritesRefreshSeq || viewSeq !== codexLoadSeq || !state.favoritesView) return;
+  favoritesBuiltKeys = builtKeys;
   state.codex = c;
   state.activePath = [];
   const meta = $('#codexMeta');

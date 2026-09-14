@@ -209,6 +209,11 @@ function routeChanged({ historyMode = 'replace', consumeLayer = false } = {}) {
 function refreshList() {
   if (state.favoritesView) actions.applyFilter({ transition: 'filter' });
 }
+/* 归类、移出、删夹、改名只改卡片归属：沿用「不想看」的原地路径，离开当前夹的卡退场、
+   后面的补位，滚动位置不动。换夹、换来源、换排序才是整屏重排，继续走 refreshList。 */
+function refreshContent() {
+  if (state.favoritesView) actions.applyFilter({ transition: 'blocking' });
+}
 async function refreshItems() {
   await actions.refreshFavoritesView({ transition: 'filter' });
 }
@@ -556,7 +561,7 @@ function undoToast(message, snapshot, kind) {
     const result = await commitLibrary(doc => restoreFavoriteObjects(doc, snapshot, kind), { changed: 'all', silent: true });
     if (!result.ok) { toast('撤销没能完成', '!'); return false; }
     if (kind === 'items') await refreshItems();
-    else refreshList();
+    else refreshContent();
     return true;
   } });
 }
@@ -601,7 +606,7 @@ function openFolderDialog(id, mode, trigger, itemKeys = []) {
     if (!result.ok) { reportInline(error, result); if (layerOpen(IDS.dialog)) field?.focus({ preventScroll: true }); return; }
     if (mode === 'delete' && state.favFolder === id) { state.favFolder = ''; routeChanged(); }
     if (mode === 'create' && itemKeys.length) byId('favoritesOrganizeSearch').value = '';
-    refreshList(); renderOrganizeList();
+    refreshContent(); renderOrganizeList();
     if (mode === 'create') {
       const selector = itemKeys.length ? '[data-folder-check]' : '[data-folder-id]';
       const createdRow = [...document.querySelectorAll(selector)].find(row => (row.dataset.folderCheck || row.dataset.folderId) === result.result.id);
@@ -621,7 +626,7 @@ async function joinFolder(keys, folderId, on) {
   if (!name) return false;
   const result = await commitLibrary(doc => setFolderMembership(doc, keys, folderId, on), { changed: 'memberships' });
   if (!result.ok) { renderOrganizeList(); return false; }
-  refreshList();
+  refreshContent();
   renderOrganizeList();
   if (on) toast(keys.length === 1 ? '已加入「' + name + '」' : '已加入「' + name + '」' + keys.length + ' 项');
   return true;
@@ -812,7 +817,7 @@ function renderBatchBar() {
           return snapshot;
         }, { changed: 'memberships' });
         if (!result.ok) return;
-        refreshList();
+        refreshContent();
         const count = result.result.memberships.length;
         if (count) undoToast('已从「' + name + '」移出 ' + count + ' 项', result.result, 'memberships');
       } finally { batchBusy = false; renderBatchBar(); }
@@ -841,6 +846,44 @@ function renderBatchBar() {
   document.body.style.setProperty('--favorites-batch-height', bar.offsetHeight + 'px');
   if (focused) [...bar.querySelectorAll('button')].find(node => node.dataset.favBatch === focused)?.focus({ preventScroll: true });
 }
+function badgeSignature(badges) {
+  return badges.map(folder => folder.id + '' + folder.name).join('');
+}
+function renderBadgeRow(card, badges, { animateFrom = null } = {}) {
+  const foot = card.querySelector('.card-foot');
+  if (!foot) return;
+  foot.querySelector('.favorite-folder-badges')?.remove();
+  card.dataset.badgeSignature = badgeSignature(badges);
+  if (!badges.length) return;
+  const row = element('div', 'favorite-folder-badges');
+  for (const folder of badges.slice(0, 2)) {
+    const chip = element('span', 'favorite-folder-badge', folder.name);
+    chip.title = folder.name;
+    row.append(chip);
+    // 就地对齐时只给新加入的夹子补入场，已有徽章不重播。
+    if (!animateFrom || !animateFrom.has(folder.id)) {
+      favoriteMotion(chip, [{ opacity: 0, translate: '0 4px' }, { opacity: 1, translate: '0 0' }], { duration: 160 });
+    }
+  }
+  if (badges.length > 2) row.append(element('span', 'favorite-folder-badge favorite-folder-overflow', '+' + (badges.length - 2)));
+  foot.append(row);
+}
+/* 原地刷新会复用卡片节点，徽章不会随 makeCard 重建；库变更后在重算布局前把已渲染卡片对齐。
+   估高读的是同一份库（favoriteBadgeHeight），先对齐 DOM 才不会出现一帧重叠。 */
+export function refreshFavoriteBadges() {
+  if (!state.favoritesView) return;
+  const index = viewIndex();
+  const ordered = folders();
+  for (const card of document.querySelectorAll('.favorite-library-card[data-favorite-key]')) {
+    const ids = new Set(index.itemFolders.get(card.dataset.favoriteKey) || []);
+    const badges = ordered.filter(folder => ids.has(folder.id)).map(folder => ({ id: folder.id, name: folder.name }));
+    const signature = badgeSignature(badges);
+    if (card.dataset.badgeSignature === signature) continue;
+    const previous = new Set((card.dataset.badgeSignature || '').split('').filter(Boolean).map(part => part.split('')[0]));
+    renderBadgeRow(card, badges, { animateFrom: previous });
+  }
+}
+
 export function decorateFavoriteCard(card, entry) {
   if (!state.favoritesView || !card) return;
   card.dataset.favoriteKey = entryKey(entry);
@@ -864,21 +907,7 @@ export function decorateFavoriteCard(card, entry) {
   if (image && !card.classList.contains('no-img')) image.append(organize);
   else card.querySelector('.card-title-row')?.append(organize);
   card.querySelector('.hide-card-btn')?.remove();
-  const foot = card.querySelector('.card-foot');
-  if (foot) {
-    const badges = folderBadges(entry);
-    if (badges.length) {
-      const row = element('div', 'favorite-folder-badges');
-      for (const folder of badges.slice(0, 2)) {
-        const chip = element('span', 'favorite-folder-badge', folder.name);
-        chip.title = folder.name;
-        row.append(chip);
-        favoriteMotion(chip, [{ opacity: 0, translate: '0 4px' }, { opacity: 1, translate: '0 0' }], { duration: 160 });
-      }
-      if (badges.length > 2) row.append(element('span', 'favorite-folder-badge favorite-folder-overflow', '+' + (badges.length - 2)));
-      foot.append(row);
-    }
-  }
+  renderBadgeRow(card, folderBadges(entry));
   syncSelectionControls(card);
   card.addEventListener('click', event => handleFavoriteCardSelection(event, entry), true);
   card.addEventListener('keydown', event => {

@@ -120,7 +120,8 @@ function renderBlockingList(m) {
   }
   if (lostFocusIndex !== undefined && (!active.isConnected || active.closest('[inert]'))) {
     const next = state.nodes.get(lostFocusIndex) || [...state.nodes.values()].at(-1);
-    (next?.querySelector('.hide-card-btn') || $('#blockingResultBtn'))?.focus({ preventScroll: true });
+    // 收藏墙的卡没有「不想看」按钮，焦点落到补位卡的星标上。
+    (next?.querySelector('.hide-card-btn') || next?.querySelector('.fav-btn') || $('#blockingResultBtn'))?.focus({ preventScroll: true });
   }
   if (animate) blockingMotionTimer = window.setTimeout(() => {
     blockingMotionTimer = 0;
@@ -291,7 +292,9 @@ export function computeLayout({ previous } = {}) {
     const entry = state.list[i];
     const col = shortestIndex(colHeights);
     const measured = previous?.get(entry);
-    const retained = measured?.width === itemWidth ? measured : null;
+    const badgeHeight = masonryActions.favoriteBadgeHeight(entry);
+    // 收藏夹徽章行出现/消失时旧实测高度已失效，改回估高，由测高回写再校准。
+    const retained = measured?.width === itemWidth && (measured.badgeHeight || 0) === badgeHeight ? measured : null;
     const imageHeight = retained?.imageHeight ?? estimateImageHeight(entry, itemWidth);
     const body = estimateBodyMetrics(entry, itemWidth);
     const height = retained?.height ?? Math.ceil(imageHeight + body.height);
@@ -308,6 +311,7 @@ export function computeLayout({ previous } = {}) {
       height,
       imageHeight,
       tagsHeight: retained?.tagsHeight ?? body.tagsHeight,
+      badgeHeight,
     });
     colHeights[col] += height + cfg.gap;
   }
