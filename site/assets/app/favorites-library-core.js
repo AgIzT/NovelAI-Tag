@@ -33,6 +33,17 @@ const text = (value, max) => typeof value === 'string'
   ? [...value.replace(CONTROL_RE, '')].slice(0, max).join('') : '';
 const bytes = value => new TextEncoder().encode(typeof value === 'string' ? value : JSON.stringify(value)).length;
 
+/* 预制收藏夹：每个收藏库只播种一次，靠 presetsSeeded 记账。用户删掉或改名后不再补回；
+   已有同名夹子直接跳过。播种是运行时策略，只由 store 在建库/载入时调用，迁移与备份解析保持纯净。 */
+export const PRESET_FOLDERS = Object.freeze([
+  Object.freeze({ id: 'fd_preset_character', name: '角色' }),
+  Object.freeze({ id: 'fd_preset_style', name: '画风' }),
+  Object.freeze({ id: 'fd_preset_pose', name: '动作' }),
+  Object.freeze({ id: 'fd_preset_scene', name: '场景' }),
+  Object.freeze({ id: 'fd_preset_reference', name: '素材参考' }),
+]);
+export const PRESET_FOLDERS_VERSION = 1;
+
 export class FavoritesLibraryError extends Error {
   constructor(code, message, details = {}) {
     super(message);
@@ -101,6 +112,7 @@ export function normalizeLibrary(value, { codexes = [], now = new Date() } = {})
     folders: [], items: [], memberships: [],
   };
   if (source.migratedFrom === 'v1') result.migratedFrom = 'v1';
+  if (Number.isInteger(source.presetsSeeded) && source.presetsSeeded > 0) result.presetsSeeded = source.presetsSeeded;
   const itemMap = new Map();
   for (const raw of Array.isArray(source.items) ? source.items : []) {
     if (!isRecord(raw)) continue;
@@ -194,6 +206,20 @@ export function createFolder(library, name, { id = 'fd_' + newLibraryId(), now =
   const folder = { id, name: validated, coverItemId: '', order: library.folders.length, createdAt: iso(now) };
   library.folders.push(folder);
   return folder;
+}
+
+export function seedPresetFolders(library, { now = new Date() } = {}) {
+  if (Number.isInteger(library.presetsSeeded) && library.presetsSeeded >= PRESET_FOLDERS_VERSION) return 0;
+  let created = 0;
+  for (const preset of PRESET_FOLDERS) {
+    if (library.folders.length >= FAVORITES_LIBRARY_LIMITS.maxFolders) break;
+    if (library.folders.some(folder => folder.name === preset.name)) continue;
+    const id = library.folders.some(folder => folder.id === preset.id) ? 'fd_' + newLibraryId() : preset.id;
+    createFolder(library, preset.name, { id, now });
+    created++;
+  }
+  library.presetsSeeded = PRESET_FOLDERS_VERSION;
+  return created;
 }
 
 export function renameFolder(library, id, name) {
@@ -353,6 +379,8 @@ export function createLibraryRestorePlan({
       return existing ? { ...existing } : item;
     });
     if (current.migratedFrom) nextLibrary.migratedFrom = current.migratedFrom;
+    if (current.presetsSeeded) nextLibrary.presetsSeeded = current.presetsSeeded;
+    else delete nextLibrary.presetsSeeded;
   } else {
     nextLibrary = normalizeLibrary(current, { codexes });
     const items = new Set(libraryKeys(nextLibrary));

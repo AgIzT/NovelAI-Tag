@@ -150,7 +150,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   await ctx.importText(serialize(make(['alpha:backup'])));
   await ctx.doc.nodes.get('favoritesExportBtn').fire('click');
   await ctx.doc.nodes.get('favoritesRestoreBtn').fire('click');
-  const repaired = JSON.stringify({ ...make(['alpha:newer']), migratedFrom: 'v1' });
+  const repaired = JSON.stringify({ ...make(['alpha:newer']), migratedFrom: 'v1', presetsSeeded: 1 });
   ctx.storage.setItem(library.FAVORITES_LIBRARY_STORAGE_KEY, repaired);
   // 真正的 storage 事件会触发重新读取，并把页面从损坏态改为正常态。
   for (const handler of window.handlers.get('storage') || []) handler({ storageArea: ctx.storage, key: library.FAVORITES_LIBRARY_STORAGE_KEY });

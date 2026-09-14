@@ -69,7 +69,8 @@ def run(base, out, cdp):
     test('migration and folder shell', """
       const d=qa.store.librarySnapshot();
       assert(d.items.length===12 && d.items.every(i=>i.addedAt===null),'migration exact');
-      assert(d.memberships.length===0 && d.folders.length===0,'migration unclassified');
+      assert(d.memberships.length===0,'migration unclassified');
+      assert(d.presetsSeeded===1 && d.folders.map(f=>f.name).join()==='角色,画风,动作,场景,素材参考','preset folders seeded once');
       assert(!new URL(location.href).searchParams.has('p'),'old directory route removed');
       assert(getComputedStyle(document.querySelector('#tree')).display==='none','old tree hidden');
       assert(document.querySelector('#favoritesHeader h1').textContent==='全部','folder header');

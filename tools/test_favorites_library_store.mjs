@@ -30,9 +30,10 @@ const make = (storage = new MemoryStorage(), extra = {}) => {
   });
   return { ...instance, storage, events, notices, broadcasts };
 };
-const raw = (keys = ['alpha:original']) => JSON.stringify(normalizeLibrary({
+// 夹具代表当前版本写下的库：已播种过预制夹，载入不写盘。早期无记账的库见末尾预制夹用例。
+const raw = (keys = ['alpha:original'], { presetsSeeded = 1 } = {}) => JSON.stringify(normalizeLibrary({
   libraryId: 'test-library', updatedAt: '2026-09-12T12:00:00.000Z', migratedFrom: 'v1',
-  items: keys.map(key => ({ key, addedAt: null })),
+  items: keys.map(key => ({ key, addedAt: null })), ...(presetsSeeded ? { presetsSeeded } : {}),
 }, { codexes }));
 const initial = new MemoryStorage({ [V1]: '["old_alpha:old_alpha-1","alpha:alpha-2"]' });
 const migrated = make(initial);
@@ -49,7 +50,7 @@ assert.ok(!libraryKeys(migrated.librarySnapshot()).includes('alpha:stale'), '完
 const snapshots = [];
 migrated.subscribeLibrary((value, meta) => snapshots.push([value, meta]));
 const committed = await migrated.commitLibrary(next => {
-  createFolder(next, '画风', { id: 'styles' });
+  createFolder(next, '收藏测试夹', { id: 'styles' });
   return addLibraryItem(next, 'alpha:new');
 });
 assert.equal(committed.ok, true);
@@ -325,4 +326,30 @@ assert.equal(signalFailure.storage.getItem(LIBRARY_SIGNAL_KEY), 'old-signal');
 assert.equal(signalFailure.librarySnapshot(), signalBefore);
 assert.equal(signalFailure.broadcasts.length, 0);
 
-console.log('favorites library store: migration, persistence, failures, locks, cross-tab, companion rollback passed');
+
+// 预制夹随建库一次原子写入；已播种的库再次载入不写盘，删掉的预制夹不复活。
+{
+  const presetDisk = new MemoryStorage({ [V1]: '["alpha:preset-item"]' });
+  const presetStore = make(presetDisk);
+  assert.equal((await presetStore.ensureLibrary()).ok, true);
+  const doc = JSON.parse(presetDisk.getItem(KEY));
+  assert.deepEqual(doc.folders.map(folder => folder.name), ['角色', '画风', '动作', '场景', '素材参考']);
+  assert.equal(doc.presetsSeeded, 1);
+  assert.equal(doc.migratedFrom, 'v1');
+  assert.equal(presetDisk.writes.filter(([key]) => key === KEY).length, 1, '迁移与播种同一次写入');
+  assert.equal((await presetStore.commitLibrary(next => library.deleteFolder(next, 'fd_preset_scene'))).ok, true);
+  const reopened = make(presetDisk);
+  presetDisk.writes.length = 0;
+  assert.equal((await reopened.ensureLibrary()).ok, true);
+  assert.equal(presetDisk.writes.filter(([key]) => key === KEY).length, 0, '已播种的库载入是纯读');
+  assert.ok(!reopened.librarySnapshot().folders.some(folder => folder.name === '场景'));
+
+  const legacyV2 = new MemoryStorage({ [KEY]: raw(['alpha:kept'], { presetsSeeded: 0 }) });
+  const upgraded = make(legacyV2);
+  assert.equal((await upgraded.ensureLibrary()).ok, true);
+  assert.equal(upgraded.librarySnapshot().folders.length, 5, '早期无记账的 V2 库补播一次');
+  assert.deepEqual(libraryKeys(upgraded.librarySnapshot()), ['alpha:kept']);
+  assert.equal(JSON.parse(legacyV2.getItem(KEY)).migratedFrom, 'v1', '补播不改迁移标记');
+}
+
+console.log('favorites library store: migration, persistence, failures, locks, cross-tab, companion rollback, presets passed');

@@ -4,7 +4,7 @@ import { ATLAS_FAVORITES_STORAGE_KEY, COMMUNITY_FAVORITES_STORAGE_KEY, readStore
 import {
   FAVORITES_LIBRARY_STORAGE_KEY, FAVORITES_LIBRARY_FORMAT, FAVORITES_LIBRARY_LIMITS,
   FavoritesLibraryError, canonicalLibraryKey, libraryKeys,
-  migrateV1Favorites, newLibraryId, normalizeLibrary, trimLibraryToBudget,
+  migrateV1Favorites, newLibraryId, normalizeLibrary, seedPresetFolders, trimLibraryToBudget,
 } from './favorites-library-core.js';
 
 export const LIBRARY_STORAGE_KEY = FAVORITES_LIBRARY_STORAGE_KEY;
@@ -348,13 +348,25 @@ export function createLibraryStore({
     const transaction = await withLock((storage, fence) => {
       const read = transactionRead(storage, codexes);
       if (!read.ok) return read;
-      const saved = read.migration
-        ? writeTransaction(storage, read.next, { migration: true, fence })
-        : { ok: true, next: read.next };
+      // 预制夹只播种一次，与迁移同一次原子写入；已播种过的库载入仍是纯读，不改字节。
+      const unseeded = !read.next.presetsSeeded;
+      let next = read.next;
+      if (unseeded) {
+        try {
+          seedPresetFolders(next);
+          next = normalizeLibrary(next, { codexes });
+        } catch (error) {
+          return { ok: false, reason: error instanceof FavoritesLibraryError ? 'validation' : 'mutator', error };
+        }
+      }
+      const needsWrite = read.migration || unseeded;
+      const saved = needsWrite
+        ? writeTransaction(storage, next, { migration: read.migration, fence })
+        : { ok: true, next };
       if (saved.ok) {
         initialized = true;
         adopt(saved.next, { changed: 'all', source: read.migration ? 'migration' : 'load' });
-        if (read.migration) mirrorAndAnnounce(storage, saved.next, 'all');
+        if (needsWrite) mirrorAndAnnounce(storage, saved.next, 'all');
       }
       return { ...saved, storage, migrated: saved.ok && read.migration };
     });

@@ -44,7 +44,7 @@ function backup(atlasKeys, communityIds = []) { return createFavoritesBackup({ a
   const other = store.createLibraryStore({ getStorage: () => storage, getLocks: () => null, eventTarget: null, getCodexes: () => codexes });
   assert.equal((await other.commitLibrary(draft => {
     addLibraryItem(draft, 'beta:b');
-    const folder = createFolder(draft, '画风', { id: 'fd_other' });
+    const folder = createFolder(draft, '收藏测试夹', { id: 'fd_other' });
     setFolderMembership(draft, ['beta:b'], folder.id, true);
   }, { silent: true })).ok, true);
   storage.setItem(COMMUNITY_FAVORITES_STORAGE_KEY, '["community-later"]');

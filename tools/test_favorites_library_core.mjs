@@ -5,6 +5,7 @@ const {
   normalizeLibrary, migrateV1Favorites, libraryKeys, createFolder, renameFolder, deleteFolder,
   addLibraryItem, removeLibraryItems, setFolderMembership, trimLibraryToBudget,
   createLibraryBackup, parseLibraryBackup, createLibraryRestorePlan,
+  seedPresetFolders, PRESET_FOLDERS,
 } = core;
 const now = '2026-09-12T12:00:00.000Z';
 const codexes = [{ id: 'alpha', aliases: ['old_alpha'], entryAliases: { 'alpha-1': 'alpha-set' } }, { id: 'beta' }];
@@ -143,4 +144,33 @@ invalid.memberships[0].folderId = 'missing';
 expectCode('INVALID_MEMBERSHIP', () => parseLibraryBackup(JSON.stringify(invalid), codexes));
 expectCode('UNSUPPORTED_VERSION', () => parseLibraryBackup(JSON.stringify({ ...backup, version: 3 }), codexes));
 expectCode('FILE_TOO_LARGE', () => parseLibraryBackup(' '.repeat(2 * 1024 * 1024 + 1)));
-console.log('favorites library core: schema, CRUD, migration, budgets, V1/V2 round-trip and merge passed');
+
+// 预制收藏夹：按固定顺序只播种一次；删掉或已有同名都不补，满额即停，覆盖恢复沿用本机记账。
+{
+  const seeded = fresh();
+  assert.equal(seedPresetFolders(seeded, { now }), 5);
+  assert.deepEqual(seeded.folders.map(folder => folder.name), ['角色', '画风', '动作', '场景', '素材参考']);
+  assert.deepEqual(seeded.folders.map(folder => folder.id), PRESET_FOLDERS.map(folder => folder.id));
+  assert.equal(normalizeLibrary(seeded, { now }).presetsSeeded, 1, '规范化保留播种记账');
+  deleteFolder(seeded, 'fd_preset_pose');
+  assert.equal(seedPresetFolders(seeded, { now }), 0, '用户删掉的预制夹不再补回');
+  assert.ok(!seeded.folders.some(folder => folder.name === '动作'));
+
+  const existing = fresh();
+  createFolder(existing, '画风', { id: 'mine', now });
+  createFolder(existing, 'x', { id: 'fd_preset_character', now });
+  assert.equal(seedPresetFolders(existing, { now }), 4, '已有同名夹跳过');
+  assert.equal(existing.folders.filter(folder => folder.name === '画风').length, 1);
+  assert.notEqual(existing.folders.find(folder => folder.name === '角色').id, 'fd_preset_character', '预制 id 被占用时换新 id');
+
+  const full = fresh();
+  for (let n = 0; n < 98; n++) createFolder(full, '夹' + n, { now });
+  assert.equal(seedPresetFolders(full, { now }), 2, '不越过 100 个上限');
+  assert.equal(full.folders.length, 100);
+
+  const replacedSeeded = createLibraryRestorePlan({ backup: oldBackup, currentLibrary: seeded, mode: 'replace', codexes });
+  assert.equal(replacedSeeded.nextLibrary.presetsSeeded, 1, '覆盖恢复不让删掉的预制夹在下次载入时复活');
+  const replacedFresh = createLibraryRestorePlan({ backup: oldBackup, currentLibrary: fresh(), mode: 'replace', codexes });
+  assert.equal(replacedFresh.nextLibrary.presetsSeeded, undefined);
+}
+console.log('favorites library core: schema, CRUD, migration, budgets, V1/V2 round-trip, merge and presets passed');
