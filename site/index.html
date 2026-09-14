@@ -622,6 +622,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </div>
     <div class="set-row">
       <div class="set-info">
+        <div class="set-name">tag 中文对照</div>
+        <div class="set-desc">在详情里每个 tag 下方标注中文译名，点 tag 可看来源；复制的仍是英文原文。译名来自 Danbooru 社区中文词库（<a href="https://github.com/zhulinyv/Auto-NovelAI-Refactor" target="_blank" rel="noopener noreferrer">Auto-NovelAI-Refactor</a>，GPL-3.0）与 AI 机翻，虚线下划线的是机翻，仅供参考。</div>
+      </div>
+      <label class="switch live"><input type="checkbox" id="tagZhSettingToggle" checked><i></i></label>
+    </div>
+    <div class="set-row">
+      <div class="set-info">
         <div class="set-name">界面风格</div>
         <div class="set-desc">整站换肤 · 深浅色通用</div>
       </div>
@@ -1096,6 +1103,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="lightbox-section">
         <div class="section-head">
           <div class="section-label">正向 tags</div>
+          <button id="tagZhToggle" class="tag-zh-toggle" type="button" aria-pressed="true" title="在每个 tag 下方标注中文译名；复制内容不受影响">中文对照</button>
           <button id="sdPositivePreview" class="sd-preview-toggle" type="button" aria-pressed="false" hidden>SD 预览</button>
           <button id="copyPositive" type="button">复制正向</button>
         </div>

@@ -32,6 +32,9 @@ site/data/
 # 私有下架登记（本地长期保留，不进公开仓库）
 /tools/data/image_takedowns.json
 
+# tag 中文对照的来源表（人工 / AI 译名与社区词库缓存；本地维护，不进公开仓库）
+/tools/data/tag_zh/
+
 # Cloudflare R2 本地密钥配置
 r2_config.json
 .r2_sync_manifest.json

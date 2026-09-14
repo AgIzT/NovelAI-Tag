@@ -25,6 +25,17 @@ import {
   setFavoriteButtonState,
   toggleFav,
 } from './favorites.js';
+import {
+  clearTagZhDetails,
+  isTagZhEnabled,
+  isTagZhUnavailable,
+  loadTagZh,
+  onTagZhChange,
+  peekTagZh,
+  renderTagZhPrompt,
+  setTagZhEnabled,
+  toggleTagZhDetail,
+} from './tag-zh.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -485,6 +496,66 @@ export function isLightboxKeydownBlocked(ev) {
   return Boolean(typing || isGlobalShortcutBlocked(ev, $('#lightbox')));
 }
 
+/* 灯箱里每个提示词框记住自己的原文：开关中文对照、对照表晚到或 SD 预览切换时都从这里重画，
+   不从 DOM 反推（DOM 里已经混进了中文小字）。 */
+const promptBlocks = new WeakMap();
+
+function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
+  if (!pre) return;
+  const source = String(text || '');
+  const sourceCodexId = codexId ?? lightboxEntrySourceId(state.lightbox?.entry);
+  promptBlocks.set(pre, { text: source, highlighted, codexId: sourceCodexId });
+  const terms = highlighted ? currentHighlightTerms() : [];
+  const shards = isTagZhEnabled() ? peekTagZh(sourceCodexId) : null;
+  const translated = Array.isArray(shards) && renderTagZhPrompt(pre, source, { shards, terms });
+  pre.classList.toggle('tag-zh-on', translated);
+  if (translated) return;
+  if (highlighted) renderHighlightedText(pre, source, terms);
+  else pre.textContent = source;
+}
+
+function forgetPromptBlock(pre, text) {
+  if (!pre) return;
+  promptBlocks.delete(pre);
+  pre.classList.remove('tag-zh-on');
+  pre.textContent = text;
+}
+
+function rerenderPromptBlocks() {
+  const info = $('#lightboxInfo');
+  if (!info) return;
+  clearTagZhDetails(info);
+  for (const pre of info.querySelectorAll('pre')) {
+    const block = promptBlocks.get(pre);
+    if (block) renderPromptBlock(pre, block.text, block);
+  }
+}
+
+function entryHasPromptText(entry) {
+  if (String(entry?.tags || '').trim() || String(entry?.negative || '').trim()) return true;
+  return (Array.isArray(entry?.characterPrompts) ? entry.characterPrompts : [])
+    .some(item => String(item?.prompt || '').trim() || String(item?.negative || '').trim());
+}
+
+/* 开关只放在「正向 tags」标题栏，一处开关全部提示词框一起变。对照表第一次要下载，
+   先按原文出、到货再原位换成对照排版；这期间换了词条就丢弃这次结果。 */
+function syncTagZhForEntry(entry, seq) {
+  const toggle = $('#tagZhToggle');
+  const hasPrompt = entryHasPromptText(entry);
+  if (toggle) {
+    toggle.hidden = !hasPrompt || isTagZhUnavailable();
+    toggle.setAttribute('aria-pressed', isTagZhEnabled() ? 'true' : 'false');
+  }
+  if (!hasPrompt || !isTagZhEnabled()) return;
+  const codexId = lightboxEntrySourceId(entry);
+  if (peekTagZh(codexId) !== undefined) return;
+  loadTagZh(codexId).then(() => {
+    if (seq !== lbSeq || !sameLightboxEntry(state.lightbox?.entry, entry)) return;
+    if (toggle) toggle.hidden = isTagZhUnavailable();
+    rerenderPromptBlocks();
+  });
+}
+
 export function renderCharacterPrompts(entry) {
   const block = $('#characterPromptsBlock');
   const container = $('#lightboxCharacterPrompts');
@@ -512,7 +583,7 @@ export function renderCharacterPrompts(entry) {
     };
     head.append(label, copy);
     const content = document.createElement('pre');
-    renderHighlightedText(content, prompt, currentHighlightTerms());
+    renderPromptBlock(content, prompt, { highlighted: true, codexId: lightboxEntrySourceId(entry) });
     parent.append(head, content);
   };
 
@@ -705,12 +776,14 @@ export function renderLightbox() {
   }
 
   const hasPositive = Boolean(String(e.tags || '').trim());
-  if (hasPositive) renderHighlightedText($('#lightboxTags'), e.tags || '', currentHighlightTerms());
-  else $('#lightboxTags').textContent = readableOriginal
+  clearTagZhDetails($('#lightboxInfo'));
+  if (hasPositive) renderPromptBlock($('#lightboxTags'), e.tags || '', { highlighted: true });
+  else forgetPromptBlock($('#lightboxTags'), readableOriginal
     ? (exampleModel ? '暂无站内可复制 tags；生成参数保留在原图中。' : '暂无站内可复制 tags；原图就绪后可尝试拖入 NovelAI 读取。')
-    : '暂无站内可复制 tags。';
+    : '暂无站内可复制 tags。');
   renderCharacterPrompts(e);
-  $('#lightboxNegative').textContent = e.negative || '';
+  if (e.negative) renderPromptBlock($('#lightboxNegative'), e.negative);
+  else forgetPromptBlock($('#lightboxNegative'), '');
   $('#lightboxNote').textContent = e.note || '';
   $('#negativeBlock').hidden = !e.negative;
   $('#noteBlock').hidden = !e.note;
@@ -728,13 +801,14 @@ export function renderLightbox() {
       button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
       button.textContent = enabled ? '恢复原文' : 'SD 预览';
       pre.classList.toggle('sd-previewing', enabled);
-      if (enabled) pre.textContent = naiToSd(source);
-      else if (highlighted) renderHighlightedText(pre, source, currentHighlightTerms());
-      else pre.textContent = source;
+      clearTagZhDetails(pre.parentElement);
+      if (enabled) renderPromptBlock(pre, naiToSd(source));
+      else renderPromptBlock(pre, source, { highlighted });
     } : null;
   };
   bindSdPreview($('#sdPositivePreview'), $('#lightboxTags'), e.tags || '', { highlighted: true });
   bindSdPreview($('#sdNegativePreview'), $('#lightboxNegative'), e.negative || '');
+  syncTagZhForEntry(e, seq);
 
   $('#copyPositive').hidden = !hasPositive;
   $('#copyPositive').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
@@ -916,6 +990,26 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
     localStorage.setItem('fadian-lbinfo', lbEl.classList.contains('folded') ? 'folded' : 'open');
   };
   $('#lightboxClose').onclick = closeLightbox;
+  const tagZhToggle = $('#tagZhToggle');
+  if (tagZhToggle) {
+    tagZhToggle.onclick = ev => {
+      ev.stopPropagation();
+      setTagZhEnabled(!isTagZhEnabled());
+    };
+  }
+  onTagZhChange(on => {
+    tagZhToggle?.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const entry = state.lightbox?.entry;
+    if (!entry || $('#lightbox').hidden) return;
+    rerenderPromptBlocks();
+    if (on) syncTagZhForEntry(entry, lbSeq);
+  });
+  $('#lightboxInfo').addEventListener('click', ev => {
+    const box = ev.target instanceof Element ? ev.target.closest('.tag-zh-tok') : null;
+    if (!box) return;
+    if (String(window.getSelection?.() || '').trim()) return;   // 在拖选文字，不弹说明
+    toggleTagZhDetail(box);
+  });
   $('#lightboxPrev').onclick = ev => { ev.stopPropagation(); stepLightbox(-1); };
   $('#lightboxNext').onclick = ev => { ev.stopPropagation(); stepLightbox(1); };
   let lightboxTouch = null;

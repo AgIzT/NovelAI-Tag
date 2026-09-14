@@ -24,6 +24,7 @@
 | `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；R2 请求与上传沿用同步器的超时和重试，公共 release 核验遇断连或可重试状态码重试 3 次；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
 | `build_updates_index.py` | 重建跨书更新索引 `site/data/updates.json`（顶栏动态气泡与「公告/更新/反馈」面板的更新页签读它）。判定规则与前端 `data.js` 的 `updateFilterDefinitions`/`entryMatchesUpdateFilter` 逐条对齐，改一侧必须同步另一侧；发布数据链自动跑，也可 `--dry-run` / `--report` 单独看结果 | 只写 `site/data/updates.json` |
 | `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条只入词条名；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
+| `build_tag_zh.py` | **原型（分支 `feature/tag-zh`）**：生成灯箱「中文对照」的译名分片 `site/data/tag_zh/`（core + 分书），译名优先级「人工译名 > 社区词库 > AI 译名」，来源表在 Git 忽略的 `tools/data/tag_zh/`；社区词库缺失时从钉死提交的 URL 下载并校验 SHA-256。查表键与前端 `tag-zh-core.js` 共用夹具 `fixtures/tag_zh_keys.json`，改一侧必须同步另一侧。双击入口 `单项工具/生成中文对照.bat`；尚未接入发布数据链 | 重写 `site/data/tag_zh/*.json`（并删除该目录下不再产出的旧分片）；覆盖写 `output/tag-zh/构建报告.md` 与 `待翻译.csv`；词库缺失时写 `tools/data/tag_zh/` 缓存；`--dry-run` 不写 `site/data` |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
 | `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；WebP 在站内与原图路由显式使用 `image/webp`；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
 | `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |
@@ -102,6 +103,7 @@
 - Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
+- Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
 - Node · 数据与路由：`test_entry_aliases.mjs`（同书套图合并的收藏、深链及分享门控）、`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
 - Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。

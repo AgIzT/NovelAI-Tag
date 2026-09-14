@@ -2057,6 +2057,25 @@ a.lightbox-credit:hover{text-decoration:underline}
 .section-head .sd-preview-toggle{margin-left:auto;border:1px solid color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent);box-shadow:none}
 .section-head .sd-preview-toggle+button{margin-left:0}
 .section-head .sd-preview-toggle[aria-pressed="true"]{background:var(--accent);color:#fff}
+/* tag 中文对照：开关与 SD 预览同款同位；打开后每个 tag 变成「英文 + 下方中文小字」的盒子 */
+.section-head .tag-zh-toggle{margin-left:auto;border:1px solid var(--line);background:var(--tagbg);color:var(--muted);box-shadow:none}
+.section-head .tag-zh-toggle[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
+.section-head .tag-zh-toggle[aria-pressed="true"]::before{content:"✓ "}
+.section-head .tag-zh-toggle:not([hidden])~button{margin-left:0}
+.lightbox-section pre.tag-zh-on{max-height:min(56vh,520px);line-height:1.3;padding-bottom:5px}
+.tag-zh-tok{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;border-radius:4px;cursor:pointer}
+.tag-zh-gap{margin-right:5px}
+.tag-zh-tok:hover{background:color-mix(in srgb,var(--accent-soft) 70%,transparent)}
+.tag-zh-tok.is-picked{background:var(--accent-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.tag-zh-en{white-space:pre-wrap;overflow-wrap:anywhere}
+.tag-zh-zh{margin-top:1px;font:11px/1.35 var(--font-ui);color:var(--muted);white-space:normal;overflow-wrap:anywhere;-webkit-user-select:none;user-select:none}
+.tag-zh-zh.is-ai{text-decoration:underline dotted;text-decoration-color:color-mix(in srgb,var(--muted) 70%,transparent);text-underline-offset:2px}
+.tag-zh-detail{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-top:6px;padding:6px 9px;border-radius:8px;background:color-mix(in srgb,var(--accent-soft) 55%,transparent);font-size:12px;color:var(--text)}
+.tag-zh-detail-tag{font-family:var(--font-prompt);font-weight:600}
+.tag-zh-detail-src{color:var(--muted);font-size:11px}
+.tag-zh-detail-weight{color:var(--new);font-size:11px}
+.tag-zh-detail a{color:var(--accent);font-size:11px;text-decoration:none}
+.tag-zh-detail a:hover{text-decoration:underline}
 .lightbox-section pre{
   margin:0;max-height:170px;overflow:auto;white-space:pre-wrap;word-break:break-word;
   background:var(--tagbg);border:1px solid var(--line);border-radius:10px;padding:10px;
@@ -2303,6 +2322,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
   .lightbox-section{margin-top:10px}
   .lightbox-section pre{max-height:128px;font-size:12px}
+  .lightbox-section pre.tag-zh-on{max-height:230px}
   .lightbox-thumbs{bottom:calc(45vh + 22px);bottom:calc(45dvh + 22px);max-width:94vw;transition:bottom .3s cubic-bezier(.22,1,.36,1)}
   .lightbox.folded .lightbox-thumbs{bottom:80px}
   .lb-fold{

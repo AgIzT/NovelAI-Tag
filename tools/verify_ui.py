@@ -1900,7 +1900,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   return {
     hidden: document.querySelector('#characterPromptsBlock')?.hidden,
     labels: items.map(item => item.querySelector(':scope > .section-head .section-label')?.textContent || ''),
-    prompts: items.map(item => item.querySelector(':scope > pre')?.textContent || ''),
+    // 中文对照默认打开：去掉中文小字后必须与原文逐字一致
+    prompts: items.map(item => {
+      const pre = item.querySelector(':scope > pre')?.cloneNode(true);
+      pre?.querySelectorAll('.tag-zh-zh').forEach(node => node.remove());
+      return pre?.textContent || '';
+    }),
     copyAllHidden: document.querySelector('#copyAll')?.hidden,
     horizontalOverflow: info ? info.scrollWidth > info.clientWidth + 1 : true,
   };
@@ -1960,6 +1965,66 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         data["closedUrl"] = cdp.eval("location.href")
         check_no_errors(cdp)
         return {**data, "screenshot": shot}
+
+    def tag_zh_lightbox():
+        """中文对照：默认打开、原文一个字符不改、开关双向同步、点 tag 出说明。没生成对照表就跳过。"""
+        core_path = ROOT / "site" / "data" / "tag_zh" / "core.json"
+        if not core_path.exists():
+            return {"skipped": "site/data/tag_zh/core.json 不存在（未运行 build_tag_zh.py）"}
+        import build_tag_zh as btz
+
+        core = json.loads(core_path.read_text(encoding="utf-8"))
+        known = set(core.get("m", {})) | set(core.get("d", {})) | set(core.get("a", {}))
+        book = json.loads((ROOT / "site" / "data" / "suozhang.json").read_text(encoding="utf-8"))
+        target = next(
+            item for item in book.get("entries", [])
+            if (item.get("image") or item.get("images")) and item.get("tags")
+            and sum(btz.tag_key(piece) in known for piece in btz.split_pieces(item["tags"])) >= 3
+        )
+        navigate(cdp, base)
+        wait_for(cdp, "document.readyState === 'complete'", "tag zh home ready")
+        cdp.eval("localStorage.removeItem('fadian-tag-zh')")
+        clear_errors(cdp)
+        navigate(cdp, base + f"?codex=suozhang&entry={target['id']}")
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('tag-zh-on')", "tag zh rendered", timeout=15)
+        raw_text = """(() => {
+  const pre = document.querySelector('#lightboxTags').cloneNode(true);
+  pre.querySelectorAll('.tag-zh-zh').forEach(node => node.remove());
+  return pre.textContent;
+})()"""
+        state_expr = """({
+  pressed: document.querySelector('#tagZhToggle')?.getAttribute('aria-pressed'),
+  setting: document.querySelector('#tagZhSettingToggle')?.checked,
+  on: document.querySelector('#lightboxTags')?.classList.contains('tag-zh-on'),
+  boxes: document.querySelectorAll('#lightboxTags .tag-zh-tok').length,
+  selectable: (() => { const zh = document.querySelector('#lightboxTags .tag-zh-zh'); return zh ? getComputedStyle(zh).userSelect : ''; })(),
+  stored: localStorage.getItem('fadian-tag-zh'),
+  title: document.querySelector('#lightboxTitle')?.textContent || '',
+  html: (document.querySelector('#lightboxTags')?.innerHTML || '').slice(0, 160),
+})"""
+        before = cdp.eval(state_expr)
+        if before["pressed"] != "true" or not before["setting"] or before["boxes"] < 3:
+            raise CheckFailed(f"中文对照没有默认打开：{before}")
+        if before["selectable"] != "none":
+            raise CheckFailed(f"中文小字仍可被选中复制：{before['selectable']}")
+        if cdp.eval(raw_text) != target["tags"]:
+            raise CheckFailed("对照排版去掉中文后与词条原文不一致")
+        shot = screenshot(cdp, out_dir, "tag-zh-lightbox")
+        cdp.eval("document.querySelector('#lightboxTags .tag-zh-tok')?.click()")
+        detail = wait_for(cdp, "document.querySelector('#lightboxInfo .tag-zh-detail')?.textContent || ''", "tag zh detail row")
+        cdp.eval("document.querySelector('#tagZhToggle')?.click()")
+        wait_for(cdp, "!document.querySelector('#lightboxTags')?.classList.contains('tag-zh-on')", "tag zh off")
+        off = cdp.eval(state_expr)
+        if off["pressed"] != "false" or off["setting"] or off["stored"] != "0" or cdp.eval("document.querySelector('#lightboxTags').textContent") != target["tags"]:
+            raise CheckFailed(f"关闭中文对照后状态不对：{off}")
+        if cdp.eval("!!document.querySelector('#lightboxInfo .tag-zh-detail')"):
+            raise CheckFailed("关闭中文对照后说明行没有收起")
+        cdp.eval("document.querySelector('#tagZhToggle')?.click()")
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('tag-zh-on')", "tag zh on again")
+        cdp.eval("document.querySelector('#lightboxClose')?.click()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "tag zh lightbox close")
+        check_no_errors(cdp)
+        return {"entry": target["id"], "boxes": before["boxes"], "detail": detail, "screenshot": shot}
 
     def no_original_lightbox():
         clear_errors(cdp)
@@ -2949,6 +3014,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("copy card shows feedback", copy_card_feedback),
         ("pack character prompts render", pack_character_prompts),
         ("entry deep-link opens lightbox", deep_link_lightbox),
+        ("tag zh lightbox", tag_zh_lightbox),
         ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),
         ("resume last browse", resume_browse),

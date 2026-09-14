@@ -11,6 +11,7 @@ import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSe
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
+import { isTagZhEnabled, onTagZhChange, setTagZhEnabled } from './tag-zh.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
 import { bindBackdropDismiss, bindOutsideDismiss, openMask, closeMask, registerMaskHistory, trapFocus, topInteractionLayer, isGlobalShortcutBlocked } from './modal.js';
 import { setupAnnouncements, openAnnouncementsPanel, updateAnnouncementBadge } from './announcements.js';
@@ -510,6 +511,14 @@ export function bindUI() {
   if (sdToggle) sdToggle.onchange = e => applySdMode(e.target.checked);
   if (sdBadge) sdBadge.onclick = () => applySdMode(false);
   applySdMode(localStorage.getItem('fadian-sdmode') === '1', false);  // 初始化不做动画
+
+  /* tag 中文对照：设置开关与灯箱「中文对照」按钮是同一个偏好，任一处改另一处跟着变 */
+  const tagZhSetting = $('#tagZhSettingToggle');
+  if (tagZhSetting) {
+    tagZhSetting.checked = isTagZhEnabled();
+    tagZhSetting.onchange = e => setTagZhEnabled(e.target.checked);
+    onTagZhChange(on => { tagZhSetting.checked = on; });
+  }
 
   for (const btn of document.querySelectorAll('[data-density]')) {
     btn.onclick = () => applyDensity(btn.dataset.density, { render: true, announce: true });
