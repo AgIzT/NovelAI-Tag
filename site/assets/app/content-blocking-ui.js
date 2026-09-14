@@ -48,6 +48,7 @@ export function updateBlockingSummary(hiddenCount = resultHiddenCount) {
   const count = prefs.words.length + prefs.entries.length;
   const button = $('#blockingResultBtn');
   if (button) {
+    button.hidden = Boolean(state.favoritesView && !hiddenCount);
     button.textContent = count && !prefs.enabled ? '屏蔽已暂停' : (hiddenCount ? `已屏蔽 ${hiddenCount} 项` : '屏蔽管理');
     button.classList.toggle('is-on', Boolean(count && prefs.enabled));
   }

@@ -25,7 +25,28 @@ def run(base, out, cdp):
           app:'../app.js',state:'state.js',core:'favorites-library-core.js',store:'favorites-library-store.js',
           view:'favorites-view.js',fav:'favorites.js',blocking:'content-blocking.js',history:'browser-history.js',
           codex:'fav-codex.js',masonry:'masonry.js',access:'access.js',copy:'copy.js',lightbox:'lightbox.js',data:'data.js'})) qa[name]=await import('/assets/app/'+file);
-          qa.s=qa.state.state; return true;})()""")
+          qa.s=qa.state.state;
+          qa.waitFor=async(condition,label,timeout=6000)=>{
+            const until=performance.now()+timeout;
+            while(performance.now()<until){if(condition())return;await new Promise(r=>setTimeout(r,25));}
+            throw new Error('Timed out: '+label);
+          };
+          qa.createFromOrganize=async(name)=>{
+            document.querySelector('#favoritesOrganizeCreate').click();
+            await qa.waitFor(()=>document.querySelector('#favoritesDialog').classList.contains('show'),'name dialog opens');
+            document.querySelector('#favoritesFolderName').value=name;
+            document.querySelector('#favoritesDialog form').requestSubmit();
+            await qa.waitFor(()=>qa.store.librarySnapshot().folders.some(f=>f.name===name),'folder committed: '+name);
+            await qa.waitFor(()=>document.querySelector('#favoritesDialog').hidden,'name dialog finishes closing');
+            const organize=document.querySelector('#favoritesOrganize');
+            if(!organize.classList.contains('show')||organize.inert)throw new Error('parent organizer must remain interactive');
+            return qa.store.librarySnapshot().folders.find(f=>f.name===name).id;
+          };
+          qa.closeOrganize=async()=>{
+            [...document.querySelectorAll('#favoritesOrganize .favorites-dialog-footer button')].find(button=>button.textContent==='完成').click();
+            await qa.waitFor(()=>document.querySelector('#favoritesOrganize').hidden,'organizer finishes closing');
+          };
+          return true;})()""")
 
     modules()
     keys = cdp.eval("qa.s.codex.entries.filter(e=>e.image||e.images?.length).slice(0,12).map(e=>'suozhang:'+e.id)")
@@ -42,6 +63,7 @@ def run(base, out, cdp):
         ui.run_check(results, name, check)
         if not results[-1]['ok']:
             ui.screenshot(cdp, out, 'failure')
+            ui.write_report(out, base, results)
             raise ui.CheckFailed(name)
 
     test('migration and folder shell', """
@@ -56,21 +78,17 @@ def run(base, out, cdp):
     test('create and join atomically through organize panel', """
       qa.first=qa.fav.favKey(qa.s.list[0]);
       document.querySelector('.favorite-organize-button').click();
-      await new Promise(r=>setTimeout(r,200));
-      assert(!document.querySelector('#favoritesOrganize').hidden,'organize opens');
-      const input=document.querySelector('#favoritesOrganizeName'); input.value='画风参考';
-      document.querySelector('.favorites-organize-new').requestSubmit();
-      await new Promise(r=>setTimeout(r,220));
-      let d=qa.store.librarySnapshot(); qa.folderA=d.folders.find(f=>f.name==='画风参考').id;
+      await qa.waitFor(()=>document.querySelector('#favoritesOrganize').classList.contains('show'),'organize opens');
+      assert(!document.querySelector('#favoritesOrganize').inert,'organize interactive');
+      qa.folderA=await qa.createFromOrganize('画风参考');
+      let d=qa.store.librarySnapshot();
       assert(d.memberships.some(m=>m.itemKey===qa.first&&m.folderId===qa.folderA),'atomic join');
-      input.value='角色与服装'; document.querySelector('.favorites-organize-new').requestSubmit();
-      await new Promise(r=>setTimeout(r,220));
-      d=qa.store.librarySnapshot(); qa.folderB=d.folders.find(f=>f.name==='角色与服装').id;
+      qa.folderB=await qa.createFromOrganize('角色与服装');
+      d=qa.store.librarySnapshot();
       assert(d.items.length===12&&d.memberships.length===2,'multiple folders one item');
       assert(qa.view.countVisible(d.items.map(i=>i.key))===12,'all count');
       assert([...document.querySelectorAll('.favorites-organize-row')].every(r=>r.getAttribute('aria-checked')==='true'),'both selected');
-      document.querySelector('#favoritesOrganize .favorites-dialog-footer button').click();
-      await new Promise(r=>setTimeout(r,200));
+      await qa.closeOrganize();
       return {folders:d.folders.length,memberships:d.memberships.length};
     """)
     test('membership badge height and batch move undo', """
@@ -85,7 +103,8 @@ def run(base, out, cdp):
       document.querySelector('[data-folder-id="'+qa.folderA+'"] .favorites-folder-open').click();
       await new Promise(r=>setTimeout(r,220));
       assert(qa.s.list.length===1,'folder filter');
-      [...document.querySelectorAll('.favorites-desktop-controls button')].find(b=>b.textContent==='选择').click();
+      document.querySelector('.favorites-selection-toggle').click();
+      assert(document.querySelector('.favorites-selection-toggle').textContent==='完成整理','selection toggle active');
       document.querySelector('.card').click();
       assert(qa.s.favSelected.size===1 && !qa.s.lightbox.entry,'selection capture');
       [...document.querySelectorAll('#favoritesBatchBar button')].find(b=>b.textContent==='移出本夹').click();
@@ -102,7 +121,7 @@ def run(base, out, cdp):
       document.querySelector('[data-folder-id="'+qa.folderA+'"] .favorites-folder-more').click();
       [...document.querySelectorAll('#favoritesMenu button')].find(b=>b.textContent==='删除收藏夹').click();
       [...document.querySelectorAll('#favoritesDialog button')].find(b=>b.textContent==='删除收藏夹').click();
-      await new Promise(r=>setTimeout(r,250));
+      await qa.waitFor(()=>document.querySelector('#favoritesDialog').hidden,'delete dialog finishes closing');
       assert(qa.store.librarySnapshot().items.length===12,'delete kept favorites');
       assert(!qa.store.librarySnapshot().folders.some(f=>f.id===qa.folderA),'folder deleted');
       document.querySelector('#toast .toast-action').click(); await new Promise(r=>setTimeout(r,220));
@@ -179,6 +198,27 @@ def run(base, out, cdp):
         ui.wait_for(cdp, "document.querySelectorAll('.favorite-library-card').length>0", 'stable refresh', timeout=30)
         modules()
         test('migrated order survives refresh '+str(index+1), "assert(JSON.stringify(qa.s.list.map(qa.fav.favKey))===sessionStorage.getItem('qa-favorite-order'),'refresh stable');return true;")
+    test('shared sort control changes ordering and restores stable migrated order', """
+      const choose=async(value)=>{
+        const control=document.querySelector('.favorites-sort.ui-select');
+        assert(control&&!control.querySelector('select'),'shared custom sort control');
+        control.querySelector('.ui-select-button').click();
+        assert(!control.querySelector('[role="listbox"]').hidden,'sort list opens');
+        control.querySelector('[role="option"][data-value="'+value+'"]').click();
+        await qa.waitFor(()=>qa.s.favSort===value,'sort value '+value);
+        const current=document.querySelector('.favorites-sort.ui-select');
+        assert(current.querySelector('[role="listbox"]').hidden,'sort list closes');
+        assert(current.querySelector('[role="option"][data-value="'+value+'"]').getAttribute('aria-selected')==='true','sort selection feedback');
+      };
+      await choose('title');
+      const titles=qa.s.list.map(e=>String(e.title||''));
+      assert(titles.every((title,i)=>!i||titles[i-1].localeCompare(title,'zh-CN')<=0),'titles ordered');
+      await choose('oldest');
+      assert(JSON.stringify(qa.s.list.map(qa.fav.favKey))===sessionStorage.getItem('qa-favorite-order'),'unknown dates keep stable order');
+      await choose('recent');
+      assert(JSON.stringify(qa.s.list.map(qa.fav.favKey))===sessionStorage.getItem('qa-favorite-order'),'recent restores stable order');
+      return {items:qa.s.list.length,sort:qa.s.favSort};
+    """)
     # 图包词条在收藏墙里沿用来源册的「点卡看图」；只有选择模式才拦下主点击。
     test('pack favorite keeps view-on-click and selection intercepts controls', """
       qa.s.favSource='nai45_community_pack';qa.app.applyFilter({transition:'none'});
@@ -187,7 +227,7 @@ def run(base, out, cdp):
       qa.masonry.setMasonryActions({copyEntry:()=>copied++,openLightbox:()=>opened++});
       try{
         document.querySelector('.card').click(); assert(opened===1&&copied===0,'favorite pack main click opens image');
-        [...document.querySelectorAll('.favorites-desktop-controls button')].find(b=>b.textContent==='选择').click();
+        document.querySelector('.favorites-selection-toggle').click();
         document.querySelector('.card .fav-btn').click();
         assert(opened===1&&copied===0&&qa.s.favSelected.size===1,'selection stops star and open');
       }finally{qa.masonry.setMasonryActions({copyEntry:qa.copy.copyEntry,openLightbox:qa.lightbox.openLightbox});}
@@ -216,15 +256,13 @@ def run(base, out, cdp):
       return {stored:all.length,visible:expected};
     """)
     test('organize from atlas toast keeps live folder counts after writes', """
-      document.querySelector('#favoritesOrganize .favorites-dialog-footer button').click();
-      await new Promise(r=>setTimeout(r,180));
+      await qa.closeOrganize();
       await qa.app.loadCodex('suozhang',{historyMode:'replace',transition:'none'});
       const entry=qa.s.codex.entries.find(e=>!qa.fav.isFav(e)); assert(entry,'new atlas favorite fixture');
       await qa.fav.toggleFav(entry);
-      document.querySelector('#toast .toast-action').click();await new Promise(r=>setTimeout(r,250));
-      assert(!document.querySelector('#favoritesOrganize').hidden,'toast organize opens');
-      document.querySelector('#favoritesOrganizeName').value='图鉴整理核验';
-      document.querySelector('.favorites-organize-new').requestSubmit();await new Promise(r=>setTimeout(r,250));
+      document.querySelector('#toast .toast-action').click();
+      await qa.waitFor(()=>document.querySelector('#favoritesOrganize').classList.contains('show'),'toast organize opens');
+      await qa.createFromOrganize('图鉴整理核验');
       const folder=qa.store.librarySnapshot().folders.find(f=>f.name==='图鉴整理核验');
       const row=document.querySelector('[data-folder-check="'+folder.id+'"]');
       assert(row?.querySelector('.favorites-count').textContent==='1','new membership keeps visible count');
@@ -232,8 +270,7 @@ def run(base, out, cdp):
       return {count:row.querySelector('.favorites-count').textContent};
     """)
     test('actual browser quota rejects new favorite without changing star or data', """
-      document.querySelector('#favoritesOrganize .favorites-dialog-footer button').click();
-      await new Promise(r=>setTimeout(r,180));
+      await qa.closeOrganize();
       const entry=qa.s.codex.entries.find(e=>!qa.fav.isFav(e)); assert(entry,'unstarred fixture');
       const key=qa.fav.favKey(entry),bytes=localStorage.getItem('fadian-favs-v2');
       const button=document.createElement('button'); button.textContent='☆';

@@ -11,7 +11,7 @@ import { favKey, isFav, setFavoritesActions, toggleFav } from './app/favorites.j
 import { setupFavoritesBackup, subscribeFavoritesChanges, emitFavoritesChanged } from './app/favorites-backup.js';
 import { libraryKeys } from './app/favorites-library-core.js';
 import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibraryStore, subscribeLibrary } from './app/favorites-library-store.js';
-import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesEntries, decorateFavoriteCard, folderBadges, openOrganize, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
+import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesScope, filterFavoritesEntries, decorateFavoriteCard, folderBadges, openOrganize, invalidateOrganizeRequest, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
@@ -356,6 +356,7 @@ export async function loadCodex(id, options = {}) {
     setLoading('需要在设置中开启 NSFW 法典展示后才能查看');
     return;
   }
+  invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
   showSkeleton(seq);
   setLoading('');
@@ -412,6 +413,7 @@ export async function openFavoritesView(options = {}) {
     }
   }
 
+  invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
   showSkeleton(seq);
   setLoading('');
@@ -472,6 +474,7 @@ export async function openSiteSearchView(options = {}) {
   if (!state.browseCodex) return;
   if (!state.siteSearchView) state.searchReturnPath = state.activePath.slice();
 
+  invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
   showSkeleton(seq);
   setLoading('');
@@ -708,7 +711,8 @@ export function applyFilter(options = {}) {
   if (!state.favoritesView && state.activePath.length && (state.siteSearchView || !plan.hasActiveSearch)) list = byActivePath(list);
   const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
-  if (state.favoritesView) list = list.filter(isFav);   // 收藏视图里取消收藏即时消卡
+  // 先定当前夹/来源候选，再求屏蔽差量；其它夹子的隐藏项不能污染这里的空态。
+  if (state.favoritesView) list = filterFavoritesScope(list);
   const unblocked = list.filter(entry => !isContentBlocked(entry));
   const blockedCount = list.length - unblocked.length;
   state.list = state.favoritesView ? filterFavoritesEntries(unblocked) : rankSearchResults(unblocked, plan);

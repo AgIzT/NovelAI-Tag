@@ -911,11 +911,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             )
             picker_open = cdp.eval(
                 "({optionCount: document.querySelectorAll('#relayPlanList [role=\"option\"]').length,"
-                " selected: document.querySelector('#relayPlanList [aria-selected=\"true\"]')?.dataset.planId || ''})"
+                " selected: document.querySelector('#relayPlanList [aria-selected=\"true\"]')?.dataset.value || ''})"
             )
             if picker_open["optionCount"] != 2 or picker_open["selected"] != "qa-plan":
                 raise CheckFailed(f"Relay {mode} plan picker options are wrong: {picker_open}")
-            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan-alt\"]')?.click()")
+            cdp.eval("document.querySelector('#relayPlanList [data-value=\"qa-plan-alt\"]')?.click()")
             wait_for(
                 cdp,
                 "document.querySelector('#relayPlanSelect')?.value === 'qa-plan-alt'"
@@ -933,7 +933,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 " && document.querySelector('#relayPlanList')?.hidden === false",
                 f"relay {mode} reopens plan picker",
             )
-            cdp.eval("document.querySelector('#relayPlanList [data-plan-id=\"qa-plan\"]')?.click()")
+            cdp.eval("document.querySelector('#relayPlanList [data-value=\"qa-plan\"]')?.click()")
             wait_for(
                 cdp,
                 "document.querySelector('#relayPlanSelect')?.value === 'qa-plan'"
