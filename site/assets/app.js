@@ -433,8 +433,9 @@ export async function openFavoritesView(options = {}) {
         setOnlyFavControl(true);
       },
       selectedCodexId: () => state.browseCodex?.id || '',
-      buttonCodex: () => findCodexMeta(state.browseCodex?.id) || state.browseCodex,
-      buttonFallback: () => '选择法典',
+      // 选择器是「当前在看什么」：收藏视图显示我的收藏；展开列表仍高亮返回时回到的那本书。
+      buttonCodex: () => null,
+      buttonFallback: () => '我的收藏',
       metaText: c => `${c.version} · ${c.entryCount} 条`,
       resolveUrlState: () => options.urlState
         && (options.urlState.favorites || options.urlState.codex === FAVORITES_CODEX_ID)
