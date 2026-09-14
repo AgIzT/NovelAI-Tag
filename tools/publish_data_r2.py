@@ -4,6 +4,7 @@
 import argparse
 import datetime as dt
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -19,8 +20,10 @@ try:
         DEFAULT_UPLOAD_RETRIES,
         R2Client,
         RETRYABLE_UPLOAD_STATUSES,
+        describe_request_error,
         load_config,
         request_config,
+        retry_delay,
     )
 except ImportError:
     from sync_r2 import (
@@ -28,8 +31,10 @@ except ImportError:
         DEFAULT_UPLOAD_RETRIES,
         R2Client,
         RETRYABLE_UPLOAD_STATUSES,
+        describe_request_error,
         load_config,
         request_config,
+        retry_delay,
     )
 
 
@@ -225,8 +230,9 @@ class R2DataClient:
             except Exception as ex:
                 if attempt >= attempts:
                     raise
-                wait = self.retry_base_delay * (2 ** (attempt - 1))
-                print(f"upload retry {attempt}/{self.retries} {label}: {ex}; wait {wait:.1f}s", flush=True)
+                wait = retry_delay(self.retry_base_delay, attempt)
+                print(f"upload retry {attempt}/{self.retries} {label}: {describe_request_error(ex)}; wait {wait:.1f}s",
+                      flush=True)
                 if wait:
                     time.sleep(wait)
                 continue
@@ -234,8 +240,8 @@ class R2DataClient:
                 return status, headers, body
             if status not in RETRYABLE_UPLOAD_STATUSES or attempt >= attempts:
                 raise RuntimeError(f"upload failed {label}: {status} {body[:200]!r}")
-            wait = self.retry_base_delay * (2 ** (attempt - 1))
-            print(f"upload retry {attempt}/{self.retries} {label}; wait {wait:.1f}s", flush=True)
+            wait = retry_delay(self.retry_base_delay, attempt)
+            print(f"upload retry {attempt}/{self.retries} {label}: status {status}; wait {wait:.1f}s", flush=True)
             if wait:
                 time.sleep(wait)
         raise RuntimeError(f"upload failed {label}")
@@ -289,7 +295,8 @@ def verify_object(client, key, size, sha):
         raise RuntimeError(f"remote verification failed: {key}")
 
 
-def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30):
+def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30, retries=3,
+                         retry_base_delay=DEFAULT_RETRY_BASE_DELAY):
     if not base_url:
         raise RuntimeError("public_base_url or data_public_base_url is required for the public CORS check")
     public_data_base = base_url.rstrip("/")
@@ -306,12 +313,21 @@ def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30):
             "User-Agent": "NovelAI-Tag-Data-Publisher/1.0",
         },
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read()
-            allow_origin = response.headers.get("Access-Control-Allow-Origin") or ""
-    except (OSError, urllib.error.URLError, urllib.error.HTTPError) as ex:
-        raise RuntimeError(f"public release check failed: {url}: {ex}") from ex
+    for attempt in range(1, retries + 2):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read()
+                allow_origin = response.headers.get("Access-Control-Allow-Origin") or ""
+            break
+        except (OSError, http.client.IncompleteRead) as ex:
+            # A non-retryable status means the release or custom domain is wrong: fail at once.
+            transient = not isinstance(ex, urllib.error.HTTPError) or ex.code in RETRYABLE_UPLOAD_STATUSES
+            if not transient or attempt > retries:
+                raise RuntimeError(f"public release check failed: {url}: {describe_request_error(ex)}") from ex
+            wait = retry_delay(retry_base_delay, attempt)
+            print(f"public check retry {attempt}/{retries}: {describe_request_error(ex)}; wait {wait:.1f}s", flush=True)
+            if wait:
+                time.sleep(wait)
     if allow_origin not in ("*", site_origin):
         raise RuntimeError(f"R2 CORS does not allow {site_origin}: {allow_origin or '<missing>'}")
     remote = json.loads(body.decode("utf-8"))

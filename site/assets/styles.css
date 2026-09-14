@@ -795,6 +795,11 @@ body.dark .banner-pop{border-color:rgba(255,255,255,.12)}
   background:var(--tagbg);border:1px solid var(--line);border-radius:999px;padding:3px 10px;
 }
 .bp-chip small{color:var(--muted);font-size:10px}
+.bp-chip.is-link{align-items:center;color:var(--text);text-decoration:none;transition:border-color .12s,color .12s}
+.bp-chip.is-link:hover{border-color:var(--accent);color:var(--accent)}
+.bp-chip.is-bilibili:hover{border-color:#fb7299;color:#c23262}
+body.dark .bp-chip.is-bilibili:hover{color:#ff8db0}
+.bp-chip svg{width:11px;height:11px;flex:none;stroke:currentColor;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .bp-link{
   display:flex;align-items:center;gap:7px;text-decoration:none;color:var(--accent);
   font-size:12.5px;padding:5px 0;
@@ -832,6 +837,22 @@ body.dark .data-pill.has-orig{background:rgba(255,255,255,.1)}
 .bp-track{flex:1;height:6px;border-radius:999px;background:var(--tagbg);overflow:hidden;max-width:420px}
 .bp-fill{height:100%;border-radius:999px;background:var(--accent)}
 .bp-text{font-size:12px;color:var(--muted);white-space:nowrap}
+/* 作者主页：跟在原图签后面，尺寸与 .data-pill 同级，只用颜色区分；B 站主页用 B 站粉，其它主页走主题色 */
+.banner-home{
+  display:inline-flex;align-items:center;gap:3px;flex:none;white-space:nowrap;text-decoration:none;
+  color:var(--accent);background:var(--accent-soft);border:1px solid transparent;border-radius:999px;
+  padding:2px 8px 2px 6px;font-size:11px;font-weight:800;line-height:1.35;
+  transition:background-color .15s,border-color .15s;
+}
+.banner-home svg{flex:none;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.banner-home svg:first-child{width:13px;height:13px}
+.banner-home svg:last-child{width:11px;height:11px;stroke-width:2.6;transition:translate .15s ease}
+.banner-home:hover{border-color:var(--accent)}
+.banner-home:hover svg:last-child{translate:1px -1px}
+.banner-home.is-bilibili{color:#c23262;background:rgba(251,114,153,.11);border-color:rgba(251,114,153,.3)}
+.banner-home.is-bilibili:hover{background:rgba(251,114,153,.2);border-color:#fb7299}
+body.dark .banner-home.is-bilibili{color:#ff8db0;background:rgba(251,114,153,.14);border-color:rgba(251,114,153,.3)}
+body.dark .banner-home.is-bilibili:hover{background:rgba(251,114,153,.24);border-color:#fb7299}
 .chip-rail{
   display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px;
   scrollbar-width:none;
@@ -1882,11 +1903,17 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
 .archive-section h3{margin:0 0 8px;font-size:13px;color:var(--muted)}
 .archive-section p{margin:0;color:var(--muted);font-size:12px;line-height:1.7}
 .archive-chips{display:flex;flex-wrap:wrap;gap:7px}
-.archive-chips span{
+.archive-chips>span,.archive-chips>a{
   display:inline-flex;gap:5px;align-items:center;background:var(--accent-soft);color:var(--accent);
   border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;
 }
 .archive-chips small{color:var(--muted);font-weight:600}
+.archive-chips>a{text-decoration:none;border:1px solid transparent;transition:border-color .12s}
+.archive-chips>a:hover{border-color:var(--accent)}
+.archive-chips>a.is-bilibili{color:#c23262;background:rgba(251,114,153,.11)}
+.archive-chips>a.is-bilibili:hover{border-color:#fb7299}
+body.dark .archive-chips>a.is-bilibili{color:#ff8db0;background:rgba(251,114,153,.14)}
+.archive-chips svg{width:12px;height:12px;flex:none;stroke:currentColor;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .archive-link{
   display:flex;align-items:center;gap:8px;color:var(--text);text-decoration:none;
   border:1px solid var(--line);border-radius:10px;padding:9px 10px;margin-top:7px;
@@ -2227,6 +2254,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .bp-track{height:6px}
   .bp-text{font-size:11px}
   .banner-about-btn{right:8px;top:8px;width:26px;height:26px}
+  .banner-home{gap:2px;padding:1px 6px 1px 4px}
   .banner-pop{width:min(280px,calc(100vw - 16px))}
   .chip-rail{
     position:sticky;top:calc(var(--topbar-h) + 2px);z-index:18;
