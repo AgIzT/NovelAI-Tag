@@ -96,6 +96,7 @@ const {
 } = await import('../site/assets/app/masonry.js');
 const {
   canUseNativeShare,
+  flyIn,
   getLightboxStepTarget,
   isLightboxKeydownBlocked,
   lightboxNavigationContext,
@@ -146,6 +147,45 @@ const {
   syncUrlState,
 } = await import('../site/assets/app/router.js');
 const { loadAnnouncements } = await import('../site/assets/app/announcements.js');
+
+// contain 缩略图的留白不属于图片：飞入从可见图片矩形开始，桌面 cover 保持元素外框。
+{
+  const previous = { createElement: document.createElement, appendChild: document.body.appendChild,
+    getComputedStyle, requestAnimationFrame, setTimeout: window.setTimeout };
+  const target = { left: 500, top: 10, width: 300, height: 600 };
+  let clone;
+  let frame;
+  dom.set('#lightbox', { classList: fakeClassList() });
+  dom.set('#lightboxImg', { getBoundingClientRect: () => target });
+  document.createElement = () => ({ style: {}, addEventListener() {} });
+  document.body.appendChild = node => { clone = node; };
+  globalThis.getComputedStyle = image => ({ objectFit: image.fit });
+  globalThis.requestAnimationFrame = callback => { frame = callback; };
+  window.setTimeout = () => 0;
+  try {
+    const cases = [
+      { fit: 'contain', box: [300, 200], image: [200, 400], expected: [110, 20, 100, 200] },
+      { fit: 'contain', box: [200, 300], image: [400, 200], expected: [10, 120, 200, 100] },
+      { fit: 'contain', box: [200, 200], image: [400, 400], expected: [10, 20, 200, 200] },
+      { fit: 'cover', box: [300, 200], image: [200, 400], expected: [10, 20, 300, 200] },
+    ];
+    for (const sample of cases) {
+      flyIn({ fit: sample.fit, src: 'thumb.webp', naturalWidth: sample.image[0], naturalHeight: sample.image[1],
+        getBoundingClientRect: () => ({ left: 10, top: 20, width: sample.box[0], height: sample.box[1] }) });
+      assert.deepEqual(['left', 'top', 'width', 'height'].map(key => parseFloat(clone.style[key])), sample.expected);
+      frame();
+      assert.deepEqual(['left', 'top', 'width', 'height'].map(key => parseFloat(clone.style[key])), [500, 10, 300, 600]);
+    }
+  } finally {
+    document.createElement = previous.createElement;
+    document.body.appendChild = previous.appendChild;
+    globalThis.getComputedStyle = previous.getComputedStyle;
+    globalThis.requestAnimationFrame = previous.requestAnimationFrame;
+    window.setTimeout = previous.setTimeout;
+    dom.delete('#lightbox');
+    dom.delete('#lightboxImg');
+  }
+}
 
 // 真实入口脚本必须固定文档基址；history 改成分享路径后，图片、原图签收和后续路由仍使用站点目录。
 {

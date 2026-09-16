@@ -355,19 +355,28 @@ export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cfg = densityConfig();
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight) return cached.value;
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.favoritesView === state.favoritesView) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
   const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
   const titleHeight = titleLines * cfg.titleLineHeight;
   const tagsHeight = cfg.hideImageTags && hasEntryImage(e) ? 0
     : clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
-  const footHeight = cfg.mobile ? (e.negative ? 92 : 52) : (e.negative ? cfg.footHeightNegative : cfg.footHeight);
+  let footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
+  if (cfg.mobile) {
+    const hasCharacters = Array.isArray(e.characterPrompts) && e.characterPrompts.length > 0;
+    const actionCount = (state.favoritesView ? 2 : 3) + Number(Boolean(e.negative)) + Number(Boolean(e.negative) || hasCharacters);
+    // 对齐手机 CSS：按钮 36px、间距 4px；扣掉卡片边框与 body 内边距。
+    const actionWidth = Math.max(1, width - 2 - cfg.bodyPadX * 2);
+    const perRow = Math.max(1, Math.floor((actionWidth + 4) / 40));
+    const rows = Math.ceil(actionCount / perRow);
+    footHeight = 14 + rows * 40; // 路径 14px + 每行按钮及其上方间距。
+  }
   const value = {
     height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, favoritesView: state.favoritesView, value });
   return value;
 }
 

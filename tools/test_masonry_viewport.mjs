@@ -196,4 +196,33 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   state.density = DEFAULT_DENSITY;
 }
 
+// “全部”也会因角色词出现；窄双列需为它换行，宽卡片与收藏卡则按实际按钮数排布。
+{
+  const previous = { density: state.density, favoritesView: state.favoritesView, innerWidth: window.innerWidth };
+  window.innerWidth = 320;
+  state.favoritesView = false;
+  const base = { title: '角色测试', image: 'bear.webp', tags: 'tag, '.repeat(200) };
+  const characters = { ...base, characterPrompts: [{ label: '角色一', positive: '1girl' }] };
+  const negative = { ...base, negative: 'blurry' };
+  for (const density of ['standard', 'compact']) {
+    state.density = density;
+    for (const width of [147, 167]) {
+      const plainHeight = estimateBodyMetrics(base, width).height;
+      assert.equal(estimateBodyMetrics(characters, width).height - plainHeight, 40, '角色词按钮换到第二行');
+      assert.equal(estimateBodyMetrics(negative, width).height - plainHeight, 40, '负面与全部按钮换到第二行');
+    }
+    assert.equal(estimateBodyMetrics(characters, 182).height, estimateBodyMetrics(base, 182).height, '四个按钮放得下一行时不多留空白');
+    assert.equal(estimateBodyMetrics(negative, 300).height, estimateBodyMetrics(base, 300).height, '宽卡片五个按钮无需换行');
+    const normalHeight = estimateBodyMetrics(characters, 147).height;
+    state.favoritesView = true;
+    assert.equal(estimateBodyMetrics(characters, 147).height, normalHeight - 40, '收藏卡没有隐藏按钮，不能复用普通卡的底栏缓存');
+    state.favoritesView = false;
+    assert.equal(estimateBodyMetrics(characters, 147).height, normalHeight);
+  }
+  state.density = previous.density;
+  state.favoritesView = previous.favoritesView;
+  if (previous.innerWidth === undefined) delete window.innerWidth;
+  else window.innerWidth = previous.innerWidth;
+}
+
 console.log('masonry viewport and mobile density regressions: PASS');
