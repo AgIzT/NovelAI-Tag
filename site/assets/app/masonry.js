@@ -210,7 +210,7 @@ export function restoreMasonryAnchor(anchor) {
 export function colCount() {
   const w = $('#masonry').clientWidth || $('#main').clientWidth;
   const cfg = densityConfig();
-  return Math.max(1, Math.floor((w + cfg.gap) / (cfg.minWidth + cfg.gap)));
+  return cfg.columns || Math.max(1, Math.floor((w + cfg.gap) / (cfg.minWidth + cfg.gap)));
 }
 
 export function clearMasonry() {
@@ -284,7 +284,7 @@ export function computeLayout({ previous } = {}) {
   const width = Math.max(1, m.clientWidth || $('#main').clientWidth || 1);
   const cfg = densityConfig();
   const n = colCount();
-  const itemWidth = Math.max(180, Math.floor((width - cfg.gap * (n - 1)) / n));
+  const itemWidth = Math.max(1, Math.floor((width - cfg.gap * (n - 1)) / n));
   const colHeights = Array.from({ length: n }, () => 0);
   const placements = [];
 
@@ -336,7 +336,8 @@ export function estimateImageHeight(e, width) {
   const iw = Number(e.imageWidth || e.width || e.thumbWidth);
   const ih = Number(e.imageHeight || e.height || e.thumbHeight);
   const ratio = iw > 0 && ih > 0 ? ih / iw : DEFAULT_IMAGE_RATIO;
-  return Math.round(width * clamp(ratio, 0.55, 1.9));
+  const cfg = densityConfig();
+  return Math.round(Math.min(width * clamp(ratio, 0.55, cfg.imageMaxRatio || 1.9), cfg.imageMaxHeight || Infinity));
 }
 
 /* 估高是 computeLayout 的热点：每次搜索/筛选都要对**全部命中条目**跑一遍，而 textUnits 是逐字符正则。
@@ -352,20 +353,21 @@ export function invalidateBodyMetrics(e) {
 
 export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
-  const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.density === state.density && cached.badgeHeight === badgeHeight) return cached.value;
   const cfg = densityConfig();
+  const cached = bodyMetricsCache.get(e);
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
   const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
   const titleHeight = titleLines * cfg.titleLineHeight;
-  const tagsHeight = clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
-  const footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
+  const tagsHeight = cfg.hideImageTags && hasEntryImage(e) ? 0
+    : clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
+  const footHeight = cfg.mobile ? (e.negative ? 92 : 52) : (e.negative ? cfg.footHeightNegative : cfg.footHeight);
   const value = {
     height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, density: state.density, badgeHeight, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, value });
   return value;
 }
 
@@ -648,6 +650,26 @@ export function makeCard(placement) {
 }
 
 export function updateCardPosition(node, placement) {
+  // 窄卡片的标题独占一行，动作集中到底部；跨断点时搬回原节点，保留事件和收藏状态。
+  const mobile = Boolean(densityConfig().mobile);
+  if (node._mobileActions !== mobile) {
+    const actions = node.querySelector('.card-actions');
+    const title = node.querySelector('.card-title-row');
+    const report = node.querySelector('.report-card-btn');
+    if (mobile) {
+      for (const selector of ['.report-card-btn', '.hide-card-btn', '.fav-btn']) {
+        const button = node.querySelector(selector);
+        if (button && actions) actions.prepend(button);
+      }
+    } else {
+      for (const selector of ['.fav-btn', '.hide-card-btn']) {
+        const button = node.querySelector(selector);
+        if (button && title && button.parentElement !== title) title.append(button);
+      }
+      if (report && actions) actions.insertBefore(report, actions.querySelector('.copy-hint'));
+    }
+    node._mobileActions = mobile;
+  }
   node.style.width = `${placement.width}px`;
   node.style.height = `${placement.height}px`;
   node.style.setProperty('--card-x', `${placement.left}px`);
@@ -840,7 +862,7 @@ export function calibrateCardHeights(cards) {
   const measurements = prepared.map(card => {
     const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
     const naturalTagsBoxHeight = card.tags ? card.tags.getBoundingClientRect().height : 0;
-    const tagsHeight = card.tags
+    const tagsHeight = cfg.hideImageTags && hasEntryImage(card.placement.entry) ? 0 : card.tags
       ? clamp(naturalTagsHeight, cfg.minTagHeight, cfg.maxTagHeight)
       : card.placement.tagsHeight;
     const imageHeight = card.wrap && !card.wrap.hidden && getComputedStyle(card.wrap).display !== 'none'

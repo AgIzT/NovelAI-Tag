@@ -40,8 +40,12 @@ globalThis.getComputedStyle = () => ({ display: 'block' });
 const {
   applyCardImageLoadPolicy,
   cardImageLoadPolicy,
+  computeLayout,
+  estimateBodyMetrics,
+  estimateImageHeight,
   masonryViewport,
 } = await import('../site/assets/app/masonry.js');
+const { state, densityConfig, DEFAULT_DENSITY } = await import('../site/assets/app/state.js');
 
 function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) {
   window.innerHeight = viewportHeight;
@@ -152,4 +156,44 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   assert.equal(attrs.has('fetchpriority'), false);
 }
 
-console.log('masonry viewport regressions: PASS');
+// 手机标准必须双列、卡片不能越出可用宽度；长图也必须能在一屏内浏览。
+{
+  const originalQuery = document.querySelector;
+  const masonry = { clientWidth: 0, style: {} };
+  document.querySelector = selector => ['#masonry', '#main'].includes(selector) ? masonry : null;
+  const tall = { id: 'tall', title: '长图', image: 'tall.webp', imageWidth: 100, imageHeight: 2000, tags: 'tag, '.repeat(200) };
+  const textOnly = { id: 'text', title: '文字词条', tags: 'tag, '.repeat(200) };
+  state.list = [tall, { ...tall, id: 'tall-2' }, textOnly];
+  assert.equal(DEFAULT_DENSITY, 'standard');
+  for (const width of [320, 360, 390, 430, 600]) {
+    window.innerWidth = width;
+    masonry.clientWidth = width - 16;
+    for (const density of ['comfort', 'standard', 'compact']) {
+      state.density = density;
+      computeLayout();
+      assert.equal(state.colN, density === 'comfort' ? 1 : 2, `${width}px ${density} 列数`);
+      for (const card of state.placements) {
+        assert.ok(card.left + card.width <= masonry.clientWidth, '双列不能被 180px 下限撑出屏幕');
+        assert.ok(card.height < 568, '长图与长摘要不能撑出一屏高度');
+      }
+      assert.ok(estimateImageHeight(tall, state.itemWidth) <= densityConfig().imageMaxHeight);
+      assert.equal(estimateImageHeight(textOnly, state.itemWidth), 0);
+      assert.ok(estimateBodyMetrics(textOnly, state.itemWidth).tagsHeight > 0, '无图卡保留文字');
+      if (density === 'compact') assert.equal(state.placements[0].tagsHeight, 0, '图墙隐藏摘要且不预留空白');
+    }
+  }
+
+  // 卡宽恰好相同时，跨手机断点也不能复用旧摘要估高。
+  state.density = 'compact';
+  window.innerWidth = 600;
+  assert.equal(estimateBodyMetrics(tall, 200).tagsHeight, 0);
+  window.innerWidth = 601;
+  assert.ok(estimateBodyMetrics(tall, 200).tagsHeight > 0);
+  assert.equal(densityConfig().minWidth, 176, '桌面密度保持原配置');
+  assert.equal(estimateImageHeight(tall, 200), 380, '桌面图片比例上限保持原值');
+  document.querySelector = originalQuery;
+  delete window.innerWidth;
+  state.density = DEFAULT_DENSITY;
+}
+
+console.log('masonry viewport and mobile density regressions: PASS');
