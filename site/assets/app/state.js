@@ -86,17 +86,20 @@ const MOBILE_DENSITY_PRESETS = {
   comfort: {
     ...DENSITY_PRESETS.comfort, mobile: true, columns: 1, gap: 12,
     imageMaxRatio: 1.15, imageMaxHeight: 320,
+    titleGap: 6, footGap: 6, footHeight: 14,
     maxTagHeight: 76, maxTagLines: 3,
   },
   standard: {
     ...DENSITY_PRESETS.standard, mobile: true, columns: 2, gap: 10,
     imageMaxRatio: 1.35, imageMaxHeight: 280,
     bodyPadX: 9, bodyPadTop: 9, bodyPadBottom: 9,
-    titleGap: 6, tagPaddingY: 10, maxTagHeight: 42, maxTagLines: 2,
+    titleGap: 6, footGap: 6, footHeight: 14,
+    tagPaddingY: 10, maxTagHeight: 42, maxTagLines: 2,
   },
   compact: {
-    ...DENSITY_PRESETS.compact, mobile: true, columns: 2, gap: 6,
-    imageMaxRatio: 1, imageMaxHeight: 200, hideImageTags: true,
+    ...DENSITY_PRESETS.compact, mobile: true, minWidth: 108, maxColumns: 3, gap: 6,
+    titleActionWidth: 25, titleMinHeight: 16, maxTitleLines: 1, footHeight: 13,
+    hideImageTags: true,
   },
 };
 export const NSFW_STORAGE_KEY = 'fadian-nsfw-ok';

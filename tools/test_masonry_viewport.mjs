@@ -165,23 +165,30 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   const textOnly = { id: 'text', title: '文字词条', tags: 'tag, '.repeat(200) };
   state.list = [tall, { ...tall, id: 'tall-2' }, textOnly];
   assert.equal(DEFAULT_DENSITY, 'standard');
-  for (const width of [320, 360, 390, 430, 600]) {
+  for (const width of [320, 351, 352, 360, 390, 430, 600]) {
     window.innerWidth = width;
     masonry.clientWidth = width - 16;
     for (const density of ['comfort', 'standard', 'compact']) {
       state.density = density;
       computeLayout();
-      assert.equal(state.colN, density === 'comfort' ? 1 : 2, `${width}px ${density} 列数`);
+      const expectedColumns = density === 'comfort' ? 1 : density === 'compact' && width >= 352 ? 3 : 2;
+      assert.equal(state.colN, expectedColumns, `${width}px ${density} 列数`);
       for (const card of state.placements) {
         assert.ok(card.left + card.width <= masonry.clientWidth, '双列不能被 180px 下限撑出屏幕');
         assert.ok(card.height < 568, '长图与长摘要不能撑出一屏高度');
       }
-      assert.ok(estimateImageHeight(tall, state.itemWidth) <= densityConfig().imageMaxHeight);
+      assert.ok(estimateImageHeight(tall, state.itemWidth) <= (densityConfig().imageMaxHeight || Infinity));
       assert.equal(estimateImageHeight(textOnly, state.itemWidth), 0);
       assert.ok(estimateBodyMetrics(textOnly, state.itemWidth).tagsHeight > 0, '无图卡保留文字');
       if (density === 'compact') assert.equal(state.placements[0].tagsHeight, 0, '图墙隐藏摘要且不预留空白');
     }
   }
+
+  // 常规竖图沿用原版比例，不能再被正方形高度上限压出侧边空白。
+  state.density = 'compact';
+  window.innerWidth = 390;
+  assert.equal(estimateImageHeight({ image: 'portrait.webp', imageWidth: 753, imageHeight: 1100 }, 120), 175);
+  assert.equal(estimateBodyMetrics({ image: 'portrait.webp', title: '卡片', tags: '' }, 120).height, 48);
 
   // 卡宽恰好相同时，跨手机断点也不能复用旧摘要估高。
   state.density = 'compact';
@@ -196,28 +203,23 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   state.density = DEFAULT_DENSITY;
 }
 
-// “全部”也会因角色词出现；窄双列需为它换行，宽卡片与收藏卡则按实际按钮数排布。
+// 手机卡片的标题只保留收藏星星，负面/角色操作不再占据底栏。
 {
   const previous = { density: state.density, favoritesView: state.favoritesView, innerWidth: window.innerWidth };
   window.innerWidth = 320;
-  state.favoritesView = false;
   const base = { title: '角色测试', image: 'bear.webp', tags: 'tag, '.repeat(200) };
   const characters = { ...base, characterPrompts: [{ label: '角色一', positive: '1girl' }] };
   const negative = { ...base, negative: 'blurry' };
-  for (const density of ['standard', 'compact']) {
+  for (const density of ['comfort', 'standard', 'compact']) {
     state.density = density;
-    for (const width of [147, 167]) {
+    for (const width of [147, 167, 182, 300]) {
       const plainHeight = estimateBodyMetrics(base, width).height;
-      assert.equal(estimateBodyMetrics(characters, width).height - plainHeight, 40, '角色词按钮换到第二行');
-      assert.equal(estimateBodyMetrics(negative, width).height - plainHeight, 40, '负面与全部按钮换到第二行');
+      assert.equal(estimateBodyMetrics(characters, width).height, plainHeight, '角色操作在灯箱中，卡片不预留按钮行');
+      assert.equal(estimateBodyMetrics(negative, width).height, plainHeight, '负面操作在灯箱中，卡片不预留按钮行');
+      state.favoritesView = true;
+      assert.equal(estimateBodyMetrics(characters, width).height, plainHeight);
+      state.favoritesView = false;
     }
-    assert.equal(estimateBodyMetrics(characters, 182).height, estimateBodyMetrics(base, 182).height, '四个按钮放得下一行时不多留空白');
-    assert.equal(estimateBodyMetrics(negative, 300).height, estimateBodyMetrics(base, 300).height, '宽卡片五个按钮无需换行');
-    const normalHeight = estimateBodyMetrics(characters, 147).height;
-    state.favoritesView = true;
-    assert.equal(estimateBodyMetrics(characters, 147).height, normalHeight - 40, '收藏卡没有隐藏按钮，不能复用普通卡的底栏缓存');
-    state.favoritesView = false;
-    assert.equal(estimateBodyMetrics(characters, 147).height, normalHeight);
   }
   state.density = previous.density;
   state.favoritesView = previous.favoritesView;

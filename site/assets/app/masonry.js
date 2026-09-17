@@ -210,7 +210,7 @@ export function restoreMasonryAnchor(anchor) {
 export function colCount() {
   const w = $('#masonry').clientWidth || $('#main').clientWidth;
   const cfg = densityConfig();
-  return cfg.columns || Math.max(1, Math.floor((w + cfg.gap) / (cfg.minWidth + cfg.gap)));
+  return cfg.columns || Math.min(cfg.maxColumns || Infinity, Math.max(1, Math.floor((w + cfg.gap) / (cfg.minWidth + cfg.gap))));
 }
 
 export function clearMasonry() {
@@ -355,28 +355,22 @@ export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cfg = densityConfig();
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.favoritesView === state.favoritesView) return cached.value;
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
-  const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
+  const titleWidth = cfg.mobile ? Math.max(1, width - 2 - cfg.bodyPadX * 2 - (cfg.titleActionWidth || 26)) : contentWidth;
+  const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
   const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
-  const titleHeight = titleLines * cfg.titleLineHeight;
+  const titleHeight = Math.max(cfg.mobile ? (cfg.titleMinHeight || 20) : 0, titleLines * cfg.titleLineHeight);
   const tagsHeight = cfg.hideImageTags && hasEntryImage(e) ? 0
     : clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
-  let footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
-  if (cfg.mobile) {
-    const hasCharacters = Array.isArray(e.characterPrompts) && e.characterPrompts.length > 0;
-    const actionCount = (state.favoritesView ? 2 : 3) + Number(Boolean(e.negative)) + Number(Boolean(e.negative) || hasCharacters);
-    // 对齐手机 CSS：按钮 36px、间距 4px；扣掉卡片边框与 body 内边距。
-    const actionWidth = Math.max(1, width - 2 - cfg.bodyPadX * 2);
-    const perRow = Math.max(1, Math.floor((actionWidth + 4) / 40));
-    const rows = Math.ceil(actionCount / perRow);
-    footHeight = 14 + rows * 40; // 路径 14px + 每行按钮及其上方间距。
-  }
+  const titleGap = tagsHeight ? cfg.titleGap : 0;
+  const footGap = cfg.footGap;
+  const footHeight = cfg.mobile ? cfg.footHeight : (e.negative ? cfg.footHeightNegative : cfg.footHeight);
   const value = {
-    height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
+    height: Math.ceil(cfg.bodyPadTop + titleHeight + titleGap + tagsHeight + footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, favoritesView: state.favoritesView, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, value });
   return value;
 }
 
@@ -647,9 +641,9 @@ export function makeCard(placement) {
     copyHint.classList.toggle('is-view', hasImage);
   }
   node.onclick = () => {
-    if (packMode && hasImage) {
-      const img = node.querySelector('.card-img');
-      masonryActions.openLightbox(e, 0, img || null);
+    if (densityConfig().mobile || (packMode && hasImage)) {
+      const img = hasImage ? node.querySelector('.card-img') : null;
+      masonryActions.openLightbox(e, 0, img, { allowEmpty: true });
       return;
     }
     masonryActions.copyEntry(e, node);
@@ -659,26 +653,6 @@ export function makeCard(placement) {
 }
 
 export function updateCardPosition(node, placement) {
-  // 窄卡片的标题独占一行，动作集中到底部；跨断点时搬回原节点，保留事件和收藏状态。
-  const mobile = Boolean(densityConfig().mobile);
-  if (node._mobileActions !== mobile) {
-    const actions = node.querySelector('.card-actions');
-    const title = node.querySelector('.card-title-row');
-    const report = node.querySelector('.report-card-btn');
-    if (mobile) {
-      for (const selector of ['.report-card-btn', '.hide-card-btn', '.fav-btn']) {
-        const button = node.querySelector(selector);
-        if (button && actions) actions.prepend(button);
-      }
-    } else {
-      for (const selector of ['.fav-btn', '.hide-card-btn']) {
-        const button = node.querySelector(selector);
-        if (button && title && button.parentElement !== title) title.append(button);
-      }
-      if (report && actions) actions.insertBefore(report, actions.querySelector('.copy-hint'));
-    }
-    node._mobileActions = mobile;
-  }
   node.style.width = `${placement.width}px`;
   node.style.height = `${placement.height}px`;
   node.style.setProperty('--card-x', `${placement.left}px`);

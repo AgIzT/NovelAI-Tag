@@ -10,6 +10,8 @@ const STEPS = [
     cls: 'obs-1',
     scene: `<div class="ob-grid"><i></i><i></i><i class="ob-t"></i><i></i></div><div class="ob-ck"><svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>${CUR}`,
     title: '看图，点一下就复制',
+    mobileTitle: '点卡片查看，点星星收藏',
+    mobileBody: '点卡片打开详情，在详情里复制提示词、查看原图或反馈问题。标题旁的星星用于收藏。',
     body: '这里是社区整理的 NovelAI 提示词法典图鉴。看中哪张例图，点卡片即复制它的法典提示词，直接粘进 NovelAI。',
   },
   {
@@ -22,6 +24,7 @@ const STEPS = [
     cls: 'obs-2',
     scene: `<div class="ob-dim"></div><div class="ob-card"><span class="ob-pic"></span><span class="ob-zoom"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5 20 20"/></svg></span></div><div class="ob-info"><u></u><u></u><u></u></div><div class="ob-nai"><i>NAI</i><s></s></div><div class="ob-big"></div>${CUR}`,
     title: '要原参数？放大获取原图拖进 NAI',
+    mobileBody: '点卡片打开详情，再点「查看原图」。列表缩略图不含生成参数。',
     body: '列表是缩略图不含参数。点图右上角放大成原图，再把大图拖进 NovelAI，多数能直接读出生成参数。',
   },
   {
@@ -106,8 +109,9 @@ function renderOnboardingStep() {
     scene.className = 'onboarding-scene ' + item.cls;
     scene.innerHTML = item.scene;
   }
-  $('#onboardingTitle').textContent = item.title;
-  $('#onboardingBody').textContent = item.body;
+  const mobile = window.innerWidth <= 600;
+  $('#onboardingTitle').textContent = mobile && item.mobileTitle || item.title;
+  $('#onboardingBody').textContent = mobile && item.mobileBody || item.body;
   $('#onboardingStep').textContent = `${step + 1} / ${STEPS.length}`;
   const back = $('#onboardingBack');
   const next = $('#onboardingNext');
