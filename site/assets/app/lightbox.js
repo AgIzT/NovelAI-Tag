@@ -830,7 +830,9 @@ export function renderLightbox() {
   }
   const reportBtn = $('#reportLightbox');
   if (reportBtn) {
-    reportBtn.hidden = emptyImage;
+    // 无图详情同样需要反馈内容；只有原图等图片操作依赖配图。
+    reportBtn.hidden = false;
+    reportBtn.textContent = emptyImage ? '反馈词条' : '反馈此图';
     reportBtn.onclick = ev => {
       ev.stopPropagation();
       openReportDialog({

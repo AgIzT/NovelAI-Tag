@@ -2,9 +2,7 @@ import { state } from './state.js';
 import { $ } from './utils.js';
 import { encodePathCode } from './path-code.js';
 import { serializeSearchFilters } from './search.js';
-import { hasEntryImage } from './media.js';
 import { resolveAtlasEntryId } from './favorites-backup-core.js';
-import { toast } from './feedback.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import {
   beginLayeredSearch,
@@ -319,17 +317,13 @@ export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
     window.scrollTo({ top, left: 0, behavior: 'auto' });
     routerActions.updateVirtualCards(true);
   }
-  if (hasEntryImage(entry)) {
-    const node = index >= 0 ? state.nodes.get(index) : null;
-    const img = node?.querySelector('.card-img');
-    routerActions.openLightbox(entry, imageIndex, img || null, {
-      historyMode: 'none',
-      recordRecent: !isRestoringHistory(),
-    });
-    return entry.id;
-  } else {
-    toast('这个词条还没有例图');
-    syncUrlState({ entry: '' });
-    return false;
-  }
+  const node = index >= 0 ? state.nodes.get(index) : null;
+  const img = node?.querySelector('.card-img');
+  // 点击卡片与刷新 / 前进恢复共用详情能力，不把无图词条退回列表。
+  routerActions.openLightbox(entry, imageIndex, img || null, {
+    allowEmpty: true,
+    historyMode: 'none',
+    recordRecent: !isRestoringHistory(),
+  });
+  return entry.id;
 }

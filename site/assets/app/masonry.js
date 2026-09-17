@@ -640,10 +640,21 @@ export function makeCard(placement) {
     copyHint.textContent = hasImage ? '点击查看' : '暂无图片';
     copyHint.classList.toggle('is-view', hasImage);
   }
+  const openDetail = () => {
+    const img = hasImage ? node.querySelector('.card-img') : null;
+    masonryActions.openLightbox(e, 0, img, { allowEmpty: true });
+  };
+  const detailBtn = node.querySelector('.card-detail-btn');
+  if (detailBtn) {
+    detailBtn.setAttribute('aria-label', `查看详情：${e.title}`);
+    detailBtn.onclick = ev => {
+      ev.stopPropagation();
+      openDetail();
+    };
+  }
   node.onclick = () => {
     if (densityConfig().mobile || (packMode && hasImage)) {
-      const img = hasImage ? node.querySelector('.card-img') : null;
-      masonryActions.openLightbox(e, 0, img, { allowEmpty: true });
+      openDetail();
       return;
     }
     masonryActions.copyEntry(e, node);

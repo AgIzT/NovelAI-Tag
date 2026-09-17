@@ -1724,6 +1724,18 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.deepEqual(state.activePath, entry.path, '无搜索深链仍按原行为定位词条目录');
   assert.equal(filterApplications, 1);
 
+  // 手机能打开的无图详情，刷新与前进使用的路由入口也必须能恢复。
+  const textEntry = { id: 'book-text', title: '无图词条', path: ['文字'], tags: 'test prompt' };
+  state.codex.entries.push(textEntry);
+  state.list.push(textEntry);
+  let opened = null;
+  setRouterActions({ openLightbox: (...args) => { opened = args; } });
+  assert.equal(openEntryDeepLink(textEntry.id), textEntry.id);
+  assert.equal(opened[0], textEntry);
+  assert.equal(opened[2], null);
+  assert.equal(opened[3].allowEmpty, true, '路由恢复不能省略无图详情选项');
+  assert.equal(opened[3].historyMode, 'none', '恢复详情不能重复压入历史');
+
   Object.assign(state, previous);
   setRouterActions({
     openLightbox: () => {},
