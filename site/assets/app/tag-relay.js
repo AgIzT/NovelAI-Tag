@@ -245,7 +245,7 @@ function renderWarehouse({ motion = true } = {}) {
   /* 空态一屏化后压成一行纯文本（原先是 b + small 两行，占地方）。 */
   empty.textContent = fav
     ? '还没有收藏。点卡片标题旁的星标，词条会出现在这里。'
-    : '还没有复制过词条。点卡片复制，它会自动落到这里。';
+    : '还没有复制过词条。复制的提示词会自动出现在这里。';
   /* 条数长在页签徽标上（说的就是那一格里有多少条）；这行只留"正在读取"这类真状态，
      空着就不占位（CSS :empty）。原先它和栏头那份「N 条」是同一个数字的第二遍。 */
   if (status) status.textContent = fav && favoritesLoading ? '正在读取跨法典收藏…' : '';

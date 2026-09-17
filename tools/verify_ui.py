@@ -2174,7 +2174,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             or migrated_library.get("migratedFrom") != "v1"
             or {item.get("key") for item in migrated_library.get("items", [])} != expected_keys
             or any(item.get("addedAt") is not None or not item.get("importedAt") for item in migrated_library.get("items", []))
-            or migrated_library.get("folders") != []
+            or [folder.get("name") for folder in migrated_library.get("folders", [])] != ['角色', '画风', '动作', '场景', '素材参考']
+            or migrated_library.get("presetsSeeded") != 1
             or migrated_library.get("memberships") != []
         ):
             raise CheckFailed(f"Historical favorites did not migrate completely to unclassified V2: {migrated_library!r}")
@@ -2234,6 +2235,112 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("NSFW codex items were not locked again")
         check_no_errors(cdp)
         return data
+
+    def mobile_card_details():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelector('#masonry .card')", "mobile detail cards")
+        cdp.eval("localStorage.setItem('fadian-onboarding-v1-done','1'); true")
+
+        def key(value, code, number):
+            params = {"type": "keyDown", "key": value, "code": code, "windowsVirtualKeyCode": number}
+            if value == 'Enter':
+                params['text'] = '\r'
+            cdp.command("Input.dispatchKeyEvent", params)
+            cdp.command("Input.dispatchKeyEvent", {"type": "keyUp", "key": value, "code": code, "windowsVirtualKeyCode": number})
+
+        def click(selector):
+            literal = js_string(selector)
+            pos = cdp.eval(f"""(() => {{
+              const e = document.querySelector({literal});
+              e.scrollIntoView({{block:'nearest'}});
+              const r = e.getBoundingClientRect();
+              const x = r.x + r.width / 2, y = r.y + r.height / 2;
+              if (!e.contains(document.elementFromPoint(x, y))) throw new Error('Control is covered: ' + {literal});
+              return {{x, y}};
+            }})()""")
+            for kind in ["mousePressed", "mouseReleased"]:
+                cdp.command("Input.dispatchMouseEvent", {"type": kind, "button": "left", "clickCount": 1, **pos})
+
+        # Use a real text entry so reload exercises the persisted route and real data.
+        text_entry = cdp.eval("""(async () => {
+          const {state} = await import('./assets/app/state.js');
+          const {hasEntryImage} = await import('./assets/app/media.js');
+          const {renderList} = await import('./assets/app/masonry.js');
+          const entry = state.list.find(e => !hasEntryImage(e));
+          if (!entry) throw new Error('No accessible text entry for detail regression');
+          state.list = [entry]; renderList({resetScroll:true});
+          return {id:entry.id,title:entry.title};
+        })()""")
+        settle(cdp)
+        click('#masonry .card-title')
+        wait_for(cdp, "!document.querySelector('#lightbox').hidden", "text detail opens")
+        detail_url = cdp.eval('location.href')
+        click('#reportLightbox')
+        wait_for(cdp, "document.querySelector('#feedbackPanel').classList.contains('show')", "text feedback opens")
+        feedback = cdp.eval("({type:document.querySelector('#feedbackType').value,context:document.querySelector('#feedbackContextPreview').textContent})")
+        if feedback['type'] != 'card_content' or text_entry['title'] not in feedback['context']:
+            raise CheckFailed(f"Text feedback lost its entry context: {feedback}")
+        # Only open the form; no feedback is submitted.
+        key('Escape', 'Escape', 27)
+        wait_for(cdp, "!document.querySelector('#feedbackPanel').classList.contains('show') && !document.querySelector('#lightbox').hidden", "feedback closes to detail")
+        cdp.eval('history.back()')
+        wait_for(cdp, "document.querySelector('#lightbox').hidden", "text detail back")
+        cdp.eval('history.forward()')
+        wait_for(cdp, "!document.querySelector('#lightbox').hidden", "text detail forward")
+        if cdp.eval('location.href') != detail_url:
+            raise CheckFailed('Forward lost the text detail URL')
+        cdp.command('Page.reload')
+        wait_for(cdp, "document.readyState === 'complete' && !document.querySelector('#lightbox').hidden && document.querySelector('#lightboxTitle').textContent === " + js_string(text_entry['title']), "text detail reload")
+        if cdp.eval('location.href') != detail_url:
+            raise CheckFailed('Reload lost the text detail URL')
+        shot = screenshot(cdp, out_dir, 'mobile-text-detail')
+        # Its keyboard entry works after refresh, and native Space does not scroll the page.
+        click('#lightboxClose')
+        wait_for(cdp, "document.querySelector('#lightbox').hidden", "text detail closes after reload")
+        text_selector = cdp.eval("""(async () => {
+          const {state} = await import('./assets/app/state.js');
+          const i = state.list.findIndex(e => e.id === __ID__);
+          return '#masonry .card[data-index="' + i + '"] .card-detail-btn';
+        })()""".replace('__ID__', js_string(text_entry['id'])))
+        cdp.eval('document.querySelector(' + js_string(text_selector) + ').focus();true')
+        key(' ', 'Space', 32)
+        wait_for(cdp, "!document.querySelector('#lightbox').hidden", "text detail keyboard Space")
+
+        # A normal image card keeps native keyboard activation, visible focus, and independent star action.
+        navigate(cdp, base + '?codex=suozhang')
+        wait_for(cdp, "document.querySelector('#masonry .card:not(.no-img)')", "image card keyboard")
+        settle(cdp)
+        cdp.eval("document.querySelector('#masonry .card:not(.no-img) .card-detail-btn').focus();true")
+        key('Tab', 'Tab', 9)
+        # A failed image legitimately inserts its retry button before the star.
+        if cdp.eval("document.activeElement.classList.contains('img-retry')"):
+            key('Tab', 'Tab', 9)
+        if cdp.eval('document.activeElement.className') != 'fav-btn':
+            raise CheckFailed('Detail button is not followed by the independent favorite button: ' + cdp.eval('document.activeElement.outerHTML'))
+        key('Tab', 'Tab', 9)
+        focus = cdp.eval("({class:document.activeElement.className,opacity:getComputedStyle(document.activeElement).opacity,label:document.activeElement.getAttribute('aria-label'),index:document.activeElement.closest('.card')?.dataset.index})")
+        if focus['class'] != 'card-detail-btn' or focus['opacity'] != '1':
+            raise CheckFailed(f"Keyboard detail entry is unreachable or invisible: {focus}")
+        screenshot(cdp, out_dir, 'mobile-detail-focus')
+        key('Enter', 'Enter', 13)
+        wait_for(cdp, "!document.querySelector('#lightbox').hidden", "image detail keyboard Enter")
+        key('Escape', 'Escape', 27)
+        wait_for(cdp, "document.querySelector('#lightbox').hidden && document.activeElement.classList.contains('card-detail-btn')", "detail keyboard return focus")
+        key('Tab', 'Tab', 9)
+        previous_star = cdp.eval('document.activeElement.textContent')
+        key('Enter', 'Enter', 13)
+        wait_for(cdp, 'document.activeElement.textContent !== ' + js_string(previous_star), 'favorite changes')
+        if not cdp.eval("document.querySelector('#lightbox').hidden"):
+            raise CheckFailed('Favorite keyboard action also opened detail')
+        key('Enter', 'Enter', 13)
+        wait_for(cdp, 'document.activeElement.textContent === ' + js_string(previous_star), 'favorite restored')
+        # CSS switches the native entry off on desktop without needing card reconstruction.
+        cdp.command('Emulation.setDeviceMetricsOverride', {'width': 601, 'height': 844, 'deviceScaleFactor': 1, 'mobile': True})
+        wait_for(cdp, "getComputedStyle(document.querySelector('.card-detail-btn')).display === 'none'", 'desktop detail button hidden')
+        check_no_errors(cdp)
+        return {'textEntry': text_entry, 'feedback': feedback, 'keyboardFocus': focus, 'forward': True, 'reload': True, 'screenshot': shot}
 
     def mobile_home():
         clear_errors(cdp)
@@ -2958,6 +3065,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("legacy codex aliases canonicalize", legacy_codex_alias_routes),
         ("NSFW toggle locks back", nsfw_toggle),
         ("mobile home renders", mobile_home),
+        ("mobile card details and keyboard", mobile_card_details),
         ("mobile atlas back stack", mobile_atlas_history),
         ("community internal back stack", community_history),
     ]

@@ -635,7 +635,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div class="set-row density-row">
       <div class="set-info">
         <div class="set-name">卡片密度</div>
-        <div class="set-desc">调整瀑布流列宽、间距与摘要长度</div>
+        <div class="set-desc">调整图片大小与摘要长度</div>
       </div>
       <div id="densityControl" class="density-control" role="group" aria-label="卡片密度">
         <button class="density-option" type="button" data-density="comfort" aria-pressed="false">舒适</button>
@@ -1122,6 +1122,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
 <template id="cardTpl">
   <article class="card">
+    <button class="card-detail-btn" type="button">查看详情</button>
     <div class="card-img-wrap" hidden>
       <img class="card-img" loading="lazy" alt="">
       <div class="card-badges">
