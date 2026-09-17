@@ -77,6 +77,7 @@
 | --- | --- | --- |
 | `import_mengshen_pack.py` | 梦神图包历史来源适配器。画风章节已迁出，整片也已并进 `nai45_community_pack`；现行数据不再由它重建 | 默认只出审计；`--apply` 现有两道主动中止，**不得绕过** |
 | `import_community_ai_misc.py` | 只维护合并册里 `community_ai_misc-` 前缀那一片；`BOOK_ID` 是数据落点，`CODEX_ID` 是系列身份 | 默认扫描不改正式数据，但会覆盖写 `output/` 审计；`--validate` 只读；⚠ `--sync-manual-classification-overrides` **不需要 `--apply`，会直接写正式 JSON**；裸 `--apply` 只属历史首次导入 |
+| `apply_pack_names.py` | 把名单里的名字套用到两本社区图包（`nai5_community_pack` / `nai45_community_pack`）的词条 `title`，编号标题留在 `serialTitle`，三个图包导入器续号和分级纠正只认它；名单行 `newTitle` 为空即退回编号 | 默认预演只写 `output/pack_names_apply/` 报告；`--apply` 先备份两本书再写正式 JSON，写后自检幂等；名单 `oldTitle` 与现存编号对不上或排版无法原样重写时整批拒绝 |
 | `import_nai5_artist_dictionary.py` | N5 四份来源对应 `artist_nai5_personal`；具名 PDF 标签纠错只改登记 ID 的 `title/tags`，见本地私有文档 `docs/decisions/NovelAI5画师词典.md` | 默认审计和 `--correct-existing` 预演不改正式数据，但会覆盖写 `output/` 报告；`--validate` 只读；纠错另加 `--apply` 才先备份并写正式 JSON；首次导入 `--apply` 会拒绝覆盖现状 |
 | `import_nai5_community_pack.py` | N5 社区图包；编号所长包走 `--batch-plan/apply/validate`，梦神后续包走 `--dream-plan/apply/validate`，均按原图 hash 保持稳定 ID，见本地私有文档 `docs/decisions/NovelAI5社区精选图包.md` | `--batch-plan` / `--dream-plan` / `--batch-validate` / `--dream-validate` 不改正式数据，但会覆盖写 `output/` 审计或复验报告；`--batch-apply` / `--dream-apply` 会备份并写正式数据；裸 `--apply` 仅属首次导入且拒绝覆盖 |
 | `import_mengshen_korean_pack.py` | 韩网图包跨 N5 与 N4.5 两本增量；套图保组并复用 `pack_import_core.py` | 默认计划和 `--validate` 均不改正式数据/资产，但都会覆盖写 `output/` 报告，校验还会写 `validation.json`；`--apply` 会先备份并隔离确认重复源图，再写新增资产、逐个临时替换两本法典与总索引，普通异常时尝试回滚，整体不是崩溃安全的跨文件原子事务 |
@@ -99,7 +100,7 @@
 
 测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
-- Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
+- Python · 导入与数据：`test_apply_pack_names.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。

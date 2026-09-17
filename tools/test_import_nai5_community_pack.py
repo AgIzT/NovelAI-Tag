@@ -227,5 +227,17 @@ class Nai5CommunityPackTests(unittest.TestCase):
         self.assertNotIn("nsfw", payload)
 
 
+class SuozhangSerialNumberTests(unittest.TestCase):
+    def test_named_entries_still_count_toward_next_display_number(self) -> None:
+        from import_nai5_community_pack import _maximum_suozhang_title
+
+        entries = [
+            {"title": "银发御姐·男女后入", "serialTitle": "韩网整理 040"},
+            {"title": "整理套图 012"},
+            {"title": "未编号的名字·无编号"},
+        ]
+        self.assertEqual(_maximum_suozhang_title(entries), 40)
+
+
 if __name__ == "__main__":
     unittest.main()

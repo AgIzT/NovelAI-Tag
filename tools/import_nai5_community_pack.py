@@ -137,6 +137,7 @@ from pack_import_core import (  # noqa: E402
     mark_exact_duplicates,
     normalized_suffix,
     run_parallel,
+    serial_title,
     sha256_file,
     validate_asset,
     write_asset_bundle_from_paths,
@@ -1190,7 +1191,7 @@ def _suozhang_title_number(value: Any) -> int | None:
 def _maximum_suozhang_title(entries: Iterable[dict[str, Any]]) -> int:
     values = []
     for entry in entries:
-        number = _suozhang_title_number(entry.get("title"))
+        number = _suozhang_title_number(serial_title(entry))
         if number is not None:
             values.append(number)
     return max(values, default=0)
@@ -1269,10 +1270,12 @@ def bind_batch_groups(
                 set_number += 1
                 target_id = f"{CODEX_ID}_suozhang_set_{set_number:04d}"
             target_title = suozhang_entry_title(group["kind"], display_number)
+            target_serial = target_title
             new_groups.append(str(group["groupKey"]))
         elif len(existing_ids) == 1:
             target_id = existing_ids[0]
             target_title = clean_text(state["entryById"][target_id].get("title"))
+            target_serial = serial_title(state["entryById"][target_id])
             if state["entryHashes"][target_id] != hashes:
                 blockers.append(f"existing set order or membership changed: {target_id}")
         else:
@@ -1281,11 +1284,15 @@ def bind_batch_groups(
                 continue
             first_ref = state["hashRefs"][hashes[0]]
             target_id = str(first_ref["entryId"])
-            target_number = _suozhang_title_number(state["entryById"][target_id].get("title"))
+            target_entry = state["entryById"][target_id]
+            target_number = _suozhang_title_number(serial_title(target_entry))
             if target_number is None:
                 display_number += 1
                 target_number = display_number
-            target_title = suozhang_entry_title("set", target_number)
+            target_serial = suozhang_entry_title("set", target_number)
+            # 并组沿用封面词条已起的名字；没起名的跟着编号走
+            named = clean_text(target_entry.get("title")) != serial_title(target_entry)
+            target_title = clean_text(target_entry.get("title")) if named else target_serial
             group["regroup"] = True
             removed = [entry_id for entry_id in existing_ids if entry_id != target_id]
             removed_ids.extend(removed)
@@ -1298,6 +1305,7 @@ def bind_batch_groups(
             })
         group["targetEntryId"] = target_id
         group["targetTitle"] = target_title
+        group["targetSerialTitle"] = target_serial
         if target_id in state["entryById"]:
             old_path = list(state["entryById"][target_id].get("path") or [])
             if old_path != group["path"]:
@@ -1518,6 +1526,7 @@ def _new_or_regrouped_entry(
         note_parts.append(clean_text(cover["note"]))
     return {
         "title": group["targetTitle"],
+        "serialTitle": group.get("targetSerialTitle") or group["targetTitle"],
         "path": group["path"],
         "tags": clean_text(cover.get("prompt")),
         **({"negative": clean_text(cover.get("negative"))} if clean_text(cover.get("negative")) else {}),
@@ -2287,6 +2296,7 @@ def _new_dream_entry(group: dict[str, Any], asset: dict[str, Any]) -> dict[str, 
     note = clean_text(row.get("note"))
     return {
         "title": group["targetTitle"],
+        "serialTitle": group["targetTitle"],
         "path": list(group["path"]),
         "tags": clean_text(row.get("prompt")),
         **({"negative": clean_text(row.get("negative"))} if clean_text(row.get("negative")) else {}),
