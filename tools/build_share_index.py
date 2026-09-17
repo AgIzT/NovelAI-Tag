@@ -18,9 +18,15 @@ DESC_LIMIT = 180
 # ⚠ 关着。这些书的词条名本身就是露骨描述（"骑乘口交""夫目前犯"…），出卡等于把内容
 #   摘要贴进聊天窗口给全群看，点都不用点；而且新版每条词条的地址栏 URL 都自带卡，
 #   不再需要主动点分享，曝光面比以前大得多。维护者 2026-09-02 看过实际标题后决定关闭。
-#   安全本里的门控词条不同，标题是"R18 0261"这类编号，不受此开关影响、始终只给标题。
+#   安全本里的门控词条由下面另一个开关管。
 #   真要开，改成 True 后重建索引——后端 functions/_share.js 的 titleOnly 分支一直在。
 TITLE_ONLY_NSFW_BOOKS = False
+
+# 安全本（社区图包等）里的门控词条是否出「只给标题」的分享卡。
+# ⚠ 关着。以前这些词条的标题是"R18 0261"这类编号，出卡无妨；2026-09-17 起社区图包
+#   按规范起名，非全年龄词条的名字直白写类型和体位，性质和整本 NSFW 书的词条名一样。
+#   关掉后这类链接退回通用站点卡。只有门控词条的标题重新变回纯编号时才考虑打开。
+TITLE_ONLY_GATED_IN_SAFE_BOOKS = False
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -261,6 +267,7 @@ def build_title_only_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
     """被门控的词条只借出词条名——不带法典名、分类、提示词、配图。
 
     维护者 2026-09-01 定的分享策略：R18/受限词条也要出预览卡，但卡上只有标题。
+    现在两处调用都由默认关闭的开关控制（见文件头 TITLE_ONLY_*）。
     这里刻意不复用 build_entry，避免以后往那边加字段时顺手漏进门控词条。
     """
     entry_id = clean_text(entry.get("id"))
@@ -371,10 +378,11 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
                 warnings.append(f"entry skipped in {codex_id}: not an object")
                 continue
             if not is_safe_entry(raw_entry):
-                # 安全本里的门控词条同样只留词条名，其余字段一概不进索引。
-                gated = build_title_only_entry(raw_entry)
-                if gated:
-                    entries[gated["id"]] = gated
+                # 安全本里的门控词条默认不进索引；开关打开时也只留词条名，其余字段一概不进。
+                if TITLE_ONLY_GATED_IN_SAFE_BOOKS:
+                    gated = build_title_only_entry(raw_entry)
+                    if gated:
+                        entries[gated["id"]] = gated
                 continue
             share_entry = build_entry(raw_entry, codex, media, warnings)
             if not share_entry:

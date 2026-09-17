@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-"""分享索引的分级断言：门控词条只借出词条名，别的字段一个都不许漏。"""
+"""分享索引的分级断言：门控词条默认不出卡；开关打开时只借出词条名，别的字段一个都不许漏。"""
 
 import json
 import sys
@@ -55,8 +55,43 @@ class ShareIndexGrading(unittest.TestCase):
             finally:
                 bsi.DATA_DIR = original
 
-    def test_gated_entry_in_safe_book_keeps_only_title(self):
+    def build_with_gated_titles(self, flag, codexes, books):
+        original = bsi.TITLE_ONLY_GATED_IN_SAFE_BOOKS
+        bsi.TITLE_ONLY_GATED_IN_SAFE_BOOKS = flag
+        try:
+            return self.build(codexes, books)
+        finally:
+            bsi.TITLE_ONLY_GATED_IN_SAFE_BOOKS = original
+
+    def test_gated_entry_in_safe_book_gets_no_card_by_default(self):
+        """默认关闭：安全本里的门控词条不进索引，链接退回通用站点卡。
+
+        社区图包的非全年龄词条名直白写类型和体位，出卡等于把内容摘要贴进聊天窗口。
+        """
+        self.assertIs(bsi.TITLE_ONLY_GATED_IN_SAFE_BOOKS, False, "默认必须是关的")
         index, per_codex, _ = self.build(
+            [codex_meta("safe")],
+            {
+                "safe": {
+                    "id": "safe",
+                    "entries": [
+                        entry("safe-0001", "普通词条"),
+                        entry("safe-0002", "黑发御姐·男女骑乘位", rating="r18"),
+                        entry("safe-0003", "NSFW 目录里的", path=["分类", "NSFW"]),
+                    ],
+                }
+            },
+        )
+        entries = per_codex["safe"]["entries"]
+        self.assertEqual(set(entries), {"safe-0001"})
+        self.assertNotIn("骑乘位", json.dumps(per_codex["safe"], ensure_ascii=False))
+        self.assertNotIn("骑乘位", json.dumps(index, ensure_ascii=False))
+        self.assertEqual(index["codexes"]["safe"]["shareCount"], 1)
+        self.assertEqual(per_codex["safe"]["entryCount"], 3)
+
+    def test_gated_entry_in_safe_book_when_switched_on_keeps_only_title(self):
+        index, per_codex, _ = self.build_with_gated_titles(
+            True,
             [codex_meta("safe")],
             {
                 "safe": {
@@ -83,7 +118,8 @@ class ShareIndexGrading(unittest.TestCase):
         self.assertEqual(per_codex["safe"]["shareCount"], 1)
 
     def test_gating_normalizes_whitespace_in_rating_and_path(self):
-        index, per_codex, _ = self.build(
+        index, per_codex, _ = self.build_with_gated_titles(
+            True,
             [codex_meta("safe")],
             {
                 "safe": {
@@ -103,7 +139,8 @@ class ShareIndexGrading(unittest.TestCase):
         self.assertEqual(index["codexes"]["safe"]["shareCount"], 0)
 
     def test_rating_and_level_are_independent_gates(self):
-        _, per_codex, _ = self.build(
+        _, per_codex, _ = self.build_with_gated_titles(
+            True,
             [codex_meta("safe")],
             {
                 "safe": {
@@ -122,7 +159,8 @@ class ShareIndexGrading(unittest.TestCase):
         self.assertEqual(entries["safe-0003"]["shareable"], True)
 
     def test_malformed_path_is_gated_instead_of_treated_as_empty(self):
-        _, per_codex, _ = self.build(
+        _, per_codex, _ = self.build_with_gated_titles(
+            True,
             [codex_meta("safe")],
             {
                 "safe": {
@@ -179,12 +217,15 @@ class ShareIndexGrading(unittest.TestCase):
     def test_entry_aliases_reuse_canonical_cards_without_counting_or_gating_changes(self):
         aliases = {f"old-{number}": "safe-0002" for number in range(5)}
         aliases["old-safe"] = "safe-0001"
-        index, shards, warnings = self.build(
+        args = (
             [codex_meta("safe", entryAliases=aliases)],
             {"safe": {"id": "safe", "entryAliases": aliases, "entries": [
                 entry("safe-0001", "普通词条"), entry("safe-0002", "DC 001", rating="r18"),
             ]}},
         )
+        _, default_shards, _ = self.build(*args)
+        self.assertEqual(set(default_shards["safe"]["entries"]), {"safe-0001", "old-safe"})
+        index, shards, warnings = self.build_with_gated_titles(True, *args)
         self.assertEqual(warnings, [])
         self.assertEqual(index["codexes"]["safe"]["shareCount"], 1)
         self.assertEqual(shards["safe"]["shareCount"], 1)
@@ -227,7 +268,8 @@ class ShareIndexGrading(unittest.TestCase):
         })
 
     def test_entry_without_title_is_dropped_rather_than_guessed(self):
-        _, per_codex, _ = self.build(
+        _, per_codex, _ = self.build_with_gated_titles(
+            True,
             [codex_meta("safe")],
             {
                 "safe": {
