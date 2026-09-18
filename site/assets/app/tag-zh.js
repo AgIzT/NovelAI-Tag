@@ -88,10 +88,17 @@ export function peekTagZh(codexId) {
   if (coreShard === undefined) return undefined;
   if (coreShard === null) return null;
   const id = String(codexId || '');
-  if (!id || !coreShard.shards.includes(id)) return [coreShard];
-  if (!shardCache.has(id)) return undefined;
   const shard = shardCache.get(id);
   return shard ? [coreShard, shard] : [coreShard];
+}
+
+/* 这本书的对照表是不是已经全到齐了。core 有全站高频词，先用它出译名不用等分书表；
+   分书表（长尾、整句）到货后调用方再重画一次补齐。 */
+export function isTagZhComplete(codexId) {
+  if (coreShard === undefined) return false;
+  if (coreShard === null) return true;
+  const id = String(codexId || '');
+  return !id || !coreShard.shards.includes(id) || shardCache.has(id);
 }
 
 export async function loadTagZh(codexId) {

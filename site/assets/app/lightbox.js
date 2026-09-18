@@ -27,6 +27,7 @@ import {
 } from './favorites.js';
 import {
   clearTagZhDetails,
+  isTagZhComplete,
   isTagZhEnabled,
   isTagZhUnavailable,
   loadTagZh,
@@ -561,7 +562,7 @@ function syncTagZhForEntry(entry, seq) {
   }
   if (!hasPrompt || !isTagZhEnabled()) return;
   const codexId = lightboxEntrySourceId(entry);
-  if (peekTagZh(codexId) !== undefined) return;
+  if (isTagZhComplete(codexId)) return;
   loadTagZh(codexId).then(() => {
     if (seq !== lbSeq || !sameLightboxEntry(state.lightbox?.entry, entry)) return;
     if (toggle) toggle.hidden = isTagZhUnavailable();

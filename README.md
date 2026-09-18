@@ -85,3 +85,4 @@ originals/ 与 site/images/ 是本地图片缓存，会同步到 R2。
 ## 🙏 说明与致谢
 - 法典 tag 内容版权归各位**原整理者**所有；本项目只忠实呈现其成果。
 - 瀑布流界面参考了 [orilights/PixivCollection](https://github.com/orilights/PixivCollection)。
+- tag 中文对照的词库来自 [zhulinyv/Auto-NovelAI-Refactor](https://github.com/zhulinyv/Auto-NovelAI-Refactor) 的 `danbooru_tags_full_zh.csv`（**GPL-3.0**，本项目按该许可使用并注明来源），标签体系与别名归 [Danbooru](https://danbooru.donmai.us/)；词库没有的长尾由 AI 机翻补齐，界面上单独标注，仅供参考。
