@@ -2,11 +2,14 @@
 .brand,.codex-title,.banner-title,.ci-name,.cg-name{font-family:var(--font-display)}
 /* 目录分类树改用黑体：宋体在小字号偏细，列表可读性优先（Noto Sans SC，近苹方） */
 .tw-name{font-family:var(--font-directory)}
-.theme-control{display:flex;flex-wrap:wrap;gap:6px}
-.theme-option{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--tagbg);color:var(--text);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;transition:border-color .12s,background .12s,color .12s}
-.theme-option i{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+/* 六块色板固定两行三列：比自动换行的 flex 齐，宽度也跟深浅色/字体的分段控件对齐 */
+.theme-control{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:none;min-width:212px}
+.theme-option{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--tagbg);color:var(--text);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;transition:border-color .16s,background .16s,color .16s,box-shadow .16s,scale .14s ease}
+.theme-option i{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);transition:scale .18s cubic-bezier(.22,1,.36,1),box-shadow .16s}
 .theme-option:hover{border-color:var(--accent)}
-.theme-option[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.theme-option:hover i{scale:1.18}
+.theme-option[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);box-shadow:0 3px 10px var(--accent-glow)}
+.theme-option[aria-pressed="true"] i{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12),0 0 0 2px var(--accent-soft),0 0 0 3px currentColor}
 /* ---------- 矢量图标掩码 ----------
    原 emoji/字形图标（🔍☆💡📋）统一为 Lucide 风格 SVG，几何与顶栏内联 SVG 同规格（stroke 2/2.2、圆角线帽）。
    ⚠ 只换视觉、不动契约：JS 仍向这些节点写 ★/☆/「点击复制」等文本（verify_ui 断言 textContent），
@@ -1379,11 +1382,12 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
 .switch input{position:absolute;inset:0;margin:0;opacity:0;cursor:not-allowed}
 .switch i{
   position:absolute;inset:0;border-radius:999px;background:var(--tagbg);
-  border:1px solid var(--line);transition:background .15s,border-color .15s;
+  border:1px solid var(--line);transition:background .18s,border-color .18s;
 }
 .switch i::after{
   content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;
-  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);
+  transition:transform .22s cubic-bezier(.22,1,.36,1),scale .14s ease;
 }
 /* 开关的 input 透明覆盖在整个滑块上：全局矩形环换成贴在药丸滑块上的圆环 */
 .switch input:focus-visible{outline:none}
@@ -1392,10 +1396,7 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
 .switch input:checked + i::after{transform:translateX(18px)}
 /* 已可用的开关：覆盖占位项的灰禁用样式 */
 .switch.live,.switch.live input{opacity:1;cursor:pointer}
-.set-live{
-  display:inline-block;font-size:10px;font-weight:800;letter-spacing:.5px;color:#fff;
-  background:var(--accent);border-radius:999px;padding:1px 7px;margin-left:6px;vertical-align:middle;
-}
+.switch.live:active i::after{scale:.9}
 .set-desc code{
   font-family:var(--font-prompt);font-size:11px;
   background:var(--tagbg);border:1px solid var(--line);border-radius:4px;padding:0 4px;
@@ -1536,7 +1537,7 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
 .feedback-field small{font-weight:600;color:var(--muted)}
 .feedback-field-hint{font-size:11px;font-weight:600;color:var(--muted);line-height:1.5}
 .feedback-field .field-live{
-  display:inline-block;font-size:10px;font-weight:800;letter-spacing:.5px;color:#fff;
+  display:inline-block;font-size:10px;font-weight:800;letter-spacing:.5px;color:var(--on-accent);
   background:var(--accent);border-radius:999px;padding:1px 7px;margin-left:6px;vertical-align:middle;
 }
 /* 输入表面统一由 ui-kit.css 的 panel-input 家族提供。 */
@@ -1773,7 +1774,6 @@ body.dark .onboarding-scene{background:linear-gradient(135deg,var(--accent-soft)
 .onboarding-dot.active{background:var(--accent)}
 
 /* ---------- R18G / 重口分级 ---------- */
-.set-live.danger{background:linear-gradient(135deg,#dc2626,#7f1d1d)}
 .set-row.disabled{opacity:.42}
 .set-row.disabled .switch{pointer-events:none;filter:grayscale(1)}
 .r18g-panel{max-width:520px}
@@ -1853,7 +1853,7 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
 }
 /* SD 模式顶栏常驻角标 */
 .sd-badge{
-  flex:none;height:var(--topbar-control-h);font-weight:800;letter-spacing:.5px;color:#fff;cursor:pointer;
+  flex:none;height:var(--topbar-control-h);font-weight:800;letter-spacing:.5px;color:var(--on-accent);cursor:pointer;
   background:var(--accent);border:none;border-radius:8px;
   padding:0 10px;white-space:nowrap;box-shadow:0 2px 8px var(--accent-soft);
   display:inline-flex;align-items:center;gap:4px;
@@ -2657,25 +2657,27 @@ html.vt-arrived.intro-arm .brand,html.vt-arrived.intro-arm .topbar::after{animat
 
 /* 常用控件的触摸/鼠标按压；不覆盖定位 transform 或已有入场 animation。
    面板动作按钮的过渡由 ui-kit.css 持有，保留它的 hover translate。 */
-.topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+.topbar .icon-btn,.more-item,.theme-option,.density-option,.seg-option,.settings-close,
 .feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
 .feedback-public-state button,.feedback-fallback button,.rail-chip{
   transition:background .16s,color .16s,border-color .16s,box-shadow .16s,transform .16s,scale .14s ease;
 }
-:is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+:is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.seg-option,.settings-close,
 .nsfw-actions button,.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
 .feedback-public-state button,.feedback-fallback button,.rail-chip):active:not(:disabled){scale:.96}
 .tree-row{transition:background .16s,color .16s}
 .tw-arrow{transition:transform .2s cubic-bezier(.22,1,.36,1),scale .14s ease}
 .tw-arrow[role="button"]:active{scale:.88}
 @media (prefers-reduced-motion:reduce){
-  .topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+  .topbar .icon-btn,.more-item,.theme-option,.theme-option i,.density-option,.seg-option,.settings-close,
+  .switch i,.switch i::after,
   .nsfw-actions button,.feedback-tab,.bar-btn,.panel-action,.feedback-progress-filters button,.feedback-progress-intro button,
   .feedback-public-state button,.feedback-fallback button,.rail-chip,.tree-row,.tw-arrow,
   .search-scope,.search-scope-label,.seg-tabs::before{transition:none!important}
-  :is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.settings-close,
+  :is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.seg-option,.settings-close,
   .nsfw-actions button,.feedback-tab,.bar-btn,.panel-action,.feedback-progress-filters button,.feedback-progress-intro button,
   .feedback-public-state button,.feedback-fallback button,.rail-chip,.tw-arrow):active:not(:disabled),
+  .switch.live:active i::after,.theme-option:hover i,
   .search-scope:active .search-scope-label{scale:1}
 }
 

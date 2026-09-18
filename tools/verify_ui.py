@@ -2043,7 +2043,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             return (hi + 0.05) / (lo + 0.05)
 
         def rgb(text):
-            return tuple(int(n) for n in re.findall(r"\d+", text)[:3])
+            # Chrome 对 color-mix() 结果回的是 color(srgb 0.049 0.043 0.087)，不是 rgb(0,0,0)；
+            # 直接按整数扫会把小数拆成 0 / 490588 两段，必须分格式解析。
+            nums = [float(n) for n in re.findall(r"-?\d*\.\d+|-?\d+", text)]
+            if text.strip().startswith("color("):
+                return tuple(max(0, min(255, round(v * 255))) for v in nums[:3])
+            return tuple(int(v) for v in nums[:3])
 
         def emulate_scheme(value):
             features = [] if value is None else [{"name": "prefers-color-scheme", "value": value}]
@@ -2096,17 +2101,16 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if ratio < 4.5:
             raise CheckFailed("素墨深色档 accent 底上的前景对比度只有 %.2f:1（需 ≥4.5）：%s" % (ratio, pair))
 
-        # 3) 纯黑档只压表面，accent 不动
-        ink_dark = cdp.eval(state_expr)
-        click("#oledToggle")
-        settle(cdp, 120)
-        oled = cdp.eval(state_expr)
+        # 3) 深色就是纯黑：底色必须是真黑，面色靠 color-mix 掺 accent，所以既不是纯黑也不该等于底色
         page_bg = rgb(cdp.eval("getComputedStyle(document.body).backgroundColor"))
-        if "oled" not in oled["body"].split() or page_bg != (0, 0, 0):
-            raise CheckFailed("纯黑档没有压到真黑：%s / %s" % (oled, page_bg))
-        if oled["accent"] != ink_dark["accent"]:
-            raise CheckFailed("纯黑档不该动 accent：%s → %s" % (ink_dark["accent"], oled["accent"]))
-        click("#oledToggle")
+        if page_bg != (0, 0, 0):
+            raise CheckFailed("深色档的底色不是纯黑：%s" % (page_bg,))
+        panel = rgb(cdp.eval("getComputedStyle(document.body).getPropertyValue('--panel')"
+                             " && (() => { const d = document.createElement('div');"
+                             " d.style.background = 'var(--panel)'; document.body.appendChild(d);"
+                             " const v = getComputedStyle(d).backgroundColor; d.remove(); return v; })()"))
+        if panel == (0, 0, 0) or max(panel) > 60:
+            raise CheckFailed("深色档的面色没有落在「近黑但可分辨」区间：%s" % (panel,))
 
         # 4) 字体三档换 UI/展示字族，prompt 永远等宽
         fonts = {}
@@ -2158,7 +2162,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         # 收尾还原：这条用例是全套里唯一动 Emulation 媒体特性和主题键的，留脏会污染后面的用例
         emulate_scheme(None)
-        cdp.eval("['fadian-dark-mode','fadian-dark','fadian-oled','fadian-font','fadian-theme']"
+        cdp.eval("['fadian-dark-mode','fadian-dark','fadian-font','fadian-theme']"
                  ".forEach(k => localStorage.removeItem(k))")
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
         return {"accents": accents, "fonts": {k: list(v) for k, v in fonts.items()},

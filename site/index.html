@@ -108,7 +108,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   let m=ls('fadian-dark-mode');
   if(m!=='auto'&&m!=='light'&&m!=='dark'){const o=ls('fadian-dark');m=o==='1'?'dark':o==='0'?'light':'auto';}
   if(m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)){c.add('dark');document.documentElement.style.colorScheme='dark';}
-  if(ls('fadian-oled')==='1')c.add('oled');
   const t=ls('fadian-theme');
   if(t==='teal'||t==='sakura'||t==='amber'||t==='indigo'||t==='ink')c.add('theme-'+t);
   const f=ls('fadian-font');
@@ -618,21 +617,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <div class="settings-panel" role="dialog" aria-modal="true" aria-label="设置">
     <button id="settingsClose" class="settings-close" type="button" aria-label="关闭">×</button>
     <h2 class="settings-title">设置</h2>
-    <p class="settings-note">设置仅保存在当前浏览器。带「<b>即将推出</b>」标记的项目仍是占位预览。</p>
-    <div class="set-row">
-      <div class="set-info">
-        <div class="set-name">自动转化为 SD 权重格式</div>
-        <div class="set-desc">开启后，任意复制都会把 NovelAI 的 <code>{}</code>/<code>[]</code>/数字权重自动转成 Stable Diffusion 的 <code>(tag:权重)</code>。开启时顶栏会常驻「SD 权重模式」标记提醒。</div>
-      </div>
-      <label class="switch live"><input type="checkbox" id="sdModeToggle"><i></i></label>
-    </div>
-    <div class="set-row">
-      <div class="set-info">
-        <div class="set-name">tag 中文对照</div>
-        <div class="set-desc">在详情里每个 tag 下方标注中文译名，点 tag 可看来源；复制的仍是英文原文。译名来自 Danbooru 社区中文词库（<a href="https://github.com/zhulinyv/Auto-NovelAI-Refactor" target="_blank" rel="noopener noreferrer">Auto-NovelAI-Refactor</a>，GPL-3.0）与 AI 机翻，虚线下划线的是机翻，仅供参考。</div>
-      </div>
-      <label class="switch live"><input type="checkbox" id="tagZhSettingToggle" checked><i></i></label>
-    </div>
     <div class="set-row seg-row">
       <div class="set-info">
         <div class="set-name">深浅色</div>
@@ -644,12 +628,26 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button class="seg-option" type="button" data-dark-mode="dark" aria-pressed="false">深色</button>
       </div>
     </div>
-    <div class="set-row">
+    <div class="set-row density-row">
       <div class="set-info">
-        <div class="set-name">纯黑深色</div>
-        <div class="set-desc">深色下把底色压到纯黑，OLED 屏更省电，图也更跳</div>
+        <div class="set-name">卡片密度</div>
+        <div class="set-desc">调整图片大小与摘要长度</div>
       </div>
-      <label class="switch live"><input type="checkbox" id="oledToggle"><i></i></label>
+      <div id="densityControl" class="density-control" role="group" aria-label="卡片密度">
+        <button class="density-option" type="button" data-density="comfort" aria-pressed="false">舒适</button>
+        <button class="density-option" type="button" data-density="standard" aria-pressed="true">标准</button>
+        <button class="density-option" type="button" data-density="compact" aria-pressed="false">紧凑</button>
+      </div>
+    </div>
+    <div class="set-row seg-row">
+      <div class="set-info">
+        <div class="set-name">站内字体</div>
+      </div>
+      <div id="fontControl" class="seg-control" role="group" aria-label="站内字体">
+        <button class="seg-option" type="button" data-font="" aria-pressed="true">默认</button>
+        <button class="seg-option" type="button" data-font="classic" aria-pressed="false">典籍</button>
+        <button class="seg-option" type="button" data-font="terminal" aria-pressed="false">终端</button>
+      </div>
     </div>
     <div class="set-row seg-row">
       <div class="set-info">
@@ -665,38 +663,23 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button class="theme-option" type="button" data-theme="ink" aria-pressed="false"><i style="background:#3c3c45"></i>素墨</button>
       </div>
     </div>
-    <div class="set-row seg-row">
+    <div class="set-row">
       <div class="set-info">
-        <div class="set-name">界面字体</div>
-        <div class="set-desc">换整站的嗓子 · prompt 框始终保持等宽</div>
+        <div class="set-name">SD 权重格式</div>
+        <div class="set-desc">开启后会把 NovelAI 的 <code>{}</code>/<code>[]</code>/数字权重自动转成 Stable Diffusion 的 <code>(tag:权重)</code>。</div>
       </div>
-      <div id="fontControl" class="seg-control" role="group" aria-label="界面字体">
-        <button class="seg-option" type="button" data-font="" aria-pressed="true">默认</button>
-        <button class="seg-option" type="button" data-font="classic" aria-pressed="false">典籍</button>
-        <button class="seg-option" type="button" data-font="terminal" aria-pressed="false">终端</button>
-      </div>
-    </div>
-    <div class="set-row density-row">
-      <div class="set-info">
-        <div class="set-name">卡片密度</div>
-        <div class="set-desc">调整图片大小与摘要长度</div>
-      </div>
-      <div id="densityControl" class="density-control" role="group" aria-label="卡片密度">
-        <button class="density-option" type="button" data-density="comfort" aria-pressed="false">舒适</button>
-        <button class="density-option" type="button" data-density="standard" aria-pressed="true">标准</button>
-        <button class="density-option" type="button" data-density="compact" aria-pressed="false">紧凑</button>
-      </div>
+      <label class="switch live"><input type="checkbox" id="sdModeToggle"><i></i></label>
     </div>
     <div class="set-row">
       <div class="set-info">
-        <div class="set-name">内容屏蔽</div>
-        <div id="blockingSettingsSummary" class="set-desc">屏蔽词与单独隐藏的卡片</div>
+        <div class="set-name">tag 中文自动翻译</div>
+        <div class="set-desc">在详情里每个 tag 下方标注中文译名，虚线下划线的是机翻，仅供参考。</div>
       </div>
-      <button id="blockingSettingsBtn" class="panel-action is-sm" type="button">管理</button>
+      <label class="switch live"><input type="checkbox" id="tagZhSettingToggle" checked><i></i></label>
     </div>
     <div class="set-row nsfw-set-row">
       <div class="set-info">
-        <div class="set-name">显示 NSFW 内容 <span class="set-live">需确认</span></div>
+        <div class="set-name">显示 NSFW 内容</div>
         <div class="set-desc">开启后显示成人向目录与条目</div>
       </div>
       <label class="switch live"><input type="checkbox" id="nsfwToggle"><i></i></label>

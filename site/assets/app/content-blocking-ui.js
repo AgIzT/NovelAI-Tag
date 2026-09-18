@@ -295,7 +295,9 @@ export function setupContentBlocking() {
     if (panel === mask) settleManagerMotion();
     closeMask(panel);
   };
-  $('#blockingSettingsBtn').onclick = event => openBlockingManager(event.currentTarget);
+  /* 设置面板里那行入口已撤（主页结果栏的按钮够显眼），这里留空守卫免得少一个节点就整条接线断掉 */
+  const blockingSettingsBtn = $('#blockingSettingsBtn');
+  if (blockingSettingsBtn) blockingSettingsBtn.onclick = event => openBlockingManager(event.currentTarget);
   $('#blockingResultBtn').onclick = event => openBlockingManager(event.currentTarget);
   for (const [id, closeId] of [['contentBlocking', 'blockingClose'], ['blockingReveal', 'blockingRevealClose']]) {
     const panel = $(`#${id}`);

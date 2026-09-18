@@ -1,4 +1,4 @@
-import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, OLED_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
@@ -492,16 +492,6 @@ export function bindUI() {
       toast(`深浅色：${DARK_MODES.find(m => m.id === darkMode).name}`);
     };
   }
-
-  /* 纯黑深色（OLED）：只压表面色、不碰 accent，因此浅色下开着也无害，不跟深浅色联动禁用 */
-  const oledToggle = $('#oledToggle');
-  const applyOled = on => {
-    document.body.classList.toggle('oled', on);
-    if (oledToggle) oledToggle.checked = on;
-    localStorage.setItem(OLED_STORAGE_KEY, on ? '1' : '0');
-  };
-  applyOled(localStorage.getItem(OLED_STORAGE_KEY) === '1');
-  if (oledToggle) oledToggle.onchange = e => applyOled(e.target.checked);
 
   /* 界面风格（换肤）：与深浅色正交，每套 light+dark 都在 CSS 里；默认紫=不加类 */
   const applySkin = id => {

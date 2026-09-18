@@ -32,7 +32,6 @@ export const DARK_MODES = [
   { id: 'light', name: '浅色' },
   { id: 'dark', name: '深色' },
 ];
-export const OLED_STORAGE_KEY = 'fadian-oled';
 export const RECENT_STORAGE_KEY = 'fadian-recent';
 export const LAST_BROWSE_STORAGE_KEY = 'fadian-last-browse';
 export const RECENT_ENTRY_LIMIT = 18;

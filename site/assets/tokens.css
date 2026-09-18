@@ -21,45 +21,42 @@
   --red:var(--new);
   --danger:#d74b66; --danger-text:#c33f59;
 }
-body.dark{
-  --bg:#0b0d13; --panel:#12141d; --card:#161a26; --text:#e8eaf3; --muted:#8a91a6;
-  --line:#242a3a; --accent:#8b7cf8; --accent-soft:#262050; --tagbg:#1b202e; --tagbg-hover:#222840;
-  --new:#f25c8a; --shadow:0 1px 3px rgba(0,0,0,.45); --shadow-hover:0 14px 40px rgba(0,0,0,.55);
-  --glass:rgba(18,21,30,.68);
-  --popover-glass:rgba(18,21,30,.94);
-  --popover-line:rgba(255,255,255,.14);
-  --popover-shadow:0 20px 54px rgba(0,0,0,.56),0 5px 18px rgba(0,0,0,.34);
-  --overlay:rgba(0,0,0,.62);
-  --accent-glow:rgba(139,124,248,.22);
-  --danger-text:#ff9e97;
-}
 /* ============ 主题色（换肤）：每套含 light + dark，与深浅色正交；默认紫=base 不加类 ============ */
 body.theme-teal{--bg:#eaeef5;--panel:#ffffff;--card:#ffffff;--text:#22304a;--muted:#7d8aa3;--line:#dbe2ee;--accent:#0fa173;--accent-soft:#dff4ea;--tagbg:#f1f4f9;--tagbg-hover:#e8eef6;--accent-glow:rgba(15,161,115,.18)}
-body.theme-teal.dark{--bg:#10141c;--panel:#171c26;--card:#181e2a;--text:#e4e9f3;--muted:#7e8aa0;--line:#262e3e;--accent:#2ecb86;--accent-soft:#14352a;--tagbg:#1e2533;--tagbg-hover:#242c3d;--accent-glow:rgba(46,203,134,.20)}
+body.theme-teal.dark{--text:#e4e9f3;--muted:#7e8aa0;--accent:#2ecb86;--accent-soft:#14352a;--accent-glow:rgba(46,203,134,.20)}
 body.theme-sakura{--bg:#fbf4f1;--panel:#fffaf7;--card:#ffffff;--text:#3d3034;--muted:#a18d92;--line:#f0dde0;--accent:#e0577f;--accent-soft:#fce8ee;--tagbg:#faf1ef;--tagbg-hover:#f7e9e7;--new:#c2342d;--accent-glow:rgba(224,87,127,.18)}
-body.theme-sakura.dark{--bg:#1b1418;--panel:#241a20;--card:#281d23;--text:#f2e6ea;--muted:#9c8790;--line:#3a2b33;--accent:#f08fb0;--accent-soft:#3d2230;--tagbg:#2e2129;--tagbg-hover:#362730;--new:#e0577f;--accent-glow:rgba(240,143,176,.20)}
+body.theme-sakura.dark{--text:#f2e6ea;--muted:#9c8790;--accent:#f08fb0;--accent-soft:#3d2230;--new:#e0577f;--accent-glow:rgba(240,143,176,.20)}
 body.theme-amber{--bg:#f4eee1;--panel:#faf6ec;--card:#ffffff;--text:#2b261e;--muted:#94896f;--line:#e0d5bb;--accent:#a87f2f;--accent-soft:#f1e7cd;--tagbg:#f5f0e3;--tagbg-hover:#efe7d2;--new:#b5452f;--accent-glow:rgba(168,127,47,.18)}
-body.theme-amber.dark{--bg:#16120c;--panel:#1d1812;--card:#221c13;--text:#e9e0cd;--muted:#8d8268;--line:#362d1e;--accent:#d2a651;--accent-soft:#332a1a;--tagbg:#262017;--tagbg-hover:#2d2619;--new:#e06a52;--accent-glow:rgba(210,166,81,.20)}
+body.theme-amber.dark{--text:#e9e0cd;--muted:#8d8268;--accent:#d2a651;--accent-soft:#332a1a;--new:#e06a52;--accent-glow:rgba(210,166,81,.20)}
 body.theme-indigo{--bg:#eaeef7;--panel:#ffffff;--card:#ffffff;--text:#1e2740;--muted:#7b859f;--line:#dce2ef;--accent:#2563c9;--accent-soft:#e2ebfb;--tagbg:#eff3fa;--tagbg-hover:#e5ecf8;--accent-glow:rgba(37,99,201,.18)}
-body.theme-indigo.dark{--bg:#080c14;--panel:#101622;--card:#131a28;--text:#e4eaf6;--muted:#7e8aa4;--line:#20293a;--accent:#5b9bf5;--accent-soft:#122744;--tagbg:#18202f;--tagbg-hover:#1e2739;--accent-glow:rgba(91,155,245,.20)}
+body.theme-indigo.dark{--text:#e4eaf6;--muted:#7e8aa4;--accent:#5b9bf5;--accent-soft:#122744;--accent-glow:rgba(91,155,245,.20)}
 /* 素墨=无彩：界面退到灰阶，颜色全让给图。深色档 accent 是亮灰，必须把 --on-accent 压深，
    否则全站 accent 底上的白字（约 27 处）会糊成一片——有彩皮肤靠色相撑得住，灰阶撑不住。 */
 body.theme-ink{--bg:#f1f1f3;--panel:#ffffff;--card:#ffffff;--text:#1c1c21;--muted:#82828d;--line:#e3e3e8;--accent:#3c3c45;--accent-soft:#e7e7ec;--tagbg:#f0f0f4;--tagbg-hover:#e8e8ee;--accent-glow:rgba(60,60,69,.16)}
-body.theme-ink.dark{--bg:#0b0b0d;--panel:#131316;--card:#161619;--text:#eaeaef;--muted:#85858f;--line:#25252b;--accent:#c8c8d2;--accent-soft:#2b2b32;--tagbg:#1b1b20;--tagbg-hover:#222229;--accent-glow:rgba(200,200,210,.16);--on-accent:#131316}
+body.theme-ink.dark{--text:#eaeaef;--muted:#85858f;--accent:#c8c8d2;--accent-soft:#2b2b32;--accent-glow:rgba(200,200,210,.16);--on-accent:#131316}
 
-/* ============ 纯黑深色（OLED）：只压表面，不碰 accent；靠 color-mix 保住各皮肤的色相 ============
-   ⚠ 必须排在所有 body.dark / body.theme-*.dark 之后：它与那些选择器同权重（2 类 + 1 元素），赢在源序。 */
-body.dark.oled{
+/* 深色 = 纯黑。底色就是 #000，面/线/标签底靠 color-mix 往黑里掺一点 accent，
+   所以六套皮肤在黑底上各自还留着色相，而不是六份一模一样的灰。
+   ⚠ 两条排版铁律，破一条深色就会漏出浅色底：
+     · 本块必须排在所有 body.theme-* 之后——它与皮肤的**浅色**块同权重（1 类 + 1 元素），只能靠源序赢；
+     · 各皮肤的 .dark 块（2 类 + 1 元素，权重更高）里不许再写 --bg/--panel/--card/--line/--tagbg*。 */
+body.dark{
   --bg:#000000;
-  --panel:color-mix(in srgb,var(--accent) 5%,#000);
-  --card:color-mix(in srgb,var(--accent) 7%,#000);
-  --line:color-mix(in srgb,var(--accent) 16%,#000);
-  --tagbg:color-mix(in srgb,var(--accent) 10%,#000);
-  --tagbg-hover:color-mix(in srgb,var(--accent) 15%,#000);
+  --panel:color-mix(in srgb,var(--accent) 6%,#000);
+  --card:color-mix(in srgb,var(--accent) 9%,#000);
+  --line:color-mix(in srgb,var(--accent) 20%,#000);
+  --tagbg:color-mix(in srgb,var(--accent) 12%,#000);
+  --tagbg-hover:color-mix(in srgb,var(--accent) 18%,#000);
+  --text:#e8eaf3; --muted:#8a91a6;
+  --accent:#8b7cf8; --accent-soft:#262050;
+  --new:#f25c8a; --shadow:0 1px 3px rgba(0,0,0,.45); --shadow-hover:0 14px 40px rgba(0,0,0,.55);
   --glass:rgba(0,0,0,.74);
   --popover-glass:rgba(0,0,0,.95);
-  --popover-line:color-mix(in srgb,var(--accent) 20%,#000);
+  --popover-line:color-mix(in srgb,var(--accent) 22%,#000);
+  --popover-shadow:0 20px 54px rgba(0,0,0,.56),0 5px 18px rgba(0,0,0,.34);
   --overlay:rgba(0,0,0,.78);
+  --accent-glow:rgba(139,124,248,.22);
+  --danger-text:#ff9e97;
 }
 
 /* ============ 界面字体（换嗓子）：与配色、深浅色都正交 ============
