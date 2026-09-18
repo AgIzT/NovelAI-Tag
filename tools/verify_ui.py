@@ -2026,6 +2026,144 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return {"entry": target["id"], "boxes": before["boxes"], "detail": detail, "screenshot": shot}
 
+    def theme_axes():
+        """换肤/字体/深浅色三条轴：六套皮肤都能挂上、素墨深色档的前景色压得住、
+        字体换档不碰 prompt 等宽、纯黑档压到真黑、auto 跟随系统且旧键继续同步。"""
+
+        def contrast(fg, bg):
+            def lin(c):
+                c = c / 255
+                return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+            def lum(rgb_):
+                r, g, b = (lin(v) for v in rgb_)
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+            hi, lo = sorted((lum(fg), lum(bg)), reverse=True)
+            return (hi + 0.05) / (lo + 0.05)
+
+        def rgb(text):
+            return tuple(int(n) for n in re.findall(r"\d+", text)[:3])
+
+        def emulate_scheme(value):
+            features = [] if value is None else [{"name": "prefers-color-scheme", "value": value}]
+            cdp.command("Emulation.setEmulatedMedia", {"features": features})
+
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        emulate_scheme("light")
+        navigate(cdp, base)
+        wait_for(cdp, "document.readyState === 'complete'", "theme axes ready")
+        wait_for(cdp, "!!document.querySelector('#darkModeControl [aria-pressed=\"true\"]')", "theme axes bound", timeout=15)
+        clear_errors(cdp)
+
+        state_expr = """({
+  body: document.body.className,
+  accent: getComputedStyle(document.body).getPropertyValue('--accent').trim(),
+  prompt: getComputedStyle(document.body).getPropertyValue('--font-prompt').trim().split(',')[0],
+  uiFont: getComputedStyle(document.body).fontFamily.split(',')[0],
+  brandFont: getComputedStyle(document.querySelector('.brand')).fontFamily.split(',')[0],
+  darkMode: document.querySelector('#darkModeControl [aria-pressed="true"]')?.dataset.darkMode,
+  font: document.querySelector('#fontControl [aria-pressed="true"]')?.dataset.font,
+  skin: document.querySelector('#themeControl [aria-pressed="true"]')?.dataset.theme,
+  legacy: localStorage.getItem('fadian-dark'),
+})"""
+
+        def click(sel):
+            cdp.eval("document.querySelector(%s).click()" % json.dumps(sel))
+
+        # 1) 六套皮肤都要真的换掉 accent，不许两套撞色
+        accents = {}
+        for skin in ["", "teal", "sakura", "amber", "indigo", "ink"]:
+            click('#themeControl [data-theme="%s"]' % skin)
+            settle(cdp, 120)
+            now = cdp.eval(state_expr)
+            if now["skin"] != skin:
+                raise CheckFailed("皮肤 %r 没有被选中：%s" % (skin, now))
+            accents[skin or "base"] = now["accent"]
+        if len(set(accents.values())) != len(accents):
+            raise CheckFailed("有皮肤共用同一个 accent：%s" % accents)
+
+        # 2) 素墨深色档：accent 是亮灰，前景必须靠 --on-accent 压深，否则按钮上的字会糊掉
+        click('#themeControl [data-theme="ink"]')
+        click('#darkModeControl [data-dark-mode="dark"]')
+        settle(cdp, 150)
+        pair = cdp.eval("""(() => {
+  const el = document.querySelector('#darkModeControl [aria-pressed="true"]');
+  const s = getComputedStyle(el);
+  return { color: s.color, background: s.backgroundColor };
+})()""")
+        ratio = contrast(rgb(pair["color"]), rgb(pair["background"]))
+        if ratio < 4.5:
+            raise CheckFailed("素墨深色档 accent 底上的前景对比度只有 %.2f:1（需 ≥4.5）：%s" % (ratio, pair))
+
+        # 3) 纯黑档只压表面，accent 不动
+        ink_dark = cdp.eval(state_expr)
+        click("#oledToggle")
+        settle(cdp, 120)
+        oled = cdp.eval(state_expr)
+        page_bg = rgb(cdp.eval("getComputedStyle(document.body).backgroundColor"))
+        if "oled" not in oled["body"].split() or page_bg != (0, 0, 0):
+            raise CheckFailed("纯黑档没有压到真黑：%s / %s" % (oled, page_bg))
+        if oled["accent"] != ink_dark["accent"]:
+            raise CheckFailed("纯黑档不该动 accent：%s → %s" % (ink_dark["accent"], oled["accent"]))
+        click("#oledToggle")
+
+        # 4) 字体三档换 UI/展示字族，prompt 永远等宽
+        fonts = {}
+        for fid in ["", "classic", "terminal"]:
+            click('#fontControl [data-font="%s"]' % fid)
+            settle(cdp, 120)
+            now = cdp.eval(state_expr)
+            if now["font"] != fid:
+                raise CheckFailed("字体档 %r 没有被选中：%s" % (fid, now))
+            if "IBM Plex Mono" not in now["prompt"]:
+                raise CheckFailed("字体档 %r 动到了 prompt 等宽体：%s" % (fid, now["prompt"]))
+            fonts[fid or "base"] = (now["uiFont"], now["brandFont"])
+        if len(set(fonts.values())) != len(fonts):
+            raise CheckFailed("字体档之间没有实际区别：%s" % fonts)
+
+        # 5) 深浅色三档：显式档锁死、auto 跟随系统，legacy 键始终同步给 404/strings/review
+        click('#themeControl [data-theme=""]')
+        click('#fontControl [data-font=""]')
+        click('#darkModeControl [data-dark-mode="light"]')
+        settle(cdp, 120)
+        light = cdp.eval(state_expr)
+        if "dark" in light["body"].split() or light["legacy"] != "0":
+            raise CheckFailed("显式浅色档不对：%s" % light)
+        emulate_scheme("dark")
+        settle(cdp, 300)
+        if "dark" in cdp.eval("document.body.className").split():
+            raise CheckFailed("显式浅色档不该被系统深色掰走")
+
+        click('#darkModeControl [data-dark-mode="auto"]')
+        settle(cdp, 200)
+        auto_dark = cdp.eval(state_expr)
+        if "dark" not in auto_dark["body"].split() or auto_dark["legacy"] != "1":
+            raise CheckFailed("auto 档没跟上系统深色：%s" % auto_dark)
+        emulate_scheme("light")
+        settle(cdp, 400)
+        auto_light = cdp.eval(state_expr)
+        if "dark" in auto_light["body"].split() or auto_light["legacy"] != "0":
+            raise CheckFailed("auto 档没跟上系统切回浅色（matchMedia change 没接住）：%s" % auto_light)
+
+        # 6) 旧用户迁移：只有 fadian-dark 时必须落到对应的显式档，不能突然改成跟随系统
+        cdp.eval("localStorage.removeItem('fadian-dark-mode');localStorage.setItem('fadian-dark','1')")
+        navigate(cdp, base)
+        wait_for(cdp, "!!document.querySelector('#darkModeControl [aria-pressed=\"true\"]')", "legacy migration bound", timeout=15)
+        migrated = cdp.eval(state_expr)
+        if migrated["darkMode"] != "dark" or "dark" not in migrated["body"].split():
+            raise CheckFailed("旧 fadian-dark=1 没有迁成显式深色档：%s" % migrated)
+
+        shot = screenshot(cdp, out_dir, "theme-axes")
+        check_no_errors(cdp)
+        # 收尾还原：这条用例是全套里唯一动 Emulation 媒体特性和主题键的，留脏会污染后面的用例
+        emulate_scheme(None)
+        cdp.eval("['fadian-dark-mode','fadian-dark','fadian-oled','fadian-font','fadian-theme']"
+                 ".forEach(k => localStorage.removeItem(k))")
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+        return {"accents": accents, "fonts": {k: list(v) for k, v in fonts.items()},
+                "inkContrast": round(ratio, 2), "screenshot": shot}
+
     def no_original_lightbox():
         clear_errors(cdp)
         navigate(cdp, base + "?codex=composition_style")
@@ -3122,6 +3260,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("pack character prompts render", pack_character_prompts),
         ("entry deep-link opens lightbox", deep_link_lightbox),
         ("tag zh lightbox", tag_zh_lightbox),
+        ("theme axes", theme_axes),
         ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),
         ("resume last browse", resume_browse),

@@ -51,7 +51,7 @@
 .favorites-backup-title-row>div{min-width:0}
 .favorites-backup-mark{
   flex:none;width:42px;height:42px;display:grid;place-items:center;border-radius:14px;
-  color:#fff;background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 68%,#fff));
+  color:var(--on-accent);background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 68%,#fff));
   box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 24%,transparent);
   font-size:21px;font-weight:900;
 }
@@ -98,7 +98,7 @@ label.favorites-backup-file{
 label.favorites-backup-file:hover{background:var(--accent-soft);translate:0 -1px}
 label.favorites-backup-file>span{
   grid-row:1 / 3;width:38px;height:38px;display:grid;place-items:center;border-radius:12px;
-  background:var(--accent);color:#fff;font-size:20px;font-weight:800;
+  background:var(--accent);color:var(--on-accent);font-size:20px;font-weight:800;
 }
 label.favorites-backup-file b{min-width:0;font-size:13px;line-height:1.35}
 label.favorites-backup-file small{min-width:0;color:var(--muted);font-size:11px;line-height:1.35}

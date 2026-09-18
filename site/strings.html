@@ -46,11 +46,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <body>
 <script>/* 主题早应用：和主站使用同一 localStorage 键，避免共创广场单独漂移 */
 (()=>{try{
-  const c=document.body.classList;
-  if(localStorage.getItem('fadian-dark')==='1'){c.add('dark');document.documentElement.style.colorScheme='dark';}
-  const t=localStorage.getItem('fadian-theme');
-  if(t==='teal'||t==='sakura'||t==='amber')c.add('theme-'+t);
-  const d=localStorage.getItem('fadian-density');
+  const c=document.body.classList,ls=k=>localStorage.getItem(k);
+  let m=ls('fadian-dark-mode');
+  if(m!=='auto'&&m!=='light'&&m!=='dark'){const o=ls('fadian-dark');m=o==='1'?'dark':o==='0'?'light':'auto';}
+  if(m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)){c.add('dark');document.documentElement.style.colorScheme='dark';}
+  if(ls('fadian-oled')==='1')c.add('oled');
+  const t=ls('fadian-theme');
+  if(t==='teal'||t==='sakura'||t==='amber'||t==='indigo'||t==='ink')c.add('theme-'+t);
+  const f=ls('fadian-font');
+  if(f==='classic'||f==='terminal')c.add('font-'+f);
+  const d=ls('fadian-density');
   if(d==='comfort'||d==='standard'||d==='compact')c.add('density-'+d);
 }catch(e){}})();</script>
 

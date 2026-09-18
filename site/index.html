@@ -103,11 +103,17 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <body>
 <script>/* 主题早应用：正式主题在 bindUI（等完网络请求后）才挂，这里先按本地偏好上类，消除深色/换肤用户的首帧闪色 */
 (()=>{try{
-  const c=document.body.classList;
-  if(localStorage.getItem('fadian-dark')==='1'){c.add('dark');document.documentElement.style.colorScheme='dark';}
-  const t=localStorage.getItem('fadian-theme');
-  if(t==='teal'||t==='sakura'||t==='amber')c.add('theme-'+t);
-  const d=localStorage.getItem('fadian-density');
+  const c=document.body.classList,ls=k=>localStorage.getItem(k);
+  /* 深浅色三档：没有新键就按旧的 fadian-dark 迁移（老用户手感不变），两个都没有才跟随系统 */
+  let m=ls('fadian-dark-mode');
+  if(m!=='auto'&&m!=='light'&&m!=='dark'){const o=ls('fadian-dark');m=o==='1'?'dark':o==='0'?'light':'auto';}
+  if(m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)){c.add('dark');document.documentElement.style.colorScheme='dark';}
+  if(ls('fadian-oled')==='1')c.add('oled');
+  const t=ls('fadian-theme');
+  if(t==='teal'||t==='sakura'||t==='amber'||t==='indigo'||t==='ink')c.add('theme-'+t);
+  const f=ls('fadian-font');
+  if(f==='classic'||f==='terminal')c.add('font-'+f);
+  const d=ls('fadian-density');
   if(d==='comfort'||d==='standard'||d==='compact')c.add('density-'+d);
 }catch(e){}})();
 /* 开场档位判定：必须在首帧前定好，晚一步就会先闪一下常规入场再切开场。
@@ -627,7 +633,25 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
       <label class="switch live"><input type="checkbox" id="tagZhSettingToggle" checked><i></i></label>
     </div>
+    <div class="set-row seg-row">
+      <div class="set-info">
+        <div class="set-name">深浅色</div>
+        <div class="set-desc">跟随系统时随设备的日夜设置自动切换</div>
+      </div>
+      <div id="darkModeControl" class="seg-control" role="group" aria-label="深浅色">
+        <button class="seg-option" type="button" data-dark-mode="auto" aria-pressed="false">跟随系统</button>
+        <button class="seg-option" type="button" data-dark-mode="light" aria-pressed="false">浅色</button>
+        <button class="seg-option" type="button" data-dark-mode="dark" aria-pressed="false">深色</button>
+      </div>
+    </div>
     <div class="set-row">
+      <div class="set-info">
+        <div class="set-name">纯黑深色</div>
+        <div class="set-desc">深色下把底色压到纯黑，OLED 屏更省电，图也更跳</div>
+      </div>
+      <label class="switch live"><input type="checkbox" id="oledToggle"><i></i></label>
+    </div>
+    <div class="set-row seg-row">
       <div class="set-info">
         <div class="set-name">界面风格</div>
         <div class="set-desc">整站换肤 · 深浅色通用</div>
@@ -637,6 +661,19 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button class="theme-option" type="button" data-theme="teal" aria-pressed="false"><i style="background:#0fa173"></i>青翠</button>
         <button class="theme-option" type="button" data-theme="sakura" aria-pressed="false"><i style="background:#e0577f"></i>樱粉</button>
         <button class="theme-option" type="button" data-theme="amber" aria-pressed="false"><i style="background:#a87f2f"></i>暖金</button>
+        <button class="theme-option" type="button" data-theme="indigo" aria-pressed="false"><i style="background:#2563c9"></i>靛蓝</button>
+        <button class="theme-option" type="button" data-theme="ink" aria-pressed="false"><i style="background:#3c3c45"></i>素墨</button>
+      </div>
+    </div>
+    <div class="set-row seg-row">
+      <div class="set-info">
+        <div class="set-name">界面字体</div>
+        <div class="set-desc">换整站的嗓子 · prompt 框始终保持等宽</div>
+      </div>
+      <div id="fontControl" class="seg-control" role="group" aria-label="界面字体">
+        <button class="seg-option" type="button" data-font="" aria-pressed="true">默认</button>
+        <button class="seg-option" type="button" data-font="classic" aria-pressed="false">典籍</button>
+        <button class="seg-option" type="button" data-font="terminal" aria-pressed="false">终端</button>
       </div>
     </div>
     <div class="set-row density-row">

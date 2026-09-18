@@ -1,4 +1,4 @@
-import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, OLED_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
@@ -453,7 +453,20 @@ export function bindUI() {
 
   const themeBtn = $('#themeBtn');
   const themeMenuBtn = $('#themeMenuBtn');
-  const applyTheme = d => {
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+  /* 深浅色三档：auto 跟随系统，light / dark 是用户拍板。
+     旧版只有 fadian-dark 布尔值——读到它就迁成对应的显式档，老用户手感一点不变；
+     只有从没设置过的新访客才落到 auto。 */
+  const readDarkMode = () => {
+    const saved = localStorage.getItem(DARK_MODE_STORAGE_KEY);
+    if (DARK_MODES.some(m => m.id === saved)) return saved;
+    const legacy = localStorage.getItem(LEGACY_DARK_STORAGE_KEY);
+    return legacy === '1' ? 'dark' : legacy === '0' ? 'light' : 'auto';
+  };
+  let darkMode = readDarkMode();
+  const applyTheme = (mode, { persist = true } = {}) => {
+    darkMode = DARK_MODES.some(m => m.id === mode) ? mode : 'auto';
+    const d = darkMode === 'auto' ? systemDark.matches : darkMode === 'dark';
     document.body.classList.toggle('dark', d);
     document.documentElement.style.colorScheme = d ? 'dark' : 'light';   // 滚动条等原生控件跟随深浅色
     const icon = d ? THEME_ICONS.sun : THEME_ICONS.moon;
@@ -461,11 +474,34 @@ export function bindUI() {
     themeBtn.innerHTML = icon;
     themeBtn.setAttribute('aria-label', label);
     if (themeMenuBtn) themeMenuBtn.innerHTML = `${icon}<span><b>${label}</b></span>`;
-    localStorage.setItem('fadian-dark', d ? '1' : '0');
+    if (persist) localStorage.setItem(DARK_MODE_STORAGE_KEY, darkMode);
+    localStorage.setItem(LEGACY_DARK_STORAGE_KEY, d ? '1' : '0');   // 404 / strings / review 只认这个旧键
+    for (const b of document.querySelectorAll('#darkModeControl [data-dark-mode]'))
+      b.setAttribute('aria-pressed', b.dataset.darkMode === darkMode ? 'true' : 'false');
   };
-  const toggleTheme = () => applyTheme(!document.body.classList.contains('dark'));
+  /* 顶栏按钮只管「现在翻到反面」，按下就脱离 auto——用户点它要的是确定结果，不是继续跟系统走 */
+  const toggleTheme = () => applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark');
   themeBtn.onclick = toggleTheme;
-  applyTheme(localStorage.getItem('fadian-dark') === '1');
+  applyTheme(darkMode, { persist: false });
+  systemDark.addEventListener('change', () => {
+    if (darkMode === 'auto') applyTheme('auto', { persist: false });
+  });
+  for (const b of document.querySelectorAll('#darkModeControl [data-dark-mode]')) {
+    b.onclick = () => {
+      applyTheme(b.dataset.darkMode);
+      toast(`深浅色：${DARK_MODES.find(m => m.id === darkMode).name}`);
+    };
+  }
+
+  /* 纯黑深色（OLED）：只压表面色、不碰 accent，因此浅色下开着也无害，不跟深浅色联动禁用 */
+  const oledToggle = $('#oledToggle');
+  const applyOled = on => {
+    document.body.classList.toggle('oled', on);
+    if (oledToggle) oledToggle.checked = on;
+    localStorage.setItem(OLED_STORAGE_KEY, on ? '1' : '0');
+  };
+  applyOled(localStorage.getItem(OLED_STORAGE_KEY) === '1');
+  if (oledToggle) oledToggle.onchange = e => applyOled(e.target.checked);
 
   /* 界面风格（换肤）：与深浅色正交，每套 light+dark 都在 CSS 里；默认紫=不加类 */
   const applySkin = id => {
@@ -480,6 +516,21 @@ export function bindUI() {
   for (const b of document.querySelectorAll('#themeControl [data-theme]'))
     b.onclick = () => toast(`已切换主题：${applySkin(b.dataset.theme).name}`);
   applySkin(localStorage.getItem(THEME_STORAGE_KEY) || '');
+
+  /* 界面字体（换嗓子）：与配色、深浅色同样正交；默认=不加类。
+     只换 UI / 展示 / 目录三支，prompt 框永远留着等宽体。 */
+  const applyFont = id => {
+    const f = FONTS.find(x => x.id === id) || FONTS[0];
+    for (const x of FONTS) if (x.id) document.body.classList.remove('font-' + x.id);
+    if (f.id) document.body.classList.add('font-' + f.id);
+    localStorage.setItem(FONT_STORAGE_KEY, f.id);
+    for (const b of document.querySelectorAll('#fontControl [data-font]'))
+      b.setAttribute('aria-pressed', b.dataset.font === f.id ? 'true' : 'false');
+    return f;
+  };
+  for (const b of document.querySelectorAll('#fontControl [data-font]'))
+    b.onclick = () => toast(`界面字体：${applyFont(b.dataset.font).name}`);
+  applyFont(localStorage.getItem(FONT_STORAGE_KEY) || '');
 
   /* SD 复制模式：设置里的开关 + 顶栏常驻角标（开着才显示，点角标可关），状态存 localStorage */
   const sdToggle = $('#sdModeToggle');

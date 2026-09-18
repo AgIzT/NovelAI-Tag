@@ -13,7 +13,26 @@ export const THEMES = [
   { id: 'teal', name: '青翠' },
   { id: 'sakura', name: '樱粉' },
   { id: 'amber', name: '暖金' },
+  { id: 'indigo', name: '靛蓝' },
+  { id: 'ink', name: '素墨' },
 ];
+/* 界面字体：与配色、深浅色都正交，字族全部已在 index.html 载入，换档不发新请求 */
+export const FONT_STORAGE_KEY = 'fadian-font';
+export const FONTS = [
+  { id: '', name: '默认' },
+  { id: 'classic', name: '典籍' },
+  { id: 'terminal', name: '终端' },
+];
+/* 深浅色三档。⚠ 解析后的布尔值仍要写回 fadian-dark：404 / strings / review 三张页面各自
+   早应用时只认那个旧键（test_404_page.mjs 有断言），换键就会让它们跟主站脱色。 */
+export const DARK_MODE_STORAGE_KEY = 'fadian-dark-mode';
+export const LEGACY_DARK_STORAGE_KEY = 'fadian-dark';
+export const DARK_MODES = [
+  { id: 'auto', name: '跟随系统' },
+  { id: 'light', name: '浅色' },
+  { id: 'dark', name: '深色' },
+];
+export const OLED_STORAGE_KEY = 'fadian-oled';
 export const RECENT_STORAGE_KEY = 'fadian-recent';
 export const LAST_BROWSE_STORAGE_KEY = 'fadian-last-browse';
 export const RECENT_ENTRY_LIMIT = 18;

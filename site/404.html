@@ -13,11 +13,13 @@
    ⚠ 这张页会被投递到任意深度的路径（/a/b/c/nope 也走它），所以页内所有引用
    必须是绝对路径；写成相对路径会再打空一次、再被换回这张页——正是它要终结的那种空转。 */
 (function(){try{
-  var d=localStorage.getItem('fadian-dark')==='1';
+  var m=localStorage.getItem('fadian-dark-mode');
+  var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)
+    ||(!m&&localStorage.getItem('fadian-dark')==='1');
   var t=localStorage.getItem('fadian-theme');
   var c=[];
   if(d)c.push('dark');
-  if(t==='teal'||t==='sakura'||t==='amber')c.push('theme-'+t);
+  if(t==='teal'||t==='sakura'||t==='amber'||t==='indigo'||t==='ink')c.push('theme-'+t);
   document.documentElement.style.colorScheme=d?'dark':'light';
   if(c.length)document.documentElement.className=c.join(' ');
 }catch(e){}})();
@@ -43,6 +45,10 @@
 .theme-sakura.dark{--accent:#f08fb0;--accent-soft:#3d2230}
 .theme-amber{--accent:#a87f2f;--accent-soft:#f1e7cd}
 .theme-amber.dark{--accent:#d2a651;--accent-soft:#332a1a}
+.theme-indigo{--accent:#2563c9;--accent-soft:#e2ebfb}
+.theme-indigo.dark{--accent:#5b9bf5;--accent-soft:#122744}
+.theme-ink{--accent:#3c3c45;--accent-soft:#e7e7ec}
+.theme-ink.dark{--accent:#c8c8d2;--accent-soft:#2b2b32}
 
 *{box-sizing:border-box}
 html,body{height:100%}

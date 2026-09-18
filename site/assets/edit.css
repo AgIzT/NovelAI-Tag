@@ -111,7 +111,7 @@ body.edit-mode .lb-edit-hidden{display:none!important}
   background:var(--card);color:var(--text);font-size:12.5px;font-family:var(--font-ui);
 }
 .edit-btn:hover{border-color:var(--accent);color:var(--accent)}
-.edit-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.edit-btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .edit-btn.primary:hover{filter:brightness(1.08);color:#fff}
 .edit-btn.danger{color:var(--new);border-color:var(--new)}
 .edit-btn.danger:hover{background:var(--new);color:#fff}
@@ -198,10 +198,10 @@ body.edit-mode .lb-edit-hidden{display:none!important}
 .local-first-codex{padding-top:clamp(90px,18vh,180px)}
 .local-first-codex .empty-mark{font-size:64px;color:var(--accent);opacity:.68}
 .local-first-codex .empty-actions button{
-  padding:13px 24px;border-color:var(--accent);background:var(--accent);color:#fff;
+  padding:13px 24px;border-color:var(--accent);background:var(--accent);color:var(--on-accent);
   font-size:15px;box-shadow:0 10px 28px var(--accent-glow)
 }
-.local-first-codex .empty-actions button:hover{background:var(--accent);color:#fff;filter:brightness(.92)}
+.local-first-codex .empty-actions button:hover{background:var(--accent);color:var(--on-accent);filter:brightness(.92)}
 
 @media (prefers-reduced-motion:reduce){
   .edit-dialog-mask,.edit-dialog{transition:none}
