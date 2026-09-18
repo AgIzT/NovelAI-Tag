@@ -41,6 +41,15 @@ def clean_text(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
+def serial_title(entry: dict[str, Any]) -> str:
+    """图包词条的编号标题（如"韩网整理 012"）。
+
+    起名后 title 是名字，编号搬到 serialTitle；续号和分级纠正只认这个字段。
+    还没写过 serialTitle 的旧数据回退到 title。
+    """
+    return clean_text(entry.get("serialTitle")) or clean_text(entry.get("title"))
+
+
 def clean_character_prompts(value: Any) -> list[dict[str, str]]:
     if not isinstance(value, list):
         return []

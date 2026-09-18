@@ -81,6 +81,27 @@ export const DENSITY_PRESETS = {
     footHeightNegative: 18,
   },
 };
+// 手机按浏览方式分档；图片上限不用 vh，避免地址栏伸缩触发布局跳动。
+const MOBILE_DENSITY_PRESETS = {
+  comfort: {
+    ...DENSITY_PRESETS.comfort, mobile: true, columns: 1, gap: 12,
+    imageMaxRatio: 1.15, imageMaxHeight: 320,
+    titleGap: 6, footGap: 6, footHeight: 14,
+    maxTagHeight: 76, maxTagLines: 3,
+  },
+  standard: {
+    ...DENSITY_PRESETS.standard, mobile: true, columns: 2, gap: 10,
+    imageMaxRatio: 1.35, imageMaxHeight: 280,
+    bodyPadX: 9, bodyPadTop: 9, bodyPadBottom: 9,
+    titleGap: 6, footGap: 6, footHeight: 14,
+    tagPaddingY: 10, maxTagHeight: 42, maxTagLines: 2,
+  },
+  compact: {
+    ...DENSITY_PRESETS.compact, mobile: true, minWidth: 108, maxColumns: 3, gap: 6,
+    titleActionWidth: 25, titleMinHeight: 16, maxTitleLines: 1, footHeight: 13,
+    hideImageTags: true,
+  },
+};
 export const NSFW_STORAGE_KEY = 'fadian-nsfw-ok';
 export const ADULT_CONFIRMATION_STORAGE_KEY = 'fadian-adult-confirmed-v1';
 export const NSFW_LOCKED_MESSAGE = '请先在设置里开启「允许 NSFW 法典展示」，并确认成人内容提示。';
@@ -149,8 +170,9 @@ export function normalizeDensity(value) {
   return DENSITY_PRESETS[value] ? value : DEFAULT_DENSITY;
 }
 
-export function densityConfig() {
-  return DENSITY_PRESETS[state.density] || DENSITY_PRESETS[DEFAULT_DENSITY];
+export function densityConfig(viewportWidth = globalThis.window?.innerWidth ?? Infinity) {
+  const presets = viewportWidth <= 600 ? MOBILE_DENSITY_PRESETS : DENSITY_PRESETS;
+  return presets[state.density] || presets[DEFAULT_DENSITY];
 }
 
 export function normalizeSearchScope(value) {

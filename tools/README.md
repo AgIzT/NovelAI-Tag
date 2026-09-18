@@ -23,7 +23,7 @@
 | `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；读取响应中途断开（`IncompleteRead`）会按既有上限与退避重试当前请求，分页成功前不推进游标；连接 30 秒无进展即重试（请求 8 次、上传 6 次，退避封顶 10 秒），上传请求体分块发送，慢网大文件不会被超时误判；重试行写明断连 / 卡住，不再显示成 `[Errno 2]`，上传进度每 25 个一行；WebP 上传显式使用 `image/webp`，不依赖系统 MIME 表；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
 | `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；R2 请求与上传沿用同步器的超时和重试，公共 release 核验遇断连或可重试状态码重试 3 次；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
 | `build_updates_index.py` | 重建跨书更新索引 `site/data/updates.json`（顶栏动态气泡与「公告/更新/反馈」面板的更新页签读它）。判定规则与前端 `data.js` 的 `updateFilterDefinitions`/`entryMatchesUpdateFilter` 逐条对齐，改一侧必须同步另一侧；发布数据链自动跑，也可 `--dry-run` / `--report` 单独看结果 | 只写 `site/data/updates.json` |
-| `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条只入词条名；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
+| `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条默认不入索引（开关 `TITLE_ONLY_GATED_IN_SAFE_BOOKS`，默认关，开了只入词条名）；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
 | `build_tag_zh.py` | **原型（分支 `feature/tag-zh`）**：生成灯箱「中文对照」的译名分片 `site/data/tag_zh/`（core + 分书），译名优先级「人工译名 > 社区词库 > AI 译名」，来源表在 Git 忽略的 `tools/data/tag_zh/`；社区词库缺失时从钉死提交的 URL 下载并校验 SHA-256。查表键与前端 `tag-zh-core.js` 共用夹具 `fixtures/tag_zh_keys.json`，改一侧必须同步另一侧。双击入口 `单项工具/生成中文对照.bat`；尚未接入发布数据链 | 重写 `site/data/tag_zh/*.json`（并删除该目录下不再产出的旧分片）；覆盖写 `output/tag-zh/构建报告.md` 与 `待翻译.csv`；词库缺失时写 `tools/data/tag_zh/` 缓存；`--dry-run` 不写 `site/data` |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
 | `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；WebP 在站内与原图路由显式使用 `image/webp`；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
@@ -78,6 +78,7 @@
 | --- | --- | --- |
 | `import_mengshen_pack.py` | 梦神图包历史来源适配器。画风章节已迁出，整片也已并进 `nai45_community_pack`；现行数据不再由它重建 | 默认只出审计；`--apply` 现有两道主动中止，**不得绕过** |
 | `import_community_ai_misc.py` | 只维护合并册里 `community_ai_misc-` 前缀那一片；`BOOK_ID` 是数据落点，`CODEX_ID` 是系列身份 | 默认扫描不改正式数据，但会覆盖写 `output/` 审计；`--validate` 只读；⚠ `--sync-manual-classification-overrides` **不需要 `--apply`，会直接写正式 JSON**；裸 `--apply` 只属历史首次导入 |
+| `apply_pack_names.py` | 把名单里的名字套用到两本社区图包（`nai5_community_pack` / `nai45_community_pack`）的词条 `title`，编号标题留在 `serialTitle`，三个图包导入器续号和分级纠正只认它；名单行 `newTitle` 为空即退回编号 | 默认预演只写 `output/pack_names_apply/` 报告；`--apply` 先备份两本书再写正式 JSON，写后自检幂等；名单 `oldTitle` 与现存编号对不上或排版无法原样重写时整批拒绝 |
 | `import_nai5_artist_dictionary.py` | N5 四份来源对应 `artist_nai5_personal`；具名 PDF 标签纠错只改登记 ID 的 `title/tags`，见本地私有文档 `docs/decisions/NovelAI5画师词典.md` | 默认审计和 `--correct-existing` 预演不改正式数据，但会覆盖写 `output/` 报告；`--validate` 只读；纠错另加 `--apply` 才先备份并写正式 JSON；首次导入 `--apply` 会拒绝覆盖现状 |
 | `import_nai5_community_pack.py` | N5 社区图包；编号所长包走 `--batch-plan/apply/validate`，梦神后续包走 `--dream-plan/apply/validate`，均按原图 hash 保持稳定 ID，见本地私有文档 `docs/decisions/NovelAI5社区精选图包.md` | `--batch-plan` / `--dream-plan` / `--batch-validate` / `--dream-validate` 不改正式数据，但会覆盖写 `output/` 审计或复验报告；`--batch-apply` / `--dream-apply` 会备份并写正式数据；裸 `--apply` 仅属首次导入且拒绝覆盖 |
 | `import_mengshen_korean_pack.py` | 韩网图包跨 N5 与 N4.5 两本增量；套图保组并复用 `pack_import_core.py` | 默认计划和 `--validate` 均不改正式数据/资产，但都会覆盖写 `output/` 报告，校验还会写 `validation.json`；`--apply` 会先备份并隔离确认重复源图，再写新增资产、逐个临时替换两本法典与总索引，普通异常时尝试回滚，整体不是崩溃安全的跨文件原子事务 |
@@ -100,7 +101,7 @@
 
 测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
-- Python · 导入与数据：`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
+- Python · 导入与数据：`test_apply_pack_names.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。

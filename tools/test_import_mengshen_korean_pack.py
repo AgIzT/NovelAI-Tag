@@ -122,5 +122,17 @@ class MengshenKoreanPackTests(unittest.TestCase):
             self.assertIn("index_cover_asset_missing", index_cover_issue(row, root) or "")
 
 
+class KoreanSerialNumberTests(unittest.TestCase):
+    def test_maximum_title_reads_serial_field_of_named_entries(self) -> None:
+        from import_mengshen_korean_pack import N45_NSFW_PATH, _maximum_title
+
+        entries = [
+            {"path": list(N45_NSFW_PATH), "title": "修女·触手拘束", "serialTitle": "R18 0733"},
+            {"path": list(N45_NSFW_PATH), "title": "R18 0100"},
+            {"path": ["其他"], "title": "R18 9999"},
+        ]
+        self.assertEqual(_maximum_title(entries, N45_NSFW_PATH, "R18"), 733)
+
+
 if __name__ == "__main__":
     unittest.main()

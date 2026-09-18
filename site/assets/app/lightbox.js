@@ -242,9 +242,22 @@ export function shareUrlForEntry(entry) {
   return new URL(atlasUrlForRoute({ codex: meta.id, entry: entryId }), location.href).href;
 }
 
+// 手机缩略图居中 contain 时，元素外框含留白；FLIP 的两端必须取真实图片矩形。
+function sourceImageRect(image) {
+  const rect = image.getBoundingClientRect();
+  if (!rect.width || !rect.height || !image.naturalWidth || !image.naturalHeight
+      || getComputedStyle(image).objectFit !== 'contain') return rect;
+  const scale = Math.min(rect.width / image.naturalWidth, rect.height / image.naturalHeight);
+  const width = image.naturalWidth * scale;
+  const height = image.naturalHeight * scale;
+  const left = rect.left + (rect.width - width) / 2;
+  const top = rect.top + (rect.height - height) / 2;
+  return { left, top, width, height, right: left + width, bottom: top + height };
+}
+
 export function flyIn(sourceEl) {
   const lb = $('#lightbox');
-  const from = sourceEl.getBoundingClientRect();
+  const from = sourceImageRect(sourceEl);
   if (!from.width || !from.height) return;
   const ratio = sourceEl.naturalWidth / sourceEl.naturalHeight;
   const targetEl = $('#lightboxImg');
@@ -378,7 +391,7 @@ export function closeLightbox(options = {}) {
   lb.classList.remove('is-open');
   if (!flying && src && src.isConnected && img.naturalWidth) {
     const from = img.getBoundingClientRect();
-    const to = src.getBoundingClientRect();
+    const to = sourceImageRect(src);
     if (from.width && to.width && to.bottom > -40 && to.top < window.innerHeight + 40) {
       const clone = makeFlyClone(img.currentSrc || img.src, from);
       lb.classList.add('flying');
@@ -891,7 +904,9 @@ export function renderLightbox() {
   }
   const reportBtn = $('#reportLightbox');
   if (reportBtn) {
-    reportBtn.hidden = emptyImage;
+    // 无图详情同样需要反馈内容；只有原图等图片操作依赖配图。
+    reportBtn.hidden = false;
+    reportBtn.textContent = emptyImage ? '反馈词条' : '反馈此图';
     reportBtn.onclick = ev => {
       ev.stopPropagation();
       openReportDialog({

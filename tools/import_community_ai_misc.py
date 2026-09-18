@@ -83,6 +83,11 @@ def clean_text(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
+def serial_title(entry: dict[str, Any]) -> str:
+    # 起名后 title 是名字，"R18 1764" 这类编号在 serialTitle；旧数据回退到 title
+    return clean_text(entry.get("serialTitle")) or clean_text(entry.get("title"))
+
+
 def clean_character_prompts(value: Any) -> list[dict[str, str]]:
     if not isinstance(value, list):
         return []
@@ -577,15 +582,19 @@ def sync_manual_classification_overrides() -> dict[str, Any]:
         before = {
             "path": entry.get("path"),
             "rating": entry.get("rating"),
-            "title": entry.get("title"),
+            "serialTitle": serial_title(entry),
         }
         after = {
             "path": merged_path(override["path"]),
             "rating": override["rating"],
-            "title": override["title"],
+            "serialTitle": override["title"],
         }
         if before != after:
+            # 覆盖表里的 title 是编号；词条已起名就保留名字，只换编号
+            named = clean_text(entry.get("title")) != serial_title(entry)
             entry.update(after)
+            if not named:
+                entry["title"] = override["title"]
             changes.append({
                 "id": entry_id,
                 "before": before,
@@ -713,6 +722,7 @@ def apply_import(results: list[dict[str, Any]], workers: int) -> dict[str, Any]:
     for row in accepted:
         entry = {
             "title": row["entryTitle"],
+            "serialTitle": row["entryTitle"],
             "path": row["path"],
             "tags": row["prompt"],
             "negative": row["negative"],
@@ -775,7 +785,7 @@ def validate_import(workers: int) -> dict[str, Any]:
             issues.append(f"bad_manual_override_path:{entry_id}")
         if entry.get("rating") != override["rating"]:
             issues.append(f"bad_manual_override_rating:{entry_id}")
-        if entry.get("title") != override["title"]:
+        if serial_title(entry) != override["title"]:
             issues.append(f"bad_manual_override_title:{entry_id}")
 
     tasks = [

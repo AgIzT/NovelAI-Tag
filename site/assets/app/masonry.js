@@ -210,7 +210,7 @@ export function restoreMasonryAnchor(anchor) {
 export function colCount() {
   const w = $('#masonry').clientWidth || $('#main').clientWidth;
   const cfg = densityConfig();
-  return Math.max(1, Math.floor((w + cfg.gap) / (cfg.minWidth + cfg.gap)));
+  return cfg.columns || Math.min(cfg.maxColumns || Infinity, Math.max(1, Math.floor((w + cfg.gap) / (cfg.minWidth + cfg.gap))));
 }
 
 export function clearMasonry() {
@@ -284,7 +284,7 @@ export function computeLayout({ previous } = {}) {
   const width = Math.max(1, m.clientWidth || $('#main').clientWidth || 1);
   const cfg = densityConfig();
   const n = colCount();
-  const itemWidth = Math.max(180, Math.floor((width - cfg.gap * (n - 1)) / n));
+  const itemWidth = Math.max(1, Math.floor((width - cfg.gap * (n - 1)) / n));
   const colHeights = Array.from({ length: n }, () => 0);
   const placements = [];
 
@@ -336,7 +336,8 @@ export function estimateImageHeight(e, width) {
   const iw = Number(e.imageWidth || e.width || e.thumbWidth);
   const ih = Number(e.imageHeight || e.height || e.thumbHeight);
   const ratio = iw > 0 && ih > 0 ? ih / iw : DEFAULT_IMAGE_RATIO;
-  return Math.round(width * clamp(ratio, 0.55, 1.9));
+  const cfg = densityConfig();
+  return Math.round(Math.min(width * clamp(ratio, 0.55, cfg.imageMaxRatio || 1.9), cfg.imageMaxHeight || Infinity));
 }
 
 /* 估高是 computeLayout 的热点：每次搜索/筛选都要对**全部命中条目**跑一遍，而 textUnits 是逐字符正则。
@@ -352,20 +353,24 @@ export function invalidateBodyMetrics(e) {
 
 export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
-  const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.density === state.density && cached.badgeHeight === badgeHeight) return cached.value;
   const cfg = densityConfig();
+  const cached = bodyMetricsCache.get(e);
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
-  const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(contentWidth / cfg.titleCharWidth))), 1, 2);
+  const titleWidth = cfg.mobile ? Math.max(1, width - 2 - cfg.bodyPadX * 2 - (cfg.titleActionWidth || 26)) : contentWidth;
+  const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
   const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
-  const titleHeight = titleLines * cfg.titleLineHeight;
-  const tagsHeight = clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
-  const footHeight = e.negative ? cfg.footHeightNegative : cfg.footHeight;
+  const titleHeight = Math.max(cfg.mobile ? (cfg.titleMinHeight || 20) : 0, titleLines * cfg.titleLineHeight);
+  const tagsHeight = cfg.hideImageTags && hasEntryImage(e) ? 0
+    : clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
+  const titleGap = tagsHeight ? cfg.titleGap : 0;
+  const footGap = cfg.footGap;
+  const footHeight = cfg.mobile ? cfg.footHeight : (e.negative ? cfg.footHeightNegative : cfg.footHeight);
   const value = {
-    height: Math.ceil(cfg.bodyPadTop + titleHeight + cfg.titleGap + tagsHeight + cfg.footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
+    height: Math.ceil(cfg.bodyPadTop + titleHeight + titleGap + tagsHeight + footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, density: state.density, badgeHeight, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, value });
   return value;
 }
 
@@ -635,10 +640,21 @@ export function makeCard(placement) {
     copyHint.textContent = hasImage ? '点击查看' : '暂无图片';
     copyHint.classList.toggle('is-view', hasImage);
   }
+  const openDetail = () => {
+    const img = hasImage ? node.querySelector('.card-img') : null;
+    masonryActions.openLightbox(e, 0, img, { allowEmpty: true });
+  };
+  const detailBtn = node.querySelector('.card-detail-btn');
+  if (detailBtn) {
+    detailBtn.setAttribute('aria-label', `查看详情：${e.title}`);
+    detailBtn.onclick = ev => {
+      ev.stopPropagation();
+      openDetail();
+    };
+  }
   node.onclick = () => {
-    if (packMode && hasImage) {
-      const img = node.querySelector('.card-img');
-      masonryActions.openLightbox(e, 0, img || null);
+    if (densityConfig().mobile || (packMode && hasImage)) {
+      openDetail();
       return;
     }
     masonryActions.copyEntry(e, node);
@@ -840,7 +856,7 @@ export function calibrateCardHeights(cards) {
   const measurements = prepared.map(card => {
     const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
     const naturalTagsBoxHeight = card.tags ? card.tags.getBoundingClientRect().height : 0;
-    const tagsHeight = card.tags
+    const tagsHeight = cfg.hideImageTags && hasEntryImage(card.placement.entry) ? 0 : card.tags
       ? clamp(naturalTagsHeight, cfg.minTagHeight, cfg.maxTagHeight)
       : card.placement.tagsHeight;
     const imageHeight = card.wrap && !card.wrap.hidden && getComputedStyle(card.wrap).display !== 'none'

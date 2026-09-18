@@ -29,6 +29,7 @@ from pack_import_core import (
     inspect_image_task,
     make_staging_directory,
     run_parallel,
+    serial_title,
     sha256_file,
     validate_asset,
     write_asset_bundle_from_paths,
@@ -475,7 +476,7 @@ def _maximum_title(entries: Iterable[dict[str, Any]], path: tuple[str, ...], pre
     for entry in entries:
         if tuple(entry.get("path") or ()) != path:
             continue
-        match = regex.fullmatch(clean_text(entry.get("title")))
+        match = regex.fullmatch(serial_title(entry))
         if match:
             values.append(int(match.group(1)))
     return max(values, default=0)
@@ -559,6 +560,7 @@ def bind_groups(
                 "new": False,
                 "targetEntryId": target_id,
                 "targetTitle": clean_text(current.get("title")),
+                "targetSerialTitle": serial_title(current),
                 "existingEntryIds": [target_id],
             })
         elif any(matched_refs):
@@ -590,6 +592,7 @@ def bind_groups(
                 "new": True,
                 "targetEntryId": target_id,
                 "targetTitle": title,
+                "targetSerialTitle": title,
                 "existingEntryIds": [],
             })
 
@@ -797,6 +800,7 @@ def entry_from_group(group: dict[str, Any], asset: dict[str, Any]) -> dict[str, 
         notes.append(clean_text(cover["note"]))
     entry = {
         "title": group["targetTitle"],
+        "serialTitle": group.get("targetSerialTitle") or group["targetTitle"],
         "path": list(group["path"]),
         "tags": clean_text(cover.get("prompt")),
         **({"negative": clean_text(cover.get("negative"))} if clean_text(cover.get("negative")) else {}),

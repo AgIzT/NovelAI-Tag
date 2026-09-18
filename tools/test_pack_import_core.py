@@ -110,5 +110,14 @@ class PackImportCoreTests(unittest.TestCase):
             self.assertEqual(validate_asset(entry, thumbs, originals), [])
 
 
+class SerialTitleTests(unittest.TestCase):
+    def test_serial_title_prefers_field_and_falls_back_to_title(self) -> None:
+        from pack_import_core import serial_title
+
+        self.assertEqual(serial_title({"title": "银发御姐·海边", "serialTitle": "韩网整理 012"}), "韩网整理 012")
+        self.assertEqual(serial_title({"title": "韩网整理 013"}), "韩网整理 013")
+        self.assertEqual(serial_title({"title": "韩网整理 014", "serialTitle": "  "}), "韩网整理 014")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1141,6 +1141,7 @@ body.dark .badge-char{
   backdrop-filter:blur(8px);
 }
 .badge-count svg{width:12px;height:12px}
+.card-detail-btn{display:none}
 .card-body{padding:10px 11px 10px}
 .card-title-row{display:flex;align-items:center;gap:7px;margin-bottom:7px}
 .card-title{
@@ -2247,12 +2248,55 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   /* 原图与 NSFW 是固定前两级状态；窄屏只舍弃额外的外部来源签。 */
   .ci-chip.ext{display:none}
   .main{padding:8px 0 80px}
-  .skeleton-grid{grid-template-columns:1fr;gap:10px;margin-bottom:12px}
+  .skeleton-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}
+  body.density-comfort .skeleton-grid{grid-template-columns:1fr;gap:12px}
+  body.density-compact .skeleton-grid{gap:6px}
+  @media (min-width:352px){
+    body.density-compact .skeleton-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+  }
   .skeleton-card{border-radius:12px;padding:10px 11px 11px}
   .skeleton-card:nth-child(n+7){display:none}
   .skeleton-thumb{height:154px;margin:-10px -11px 10px;border-radius:12px 12px 0 0}
   .skeleton-card:nth-child(3n+1) .skeleton-thumb{height:128px}
   .skeleton-card:nth-child(3n+2) .skeleton-thumb{height:178px}
+  /* 手机：单列大图、双列摘要、紧凑图墙最多三列。紧凑沿原图比例排布并沿用原版裁切。 */
+  /* 原生按钮保留键盘 / 读屏入口；键盘聚焦才显示，不占卡片正文高度。 */
+  .masonry .card-detail-btn{
+    display:block;position:absolute;top:6px;left:6px;z-index:10;
+    padding:5px 7px;border:1px solid var(--line);border-radius:7px;
+    background:var(--card);color:var(--accent);font-size:11px;
+    opacity:0;pointer-events:none;
+  }
+  .masonry .card-detail-btn:focus-visible{opacity:1;pointer-events:auto}
+  .masonry .card-img{object-fit:contain}
+  body .masonry .card-title-row{flex-wrap:nowrap;gap:6px;margin-bottom:6px}
+  .masonry .card-title{flex:1;min-width:0}
+  body .masonry .card-title-row .fav-btn{
+    display:flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:20px;
+    margin:0;padding:0;border-radius:4px;
+  }
+  .masonry :is(.hide-card-btn,.card-actions,.zoom-btn,.favorite-organize-button),
+  .masonry .card-title-row :is(.badge-new,.badge-neg-chip,.badge-char-chip){display:none}
+  body.density-standard .masonry .card-body{padding:9px}
+  body.density-standard .masonry .card-tags{font-size:11.5px;line-height:16px;padding:5px 6px}
+  body.density-compact .masonry .card-img{object-fit:cover}
+  body.density-compact .masonry .card-title-row{gap:5px;margin-bottom:5px}
+  body.density-compact .masonry .card-title{-webkit-line-clamp:1}
+  body.density-compact .masonry .card-title-row .fav-btn{flex:none;width:auto;height:auto;padding:1px 3px;border-radius:6px}
+  body.density-compact .masonry .card:not(.no-img) .card-tags{display:none}
+  body .masonry .card-foot{flex-wrap:wrap;gap:4px;margin-top:6px;min-height:14px}
+  body .masonry .card-path{flex:1;min-width:0;font-size:10px;line-height:14px}
+  body.density-compact .masonry .card-foot{margin-top:5px;min-height:13px}
+  body.density-compact .masonry .card-path{font-size:9.6px;line-height:1.35}
+  .density-option{min-height:58px;border-radius:10px}
+  .density-control{border-radius:14px}
+  .density-option::after{display:block;margin-top:5px;font-size:10px;font-weight:400;opacity:.8}
+  .density-option[data-density="comfort"]::after{content:"单列 · 大图"}
+  .density-option[data-density="standard"]::after{content:"双列 · 摘要"}
+  .density-option[data-density="compact"]::after{content:"三列 · 图墙"}
+  @media (max-width:351px){
+    .density-option[data-density="compact"]::after{content:"双列 · 图墙"}
+  }
   .codex-banner{padding:8px 10px;gap:9px;margin-bottom:8px;border-radius:14px;min-height:86px}
   /* meta 锁单行：作者名长短不一时也不换行，保证全法典横幅同高 */
   .banner-meta{flex-wrap:nowrap;overflow:hidden}
