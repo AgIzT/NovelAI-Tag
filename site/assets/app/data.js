@@ -110,6 +110,15 @@ export function findCodexMeta(id) {
 
 const cleanUpdateLabel = value => String(value || '').trim().replace(/^本次/, '');
 
+/* 批次 id 就是该书发这批时的 version，形如 2026.9.13。解析成本地时间戳供排序和「几天前」用；
+   解析不出来的（历史上出现过的非日期 version）返回 NaN，由调用方沉底，不参与日期比较。 */
+function updateBatchTime(id) {
+  const parts = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(String(id || ''));
+  if (!parts) return NaN;
+  const ts = Date.parse(`${parts[1]}-${parts[2].padStart(2, '0')}-${parts[3].padStart(2, '0')}T00:00:00`);
+  return Number.isFinite(ts) ? ts : NaN;
+}
+
 export function updateFilterDefinitions(meta = {}, codex = null) {
   const definitions = [];
   const seen = new Set();
@@ -118,15 +127,26 @@ export function updateFilterDefinitions(meta = {}, codex = null) {
     const label = cleanUpdateLabel(raw?.label);
     if (!id || !label || seen.has(id)) continue;
     seen.add(id);
-    definitions.push({ id, label, latest: raw?.latest === true });
+    definitions.push({ id, label, latest: raw?.latest === true, time: updateBatchTime(id) });
   }
   if (!definitions.some(item => item.latest) && cleanUpdateLabel(meta?.newFilterLabel)) {
     const id = String(meta?.version || codex?.version || 'latest').trim() || 'latest';
     if (!seen.has(id)) {
-      definitions.push({ id, label: cleanUpdateLabel(meta.newFilterLabel), latest: true });
+      definitions.push({ id, label: cleanUpdateLabel(meta.newFilterLabel), latest: true, time: updateBatchTime(id) });
     }
   }
-  return definitions;
+  /* 顺序由日期定，不吃 codexes.json 里数组的书写顺序——各书正序倒序都出现过，
+     结果就是 NEW 在有的书排第一、有的书排最后。排不出日期的保持原相对次序并沉底。 */
+  return definitions
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const aDated = Number.isFinite(a.item.time);
+      const bDated = Number.isFinite(b.item.time);
+      if (aDated && bDated && a.item.time !== b.item.time) return b.item.time - a.item.time;
+      if (aDated !== bDated) return aDated ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
 }
 
 export function entryMatchesUpdateFilter(entry, filter) {

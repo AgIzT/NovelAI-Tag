@@ -1,4 +1,4 @@
-import { esc, safeJsonParse } from './utils.js';
+import { esc, relativeDay, safeJsonParse } from './utils.js';
 import { fetchDataJson } from '../data-source.js';
 import { findCodexMeta } from './data.js';
 import { codexCoverUrl } from './codex-ui.js';
@@ -246,19 +246,4 @@ function formatBatchDate(iso) {
   const parts = String(iso || '').split('-');
   if (parts.length !== 3) return String(iso || '');
   return `${Number(parts[1])} 月 ${Number(parts[2])} 日`;
-}
-
-/* 只做到「天」的粒度：更新是按批次发的，精确到小时既不真实也没有意义。 */
-function relativeDay(iso) {
-  const ts = Date.parse(`${iso}T00:00:00`);
-  if (!Number.isFinite(ts)) return '';
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const days = Math.round((today.getTime() - ts) / 86400000);
-  if (days <= 0) return '今天';
-  if (days === 1) return '昨天';
-  if (days < 7) return `${days} 天前`;
-  if (days < 30) return `${Math.floor(days / 7)} 周前`;
-  if (days < 365) return `${Math.floor(days / 30)} 个月前`;
-  return `${Math.floor(days / 365)} 年前`;
 }

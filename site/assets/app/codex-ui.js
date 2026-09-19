@@ -1,10 +1,11 @@
 import { state, RANDOM_RECENT_LIMIT, NSFW_LOCKED_MESSAGE } from './state.js';
-import { $, esc, samePath, pathStartsWith, updateSearchClear, prefersReducedMotion, safeHttpUrl } from './utils.js';
+import { $, esc, samePath, pathStartsWith, relativeDay, updateSearchClear, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { isCodexLocked, showNsfwLockedHint, showR18gLockedHint, isEntryAccessBlocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, isR18gName } from './access.js';
 import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilters, updateFilterDefinitions } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
+import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import {
   closeHistoryLayer,
@@ -1101,6 +1102,93 @@ function activeUpdateFilter() {
   return codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter) || null;
 }
 
+/* 往期下拉的实例要跨重绘存活：updateResultBar 每次搜索 / 筛选都会跑，
+   每次重建等于关掉刚打开的菜单、抖掉焦点。updateSelectKey 记住上次喂进去的选项集，
+   只有换书或批次真的变了才重新 setOptions。 */
+let updateSelect = null;
+let updateSelectKey = '';
+
+/* 胶囊和往期下拉共用的落子动作。胶囊是开关（再点一次退出筛选），
+   下拉是选择（取消由列表里的「不筛选」承担），所以 toggle 由调用方声明。 */
+export function setUpdateFilter(id, { toggle = false } = {}) {
+  const requested = String(id || '');
+  const next = toggle && String(state.updateFilter || '') === requested ? '' : requested;
+  if (next === String(state.updateFilter || '')) return;
+  state.updateFilter = next;
+  codexUiActions.applyFilter({ resetScroll: true, transition: 'filter' });
+  codexUiActions.syncUrlState({ historyMode: 'replace' });
+}
+
+function updateFilterChip(filter) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `bar-btn update-filter-btn${filter.latest ? ' is-latest' : ''}`;
+  btn.dataset.updateFilter = filter.id;
+  const active = state.updateFilter === filter.id;
+  btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  if (filter.latest) {
+    const mark = document.createElement('span');
+    mark.className = 'update-filter-mark';
+    mark.textContent = 'NEW';
+    btn.appendChild(mark);
+  }
+  const label = document.createElement('span');
+  label.textContent = filter.label;
+  btn.append(label, Object.assign(document.createElement('span'), { textContent: '·' }));
+  const count = document.createElement('strong');
+  count.textContent = String(filter.count);
+  btn.appendChild(count);
+  btn.title = active ? `退出${filter.label}筛选` : `只看${filter.label}标记的词条`;
+  btn.setAttribute('aria-label',
+    `${filter.latest ? 'NEW ' : ''}${filter.label} · ${filter.count}${active ? '，当前已开启' : '，点击筛选'}`);
+  return btn;
+}
+
+/* 批次只增不减：全部平铺时手机上三行起步，真正要点的 NEW 还被挤在最后。
+   最新一期留成常驻胶囊，其余收进单选下拉，控件数就与更新期数脱钩了。
+   ⚠ 这里只收窄「显示」，codexUpdateFilters 仍返回全部批次——resolveUpdateFilter 拿它校验
+   URL 的 ?update=，截断了会让动态面板的老批次深链静默失效。 */
+function pastUpdatesMenu(past) {
+  const activeId = past.some(filter => filter.id === state.updateFilter) ? String(state.updateFilter) : '';
+  const active = activeId ? past.find(filter => filter.id === activeId) : null;
+  /* 「不筛选」只在选中往期时才给：没选中时它会顶掉触发按钮上「往期更新 · N 期」这句邀请。 */
+  const options = [
+    ...(active ? [{ value: '', label: '不筛选' }] : []),
+    ...past.map(filter => ({
+      value: filter.id,
+      label: `${filter.label} · ${filter.count}`,
+      description: relativeDay(filter.time),
+    })),
+  ];
+  if (!updateSelect) {
+    updateSelect = createSelectMenu({
+      className: 'update-filter-select',
+      onChange: value => setUpdateFilter(value),
+    });
+    updateSelectKey = '';
+  }
+  const key = `${state.codex?.id || ''}|${activeId}|${past.map(filter => `${filter.id}:${filter.count}`).join(',')}`;
+  if (key !== updateSelectKey) {
+    updateSelectKey = key;
+    updateSelect.setOptions(options);
+  }
+  updateSelect.setLabel(`往期更新 · ${past.length} 期`);
+  updateSelect.setValue(activeId);
+  updateSelect.setTriggerLabel(active
+    ? `往期更新：${active.label} · ${active.count} 条，当前已开启，可更换或取消`
+    : `往期更新，共 ${past.length} 期，点击选择`);
+  updateSelect.element.classList.toggle('is-active', Boolean(active));
+  return updateSelect;
+}
+
+function destroyUpdateSelect() {
+  if (!updateSelect) return;
+  updateSelect.destroy();
+  updateSelect.element.remove();
+  updateSelect = null;
+  updateSelectKey = '';
+}
+
 function updateFilterControls() {
   const root = $('#updateFilterControls');
   if (!root) return;
@@ -1109,31 +1197,20 @@ function updateFilterControls() {
     : '';
   const filters = (!state.favoritesView && !state.siteSearchView) ? codexUpdateFilters(state.codex) : [];
   root.hidden = filters.length === 0;
-  root.replaceChildren();
-  for (const filter of filters) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `bar-btn update-filter-btn${filter.latest ? ' is-latest' : ''}`;
-    btn.dataset.updateFilter = filter.id;
-    btn.setAttribute('aria-pressed', state.updateFilter === filter.id ? 'true' : 'false');
-    if (filter.latest) {
-      const mark = document.createElement('span');
-      mark.className = 'update-filter-mark';
-      mark.textContent = 'NEW';
-      btn.appendChild(mark);
-    }
-    const label = document.createElement('span');
-    label.textContent = filter.label;
-    btn.append(label, Object.assign(document.createElement('span'), { textContent: '·' }));
-    const count = document.createElement('strong');
-    count.textContent = String(filter.count);
-    btn.appendChild(count);
-    const prefix = filter.latest ? 'NEW ' : '';
-    const active = state.updateFilter === filter.id;
-    btn.title = active ? `退出${filter.label}筛选` : `只看${filter.label}标记的词条`;
-    btn.setAttribute('aria-label', `${prefix}${filter.label} · ${filter.count}${active ? '，当前已开启' : '，点击筛选'}`);
-    root.appendChild(btn);
+  /* 常驻胶囊＝带 latest 的那期；万一它因为 count 为 0 被滤掉，退到按日期排第一的那期，
+     保证任何有批次的书都至少有一枚一键入口。 */
+  const primary = filters.find(filter => filter.latest) || filters[0] || null;
+  const past = filters.filter(filter => filter !== primary);
+  const menu = past.length ? pastUpdatesMenu(past) : null;
+  if (!menu) destroyUpdateSelect();
+  /* 下拉节点原地留着：整体 replaceChildren 会把它摘下来再挂回去，
+     刚选完那一次重绘就会把焦点从触发按钮上抖掉。 */
+  for (const node of [...root.children]) {
+    if (menu && node === menu.element) continue;
+    node.remove();
   }
+  if (primary) root.prepend(updateFilterChip(primary));
+  if (menu && menu.element.parentNode !== root) root.appendChild(menu.element);
   if (focusedFilterId) {
     const replacement = [...root.querySelectorAll('[data-update-filter]')]
       .find(button => button.dataset.updateFilter === focusedFilterId);

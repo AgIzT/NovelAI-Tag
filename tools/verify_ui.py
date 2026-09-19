@@ -162,12 +162,38 @@ def update_filter_config(codex_id: str) -> list[dict]:
             or (latest and entry.get("isNew") is True)
             for entry in data.get("entries", [])
         )
+        # 同一条可以被多批改到：记下这批里又带 isNew 的条数，
+        # 让用例能挑一个与最新一期不重叠的历史批次去断言「NEW 角标应为 0」。
+        new_overlap = sum(
+            filter_id in [str(value) for value in (entry.get("updateBatches") or [])]
+            and entry.get("isNew") is True
+            for entry in data.get("entries", [])
+        )
         if count <= 0:
             raise RuntimeError(f"Update filter {filter_id!r} has no entries in {data_path}")
-        result.append({"id": filter_id, "label": label, "latest": latest, "count": count})
+        result.append({
+            "id": filter_id, "label": label, "latest": latest,
+            "count": count, "newOverlap": 0 if latest else new_overlap,
+        })
     if not result:
         raise RuntimeError(f"No usable update filters are configured for {codex_id}")
-    return result
+    # 前端的 updateFilterDefinitions 按批次日期倒序渲染（codexes.json 里各书正序倒序都有），
+    # 期望值必须用同一个口径排，否则换一本书就擞红。排不出日期的保留原次序并沉底。
+    def _batch_time(value: str):
+        parts = re.fullmatch(r"(\d{4})\.(\d{1,2})\.(\d{1,2})", value)
+        if not parts:
+            return None
+        return (int(parts[1]), int(parts[2]), int(parts[3]))
+
+    ordered = sorted(
+        enumerate(result),
+        key=lambda pair: (
+            _batch_time(pair[1]["id"]) is None,
+            tuple(-part for part in (_batch_time(pair[1]["id"]) or (0, 0, 0))),
+            pair[0],
+        ),
+    )
+    return [item for _, item in ordered]
 
 
 class WebSocket:
@@ -459,7 +485,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         for item in load_codex_list()
         if str(item.get("type") or "") == "composition"
     ]
-    old_update = next((item for item in update_filters if not item["latest"]), None)
+    # 挑最新的、且没有条目同时带 isNew 的历史批次：后面要用它断言
+    # 「选了历史批次就不该混进最新一期的卡」，选到重叠批次会把自己撞红。
+    old_update = next(
+        (item for item in update_filters if not item["latest"] and not item["newOverlap"]),
+        next((item for item in update_filters if not item["latest"]), None),
+    )
     latest_update = next((item for item in update_filters if item["latest"]), None)
     r18_update_filters = update_filter_config("suozhang_r18")
     r18_latest_update = next((item for item in r18_update_filters if item["latest"]), None)
@@ -1740,29 +1771,56 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
         navigate(cdp, base + "?codex=suozhang")
-        wait_for(cdp, f"document.querySelectorAll('#updateFilterControls [data-update-filter]').length === {len(update_filters)}", "regular update buttons")
-        # ⚠ 不要写死"两条"：更新批次是会长的，写死就等着下一批数据把它撞红。
-        expected = [
-            (f"NEW {item['label']} · {item['count']}" if item["latest"] else f"{item['label']} · {item['count']}")
-            for item in update_filters
+        # 批次只增不减，所以最新一期常驻成 NEW 胶囊，其余全收进「往期更新」下拉。
+        # ⚠ 不要写死期数：胶囊恒为 1 枚，往期项数＝总数 - 1，写死就等着下一批数据把它撞红。
+        past_updates = [item for item in update_filters if not item["latest"]]
+        wait_for(cdp, "document.querySelectorAll('#updateFilterControls [data-update-filter]').length === 1", "latest update chip")
+        wait_for(cdp, f"document.querySelectorAll('#updateFilterControls .ui-select-option').length === {len(past_updates)}", "past update options")
+        initial = cdp.eval("""
+(() => {
+  const chip = document.querySelector('#updateFilterControls [data-update-filter]');
+  const select = document.querySelector('.update-filter-select');
+  return {
+    chip: chip && {id: chip.dataset.updateFilter, text: chip.innerText.replace(/\\s+/g,' ').trim(), pressed: chip.getAttribute('aria-pressed'), latest: chip.classList.contains('is-latest')},
+    trigger: select?.querySelector('.ui-select-label')?.textContent || '',
+    triggerActive: select ? select.classList.contains('is-active') : null,
+    options: [...document.querySelectorAll('#updateFilterControls .ui-select-option')].map(opt => ({value: opt.dataset.value, label: opt.querySelector('.ui-select-option-label')?.textContent || '', note: opt.querySelector('.ui-select-option-note')?.textContent || ''})),
+  };
+})()
+""")
+        chip_expected = f"NEW {latest_update['label']} · {latest_update['count']}"
+        chip = initial["chip"] or {}
+        if chip.get("text") != chip_expected or chip.get("id") != latest_update["id"] \
+                or chip.get("pressed") != "false" or not chip.get("latest"):
+            raise CheckFailed(f"Latest update chip mismatch: expected={chip_expected!r}, actual={initial}")
+        if initial["trigger"] != f"往期更新 · {len(past_updates)} 期" or initial["triggerActive"] is not False:
+            raise CheckFailed(f"Past updates trigger mismatch: {initial}")
+        expected_options = [
+            {"value": item["id"], "label": f"{item['label']} · {item['count']}"}
+            for item in past_updates
         ]
-        initial = cdp.eval("[...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn=>({id:btn.dataset.updateFilter,text:btn.innerText.replace(/\\s+/g,' ').trim(),pressed:btn.getAttribute('aria-pressed'),latest:btn.classList.contains('is-latest')}))")
-        if [item["text"] for item in initial] != expected or any(item["pressed"] != "false" for item in initial):
-            raise CheckFailed(f"Regular update buttons mismatch: expected={expected!r}, actual={initial}")
-        latest_flags = [item["latest"] for item in initial]
-        if latest_flags.count(True) != 1 or not latest_flags[-1]:
-            raise CheckFailed(f"Only the latest update button may carry NEW styling: {initial}")
+        actual_options = [{"value": item["value"], "label": item["label"]} for item in initial["options"]]
+        if actual_options != expected_options:
+            raise CheckFailed(f"Past update options mismatch: expected={expected_options!r}, actual={actual_options}")
+        if any(not item["note"] for item in initial["options"]):
+            raise CheckFailed(f"Past update options lost their relative-day note: {initial['options']}")
 
         old_id = json.dumps(old_update["id"], ensure_ascii=False)
         latest_id = json.dumps(latest_update["id"], ensure_ascii=False)
-        cdp.eval(f"(() => {{ const btn = [...document.querySelectorAll('[data-update-filter]')].find(item=>item.dataset.updateFilter==={old_id}); btn.focus(); btn.click(); }})()")
-        wait_for(cdp, f"document.querySelector('[data-update-filter=\"{old_update['id']}\"]')?.getAttribute('aria-pressed') === 'true' && new URL(location.href).searchParams.get('update') === {old_id}", "historical update filter active")
+        # 往期批次现在只能从下拉里选；选完菜单要关、焦点要回到触发按钮。
+        cdp.eval(f"""(() => {{
+  const select = document.querySelector('.update-filter-select');
+  select.querySelector('.ui-select-button').click();
+  [...select.querySelectorAll('.ui-select-option')].find(opt => opt.dataset.value === {old_id}).click();
+}})()""")
+        wait_for(cdp, f"new URL(location.href).searchParams.get('update') === {old_id} && document.querySelector('.update-filter-select')?.classList.contains('is-active') === true && document.querySelector('.update-filter-select .ui-select-list')?.hidden === true", "historical update filter active")
         settle(cdp, 420)
         active = cdp.eval("""
 (() => {
   const cards = [...document.querySelectorAll('.card')];
   return {
-    buttons: [...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn => ({id:btn.dataset.updateFilter, pressed:btn.getAttribute('aria-pressed')})),
+    chip: (() => { const btn = document.querySelector('#updateFilterControls [data-update-filter]'); return btn && {id: btn.dataset.updateFilter, pressed: btn.getAttribute('aria-pressed')}; })(),
+    trigger: document.querySelector('.update-filter-select .ui-select-label')?.textContent || '',
     result: document.querySelector('#resultInfo')?.textContent || '',
     cards: cards.length,
     newCards: cards.filter(card => card.querySelector('.badge-new')?.hidden === false).length,
@@ -1774,12 +1832,14 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed(f"Historical update result mismatch: expected={old_update!r}, actual={active}")
         if active["cards"] <= 0 or active["newCards"] != 0:
             raise CheckFailed(f"Historical update entries unexpectedly carry the latest NEW badge: {active}")
-        if cdp.eval("document.activeElement?.dataset?.updateFilter || ''") != old_update["id"]:
-            raise CheckFailed("Historical update filter lost keyboard focus after rerender")
+        if active["trigger"] != f"{old_update['label']} · {old_update['count']}":
+            raise CheckFailed(f"Past updates trigger did not adopt the active batch: {active}")
+        if not cdp.eval("document.activeElement === document.querySelector('.update-filter-select .ui-select-button')"):
+            raise CheckFailed("Past updates trigger lost keyboard focus after rerender")
         shot = screenshot(cdp, out_dir, "new-update-filter")
 
         cdp.eval(f"(() => {{ const btn = [...document.querySelectorAll('[data-update-filter]')].find(item=>item.dataset.updateFilter==={latest_id}); btn.focus(); btn.click(); }})()")
-        wait_for(cdp, f"document.querySelector('[data-update-filter=\"{latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('[data-update-filter][aria-pressed=\"true\"]').length === 1 && new URL(location.href).searchParams.get('update') === {latest_id}", "latest update filter active")
+        wait_for(cdp, f"document.querySelector('[data-update-filter=\"{latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('[data-update-filter][aria-pressed=\"true\"]').length === 1 && document.querySelector('.update-filter-select')?.classList.contains('is-active') === false && new URL(location.href).searchParams.get('update') === {latest_id}", "latest update filter active")
         settle(cdp, 320)
         latest_cards = cdp.eval("({cards:document.querySelectorAll('.card').length,newCards:[...document.querySelectorAll('.card')].filter(card=>card.querySelector('.badge-new')?.hidden===false).length,result:document.querySelector('#resultInfo')?.textContent||''})")
         if latest_cards["cards"] <= 0 or latest_cards["newCards"] != latest_cards["cards"] or latest_update["label"] not in latest_cards["result"]:
@@ -2555,15 +2615,17 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "mobile cards")
         settle(cdp, 500)
-        data = cdp.eval("({cards: document.querySelectorAll('.card').length, mobileSearch: !!document.querySelector('#mobileSearchBtn'), result: document.querySelector('#resultInfo')?.textContent || '', updates: [...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn=>btn.innerText.replace(/\\s+/g,' ').trim()), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth})")
+        data = cdp.eval("({cards: document.querySelectorAll('.card').length, mobileSearch: !!document.querySelector('#mobileSearchBtn'), result: document.querySelector('#resultInfo')?.textContent || '', updates: [...document.querySelectorAll('#updateFilterControls [data-update-filter]')].map(btn=>btn.innerText.replace(/\\s+/g,' ').trim()), updateTrigger: document.querySelector('.update-filter-select .ui-select-label')?.textContent || '', updateRows: Math.round((document.querySelector('#updateFilterControls')?.getBoundingClientRect().height || 0) / 30), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth})")
         if not data["mobileSearch"]:
             raise CheckFailed("Mobile search button missing")
-        expected_updates = [
-            (f"NEW {item['label']} · {item['count']}" if item["latest"] else f"{item['label']} · {item['count']}")
-            for item in update_filters
-        ]
-        if data["updates"] != expected_updates or data["overflow"] > 1:
+        # 重设的目的就是这一行不再随发版长高：手机上永远是一行两枚件。
+        past_count = len([item for item in update_filters if not item["latest"]])
+        expected_updates = [f"NEW {latest_update['label']} · {latest_update['count']}"]
+        expected_trigger = f"往期更新 · {past_count} 期" if past_count else ""
+        if data["updates"] != expected_updates or data["updateTrigger"] != expected_trigger or data["overflow"] > 1:
             raise CheckFailed(f"Mobile update controls are missing or overflowed: {data}")
+        if data["updateRows"] > 1:
+            raise CheckFailed(f"Mobile update controls must stay on a single row: {data}")
         check_no_errors(cdp)
         shot = screenshot(cdp, out_dir, "mobile-home")
         return {**data, "screenshot": shot}

@@ -69,3 +69,19 @@ export function clamp(v, min, max) {
 export function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+/* 只做到「天」的粒度：更新是按批次发的，精确到小时既不真实也没有意义。
+   接受 ISO 日期串（2026-09-19）或已解析的本地时间戳，两种批次口径共用一套措辞。 */
+export function relativeDay(value) {
+  const ts = typeof value === 'number' ? value : Date.parse(`${value}T00:00:00`);
+  if (!Number.isFinite(ts)) return '';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((today.getTime() - ts) / 86400000);
+  if (days <= 0) return '今天';
+  if (days === 1) return '昨天';
+  if (days < 7) return `${days} 天前`;
+  if (days < 30) return `${Math.floor(days / 7)} 周前`;
+  if (days < 365) return `${Math.floor(days / 30)} 个月前`;
+  return `${Math.floor(days / 365)} 年前`;
+}

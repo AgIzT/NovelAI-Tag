@@ -4,7 +4,7 @@ import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from
 import { dismissToast, toast } from './feedback.js';
 import { animateUi } from './ui-motion.js';
 import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
-import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, updateCodexPickerState } from './codex-ui.js';
+import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
@@ -436,10 +436,7 @@ export function bindUI() {
     updateFilterControls.onclick = event => {
       const btn = event.target.closest?.('[data-update-filter]');
       if (!btn || !updateFilterControls.contains(btn)) return;
-      const id = String(btn.dataset.updateFilter || '');
-      state.updateFilter = state.updateFilter === id ? '' : id;
-      uiActions.applyFilter({ resetScroll: true, transition: 'filter' });
-      syncUrlState({ historyMode: 'replace' });
+      setUpdateFilter(btn.dataset.updateFilter, { toggle: true });
     };
   }
   $('#onlyFav').onchange = e => {

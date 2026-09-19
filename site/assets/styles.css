@@ -947,7 +947,19 @@ body.dark .banner-home.is-bilibili:hover{background:rgba(251,114,153,.24);border
 .access-hidden-hint:hover,.access-hidden-hint:focus-visible{
   border-color:var(--accent);color:var(--accent);background:var(--accent-soft);outline:none;
 }
-.update-filter-controls{display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
+/* 往期批次收在下拉里，所以这一行现在恒定是「NEW 胶囊 + 往期下拉」两件，不再随发版增高。
+   position/z-index 不能去掉：下拉浮层要盖住瀑布流卡片（卡内角标本身就带 z-index 6~7）。 */
+.update-filter-controls{position:relative;z-index:20;display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
+/* 几何来自 ui-kit 的 .ui-select，这里只把它对齐同排 .bar-btn 的形制与高度（含移动端触控高） */
+.update-filter-select{--select-height:30px;--select-touch-height:30px;flex:none;width:auto}
+.update-filter-select .ui-select-button{border-radius:999px;background:var(--card);padding:4px 11px}
+/* 这一栏排在结果栏末尾，下拉默认的 left:0 在手机上会顶出右边界；改成贴着触发按钮右缘向左展开。
+   宽度同时收到 240px 以内：整栏换行时触发按钮离左边界只剩 ~240px，再宽就换成往左溢出。 */
+.update-filter-select .ui-select-list{left:auto;right:0;max-width:min(240px,calc(100vw - 28px))}
+.update-filter-select.is-active .ui-select-button{
+  border-color:var(--accent);background:var(--accent);color:var(--on-accent);
+  box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 18%,transparent);
+}
 .update-filter-btn strong{color:var(--accent);font-weight:900}
 .update-filter-btn[aria-pressed="true"] strong{color:var(--on-accent)}
 .update-filter-btn.is-latest{border-color:color-mix(in srgb,var(--new) 34%,var(--line));background:color-mix(in srgb,var(--new) 8%,var(--card));box-shadow:0 5px 14px color-mix(in srgb,var(--new) 9%,transparent)}
