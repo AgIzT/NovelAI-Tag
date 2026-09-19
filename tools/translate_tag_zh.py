@@ -3,6 +3,9 @@
 只翻「人工译名表和社区词库都没有」的键（口径与 build_tag_zh.py 完全一致），按全站出现条数
 从多到少排，断点续跑：已经在 AI 表里的键直接跳过，中途停了再跑一次即可接着补。
 
+负缓存：模型应答了但给不出译名的键（画师名、碎片、纯符号占大头）记进 无译名.csv，
+下轮直接跳过，不再重复花钱问同一批；换模型后想重问用 --retry-empty。
+
 渠道配置放在 Git 忽略的 tools/data/tag_zh/ai_config.json（base_url / api_key / model /
 batch_size / concurrency）。密钥只在内存和该文件里，不写日志、不写报告。
 
@@ -40,6 +43,7 @@ CONFIG_PATH = btz.SRC_DIR / "ai_config.json"
 LOG_PATH = btz.REPORT_DIR / "翻译跑批.log"
 REPORT_PATH = btz.REPORT_DIR / "翻译跑批报告.md"
 FAILED_PATH = btz.REPORT_DIR / "跑批失败.csv"
+EMPTY_PATH = btz.SRC_DIR / "无译名.csv"
 SOURCE_LABEL = "gemini-3.8-flash-high"
 
 SYSTEM_PROMPT = (
@@ -94,7 +98,22 @@ def filtered(key: str) -> bool:
     return bool(first.search(key) and second.search(key))
 
 
-def pending_keys() -> tuple[list[tuple[str, int]], int, dict]:
+def load_empty_keys() -> set[str]:
+    """已知「模型给不出译名」的键（负缓存）。这类键多是画师名、碎片和纯符号，
+    问一次就够了，不记下来每轮都会重新花钱问同一批。"""
+    if not EMPTY_PATH.exists():
+        return set()
+    keys = set()
+    for index, row in enumerate(btz.read_csv_rows(EMPTY_PATH)):
+        if index == 0 and row and row[0].strip().lower() in ("tag", "﻿tag"):
+            continue
+        key = btz.tag_key(row[0]) if row else ""
+        if key:
+            keys.add(key)
+    return keys
+
+
+def pending_keys(skip_empty: bool = True) -> tuple[list[tuple[str, int]], int, dict]:
     """返回（待翻译键+出现条数，被过滤掉的键数，统计）。口径与 build_tag_zh 一致。"""
     index = btz.read_json(btz.INDEX_PATH)
     dictionary, dictionary_artists = btz.load_dictionary()
@@ -102,7 +121,8 @@ def pending_keys() -> tuple[list[tuple[str, int]], int, dict]:
     ai = btz.load_table(btz.AI_PATH)
     entry_count, _codex_sets, _example, _per_codex, artist_names = btz.collect_usage(index)
     skip_artist = artist_names | dictionary_artists
-    pending, held = [], 0
+    known_empty = load_empty_keys()
+    pending, held, skipped_empty = [], 0, 0
     for key, count in entry_count.items():
         if key in skip_artist or not btz.ai_eligible(key):
             continue
@@ -110,12 +130,15 @@ def pending_keys() -> tuple[list[tuple[str, int]], int, dict]:
             continue
         if filtered(key):
             held += 1
+        elif skip_empty and key in known_empty:
+            skipped_empty += 1
         else:
             pending.append((key, count))
     pending.sort(key=lambda item: (-item[1], item[0]))
     stats = {"总 tag": len(entry_count), "已有译名": sum(1 for k in entry_count
                                                     if btz.resolve(k, manual, dictionary, ai)[0]),
-             "AI 表现有": len(ai), "过滤跳过": held}
+             "AI 表现有": len(ai), "已知无译名": len(known_empty),
+             "本轮跳过无译名": skipped_empty, "过滤跳过": held}
     return pending, held, stats
 
 
@@ -141,6 +164,22 @@ def append_rows(rows: list[tuple[str, str]]) -> None:
             today = datetime.now().strftime("%Y-%m-%d")
             for key, zh in rows:
                 writer.writerow([key, zh, SOURCE_LABEL, today])
+
+
+def append_empty(keys: list[str]) -> None:
+    """追加写负缓存：模型应答了但给不出译名的键，下轮不再问。
+    只记「问过且有应答」的，请求失败的不记——那可能只是网络或渠道一时抽风。"""
+    if not keys:
+        return
+    with CSV_LOCK:
+        new_file = not EMPTY_PATH.exists()
+        with EMPTY_PATH.open("a", encoding="utf-8-sig" if new_file else "utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            if new_file:
+                writer.writerow(["tag", "模型", "日期"])
+            today = datetime.now().strftime("%Y-%m-%d")
+            for key in keys:
+                writer.writerow([key, SOURCE_LABEL, today])
 
 
 def clean(value, key: str) -> str:
@@ -211,6 +250,8 @@ def main(argv=None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="只统计，不调接口")
     parser.add_argument("--batch-size", type=int, default=0, help="每次请求几个 tag（默认读配置）")
     parser.add_argument("--concurrency", type=int, default=0, help="并发请求数（默认读配置）")
+    parser.add_argument("--retry-empty", action="store_true",
+                        help="连「已知无译名」的键也重新问一遍（换模型后才需要）")
     args = parser.parse_args(argv)
 
     btz.REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -218,10 +259,11 @@ def main(argv=None) -> int:
     batch_size = args.batch_size or int(cfg.get("batch_size") or 50)
     concurrency = args.concurrency or int(cfg.get("concurrency") or 4)
 
-    pending, held, stats = pending_keys()
+    pending, held, stats = pending_keys(skip_empty=not args.retry_empty)
     if args.limit:
         pending = pending[:args.limit]
-    log(f"待翻译 {len(pending)}；过滤跳过 {held}；批大小 {batch_size}，并发 {concurrency}")
+    log(f"待翻译 {len(pending)}；跳过已知无译名 {stats['本轮跳过无译名']}；过滤跳过 {held}；"
+        f"批大小 {batch_size}，并发 {concurrency}")
     if args.dry_run or not pending:
         print(json.dumps({**stats, "本次待翻译": len(pending)}, ensure_ascii=False))
         return 0
@@ -234,7 +276,7 @@ def main(argv=None) -> int:
 
     def run(batch, depth=0):
         result, usage = translate_batch(cfg, batch)
-        rows, empty = [], 0
+        rows, empty_keys = [], []
         if result is None and len(batch) > 1 and depth < 6:
             # 上游按整批挡内容：对半拆到单条，把真被挡的那几个隔离出来，别连累同批其它 tag
             half = len(batch) // 2
@@ -251,12 +293,13 @@ def main(argv=None) -> int:
                 if zh:
                     rows.append((key, zh))
                 else:
-                    empty += 1
+                    empty_keys.append(key)
             if rows:
                 append_rows(rows)
+            append_empty(empty_keys)
         with LOG_LOCK:
             counters["written"] += len(rows)
-            counters["empty"] += empty
+            counters["empty"] += len(empty_keys)
             counters["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
             counters["completion_tokens"] += int(usage.get("completion_tokens") or 0)
 
@@ -291,6 +334,9 @@ def main(argv=None) -> int:
         f"- 本次待翻译 {len(pending)} 个，写入 {counters['written']} 条，模型给不出译名 {counters['empty']} 个，"
         f"失败 {counters['failed']} 个（清单见 跑批失败.csv，重跑本脚本会自动补）",
         f"- token：输入 {counters['prompt_tokens']:,}，输出 {counters['completion_tokens']:,}",
+        f"- 本轮按负缓存跳过 {stats['本轮跳过无译名']} 个键，新记入 {counters['empty']} 个"
+        f"（表：{EMPTY_PATH.name}，共 {stats['已知无译名'] + counters['empty']} 条；"
+        f"换模型后想重问用 --retry-empty）",
         f"- 内容过滤跳过 {held} 个键，没有送出外部接口",
         "",
         "跑完记得执行 `python tools/build_tag_zh.py` 重新生成 site/data/tag_zh/ 分片。",
