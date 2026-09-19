@@ -6,8 +6,8 @@
 渠道配置放在 Git 忽略的 tools/data/tag_zh/ai_config.json（base_url / api_key / model /
 batch_size / concurrency）。密钥只在内存和该文件里，不写日志、不写报告。
 
-未成年安全闸：同时命中未成年指示词和性相关词的键一律不送外部接口，计数写进报告，键本身
-另存本地清单，不进任何公开产物。
+内容过滤：命中敏感词组合的键一律不送外部接口。渠道对这类组合会整批拒答、把同批正常的 tag
+一起连累掉，本地先挡掉更省调用也更稳；报告里只留计数。
 
 用法：
     python tools/translate_tag_zh.py --dry-run     只统计要翻多少、跳过多少
@@ -39,7 +39,6 @@ import build_tag_zh as btz  # noqa: E402
 CONFIG_PATH = btz.SRC_DIR / "ai_config.json"
 LOG_PATH = btz.REPORT_DIR / "翻译跑批.log"
 REPORT_PATH = btz.REPORT_DIR / "翻译跑批报告.md"
-BLOCKED_PATH = btz.REPORT_DIR / "未送审清单.txt"
 FAILED_PATH = btz.REPORT_DIR / "跑批失败.csv"
 SOURCE_LABEL = "gemini-3.8-flash-high"
 
@@ -55,22 +54,27 @@ SYSTEM_PROMPT = (
     "只输出 JSON 对象：键是输入编号（字符串），值是译名。不要输出别的内容。"
 )
 
-# 未成年安全闸：两类词同时出现就不送外部接口。宁可少翻，不拿这种组合去调模型。
-MINOR_WORDS = re.compile(
-    r"\b(loli|lolita girl|shota|shotacon|toddler|infant|baby girl|baby boy|child|children|kid|kids|"
-    r"kindergarten|preschool|elementary school|primary school|grade school|middle school|"
-    r"little girl|little boy|young girl|young boy|underage|minor|preteen|pre-teen|teen|teenage|"
-    r"schoolgirl|schoolboy|flat chest loli|age \d{1,2}|\d{1,2} ?(?:years old|yo|yrs))\b",
-    re.IGNORECASE,
-)
-SEXUAL_WORDS = re.compile(
-    r"\b(sex|sexual|sexy|nude|naked|nsfw|penis|vagina|vaginal|pussy|anal|anus|cum|semen|"
-    r"ejaculat\w*|orgasm|masturbat\w*|fellatio|blowjob|creampie|nipple|nipples|areola|breast milk|"
-    r"lactation|rape|molest\w*|incest|bukkake|ahegao|hentai|erotic|porn\w*|genital\w*|clitoris|"
-    r"testicles|panties aside|spread pussy|insertion|penetration|futanari|paizuri|handjob|"
-    r"crotch|groping|fingering|squirting|deepthroat|gangbang|bestiality)\b",
-    re.IGNORECASE,
-)
+# 内容过滤：两组词同时命中才拦，单独命中照常翻。词表放在 Git 忽略的本地文件里，
+# 脚本不带内置词表；文件缺失直接退出，不允许静默跳过这道过滤。
+FILTER_PATH = btz.SRC_DIR / "过滤词.json"
+_FILTER = None
+
+
+def load_filter() -> tuple:
+    global _FILTER
+    if _FILTER is None:
+        if not FILTER_PATH.exists():
+            raise SystemExit(f"缺少本地词表 {FILTER_PATH}；脚本不带内置词表，补齐后再跑。")
+        data = json.loads(FILTER_PATH.read_text(encoding="utf-8"))
+        groups = []
+        for name in ("a", "b"):
+            terms = [str(t).strip() for t in (data.get(name) or []) if str(t).strip()]
+            if not terms:
+                raise SystemExit(f"{FILTER_PATH} 的 {name} 组是空的")
+            groups.append(re.compile(r"\b(?:" + "|".join(terms) + r")\b", re.IGNORECASE))
+        _FILTER = tuple(groups)
+    return _FILTER
+
 
 QUOTES = "\"'“”‘’「」『』"
 
@@ -85,32 +89,33 @@ def load_config() -> dict:
     return cfg
 
 
-def blocked(key: str) -> bool:
-    return bool(MINOR_WORDS.search(key) and SEXUAL_WORDS.search(key))
+def filtered(key: str) -> bool:
+    first, second = load_filter()
+    return bool(first.search(key) and second.search(key))
 
 
-def pending_keys() -> tuple[list[tuple[str, int]], list[str], dict]:
-    """返回（待翻译键+出现条数，按安全闸拦下的键，统计）。口径与 build_tag_zh 一致。"""
+def pending_keys() -> tuple[list[tuple[str, int]], int, dict]:
+    """返回（待翻译键+出现条数，被过滤掉的键数，统计）。口径与 build_tag_zh 一致。"""
     index = btz.read_json(btz.INDEX_PATH)
     dictionary, dictionary_artists = btz.load_dictionary()
     manual = btz.load_table(btz.MANUAL_PATH)
     ai = btz.load_table(btz.AI_PATH)
     entry_count, _codex_sets, _example, _per_codex, artist_names = btz.collect_usage(index)
     skip_artist = artist_names | dictionary_artists
-    pending, held = [], []
+    pending, held = [], 0
     for key, count in entry_count.items():
         if key in skip_artist or not btz.ai_eligible(key):
             continue
         if btz.resolve(key, manual, dictionary, ai)[0]:
             continue
-        if blocked(key):
-            held.append(key)
+        if filtered(key):
+            held += 1
         else:
             pending.append((key, count))
     pending.sort(key=lambda item: (-item[1], item[0]))
     stats = {"总 tag": len(entry_count), "已有译名": sum(1 for k in entry_count
                                                     if btz.resolve(k, manual, dictionary, ai)[0]),
-             "AI 表现有": len(ai), "安全闸拦下": len(held)}
+             "AI 表现有": len(ai), "过滤跳过": held}
     return pending, held, stats
 
 
@@ -214,11 +219,9 @@ def main(argv=None) -> int:
     concurrency = args.concurrency or int(cfg.get("concurrency") or 4)
 
     pending, held, stats = pending_keys()
-    if held:
-        BLOCKED_PATH.write_text("\n".join(sorted(held)) + "\n", encoding="utf-8")
     if args.limit:
         pending = pending[:args.limit]
-    log(f"待翻译 {len(pending)}；安全闸拦下 {len(held)}；批大小 {batch_size}，并发 {concurrency}")
+    log(f"待翻译 {len(pending)}；过滤跳过 {held}；批大小 {batch_size}，并发 {concurrency}")
     if args.dry_run or not pending:
         print(json.dumps({**stats, "本次待翻译": len(pending)}, ensure_ascii=False))
         return 0
@@ -288,7 +291,7 @@ def main(argv=None) -> int:
         f"- 本次待翻译 {len(pending)} 个，写入 {counters['written']} 条，模型给不出译名 {counters['empty']} 个，"
         f"失败 {counters['failed']} 个（清单见 跑批失败.csv，重跑本脚本会自动补）",
         f"- token：输入 {counters['prompt_tokens']:,}，输出 {counters['completion_tokens']:,}",
-        f"- 未成年安全闸拦下 {len(held)} 个键，没有送出外部接口（清单只存本地 {BLOCKED_PATH.name}）",
+        f"- 内容过滤跳过 {held} 个键，没有送出外部接口",
         "",
         "跑完记得执行 `python tools/build_tag_zh.py` 重新生成 site/data/tag_zh/ 分片。",
     ]
