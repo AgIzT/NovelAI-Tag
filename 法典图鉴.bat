@@ -38,6 +38,7 @@ echo     11.  回归验证        UI 自检
 echo     12.  清理输出        按保留策略清 output
 echo     13.  互动数据库迁移  生产 D1, 谨慎
 echo     14.  生成中文对照    重建 tag 译名分片
+echo     15.  补译中文对照    AI 补长尾译名, 要花钱
 echo.
 echo      0.  退出
 echo ------------------------------------------------------------
@@ -57,6 +58,7 @@ if "%c%"=="11" goto act_verify
 if "%c%"=="12" goto act_cleanup
 if "%c%"=="13" goto act_migrate
 if "%c%"=="14" goto act_tagzh
+if "%c%"=="15" goto act_tagzh_ai
 if "%c%"=="0" goto end
 goto menu
 
@@ -112,6 +114,10 @@ goto menu
 
 :act_tagzh
 call :run "生成中文对照.bat"
+goto menu
+
+:act_tagzh_ai
+call :run "补译中文对照.bat"
 goto menu
 
 :act_migrate
