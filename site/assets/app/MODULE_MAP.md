@@ -119,7 +119,8 @@
 - `router.js`、`history.js`、`codex-ui.js` 通过注入调用瀑布流，避免反向静态依赖；`masonry.js` 同理通过动作注入打开灯箱和反馈。
 - `browser-history.js` 必须保持页面无关。历史层的底层 open / close handler 不得自己改 history；用户动作包装器才决定 push、replace 或 back。完整套路见本地私有文档 `docs/经验/浏览器历史状态管理.md`。
 - 视觉顶层与全局快捷键归属统一由 `modal.js` 判断，不能把 history 顶层直接当作模态：选择模式不是模态，停靠中转站也不是。全局监听先检查 `isGlobalShortcutBlocked(event, owner)`；局部列表/菜单自己处理按键并保留 Tab 的焦点管理。
-- `ui-kit.css` 提供 `.bar-btn`、`.panel-action`、`.panel-input` 与 `.ui-select-*` 共用表面；名称/整理弹窗沿用 `styles.css` 的 settings 家族。功能样式只写业务布局和必要变量，不再复制按钮、输入与选择器几何。
+- `ui-kit.css` 提供 `.ui-press` 显式按压、`.bar-btn`、`.panel-action`、`.panel-input` 与 `.ui-select-*` 共用表面；结果栏同排选择器使用 `.ui-select.is-pill`。名称/整理弹窗沿用 `styles.css` 的 settings 家族，功能样式只写业务布局和必要变量。
+- 收藏工具栏与排序实例跨普通重绘存活，来源按钮按 sourceId 复用；收藏夹更多菜单登记交互层，并随所属抽屉关闭清理。共创广场分类与卡片按稳定 ID 复用，事件读取当前数据，详情回焦可按 ID 重新定位。
 - 内容分级统一经过 `access.js`；快照、历史或虚拟视图无法证明可访问时，保持 fail-closed。
 - 个人屏蔽独立于内容分级：`app.js` 过滤最终结果，卡片由动作注入执行隐藏，灯箱在分级判定后拦截并提供临时查看；`app.js` 初始化管理入口，`ui.js` 把面板纳入快捷键遮挡。最近记录在关键词启用时先加载真实词条核验，再渲染缩略图；`edit.js` 失效匹配缓存。清单仅覆盖主图鉴，收藏关系、共创广场和中转站编排状态仍各自管理。
 - 收藏和全站搜索是临时虚拟法典，不进入 `state.codexes`；跨法典消费者必须用 `_src*` 回到真实来源。

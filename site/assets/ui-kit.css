@@ -2,6 +2,25 @@
    各自的功能样式表只在这之上写差异，不重复几何。
    新增控件先来这里找同源件；这里没有再谈新增，别在功能样式表里另起一套尺寸。 */
 
+:root{
+  --ui-press-scale:.96;
+  --ui-control-transition:background .16s,color .16s,border-color .16s,box-shadow .16s,transform .16s,translate .16s,scale .14s ease;
+  --ui-popover-blur:18px;
+  --ui-popover-radius:16px;
+}
+/* 独立操作控件显式接入；编辑区、定位容器不参与按压缩放。 */
+.ui-press{transition:var(--ui-control-transition)}
+.ui-press,.icon-btn,.more-item,.bar-btn,.panel-action,.ui-select-button,.ui-select-option,.seg-tabs>button{
+  -webkit-tap-highlight-color:transparent;
+}
+.ui-press:active:not(:disabled):not([aria-disabled="true"]){scale:var(--ui-press-scale)}
+@media(prefers-reduced-motion:reduce){
+  .ui-press{transition:none!important}
+  .ui-press:active:not(:disabled):not([aria-disabled="true"]){scale:1}
+}
+.motion-off .ui-press{transition:none!important}
+.motion-off .ui-press:active:not(:disabled):not([aria-disabled="true"]){scale:1}
+
 /* ---------- 结果栏按钮家族 ----------
    这一排里的独立操作按钮共用几何、字重和过渡，各自只留语义色差。
    新增结果栏入口请加 .bar-btn，不要再另起一套尺寸。 */
@@ -70,24 +89,29 @@
   transition:background .15s,color .15s,box-shadow .15s,scale .14s ease;
 }
 .seg-tabs>button:hover{color:var(--text);background:var(--card)}
-.seg-tabs>button:is([aria-selected="true"],[aria-checked="true"]){color:#fff;background:transparent}
+.seg-tabs>button:is([aria-selected="true"],[aria-checked="true"]){color:var(--on-accent);background:transparent}
 .seg-tabs>button:active:not(:disabled){scale:.96}
 /* 页签后面的计数 / 未读点，选中时要在 accent 底上认得出来 */
 .seg-tabs>button>span{
   display:inline-grid;min-width:19px;height:19px;margin-left:5px;padding:0 5px;place-items:center;
   border-radius:999px;background:var(--tagbg-hover);color:var(--muted);font-size:10px;vertical-align:1px;
 }
-.seg-tabs>button[aria-selected="true"]>span{background:rgba(255,255,255,.22);color:#fff}
+.seg-tabs>button[aria-selected="true"]>span{background:color-mix(in srgb,var(--on-accent) 22%,transparent);color:var(--on-accent)}
 
-/* 窄屏把动作按钮抬到 44px 触控地板；结果栏按钮本来就常并排换行，保持 30px。 */
+/* 窄屏工具栏与同排单选入口共用 44px 命中高度。 */
 @media (max-width:600px){
-  .panel-action{min-height:44px}
+  .bar-btn,.panel-action{min-height:44px}
   .panel-action.is-sm{min-height:38px}
 }
+@media(pointer:coarse){.bar-btn{min-height:44px}}
 @media (prefers-reduced-motion:reduce){
   .bar-btn,.panel-action,.seg-tabs>button,.seg-tabs::before{transition:none!important}
   .bar-btn:active:not(:disabled),.panel-action:active:not(:disabled),.seg-tabs>button:active:not(:disabled){scale:1}
+  .panel-action:hover:not(:disabled),.panel-action:is(.is-primary,.is-danger):hover:not(:disabled){translate:none}
 }
+.motion-off :is(.bar-btn,.panel-action,.seg-tabs>button,.seg-tabs::before){transition:none!important}
+.motion-off :is(.bar-btn,.panel-action,.seg-tabs>button):active:not(:disabled){scale:1}
+.motion-off .panel-action:hover:not(:disabled),.motion-off .panel-action:is(.is-primary,.is-danger):hover:not(:disabled){translate:none}
 /* ---------- 面板输入：反馈与收藏等表单共用 ---------- */
 .panel-input,.feedback-field input,.feedback-field select,.feedback-field textarea,
 .feedback-fallback textarea{
@@ -110,8 +134,11 @@
 }
 .ui-select-button:hover,.ui-select-button[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
 .ui-select-button:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.ui-select-button:active:not(:disabled){scale:.97}
+.ui-select-button:active:not(:disabled){scale:var(--ui-press-scale)}
 .ui-select-button:disabled,.ui-select-option:disabled{opacity:.46;cursor:not-allowed}
+/* 与结果栏胶囊按钮同排的单选入口，共用形制而非由业务页逐个覆盖。 */
+.ui-select.is-pill{--select-height:30px;--select-touch-height:44px}
+.ui-select.is-pill .ui-select-button{border-radius:999px;background:var(--card);padding:4px 12px}
 .ui-select-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ui-select-arrow{
   flex:none;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;
@@ -122,8 +149,8 @@
   position:absolute;left:0;top:calc(100% + 6px);z-index:6;
   width:max(100%,190px);max-width:min(260px,calc(100vw - 28px));max-height:min(46vh,288px);
   box-sizing:border-box;display:flex;flex-direction:column;gap:2px;overflow-y:auto;overscroll-behavior:contain;padding:6px;
-  border:1px solid var(--popover-line);border-radius:12px;background:var(--popover-glass);color:var(--text);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);background:var(--popover-glass);color:var(--text);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
   opacity:1;translate:0 0;scale:1;transform-origin:top left;
   transition:opacity .16s ease,translate .18s cubic-bezier(.22,1,.36,1),
@@ -133,7 +160,9 @@
   width:100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;
   border:0;border-radius:8px;background:transparent;color:var(--text);padding:7px 9px;
   text-align:left;font:700 var(--select-font-size,12px)/1.4 var(--font-ui);cursor:pointer;
+  transition:var(--ui-control-transition);
 }
+.ui-select-option:active:not(:disabled){scale:var(--ui-press-scale)}
 .ui-select-option:hover:not(:disabled),.ui-select-option:focus-visible{outline:none;background:var(--tagbg);color:var(--accent)}
 .ui-select-option[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
 .ui-select-option-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -145,9 +174,9 @@
   .ui-select-button,.ui-select-option{min-height:var(--select-touch-height,44px)}
 }
 @media(prefers-reduced-motion:reduce){
-  .ui-select-button,.ui-select-arrow,.ui-select-list,.panel-input,
+  .ui-select-button,.ui-select-option,.ui-select-arrow,.ui-select-list,.panel-input,
   .feedback-field input,.feedback-field select,.feedback-field textarea,.feedback-fallback textarea{transition:none!important}
-  .ui-select-button:active:not(:disabled){scale:1}
+  .ui-select-button:active:not(:disabled),.ui-select-option:active:not(:disabled){scale:1}
 }
-.motion-off :is(.ui-select-button,.ui-select-arrow,.ui-select-list,.panel-input){transition:none!important}
-.motion-off .ui-select-button:active:not(:disabled){scale:1}
+.motion-off :is(.ui-select-button,.ui-select-option,.ui-select-arrow,.ui-select-list,.panel-input){transition:none!important}
+.motion-off :is(.ui-select-button,.ui-select-option):active:not(:disabled){scale:1}

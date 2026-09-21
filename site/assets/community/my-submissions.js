@@ -27,7 +27,7 @@ function ensureMask() {
   mask.setAttribute('aria-labelledby', 'mySubmissionsTitle');
   mask.innerHTML = `
     <div class="dialog-panel my-submissions-panel">
-      <button class="dialog-close" type="button" data-my-submissions-close aria-label="关闭">×</button>
+      <button class="ui-press dialog-close" type="button" data-my-submissions-close aria-label="关闭">×</button>
       <h2 id="mySubmissionsTitle">我的投稿</h2>
       <p class="my-submissions-note">这里只记录当前浏览器近 180 天成功提交的投稿；清理浏览器数据或换设备后不会同步。</p>
       <div class="my-submissions-list"></div>
@@ -71,7 +71,7 @@ export function renderMySubmissions() {
   list.innerHTML = records.map(record => {
     const published = entries.has(record.id);
     return `
-      <button class="my-submission-item" type="button" data-my-submission-id="${escHtml(record.id)}"${published ? '' : ' disabled'}>
+      <button class="ui-press my-submission-item" type="button" data-my-submission-id="${escHtml(record.id)}"${published ? '' : ' disabled'}>
         <span><b>${escHtml(record.title || '未命名投稿')}</b><small>提交于 ${escHtml(formatDate(record.createdAt))}</small></span>
         <em class="${published ? 'is-published' : 'is-pending'}">${published ? '已发布' : '尚未公开'}</em>
       </button>`;

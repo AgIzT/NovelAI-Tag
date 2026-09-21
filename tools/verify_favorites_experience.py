@@ -285,12 +285,29 @@ def run(base, out, cdp):
         ui.screenshot(cdp, out, 'mobile-sort-' + str(width))
         key('Escape')
         wait("getComputedStyle(document.querySelector('.favorites-sort [role=listbox]')).display==='none'", 'sort exit completed before static screenshot')
-        action = js("const b=document.querySelector('.favorite-organize-button'),r=b.getBoundingClientRect(),img=b.closest('.card-img-wrap').getBoundingClientRect();return {height:r.height,topInImage:r.top-img.top};")
-        if action['height'] < 44 or action['topInImage'] > 12:
-            raise ui.CheckFailed(f'single action too small/late: {action}')
+        # 手机卡片主体统一开详情，整理走批量入口；隐藏的桌面整理按钮不能进入焦点序列。
+        hidden_action = js("const b=document.querySelector('.favorite-organize-button');b.focus();return {hidden:!b.getClientRects().length,focusable:document.activeElement===b};")
+        if not hidden_action['hidden'] or hidden_action['focusable']:
+            raise ui.CheckFailed(f'desktop organize action exposed on mobile: {hidden_action}')
+        click('.favorite-library-card .card-img-wrap')
+        wait("document.querySelector('#lightbox').classList.contains('is-open')", 'mobile card opens detail')
+        key('Escape'); ui.settle(cdp, 350)
+        click('.favorites-selection-toggle')
+        click('.favorite-library-card .card-img-wrap')
+        check('qa.s.favSelected.size===1', 'mobile card selects one item')
+        action = js("const b=document.querySelector('[data-fav-batch=\"加入收藏夹\"]'),r=b.getBoundingClientRect();return {width:r.width,height:r.height,disabled:b.disabled};")
+        if action['height'] < 44 or action['width'] < 44 or action['disabled']:
+            raise ui.CheckFailed(f'mobile organize action unavailable or small: {action}')
+        click('[data-fav-batch="加入收藏夹"]')
+        wait("document.querySelector('#favoritesOrganize').classList.contains('show')", 'mobile batch organize opens')
+        check("document.querySelector('#favoritesOrganize').contains(document.activeElement)", 'mobile organize receives focus')
+        key('Escape'); ui.settle(cdp, 350)
+        check("document.activeElement.dataset.favBatch==='加入收藏夹'", 'mobile organize returns to batch opener')
+        click('[data-fav-batch="完成"]')
+        check('!qa.s.favSelecting', 'mobile batch selection closes')
         check('document.documentElement.scrollWidth<=innerWidth', 'no horizontal page overflow')
         ui.screenshot(cdp, out, 'mobile-library-' + str(width))
-        return {'name': size, 'sortBounds': bounds, 'singleAction': action}
+        return {'name': size, 'sortBounds': bounds, 'hiddenDesktopAction': hidden_action, 'detailOpened': True, 'batchOrganize': action}
     for width in (390, 320):
         test('mobile direct operations ' + str(width), lambda width=width: mobile_chain(width))
 

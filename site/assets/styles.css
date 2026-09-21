@@ -86,8 +86,8 @@ body.search-filters-open .topbar{transform:none}
   position:absolute;right:0;top:calc(100% + 8px);z-index:45;width:240px;
   max-height:calc(100dvh - 80px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
   background:var(--popover-glass);
-  backdrop-filter:blur(18px) saturate(1.12);-webkit-backdrop-filter:blur(18px) saturate(1.12);
-  border:1px solid var(--popover-line);border-radius:16px;box-shadow:var(--popover-shadow);
+  backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
+  border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);box-shadow:var(--popover-shadow);
   padding:7px;animation:settingsIn .16s ease;
 }
 body.dark .more-menu{border-color:rgba(255,255,255,.12)}
@@ -543,7 +543,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   position:absolute;z-index:48;left:50%;top:calc(100% + 10px);width:min(560px,calc(100vw - 24px));
   max-height:min(72vh,620px);overflow:auto;overscroll-behavior:contain;
   transform:translateX(-50%);border:1px solid var(--popover-line);border-radius:18px;padding:16px;
-  background:var(--popover-glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  background:var(--popover-glass);backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
   box-shadow:var(--popover-shadow);color:var(--text);
 }
 /* 横向居中由 transform 负责；入场只移动独立 translate，避免结束时横跳。 */
@@ -599,7 +599,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .search-filter-footer button:disabled{color:var(--muted);opacity:.6;cursor:default}
 .search-filter-footer button:hover{background:var(--accent-soft)}
 .filter-btn{
-  position:relative;flex:none;width:var(--topbar-control-h,36px);height:var(--topbar-control-h,36px);border-radius:10px;color:var(--muted);
+  position:relative;flex:none;width:var(--topbar-control-h,36px);height:var(--topbar-control-h,36px);border-radius:10px;color:var(--text);
   display:grid;place-items:center;cursor:pointer;
 }
 .filter-btn input{
@@ -610,7 +610,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   transition:background .12s,color .12s,box-shadow .12s;
 }
 .filter-icon svg{
-  width:19px;height:19px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+  width:21px;height:21px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
 }
 .filter-btn:hover .filter-icon{background:var(--tagbg);color:var(--text)}
 .filter-btn input:checked + .filter-icon{
@@ -950,9 +950,8 @@ body.dark .banner-home.is-bilibili:hover{background:rgba(251,114,153,.24);border
 /* 往期批次收在下拉里，所以这一行现在恒定是「NEW 胶囊 + 往期下拉」两件，不再随发版增高。
    position/z-index 不能去掉：下拉浮层要盖住瀑布流卡片（卡内角标本身就带 z-index 6~7）。 */
 .update-filter-controls{position:relative;z-index:20;display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
-/* 几何来自 ui-kit 的 .ui-select，这里只把它对齐同排 .bar-btn 的形制与高度（含移动端触控高） */
-.update-filter-select{--select-height:30px;--select-touch-height:30px;flex:none;width:auto}
-.update-filter-select .ui-select-button{border-radius:999px;background:var(--card);padding:4px 11px}
+/* 形制来自 ui-kit 的 is-pill；这里只留结果栏定位。 */
+.update-filter-select{flex:none;width:auto}
 /* 这一栏排在结果栏末尾，下拉默认的 left:0 在手机上会顶出右边界；改成贴着触发按钮右缘向左展开。
    宽度同时收到 240px 以内：整栏换行时触发按钮离左边界只剩 ~240px，再宽就换成往左溢出。 */
 .update-filter-select .ui-select-list{left:auto;right:0;max-width:min(240px,calc(100vw - 28px))}
@@ -1116,7 +1115,7 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
   position:absolute;z-index:7;top:8px;right:8px;display:grid;place-items:center;
   border:none;border-radius:8px;width:30px;height:30px;padding:0;
   background:rgba(0,0,0,.45);color:#fff;cursor:zoom-in;
-  opacity:0;pointer-events:none;transition:opacity .12s;
+  opacity:0;pointer-events:none;transition:opacity .12s,scale .14s ease;
 }
 .zoom-btn svg{
   width:15px;height:15px;display:block;stroke:currentColor;stroke-width:2.2;
@@ -1222,7 +1221,7 @@ body.dark .card-title mark,body.dark .card-tags mark,body.dark .lightbox-section
 .report-card-btn{
   width:22px;height:22px;padding:0;display:grid;place-items:center;
   font-size:12px;font-weight:900;opacity:0;pointer-events:none;
-  transition:opacity .12s,background .12s,color .12s,border-color .12s;
+  transition:opacity .12s,var(--ui-control-transition);
 }
 .card:hover .report-card-btn,.card:focus-within .report-card-btn{
   opacity:1;pointer-events:auto;
@@ -1311,15 +1310,13 @@ body.density-compact .copy-hint{display:none}
   width:42px;height:42px;border-radius:50%;
   border:1px solid var(--line);background:var(--panel);color:var(--muted);
   box-shadow:var(--shadow-hover);display:grid;place-items:center;
-  transition:opacity .25s,transform .25s,visibility .25s,color .12s,border-color .12s,background .12s;
+  transition:opacity .25s,transform .25s,visibility .25s,color .12s,border-color .12s,background .12s,scale .14s ease;
 }
 .float-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 .float-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .random-btn{opacity:1;visibility:visible;transform:none}
 .float-actions.has-backtop .random-btn{transform:translateY(-52px)}
-.random-btn:active{scale:.96}
 .density-quick-btn{display:none}
-.density-quick-btn:active{scale:.96}
 .back-top{
   opacity:0;visibility:hidden;pointer-events:none;transform:translateY(12px);
 }
@@ -1958,7 +1955,8 @@ body.dark .archive-chips>a.is-bilibili{color:#ff8db0;background:rgba(251,114,153
 .toast-action:hover,.toast-action:focus-visible{background:#fff;color:var(--accent);outline:none}
 
 /* ---------- 灯箱（沉浸浮影 + 原位展开） ---------- */
-html.lightbox-open,body.lightbox-open{overflow:hidden;overscroll-behavior:none}
+html.lightbox-open{overflow:hidden;overscroll-behavior:none}
+body.lightbox-open{overflow:clip;overscroll-behavior:none}
 .lightbox{
   --lb-right:376px;
   position:fixed;inset:0;z-index:80;display:none;cursor:zoom-out;
@@ -2028,7 +2026,7 @@ body.dark .lightbox-info{border-color:rgba(255,255,255,.12)}
   border:1px solid var(--line);background:var(--glass);color:var(--muted);
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--shadow);
   display:grid;place-items:center;
-  transition:right .3s cubic-bezier(.22,1,.36,1),color .12s,border-color .12s;
+  transition:right .3s cubic-bezier(.22,1,.36,1),color .12s,border-color .12s,scale .14s ease;
 }
 .lb-fold:hover{color:var(--accent);border-color:var(--accent)}
 .lightbox.folded .lb-fold{right:18px}
@@ -2049,7 +2047,7 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-actions button,.section-head button{
   border:none;background:var(--tagbg);color:var(--text);font-weight:800;
   border-radius:999px;padding:7px 12px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,.14);
-  transition:filter .12s,transform .12s,box-shadow .12s;
+  transition:var(--ui-control-transition),filter .12s;
 }
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.18)}
 #copyPositive{background:var(--accent);color:var(--on-accent)}
@@ -2066,17 +2064,16 @@ a.lightbox-credit:hover{text-decoration:underline}
 #favoriteLightbox.on::before{-webkit-mask-image:var(--ico-star-f);mask-image:var(--ico-star-f)}
 #favoriteLightbox.on{color:#f5b301;border-color:color-mix(in srgb,#f5b301 50%,var(--line))}
 .lightbox-section{margin-top:12px}
-.section-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.section-label{font-size:12px;font-weight:700;color:var(--muted)}
-.section-head button{margin-left:auto;padding:5px 11px;font-size:12px;line-height:1.35}
-.section-head .sd-preview-toggle{margin-left:auto;border:1px solid color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent);box-shadow:none}
-.section-head .sd-preview-toggle+button{margin-left:0}
+/* 标题和动作按完整控件换行，滚动条出现时不把胶囊文字挤成多行。 */
+.section-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-bottom:6px}
+.section-label{flex:none;margin-right:auto;white-space:nowrap;font-size:12px;font-weight:700;color:var(--muted)}
+.section-head button{flex:none;margin-left:0;white-space:nowrap;padding:5px 9px;font-size:12px;line-height:1.35}
+.section-head .sd-preview-toggle{border:1px solid color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent);box-shadow:none}
 .section-head .sd-preview-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 /* tag 中文对照：开关与 SD 预览同款同位；打开后每个 tag 变成「英文 + 下方中文小字」的盒子 */
-.section-head .tag-zh-toggle{margin-left:auto;border:1px solid var(--line);background:var(--tagbg);color:var(--muted);box-shadow:none}
+.section-head .tag-zh-toggle{border:1px solid var(--line);background:var(--tagbg);color:var(--muted);box-shadow:none}
 .section-head .tag-zh-toggle[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
 .section-head .tag-zh-toggle[aria-pressed="true"]::before{content:"✓ "}
-.section-head .tag-zh-toggle:not([hidden])~button{margin-left:0}
 .lightbox-section pre.tag-zh-on{max-height:min(56vh,520px);line-height:1.3;padding-bottom:5px}
 .tag-zh-tok{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;border-radius:4px;cursor:pointer}
 .tag-zh-gap{margin-right:5px}
@@ -2121,7 +2118,7 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-thumb{
   flex:none;width:46px;height:58px;padding:0;border-radius:9px;overflow:hidden;
   border:2px solid transparent;background:var(--tagbg);cursor:pointer;
-  opacity:.65;transition:border-color .12s,opacity .12s;
+  opacity:.65;transition:border-color .12s,opacity .12s,scale .14s ease;
 }
 .lightbox-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .lightbox-thumb:hover{opacity:1}
@@ -2130,7 +2127,7 @@ a.lightbox-credit:hover{text-decoration:underline}
   position:absolute;z-index:4;display:grid;place-items:center;cursor:pointer;
   border:1px solid var(--line);background:var(--glass);color:var(--text);
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--shadow);
-  transition:border-color .12s,color .12s,right .3s cubic-bezier(.22,1,.36,1);
+  transition:border-color .12s,color .12s,right .3s cubic-bezier(.22,1,.36,1),scale .14s ease;
 }
 .lb-circle:hover{border-color:var(--accent);color:var(--accent)}
 body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
@@ -2756,6 +2753,9 @@ html.motion-off{scroll-behavior:auto!important}
   .announcements-tab,.update-row,.update-row-cover,.announcements-foot,.announcements-foot-arrow{
     animation:none!important;transition:none!important;
   }
+  :is(.search-filter-close,.search-filter-add,.search-filter-examples button,.search-filter-footer button,
+  .search-filter-chip-remove,.update-pop-more,.update-pop-links button,.announcements-tab,.update-row):active:not(:disabled){scale:1}
+  .update-row:hover .update-row-cover,.announcements-foot:hover .announcements-foot-arrow{translate:none}
 }
 
 /* 详情选词：译名仅辅助阅读，选择与复制使用原始英文片段。 */
@@ -2766,8 +2766,16 @@ pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;
 .prompt-selection-token[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
 .prompt-selection-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:7px 0 12px}
 .prompt-selection-bar[hidden]{display:none}
-.prompt-selection-bar button{border:1px solid var(--line);border-radius:8px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:11px/1.5 var(--font-ui)}
+.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 10px;font:12px/1.5 var(--font-ui)}
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
 .prompt-selection-count{font:11px var(--font-ui);color:var(--muted)}
 .prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
-@media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle{min-height:44px}}
+@media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle,.section-head button{min-height:44px}}
+
+/* 详情动作与定位分开：停用动效时保留折叠/导航的定位终态。 */
+@media(prefers-reduced-motion:reduce){
+  .lightbox,.lightbox-stage,.lightbox-info,.lb-fold,.lb-fold svg,.lb-circle,.lb-fly,
+  .lightbox-thumbs,.lightbox-thumb,.lightbox-actions button,.section-head button,.float-btn{transition:none!important}
+  .lightbox-actions button:hover,.section-head button:hover{transform:none;translate:none}
+}
+.motion-off .lightbox-actions button:hover,.motion-off .section-head button:hover{transform:none;translate:none}

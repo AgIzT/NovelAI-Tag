@@ -8,6 +8,7 @@ const SEP = /[,，\r\n]/;
 const element = (tag, className, text) => {
   const node = document.createElement(tag);
   node.className = className;
+  if (tag === 'button' || tag === 'a') node.classList.add('ui-press');
   if (text !== undefined) node.textContent = text;
   return node;
 };

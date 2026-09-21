@@ -254,14 +254,14 @@ function folderRow(id, title, system = false) {
   const row = element('div', 'favorites-folder-row');
   row.classList.toggle('is-active', (state.favFolder || '') === id);
   row.dataset.folderId = id;
-  const open = button('', 'favorites-folder-open', () => changeFolder(id));
+  const open = button('', 'favorites-folder-open ui-press', () => changeFolder(id));
   open.title = title;
   open.setAttribute('aria-current', (state.favFolder || '') === id ? 'page' : 'false');
   open.append(system ? element('span', 'favorites-folder-cover is-empty', id ? '◇' : '▦') : cover(id));
   open.append(element('span', 'favorites-folder-name', title), element('span', 'favorites-count', String(countVisible(folderKeys(id)))));
   row.append(open);
   if (!system) {
-    const more = button('⋯', 'favorites-folder-more', () => openMenu(id, more));
+    const more = button('⋯', 'favorites-folder-more ui-press', () => openMenu(id, more));
     more.setAttribute('aria-label', '管理「' + title + '」');
     more.setAttribute('aria-haspopup', 'menu');
     row.append(more);
@@ -316,7 +316,7 @@ export function renderFavoritesRail() {
 }
 function sortSelect() {
   sortMenu = createSelectMenu({
-    label: '收藏排序', value: state.favSort || 'recent', className: 'favorites-sort',
+    label: '收藏排序', value: state.favSort || 'recent', className: 'favorites-sort is-pill',
     options: [{ value: 'recent', label: '最近收藏' }, { value: 'oldest', label: '最早收藏' }, { value: 'title', label: '按标题' }],
     onChange: value => { state.favSort = value; routeChanged(); refreshList(); },
   });
@@ -328,66 +328,74 @@ export function renderFavoritesHeader() {
   if (!state.favoritesView) return;
   const header = byId('favoritesHeader');
   const sourceRail = byId('favoritesSources');
-  const active = byId('favoritesMenu')?.contains(document.activeElement) && header.contains(menuTrigger) ? menuTrigger : document.activeElement;
+  const menuFocused = byId('favoritesMenu')?.contains(document.activeElement) && header.contains(menuTrigger);
   if (!byId('favoritesMenu').hidden && header.contains(menuTrigger)) closeMenu();
-  const focusedHeader = header.contains(active);
-  const focusedSort = focusedHeader && Boolean(active.closest('.favorites-sort'));
-  sortMenu?.destroy();
-  sortMenu = null;
-  const focusedMore = focusedHeader && active.classList.contains('favorites-head-more');
-  const focusedSelection = focusedHeader && active.classList.contains('favorites-selection-toggle');
-  const focusedSource = sourceRail.contains(active) ? active.dataset.sourceId : undefined;
+  const focusedSource = sourceRail.contains(document.activeElement) ? document.activeElement.dataset.sourceId : undefined;
   const sourceScroll = sourceRail.scrollLeft;
   const all = countVisible(folderKeys());
   const shown = countVisible((state.list || []).map(entryKey));
   const hasFilter = Boolean(state.query || state.favSource || state.searchFilterValues?.length);
-  const head = element('div', 'favorites-content-head');
-  const title = element('div', 'favorites-heading');
-  title.append(element('h1', '', folderTitle()), element('span', 'favorites-count', (hasFilter ? shown + ' / ' + all : all) + ' 项'));
-  const controls = element('div', 'favorites-head-controls');
-  const desktop = element('div', 'favorites-desktop-controls');
-  const selection = button(state.favSelecting ? '完成整理' : '批量整理', 'bar-btn favorites-selection-toggle', toggleSelection);
+  // 头部控件只创建一次；来源、排序与归属更新不会重播入场或丢失键盘焦点。
+  if (!header.firstElementChild) {
+    const head = element('div', 'favorites-content-head');
+    const title = element('div', 'favorites-heading');
+    title.append(element('h1'), element('span', 'favorites-count'));
+    const controls = element('div', 'favorites-head-controls');
+    const desktop = element('div', 'favorites-desktop-controls');
+    desktop.append(sortSelect(), button('', 'bar-btn favorites-selection-toggle', toggleSelection));
+    controls.append(desktop);
+    const more = button('⋯', 'favorites-head-more bar-btn', () => openMenu(state.favFolder, more, true));
+    more.setAttribute('aria-label', '收藏操作');
+    more.setAttribute('aria-haspopup', 'menu');
+    controls.append(more);
+    head.append(title, controls);
+    header.append(head);
+  }
+  header.querySelector('h1').textContent = folderTitle();
+  header.querySelector('.favorites-heading .favorites-count').textContent = (hasFilter ? shown + ' / ' + all : all) + ' 项';
+  const selection = header.querySelector('.favorites-selection-toggle');
+  selection.textContent = state.favSelecting ? '完成整理' : '批量整理';
   selection.setAttribute('aria-pressed', String(Boolean(state.favSelecting)));
-  desktop.append(sortSelect(), selection);
-  controls.append(desktop);
-  const more = button('⋯', 'favorites-head-more bar-btn', () => openMenu(state.favFolder, more, true));
-  more.setAttribute('aria-label', '收藏操作');
-  more.setAttribute('aria-haspopup', 'menu');
-  more.classList.toggle('is-system', !state.favFolder || state.favFolder === '_unsorted');
-  controls.append(more);
-  head.append(title, controls);
-  header.replaceChildren(head);
-  sourceRail.replaceChildren();
+  header.querySelector('.favorites-head-more').classList.toggle('is-system', !state.favFolder || state.favFolder === '_unsorted');
+  sortMenu?.setValue(state.favSort || 'recent');
   const currentKeys = new Set(folderKeys());
-  const sources = new Map();
+  const sources = new Map([['', { name: '全部来源', keys: [...currentKeys] }]]);
   for (const [key, entry] of visibleIndex()) {
     if (!currentKeys.has(key)) continue;
     const id = entry._srcCodexId || '';
+    if (!id) continue;
     if (!sources.has(id)) sources.set(id, { name: entry._srcCodexTitle || id, keys: [] });
     sources.get(id).keys.push(key);
   }
-  const sourceChip = (id, label, keys) => {
-    const chip = button('', 'rail-chip favorites-source-chip', () => {
-      state.favSource = state.favSource === id ? '' : id;
-      routeChanged();
-      refreshList();
-    });
-    chip.dataset.sourceId = id;
+  const previous = new Map([...sourceRail.children].map(chip => [chip.dataset.sourceId, chip]));
+  let position = 0;
+  for (const [id, source] of sources) {
+    let chip = previous.get(id);
+    if (!chip) {
+      chip = button('', 'rail-chip favorites-source-chip', () => {
+        state.favSource = state.favSource === id ? '' : id;
+        routeChanged();
+        refreshList();
+      });
+      chip.dataset.sourceId = id;
+      chip.append(element('span', 'favorites-source-label'), element('span', 'rc-n'));
+      if (id) chip.prepend(element('i', 'rc-dot favorites-source-dot'));
+    }
     chip.classList.toggle('active', (state.favSource || '') === id);
     chip.setAttribute('aria-pressed', String((state.favSource || '') === id));
-    chip.append(element('span', '', label), element('span', 'rc-n', String(countVisible(keys))));
-    return chip;
-  };
-  sourceRail.append(sourceChip('', '全部来源', [...currentKeys]));
-  for (const [id, source] of sources) {
-    const chip = sourceChip(id, source.name, source.keys);
-    const dot = element('i', 'rc-dot favorites-source-dot');
-    let hash = 0;
-    for (const character of source.name) hash = (hash * 31 + character.codePointAt(0)) % 360;
-    dot.style.setProperty('--source-hue', String(hash));
-    chip.prepend(dot);
-    sourceRail.append(chip);
+    chip.querySelector('.favorites-source-label').textContent = source.name;
+    chip.querySelector('.rc-n').textContent = String(countVisible(source.keys));
+    if (id) {
+      let hash = 0;
+      for (const character of source.name) hash = (hash * 31 + character.codePointAt(0)) % 360;
+      chip.querySelector('.favorites-source-dot').style.setProperty('--source-hue', String(hash));
+    }
+    // 不移动已在正确位置的节点；复用后整体append仍会干扰焦点和CSS动画。
+    if (sourceRail.children[position] !== chip) sourceRail.insertBefore(chip, sourceRail.children[position] || null);
+    previous.delete(id);
+    position++;
   }
+  for (const chip of previous.values()) chip.remove();
   const empty = byId('empty');
   if (empty && !state.list?.length) {
     empty.replaceChildren();
@@ -405,10 +413,8 @@ export function renderFavoritesHeader() {
     }
   }
   sourceRail.scrollLeft = sourceScroll;
-  if (focusedSort) sortMenu?.button.focus({ preventScroll: true });
-  else if (focusedMore) header.querySelector('.favorites-head-more')?.focus({ preventScroll: true });
-  else if (focusedSelection) header.querySelector('.favorites-selection-toggle')?.focus({ preventScroll: true });
-  else if (focusedSource !== undefined) {
+  if (menuFocused) menuTrigger?.focus({ preventScroll: true });
+  else if (focusedSource !== undefined && !sourceRail.contains(document.activeElement)) {
     ([...sourceRail.children].find(node => node.dataset.sourceId === focusedSource) || sourceRail.firstElementChild)?.focus({ preventScroll: true });
   }
   renderBatchBar();
@@ -483,7 +489,10 @@ function makeMask(id, className, label) {
   configureMask(mask, {
     onOpen: () => { syncModalState(); if (id === IDS.drawer) enterRail(); },
     onClose: () => {
-      if (id === IDS.drawer) byId('menuBtn')?.setAttribute('aria-expanded', 'false');
+      if (id === IDS.drawer) {
+        byId('menuBtn')?.setAttribute('aria-expanded', 'false');
+        if (mask.contains(menuTrigger)) closeMenu();
+      }
       syncModalState();
     },
     restoreFocus: () => restoreLayerFocus(id),
@@ -497,6 +506,13 @@ function closeMenu() {
   if (menu) { stopFavoriteMotion(menu); menu.hidden = true; }
   menuTrigger?.setAttribute('aria-expanded', 'false');
 }
+function menuItem(label, className, handler) {
+  const item = button('', className, handler);
+  const copy = element('span');
+  copy.append(element('b', '', label));
+  item.append(copy);
+  return item;
+}
 function openMenu(id, trigger, fromHeader = false) {
   const menu = byId('favoritesMenu');
   if (!menu) return;
@@ -508,13 +524,18 @@ function openMenu(id, trigger, fromHeader = false) {
   trigger.setAttribute('aria-expanded', 'true');
   const backup = backupButton ||= byId('favoritesViewBackupBtn');
   menu.replaceChildren();
-  if (fromHeader) menu.append(button('新建收藏夹', 'more-item favorites-menu-item', () => { closeMenu(); openFolderDialog('', 'create', trigger); }));
+  if (fromHeader) menu.append(menuItem('新建收藏夹', 'more-item favorites-menu-item', () => { closeMenu(); openFolderDialog('', 'create', trigger); }));
   if (menuFolder && menuFolder !== '_unsorted') {
-    menu.append(button('重命名收藏夹', 'more-item favorites-menu-item', () => { closeMenu(); openFolderDialog(menuFolder, 'rename', trigger); }));
-    menu.append(button('删除收藏夹', 'more-item favorites-menu-item is-danger', () => { closeMenu(); openFolderDialog(menuFolder, 'delete', trigger); }));
+    menu.append(menuItem('重命名收藏夹', 'more-item favorites-menu-item', () => { closeMenu(); openFolderDialog(menuFolder, 'rename', trigger); }));
+    menu.append(menuItem('删除收藏夹', 'more-item favorites-menu-item is-danger', () => { closeMenu(); openFolderDialog(menuFolder, 'delete', trigger); }));
   }
   if (fromHeader && backup) {
     backup.className = 'more-item favorites-menu-item';
+    if (!backup.querySelector('b')) {
+      const copy = element('span');
+      copy.append(element('b', '', '备份与恢复'));
+      backup.replaceChildren(copy);
+    }
     backup.hidden = false;
     menu.append(backup);
   }
@@ -674,7 +695,7 @@ function renderOrganizeList() {
     const members = viewIndex().members.get(folder.id) || new Set();
     const selected = organizeKeys.filter(key => members.has(key)).length;
     const status = selected === organizeKeys.length && selected > 0 ? 'true' : selected > 0 ? 'mixed' : 'false';
-    const row = previous.get(folder.id) || button('', 'favorites-organize-row');
+    const row = previous.get(folder.id) || button('', 'favorites-organize-row ui-press');
     const oldStatus = row.getAttribute('aria-checked');
     row.onclick = async () => {
       if (mutationBusy || !organizeKeys.length) return;
@@ -888,7 +909,7 @@ export function decorateFavoriteCard(card, entry) {
   if (!state.favoritesView || !card) return;
   card.dataset.favoriteKey = entryKey(entry);
   card.classList.add('favorite-library-card');
-  const checkbox = button('', 'favorite-select-check');
+  const checkbox = button('', 'favorite-select-check ui-press');
   checkbox.setAttribute('role', 'checkbox');
   checkbox.tabIndex = -1;
   checkbox.setAttribute('aria-hidden', 'true');
@@ -951,7 +972,7 @@ export function syncFavoritesView() {
   }
   if (!active && wasActive) {
     closeMenu();
-    sortMenu?.destroy(); sortMenu = null;
+    sortMenu?.close();
     for (const id of [IDS.dialog, IDS.organize, IDS.drawer]) { closeLayerDirect(id); forgetHistoryLayer(id); }
     endSelection({ historyMode: 'none' });
     railHome?.append(byId('favoritesRail'));
@@ -1042,10 +1063,17 @@ export function setupFavoritesView() {
   organize.append(subtitle, search, list, error, footer);
   makeMask(IDS.dialog, 'favorites-folder-dialog-mask', '收藏夹');
   const menu = element('div', 'more-menu favorites-menu'); menu.id = 'favoritesMenu'; menu.hidden = true; menu.setAttribute('role', 'menu');
+  menu.setAttribute('data-modal-root', '');
   menu.addEventListener('keydown', event => {
-    if (event.key === 'Escape' || event.key === 'Tab') {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation();
       closeMenu(); menuTrigger?.focus({ preventScroll: true }); return;
+    }
+    if (event.key === 'Tab') {
+      // 从入口交给原生Tab继续，避免在挂在body末尾的浮层中循环。
+      menuTrigger?.focus({ preventScroll: true });
+      closeMenu();
+      return;
     }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault(); event.stopPropagation();

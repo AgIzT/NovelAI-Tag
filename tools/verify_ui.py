@@ -1483,6 +1483,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
     def search_highlight():
         clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 960, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length > 0", "search highlight source cards")
         cdp.eval("""
 (() => {
   const input = document.querySelector('#search');
@@ -1629,6 +1632,85 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         data["closedUrl"] = cdp.eval("location.href")
         check_no_errors(cdp)
         return {**data, "screenshot": shot}
+
+    def lightbox_scrolled_chrome():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 960, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card').length > 0", "scroll-lock source cards")
+        cdp.eval("if (document.querySelector('#sidebar').classList.contains('closed')) document.querySelector('#menuBtn').click(); true")
+        wait_for(cdp, "!document.querySelector('#sidebar').classList.contains('closed')", "desktop directory visible")
+        geometry = """(() => {
+          const rect = selector => {
+            const r = document.querySelector(selector).getBoundingClientRect();
+            return {x:r.x,y:r.y,width:r.width,height:r.height};
+          };
+          return {y:scrollY,topbar:rect('.topbar'),sidebar:rect('#sidebar'),
+            topbarHidden:document.body.classList.contains('tb-hidden'),
+            rootLocked:document.documentElement.classList.contains('lightbox-open'),
+            bodyLocked:document.body.classList.contains('lightbox-open')};
+        })()"""
+        results = []
+        for hidden in [False, True]:
+            cdp.eval("scrollTo(0, Math.min(1600, document.documentElement.scrollHeight - innerHeight - 100)); true")
+            wait_for(cdp, "scrollY > 800", "scrolled desktop list")
+            settle(cdp, 350)
+            if not hidden:
+                cdp.eval("scrollBy(0, -100); true")
+                settle(cdp, 350)
+            before = cdp.eval(geometry)
+            if before["topbarHidden"] != hidden:
+                raise CheckFailed(f"Scroll-lock fixture did not establish the expected topbar state: {before}")
+            opener_index = cdp.eval("""(() => {
+              const card = [...document.querySelectorAll('.card')].find(node => {
+                const r = node.getBoundingClientRect();
+                return r.top > 80 && r.top < innerHeight - 100 && node.querySelector('.zoom-btn');
+              });
+              if (!card) throw new Error('No visible source card for scroll-lock regression');
+              const opener = card.querySelector('.zoom-btn');
+              opener.focus({preventScroll:true});
+              opener.click();
+              return card.dataset.index;
+            })()""")
+            wait_for(cdp, "document.querySelector('#lightbox').classList.contains('is-open')", "scrolled lightbox opens")
+            settle(cdp, 600)
+            opened = cdp.eval(geometry)
+            detail_url = cdp.eval("location.href")
+            if not opened["rootLocked"] or not opened["bodyLocked"]:
+                raise CheckFailed(f"Open lightbox did not lock both roots: {opened}")
+            cdp.command("Input.dispatchMouseEvent", {"type": "mouseWheel", "x": 4, "y": 900, "deltaX": 0, "deltaY": 600})
+            settle(cdp, 180)
+            wheel = cdp.eval(geometry)
+            phases = [("open", opened), ("wheel", wheel)]
+            if not hidden:
+                cdp.eval("document.querySelector('#lightboxClose').click(); true")
+                wait_for(cdp, "!document.querySelector('#lightbox').classList.contains('is-open')", "detail begins closing before forward")
+                cdp.eval("history.forward(); true")
+                wait_for(cdp, "document.querySelector('#lightbox').classList.contains('is-open')", "detail reopens during close")
+                settle(cdp, 600)
+                phases.append(("forward", cdp.eval(geometry)))
+                if cdp.eval("location.href") != detail_url:
+                    raise CheckFailed("Forward changed the detail/list route instead of restoring it")
+            cdp.eval("document.querySelector('#lightboxClose').click(); true")
+            wait_for(cdp, "document.querySelector('#lightbox').hidden", "scrolled lightbox closes")
+            settle(cdp, 350)
+            closed = cdp.eval(geometry)
+            phases.append(("closed", closed))
+            for phase, actual in phases:
+                unchanged = abs(actual["y"] - before["y"]) <= 1 and actual["topbarHidden"] == before["topbarHidden"]
+                unchanged = unchanged and all(
+                    abs(actual[node][axis] - before[node][axis]) <= 1
+                    for node in ["topbar", "sidebar"] for axis in ["x", "y", "width", "height"]
+                )
+                if not unchanged:
+                    raise CheckFailed(f"Lightbox moved scrolled page chrome at {phase}: before={before!r}, actual={actual!r}")
+            if closed["rootLocked"] or closed["bodyLocked"]:
+                raise CheckFailed(f"Closed lightbox left a scroll lock: {closed}")
+            if not cdp.eval("document.activeElement?.classList.contains('zoom-btn') && document.activeElement.closest('.card')?.dataset.index === " + js_string(opener_index)):
+                raise CheckFailed("Closing a reopened detail did not return focus to its original card")
+            results.append({"hiddenTopbar": hidden, "before": before, "opened": opened, "closed": closed})
+        check_no_errors(cdp)
+        return {"scenarios": results}
 
     def tag_zh_lightbox():
         """中文对照：默认打开、原文一个字符不改、开关双向同步、点 tag 出说明。没生成对照表就跳过。"""
@@ -2053,18 +2135,21 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("document.querySelector('#favoritesViewBackupBtn').click()")
         wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.hidden", "favorites backup dialog")
         settle(cdp, 250)
-        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', migrationTitle: document.querySelector('#favoritesMigrationTitle')?.textContent || '', migrationButton: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '', migrationFallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '', result: document.querySelector('#resultInfo')?.textContent || '', cards: [...document.querySelectorAll('.card')].map(card => ({title: card.querySelector('.card-title')?.textContent || '', path: card.querySelector('.card-path')?.textContent || '', favorite: card.querySelector('.fav-btn')?.textContent || ''})), normalHidden: " + ("true" if normal_hidden else "false") + "})")
+        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', migrationTitle: document.querySelector('#favoritesMigrationTitle')?.textContent || '', migrationButton: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '', migrationFallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '', result: document.querySelector('#resultInfo')?.textContent || '', cards: [...document.querySelectorAll('.card')].map(card => ({key: card.dataset.favoriteKey || '', title: card.querySelector('.card-title')?.textContent || '', path: card.querySelector('.card-path')?.textContent || '', favorite: card.querySelector('.fav-btn')?.textContent || ''})), normalHidden: " + ("true" if normal_hidden else "false") + "})")
         if not data["normalHidden"]:
             raise CheckFailed("Favorites backup entry was visible outside the favorites view")
         if "备份与恢复" not in data["button"] or data["dialog"] != "收藏备份与恢复":
             raise CheckFailed("Favorites backup entry did not open the shared dialog")
         if data["atlas"] != "3" or "收藏：3 条" not in data["result"]:
             raise CheckFailed(f"Historical favorite owners did not render all three cards: {data!r}")
-        dream_card = next((card for card in data["cards"] if card["title"] == "梦神NAI4.5F画风合集 0001"), None)
-        if not dream_card or not dream_card["path"].startswith("NovelAI v4.5画师词典 ›"):
-            raise CheckFailed(f"Moved mengshen favorite did not resolve to artist strings: {data['cards']!r}")
-        if not any(card["path"].startswith("所长色色NovalAI个人法典（合并版） ›") for card in data["cards"]):
-            raise CheckFailed(f"Legacy suozhang favorite did not resolve to the merged codex: {data['cards']!r}")
+        # 迁移归属由稳定 id 钉住；书名来自现行索引，避免正常更名把回归夹具变陈旧。
+        codex_titles = {item["id"]: item["title"] for item in load_codex_list()}
+        if len(data["cards"]) != len(expected_keys) or {card["key"] for card in data["cards"]} != expected_keys:
+            raise CheckFailed(f"Migrated favorite cards did not retain their canonical identities: {data['cards']!r}")
+        for card in data["cards"]:
+            owner = card["key"].split(":", 1)[0]
+            if not card["path"].startswith(codex_titles[owner] + " ›"):
+                raise CheckFailed(f"Migrated favorite path does not match its current canonical codex: {card!r}")
         if any(card["favorite"] != "★" for card in data["cards"]):
             raise CheckFailed(f"Resolved historical favorites lost their active star: {data['cards']!r}")
         if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "找回旧收藏":
@@ -2111,7 +2196,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         navigate(cdp, base + "?codex=suozhang")
-        wait_for(cdp, "document.querySelector('#masonry .card')", "mobile detail cards")
+        wait_for(cdp, "!!document.querySelector('#masonry .card')", "mobile detail cards")
         cdp.eval("localStorage.setItem('fadian-onboarding-v1-done','1'); true")
 
         def key(value, code, number):
@@ -2123,14 +2208,17 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
         def click(selector):
             literal = js_string(selector)
-            pos = cdp.eval(f"""(() => {{
+            cdp.eval(f"document.querySelector({literal}).scrollIntoView({{block:'nearest'}}); true")
+            # 刷新分享详情后，hidden 已复原不代表入口动画/遮罩已退出命中树。
+            # 等中心点真正可点击，仍用原生鼠标事件并保留永久遮挡的失败诊断。
+            pos = wait_for(cdp, f"""(() => {{
               const e = document.querySelector({literal});
-              e.scrollIntoView({{block:'nearest'}});
               const r = e.getBoundingClientRect();
               const x = r.x + r.width / 2, y = r.y + r.height / 2;
-              if (!e.contains(document.elementFromPoint(x, y))) throw new Error('Control is covered: ' + {literal});
+              const hit = document.elementFromPoint(x, y);
+              if (!e.contains(hit)) throw new Error('Control is covered: ' + {literal} + ' by ' + (hit?.outerHTML.slice(0, 300) || 'nothing'));
               return {{x, y}};
-            }})()""")
+            }})()""", f"clickable mobile control {selector}", timeout=3, interval=0.1)
             for kind in ["mousePressed", "mouseReleased"]:
                 cdp.command("Input.dispatchMouseEvent", {"type": kind, "button": "left", "clickCount": 1, **pos})
 
@@ -2181,7 +2269,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
         # A normal image card keeps native keyboard activation, visible focus, and independent star action.
         navigate(cdp, base + '?codex=suozhang')
-        wait_for(cdp, "document.querySelector('#masonry .card:not(.no-img)')", "image card keyboard")
+        wait_for(cdp, "!!document.querySelector('#masonry .card:not(.no-img)')", "image card keyboard")
         settle(cdp)
         cdp.eval("document.querySelector('#masonry .card:not(.no-img) .card-detail-btn').focus();true")
         key('Tab', 'Tab', 9)
@@ -2192,7 +2280,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed('Detail button is not followed by the independent favorite button: ' + cdp.eval('document.activeElement.outerHTML'))
         key('Tab', 'Tab', 9)
         focus = cdp.eval("({class:document.activeElement.className,opacity:getComputedStyle(document.activeElement).opacity,label:document.activeElement.getAttribute('aria-label'),index:document.activeElement.closest('.card')?.dataset.index})")
-        if focus['class'] != 'card-detail-btn' or focus['opacity'] != '1':
+        if 'card-detail-btn' not in focus['class'].split() or focus['opacity'] != '1':
             raise CheckFailed(f"Keyboard detail entry is unreachable or invisible: {focus}")
         screenshot(cdp, out_dir, 'mobile-detail-focus')
         key('Enter', 'Enter', 13)
@@ -2929,6 +3017,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("copy card shows feedback", copy_card_feedback),
         ("pack character prompts render", pack_character_prompts),
         ("entry deep-link opens lightbox", deep_link_lightbox),
+        ("lightbox preserves scrolled page chrome", lightbox_scrolled_chrome),
         ("tag zh lightbox", tag_zh_lightbox),
         ("theme axes", theme_axes),
         ("no-original codex disables original UI", no_original_lightbox),

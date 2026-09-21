@@ -22,6 +22,7 @@ const FORMAT_LABELS = { nai: 'NAI', sd: 'SD', plain: '纯文本' };
 const JOIN_LABELS = { comma: '逗号', newline: '逗号换行' };
 const element = (tag, className, text) => {
   const node = document.createElement(tag); node.className = className;
+  if (tag === 'button') node.classList.add('ui-press');
   if (text !== undefined) node.textContent = text;
   return node;
 };
@@ -256,6 +257,7 @@ function renderHistory() {
       refs.history.hidden = true;
       refs.historyToggle.setAttribute('aria-expanded', 'false');
       openPlan(getActivePlan(relayState()));
+      refs.historyToggle.focus({ preventScroll: true });
     }
     };
     actions.append(copy, restore); card.append(actions); refs.historyList.append(card);
@@ -303,7 +305,12 @@ function setupPlanActions(scope, q) {
       : (current + (event.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
     list[at].focus({ preventScroll: true });
   });
-  const run = (id, action) => { q(id).onclick = async () => { close(); if (await flushCompose()) await action(); }; };
+  const run = (id, action) => { q(id).onclick = async () => {
+    close();
+    // 菜单马上离场，先把焦点交回入口；命名表单会自行接过焦点。
+    trigger.focus({ preventScroll: true });
+    if (await flushCompose()) await action();
+  }; };
   run('#relayNewPlan', async () => {
     const name = await requestRelayAction({ title: '新建方案', input: { label: '名称', value: '新方案' }, trigger });
     if (!name) return;
@@ -356,6 +363,7 @@ export function setupRelayCompose(root) {
     notify: (message, action) => toast(message, '', action),
     requestName: placement => requestRelayAction({ title: '折叠为词组', input: { label: '名称', value: '词组' }, confirmLabel: '折叠', toggle: true, ...placement }) });
   picker = createSelectMenu({ label: '当前方案', onChange: async id => { await switchPlan(id); } });
+  picker.element.classList.add('is-pill');
   picker.button.id = 'relayPlanPickerBtn'; picker.list.id = 'relayPlanList';
   picker.button.setAttribute('aria-controls', 'relayPlanList');
   q('#relayPlanPicker').append(picker.element);

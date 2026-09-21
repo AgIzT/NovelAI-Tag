@@ -334,8 +334,10 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   setLightboxScrollLocked(true);
   void lb.offsetWidth;
   lb.classList.add('is-open');
-  lbFocusReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  window.setTimeout(() => $('#lightboxClose')?.focus(), 0);
+  // 关闭动画尚未结束就前进重开时，焦点还在灯箱内；保留最初的卡片入口。
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && !lb.contains(focused)) lbFocusReturn = focused;
+  window.setTimeout(() => $('#lightboxClose')?.focus({ preventScroll: true }), 0);
   if (lbSourceImg && lbSourceImg.naturalWidth && !prefersReducedMotion()) flyIn(lbSourceImg);
 }
 
@@ -533,7 +535,7 @@ function renderPromptSelection(pre, selection) {
   for (const piece of selection.pieces) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'prompt-selection-token';
+    button.className = 'prompt-selection-token ui-press';
     button.dataset.fragmentId = piece.id;
     button.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
     const en = document.createElement('span');
@@ -586,7 +588,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   const makeButton = (text, className = '') => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = className;
+    button.className = `${className} ui-press`.trim();
     button.textContent = text;
     return button;
   };
@@ -750,6 +752,7 @@ export function renderCharacterPrompts(entry) {
     label.textContent = labelText;
     const copy = document.createElement('button');
     copy.type = 'button';
+    copy.className = 'ui-press';
     copy.textContent = `复制 ${labelText}`;
     copy.onclick = ev => {
       ev.stopPropagation();
@@ -1134,7 +1137,7 @@ export function renderLightbox() {
       lb.images.forEach((image, i) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'lightbox-thumb';
+        btn.className = 'lightbox-thumb ui-press';
         btn.title = `第 ${i + 1} 张`;
         const ti = document.createElement('img');
         ti.alt = '';

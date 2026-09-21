@@ -798,6 +798,29 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
       ? normalizedRoute
       : undefined;
   }
+  /* 前进重新打开同一列表上的详情，也不能重建列表/按深链跳目录。
+     否则 resetScroll 与随后历史滚动恢复会把背景先拉到顶部再弹回，
+     并让智能顶栏误把程序滚动当成用户下滑。 */
+  const reopeningOwnDetail = Boolean(
+    targetEntry && !targetLocked && !targetUnknown &&
+    context.target?.transition === 'detail' &&
+    context.target?.parentId === context.departing?.id &&
+    canonicalListContext(context.departing?.route) === canonicalListContext(route) &&
+    canonicalListContext(captureAtlasRoute('')) === canonicalListContext(route),
+  );
+  if (reopeningOwnDetail) {
+    const matches = state.list.filter(entry => entry.id === targetEntry);
+    if (matches.length === 1 && !isEntryAccessBlocked(matches[0]) && !isContentBlocked(matches[0])) {
+      const entry = matches[0];
+      const node = state.nodes.get(state.list.indexOf(entry));
+      openLightbox(entry, Math.max(0, Number(route.imageIndex) || 0), node?.querySelector('.card-img') || null, {
+        allowEmpty: true, historyMode: 'none', recordRecent: false,
+      });
+      state.searchHistorySessionId = String(context.target?.sessionId || '');
+      const normalizedRoute = captureAtlasRoute();
+      return historyRouteNeedsCanonicalization(route, normalizedRoute) ? normalizedRoute : undefined;
+    }
+  }
   const urlState = {
     codex: targetLocked || targetUnknown ? targetId : (route.codex || targetId),
     favorites: Boolean(route.favorites),

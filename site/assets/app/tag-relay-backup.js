@@ -31,6 +31,7 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
 
   const makeButton = (id, label) => {
     const button = document.createElement('button');
+    button.className = 'ui-press';
     button.type = 'button';
     button.id = id;
     button.setAttribute('role', 'menuitem');

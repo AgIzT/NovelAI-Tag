@@ -24,6 +24,10 @@ const nai5Packs = {
     node('所长·N5韩网图包', [node('筛选整理1'), node('R18G')]),
   ],
 };
+const nai5PacksWithoutCommunity = {
+  id: nai5Packs.id,
+  tree: [node('梦神 · N5社区图包', [node('韩网整理', [node('常规'), node('NSFW')])])],
+};
 const normalize = (codex, source, path) => normalizeCodexRoutePath(codex, path, source);
 
 assert.deepEqual(normalize(artists, 'artist_nai45_strings', ['W.O.F_画风', '复古']), ['画风组词典', 'W.O.F_画风', '复古']);
@@ -45,14 +49,20 @@ assert.deepEqual(
   normalize(nai5Packs, 'nai5_community_pack', ['所长·N5韩网图包', '筛选整理1']),
   ['所长·N5韩网图包', '筛选整理1'],
 );
-assert.deepEqual(
-  normalize(nai5Packs, 'nai5_community_pack', ['梦神 · N5社区图包', '常规']),
-  ['梦神 · N5社区图包', '社区整理', '常规'],
-);
-assert.deepEqual(
-  normalize(nai5Packs, 'nai5_community_pack', ['梦神 · N5精选图包', 'NSFW']),
-  ['梦神 · N5社区图包', '社区整理', 'NSFW'],
-);
+for (const legacyRoot of ['梦神 · N5社区图包', '梦神 · N5精选图包']) {
+  for (const rating of ['常规', 'NSFW']) {
+    assert.deepEqual(
+      normalize(nai5Packs, nai5Packs.id, [legacyRoot, rating]),
+      ['梦神 · N5社区图包', '社区整理', rating],
+      `目录存在时迁移旧路径：${legacyRoot}/${rating}`,
+    );
+    assert.deepEqual(
+      normalize(nai5PacksWithoutCommunity, nai5PacksWithoutCommunity.id, [legacyRoot, rating]),
+      [],
+      `目录下架时回到全部，不能误入韩网同名分类：${legacyRoot}/${rating}`,
+    );
+  }
+}
 assert.deepEqual(
   normalize(nai5Packs, 'nai5_community_pack', ['梦神 · N5精选图包']),
   ['梦神 · N5社区图包'],
@@ -110,14 +120,16 @@ if (hasData) {
   const nai5Book = JSON.parse(await readFile(new URL('nai5_community_pack.json', dataDir), 'utf8'));
   for (const rating of ['常规', 'NSFW']) {
     const current = ['梦神 · N5社区图包', '社区整理', rating];
+    // 维护者下架目录后，旧链接应回到全部；迁移本身由上面的固定树覆盖。
+    const expected = normalizeRoutePath(nai5Book.tree, current);
     assert.deepEqual(
       normalize(nai5Book, nai5Book.id, ['梦神 · N5社区图包', rating]),
-      current,
+      expected,
       `moved path:${rating}`,
     );
     assert.deepEqual(
       normalize(nai5Book, nai5Book.id, ['梦神 · N5精选图包', rating]),
-      current,
+      expected,
       `renamed and moved path:${rating}`,
     );
     checked += 2;

@@ -1,4 +1,4 @@
-import { bindBackdropDismiss, closeMask, isMaskOpen, openMask, trapFocus } from '../app/modal.js';
+import { bindBackdropDismiss, closeMask, configureMask, focusFirstIn, isMaskOpen, openMask, topInteractionLayer, trapFocus } from '../app/modal.js';
 import { toast } from '../app/feedback.js';
 import { goBackFrom } from '../app/browser-history.js';
 import { createLikeButton } from './likes.js';
@@ -17,6 +17,18 @@ export function initDetailDialog() {
   detailBody = $('#detailBody');
   if (!detailMask || !detailBody) return;
 
+  configureMask(detailMask, {
+    restoreFocus: (_mask, opener) => {
+      const top = topInteractionLayer();
+      if (top && (!opener || !top.contains(opener))) { focusFirstIn(top); return; }
+      const id = opener?.closest('.community-card')?.dataset.entryId;
+      const card = [...document.querySelectorAll('.community-card')].find(item => item.dataset.entryId === id);
+      const connected = opener?.isConnected && !opener.closest('[hidden], [inert]');
+      const target = connected ? opener : card
+        || document.querySelector('.category-chip[aria-pressed="true"]') || $('#search');
+      target?.focus({ preventScroll: true });
+    },
+  });
   bindBackdropDismiss(detailMask, () => closeCommunityDetail());
   detailMask.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
@@ -95,18 +107,18 @@ function renderDetail() {
   ).href;
 
   detailBody.innerHTML = `
-    <button class="dialog-close" type="button" data-close-detail aria-label="关闭">×</button>
+    <button class="ui-press dialog-close" type="button" data-close-detail aria-label="关闭">×</button>
     <div class="community-detail-shell">
       <section class="community-detail-media${images.length > 1 ? ' has-thumbs' : ''}" aria-label="投稿图片">
         ${current ? `<div class="community-detail-stage"><img id="detailImage" src="${escAttr(currentUrl)}" alt="${escAttr(title)}" decoding="async"></div>` : '<div class="community-detail-stage community-detail-stage-empty"><div class="community-detail-no-image">这条投稿没有例图</div></div>'}
         ${params || originalUrl || entry.id ? `<div class="community-detail-mediabar">
           ${params ? `<span class="orig-param-badge" title="${escAttr(paramsTitle)}">✦ 原图 · 含生成参数</span>` : ''}
-          ${originalUrl ? `<a class="orig-link" href="${escAttr(originalUrl)}" target="_blank" rel="noopener">查看原图</a>` : ''}
-          ${entry.id ? '<button class="orig-link" type="button" data-copy-link>复制链接</button>' : ''}
+          ${originalUrl ? `<a class="orig-link ui-press" href="${escAttr(originalUrl)}" target="_blank" rel="noopener">查看原图</a>` : ''}
+          ${entry.id ? '<button class="ui-press orig-link" type="button" data-copy-link>复制链接</button>' : ''}
         </div>` : ''}
         ${entry.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
         ${images.length > 1 ? `<div class="community-detail-thumbs">${images.map((image, index) => `
-          <button type="button" class="community-detail-thumb${index === activeImageIndex ? ' active' : ''}" data-image-index="${index}" aria-label="查看第 ${index + 1} 张图">
+          <button type="button" class="ui-press community-detail-thumb${index === activeImageIndex ? ' active' : ''}" data-image-index="${index}" aria-label="查看第 ${index + 1} 张图">
             <img src="${escAttr(imageUrl(image.file))}" alt="">
           </button>`).join('')}</div>` : ''}
       </section>
@@ -116,11 +128,11 @@ function renderDetail() {
         ${(entry.tags || []).length ? `<div class="community-detail-tags">${entry.tags.map(tag => `<span>${escHtml(tag)}</span>`).join('')}</div>` : ''}
         <div class="community-detail-actions" data-detail-like-slot hidden></div>
         <div class="prompt-section">
-          <div class="prompt-heading"><span>Prompt</span><button type="button" data-copy="prompt">复制</button></div>
+          <div class="prompt-heading"><span>Prompt</span><button class="ui-press" type="button" data-copy="prompt">复制</button></div>
           <pre>${escHtml(entry.prompt || '')}</pre>
         </div>
         ${entry.negative ? `<div class="prompt-section">
-          <div class="prompt-heading"><span>Negative</span><button type="button" data-copy="negative">复制</button></div>
+          <div class="prompt-heading"><span>Negative</span><button class="ui-press" type="button" data-copy="negative">复制</button></div>
           <pre>${escHtml(entry.negative)}</pre>
         </div>` : ''}
         ${entry.comment ? `<div class="community-detail-comment"><h3>说明</h3><p>${escHtml(entry.comment)}</p></div>` : ''}
@@ -152,6 +164,7 @@ function renderDetail() {
       activeImageIndex = Number(button.dataset.imageIndex) || 0;
       state.activeImageIndex = activeImageIndex;
       renderDetail();
+      detailBody.querySelector(`[data-image-index="${activeImageIndex}"]`)?.focus({ preventScroll: true });
       syncCommunityHistory({
         historyMode: 'replace',
         transition: 'detail',

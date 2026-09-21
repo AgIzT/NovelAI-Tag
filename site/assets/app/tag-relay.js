@@ -136,6 +136,7 @@ function sourceItem(entry, { removable = true } = {}) {
   main.className = 'tag-relay-chip-main';
   main.draggable = !locked;
   if (!locked) {
+    main.classList.add('ui-press');
     main.setAttribute('role', 'button');
     main.tabIndex = 0;
   }
@@ -165,7 +166,7 @@ function sourceItem(entry, { removable = true } = {}) {
   if (hasNegative) {
     const negative = document.createElement('button');
     negative.type = 'button';
-    negative.className = 'tag-relay-chip-negative';
+    negative.className = 'tag-relay-chip-negative ui-press';
     negative.textContent = '负';
     negative.title = '仅把这条的负向内容加入方案';
     negative.setAttribute('aria-label', `仅将${visibleTitle}的负向内容加入方案`);
@@ -190,7 +191,7 @@ function sourceItem(entry, { removable = true } = {}) {
   if (removable) {
     const remove = document.createElement('button');
     remove.type = 'button';
-    remove.className = 'tag-relay-chip-x';
+    remove.className = 'tag-relay-chip-x ui-press';
     remove.textContent = '×';
     remove.setAttribute('aria-label', '从最近复制移除' + visibleTitle);
     remove.onclick = async () => {

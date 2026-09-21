@@ -24,6 +24,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/ui-kit.css">
 <link rel="stylesheet" href="assets/admin.css">
 </head>
 <body>
@@ -45,15 +46,15 @@
     <kbd>/</kbd>
   </label>
   <div class="top-actions">
-    <button class="icon-action theme-toggle" type="button" id="themeBtn" aria-label="切换深浅色" title="切换深浅色">
+    <button class="ui-press icon-action theme-toggle" type="button" id="themeBtn" aria-label="切换深浅色" title="切换深浅色">
       <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
       <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"></path></svg>
     </button>
-    <button class="icon-action" type="button" id="reloadBtn" hidden title="刷新当前队列">
+    <button class="ui-press icon-action" type="button" id="reloadBtn" hidden title="刷新当前队列">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66"></path><path d="M20 4v7h-7"></path></svg>
       <span>刷新</span>
     </button>
-    <button class="icon-action" type="button" id="logoutBtn" hidden title="退出后台">
+    <button class="ui-press icon-action" type="button" id="logoutBtn" hidden title="退出后台">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3"></path><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"></path></svg>
       <span>退出</span>
     </button>
@@ -64,7 +65,7 @@
   <h1>管理口令</h1>
   <p>输入 Cloudflare Pages 环境变量 <code>ADMIN_TOKEN</code> 设置的口令。</p>
   <input type="password" id="tokenInput" placeholder="口令" autocomplete="current-password">
-  <button class="primary-btn" id="loginBtn" type="button">进入后台</button>
+  <button class="ui-press primary-btn" id="loginBtn" type="button">进入后台</button>
   <div class="form-error" id="loginErr"></div>
 </section>
 
@@ -74,13 +75,13 @@
       <span>工作台</span>
       <small>Workspace</small>
     </div>
-    <button class="nav-item on" type="button" data-view="dashboard">
+    <button class="ui-press nav-item on" type="button" data-view="dashboard">
       <span class="nav-leading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm10 7h6V11h-6v9ZM4 20h6v-3H4v3Zm10-13h6V4h-6v3Z"></path></svg><span>总览</span></span><b id="navDashCount">-</b>
     </button>
-    <button class="nav-item" type="button" data-view="content">
+    <button class="ui-press nav-item" type="button" data-view="content">
       <span class="nav-leading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11 11 13 15.5 8.5"></path><path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"></path></svg><span>投稿内容</span></span><b id="navPendingCount">0</b>
     </button>
-    <button class="nav-item" type="button" data-view="feedback">
+    <button class="ui-press nav-item" type="button" data-view="feedback">
       <span class="nav-leading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"></path><path d="M8 9h8M8 13h5"></path></svg><span>反馈处理</span></span><b id="navFeedbackCount">0</b>
     </button>
     <a class="nav-community-link" href="/strings.html">

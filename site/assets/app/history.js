@@ -313,7 +313,7 @@ export function renderHistoryPanel() {
   }
   for (const item of recentEntries) {
     const btn = document.createElement('button');
-    btn.className = 'recent-item';
+    btn.className = 'recent-item ui-press';
     btn.type = 'button';
     btn.dataset.codex = item.codexId;
     btn.dataset.entry = item.entryId;

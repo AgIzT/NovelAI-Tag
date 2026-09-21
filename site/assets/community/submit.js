@@ -137,7 +137,7 @@ function bindCategoryChips() {
   const box = $('#subCategoryList');
   if (!box) return;
   box.innerHTML = SUBMIT_CATEGORIES.map(category => (
-    `<button type="button" class="sub-cat" data-cat="${escHtml(category)}">${escHtml(category)}</button>`
+    `<button type="button" class="ui-press sub-cat" data-cat="${escHtml(category)}">${escHtml(category)}</button>`
   )).join('');
   box.addEventListener('click', event => {
     const button = event.target.closest('.sub-cat');
@@ -313,7 +313,7 @@ function renderPreviews() {
     card.innerHTML = `
       <img src="${item.url}" alt="">
       ${paramBadge}
-      <button type="button" aria-label="移除第 ${index + 1} 张图">×</button>
+      <button class="ui-press" type="button" aria-label="移除第 ${index + 1} 张图">×</button>
       <span>图 ${index + 1}</span>
     `;
     card.querySelector('button')?.addEventListener('click', () => {
