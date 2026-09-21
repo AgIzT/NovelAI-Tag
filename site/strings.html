@@ -62,24 +62,24 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
 <header class="topbar">
   <div class="brand">共创<span>广场</span></div>
-  <a class="home-link" href="/index.html" aria-label="返回法典图鉴">← <span>法典图鉴</span></a>
+  <a class="home-link ui-press" href="/index.html" aria-label="返回法典图鉴">← <span>法典图鉴</span></a>
   <div class="topbar-actions">
-    <button id="communitySdBadge" class="community-sd-badge" type="button" title="正在以 Stable Diffusion 格式复制 · 点击关闭" aria-label="SD 权重模式已开启，点击关闭" aria-hidden="true" hidden>
+    <button id="communitySdBadge" class="ui-press community-sd-badge" type="button" title="正在以 Stable Diffusion 格式复制 · 点击关闭" aria-label="SD 权重模式已开启，点击关闭" aria-hidden="true" hidden>
       <span aria-hidden="true">SD</span>
       <span>权重</span>
       <i aria-hidden="true">×</i>
     </button>
-    <button id="submitOpenBtn" class="submit-top-btn" type="button" data-open-submit title="分享你的作品">
+    <button id="submitOpenBtn" class="ui-press submit-top-btn" type="button" data-open-submit title="分享你的作品">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       <span>投稿</span>
     </button>
-    <button id="favFilterBtn" class="icon-btn fav-filter-btn" type="button" aria-pressed="false" title="收藏">
+    <button id="favFilterBtn" class="ui-press icon-btn fav-filter-btn" type="button" aria-pressed="false" title="收藏">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.8 2.45 4.96 5.48.8-3.96 3.86.94 5.46L12 16.3l-4.9 2.58.93-5.46-3.96-3.86 5.48-.8L12 3.8Z"/></svg>
     </button>
-    <button id="nsfwBtn" class="icon-btn nsfw-btn" type="button" aria-pressed="false" title="NSFW 已隐藏">
+    <button id="nsfwBtn" class="ui-press icon-btn nsfw-btn" type="button" aria-pressed="false" title="NSFW 已隐藏">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path class="nsfw-shield" d="M12 3.2 19 6v5.2c0 4.2-2.7 7.5-7 9.6-4.3-2.1-7-5.4-7-9.6V6l7-2.8Z"/><path class="nsfw-cut" d="m8.2 15.8 7.6-7.6"/><path class="nsfw-eye" d="M8 12s1.5-2.6 4-2.6 4 2.6 4 2.6-1.5 2.6-4 2.6S8 12 8 12Z"/><circle class="nsfw-dot" cx="12" cy="12" r="1.1"/></svg>
     </button>
-    <button id="themeBtn" class="icon-btn theme-btn" type="button" title="深色 / 浅色" aria-label="切换深浅色">
+    <button id="themeBtn" class="ui-press icon-btn theme-btn" type="button" title="深色 / 浅色" aria-label="切换深浅色">
       <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
     </button>
@@ -94,8 +94,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <small data-favorites-migration-feedback hidden></small>
     </div>
     <div class="favorites-migration-banner-actions">
-      <button class="panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
-      <button class="panel-action favorites-migration-dismiss" type="button" data-favorites-migration-dismiss aria-label="关闭旧收藏找回提示">以后不提示</button>
+      <button class="ui-press panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
+      <button class="ui-press panel-action favorites-migration-dismiss" type="button" data-favorites-migration-dismiss aria-label="关闭旧收藏找回提示">以后不提示</button>
     </div>
   </aside>
   <section class="community-hero" aria-labelledby="communityTitle">
@@ -103,14 +103,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <h1 id="communityTitle">共创广场</h1>
       <p>分享任意 NovelAI 作品。<br>画风、人物、服装、动作、构图、场景，或者只是今天最喜欢的一张图。</p>
       <div class="hero-actions">
-        <button class="primary-btn" type="button" data-open-submit>
+        <button class="ui-press primary-btn" type="button" data-open-submit>
           <span aria-hidden="true">＋</span>
           分享你的作品
         </button>
-        <button class="ghost-btn" type="button" data-focus-search>
+        <button class="ui-press ghost-btn" type="button" data-focus-search>
           浏览投稿
         </button>
-        <button class="ghost-btn" type="button" data-my-submissions-open>
+        <button class="ui-press ghost-btn" type="button" data-my-submissions-open>
           我的投稿 <span class="my-submissions-count" data-my-submissions-count hidden></span>
         </button>
         <span id="communityCount" class="result-bar">正在加载…</span>
@@ -127,17 +127,17 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="search-wrap">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
         <input id="search" type="search" placeholder="搜索标题、tag、prompt…" autocomplete="off">
-        <button id="searchClear" class="search-clear" type="button" aria-label="清空搜索" hidden>×</button>
+        <button id="searchClear" class="ui-press search-clear" type="button" aria-label="清空搜索" hidden>×</button>
       </div>
       <div id="categoryRail" class="category-rail" aria-label="分类筛选"></div>
     </div>
 
     <div class="community-result-row">
       <div id="resultInfo" class="result-bar">正在加载共创广场…</div>
-      <button class="bar-btn favorites-backup-result-btn" type="button" data-favorites-backup-open>收藏备份</button>
+      <button class="ui-press bar-btn favorites-backup-result-btn" type="button" data-favorites-backup-open>收藏备份</button>
     </div>
 
-    <button class="submit-inline" type="button" data-open-submit>
+    <button class="ui-press submit-inline" type="button" data-open-submit>
       <span class="plus" aria-hidden="true">＋</span>
       分享你的作品
     </button>
@@ -153,13 +153,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
 <div id="submitMask" class="community-mask" role="dialog" aria-modal="true" aria-labelledby="submitTitle" hidden>
   <form id="submitForm" class="dialog-panel submit-panel">
-    <button class="dialog-close" type="button" data-close-submit aria-label="关闭投稿弹窗">×</button>
+    <button class="ui-press dialog-close" type="button" data-close-submit aria-label="关闭投稿弹窗">×</button>
     <h2 id="submitTitle">投稿到共创广场</h2>
     <p class="submit-intro">上传作品，选择最贴近的内容类型。投稿会先由维护者审核，通过后才会出现在广场；审核时间视维护情况而定。</p>
 
     <div class="sub-field">
       <label>作品 *</label>
-      <div id="subDrop" class="sub-drop" role="button" tabindex="0">
+      <div id="subDrop" class="sub-drop ui-press" role="button" tabindex="0">
         <div>
           <strong>拖入图片，或点击选择</strong>
           <span>1-6 张；PNG 原图若含参数会自动读取 Prompt</span>
@@ -195,7 +195,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </div>
 
     <details id="subMore" class="sub-more">
-      <summary>更多（可选）<span>负面 prompt · 说明 · 标签</span></summary>
+      <summary class="ui-press">更多（可选）<span>负面 prompt · 说明 · 标签</span></summary>
       <div class="sub-more-body">
         <div class="sub-field">
           <label for="subNegative">负面 Prompt</label>
@@ -213,7 +213,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </details>
 
     <div class="sub-actions">
-      <button id="subGo" type="submit">提交投稿</button>
+      <button class="ui-press" id="subGo" type="submit">提交投稿</button>
       <div id="subErr" class="sub-err" aria-live="polite"></div>
     </div>
     <section id="subSuccess" class="submit-success" aria-live="polite" hidden>
@@ -221,9 +221,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <h3>投稿已提交</h3>
       <p>维护者审核通过后，作品会出现在共创广场。你可以在当前浏览器的“我的投稿”里查看是否已经公开。</p>
       <div>
-        <button class="primary-btn" type="button" data-my-submissions-open>查看我的投稿</button>
-        <button class="ghost-btn" type="button" data-submit-another>再投一条</button>
-        <button class="ghost-btn" type="button" data-close-submit-success>完成</button>
+        <button class="ui-press primary-btn" type="button" data-my-submissions-open>查看我的投稿</button>
+        <button class="ui-press ghost-btn" type="button" data-submit-another>再投一条</button>
+        <button class="ui-press ghost-btn" type="button" data-close-submit-success>完成</button>
       </div>
     </section>
   </form>
@@ -239,7 +239,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <p id="favoritesBackupIntro">备份包含收藏、收藏夹、归类和备注。导出 JSON 文件或复制迁移文本，可在另一台设备恢复。</p>
         </div>
       </div>
-      <button id="favoritesBackupClose" class="favorites-backup-close" type="button" aria-label="关闭收藏备份弹窗">×</button>
+      <button id="favoritesBackupClose" class="ui-press favorites-backup-close" type="button" aria-label="关闭收藏备份弹窗">×</button>
     </header>
 
     <div class="favorites-backup-body">
@@ -250,8 +250,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <p>一份文件会同时包含两处收藏。</p>
           </div>
           <div class="favorites-backup-heading-actions">
-            <button id="favoritesExportTextBtn" class="panel-action favorites-backup-secondary" type="button">复制迁移文本</button>
-            <button id="favoritesExportBtn" class="panel-action is-primary favorites-backup-primary" type="button">导出 JSON</button>
+            <button id="favoritesExportTextBtn" class="ui-press panel-action favorites-backup-secondary" type="button">复制迁移文本</button>
+            <button id="favoritesExportBtn" class="ui-press panel-action is-primary favorites-backup-primary" type="button">导出 JSON</button>
           </div>
         </div>
         <dl class="favorites-backup-stats">
@@ -272,7 +272,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <h3 id="favoritesMigrationTitle">从旧 pages.dev 找回</h3>
             <p>在原设备和原浏览器中读取旧域收藏，并与当前收藏合并。</p>
           </div>
-          <button class="panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
+          <button class="ui-press panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
         </div>
         <p class="favorites-migration-feedback" data-favorites-migration-feedback role="status" aria-live="polite" hidden></p>
         <a class="favorites-migration-fallback" data-favorites-migration-fallback href="https://novelai-tag.pages.dev/_favorites-migration-202607.html?bridge=20260721" target="_blank" rel="noopener">自动迁移失败？手动打开救援页下载 JSON</a>
@@ -293,10 +293,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <input id="favoritesImportFile" class="favorites-backup-file-input" type="file" accept=".json,application/json">
 
         <details class="favorites-transfer">
-          <summary>或用文本粘贴</summary>
+          <summary class="ui-press">或用文本粘贴</summary>
           <p>把另一台设备复制出的迁移文本粘贴到这里；也接受完整 JSON。</p>
           <textarea id="favoritesImportText" rows="4" spellcheck="false" placeholder="NAITAG1.… 或完整 JSON"></textarea>
-          <button id="favoritesImportTextBtn" class="panel-action favorites-backup-secondary" type="button">从文本检查并恢复</button>
+          <button id="favoritesImportTextBtn" class="ui-press panel-action favorites-backup-secondary" type="button">从文本检查并恢复</button>
         </details>
 
         <div id="favoritesImportPreview" class="favorites-import-preview" aria-live="polite" hidden>
@@ -323,7 +323,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <p id="favoritesBackupError" class="favorites-backup-error" role="alert" hidden></p>
         <p id="favoritesBackupStatus" class="favorites-backup-status" role="status" aria-live="polite"></p>
       </div>
-      <button id="favoritesRestoreBtn" class="panel-action is-primary favorites-backup-primary" type="button" disabled>恢复收藏</button>
+      <button id="favoritesRestoreBtn" class="ui-press panel-action is-primary favorites-backup-primary" type="button" disabled>恢复收藏</button>
     </footer>
 
     <div id="favoritesReplaceConfirm" class="favorites-replace-confirm" role="alertdialog" aria-modal="true" aria-labelledby="favoritesReplaceTitle" aria-describedby="favoritesReplaceMessage" hidden>
@@ -332,8 +332,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <h3 id="favoritesReplaceTitle">确认覆盖当前收藏？</h3>
         <p id="favoritesReplaceMessage">这会同时替换法典图鉴与共创广场收藏。</p>
         <div class="favorites-replace-actions">
-          <button id="favoritesReplaceBack" class="panel-action favorites-backup-secondary" type="button">返回检查</button>
-          <button id="favoritesReplaceConfirmBtn" class="panel-action is-danger favorites-backup-danger" type="button">确认覆盖</button>
+          <button id="favoritesReplaceBack" class="ui-press panel-action favorites-backup-secondary" type="button">返回检查</button>
+          <button id="favoritesReplaceConfirmBtn" class="ui-press panel-action is-danger favorites-backup-danger" type="button">确认覆盖</button>
         </div>
       </div>
     </div>

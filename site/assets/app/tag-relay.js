@@ -3,7 +3,7 @@
    纯计算在 tag-relay-core.js，侧栏外壳在 tag-relay-rail.js。
 
    入库是「复制即入库」（见 copy.js 里 recordCopiedEntry 的调用点），
-   卡片和灯箱上没有手动入站按钮——卡片因此保持原样，不会和收藏星混淆。 */
+   详情选词可直接加入当前方案，精确片段与完整词条共用素材快照。 */
 
 import { isEntryNsfw, isR18gEntry } from './access.js';
 import { findCodexMeta } from './data.js';
@@ -21,11 +21,8 @@ import {
   setupTagRelayRail,
 } from './tag-relay-rail.js';
 import {
-  RELAY_PLAN_CONTEXT_MIME,
-  RELAY_PLAN_MIME,
   RELAY_SOURCE_MIME,
   addSourceToPlan,
-  removeBlock,
   renderCompose,
   renderComposeCounters,
   refreshComposeAccess,
@@ -34,7 +31,7 @@ import {
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { commitRelay, relayInbox, relayState, setupRelayStore, subscribeRelay } from './tag-relay-store.js';
 import { renderRelayList, settleRelayMotion } from './tag-relay-motion.js';
-import { animateUi } from './ui-motion.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
 
 let relayBound = false;
 let warehouseRoot = null;
@@ -44,6 +41,72 @@ let favoritesLoading = false;
 let favoritesGeneration = 0;
 let favoritesReloadPending = false;
 let favoritesReloadQueued = false;
+let shelfFrame = 0;
+let shelfMotion = null;
+
+/* 用真实换行位置决定前两行；标题长度、字体与视口都可能改变每行数量。 */
+function measureShelf() {
+  const list = warehouseRoot?.querySelector('#relaySourceList');
+  const panel = warehouseRoot?.querySelector('#relaySourcePanel');
+  const toggle = relayScope().querySelector('#relayShelfToggle');
+  if (!list || !panel || !toggle || (!list.hidden && !list.clientWidth)) return;
+  const items = list.hidden ? [] : [...list.children];
+  const rows = [...new Set(items.map(node => node.offsetTop))].sort((a, b) => a - b);
+  const cutoff = rows[1] ?? rows[0] ?? 0;
+  if (rows.length <= 2) warehouseRoot.classList.add('is-peek');
+  const peek = warehouseRoot.classList.contains('is-peek');
+  let bottom = 0;
+  for (const node of items) {
+    const clipped = peek && node.offsetTop > cutoff;
+    node.inert = clipped;
+    if (clipped) node.setAttribute('aria-hidden', 'true');
+    else node.removeAttribute('aria-hidden');
+    if (node.offsetTop <= cutoff) bottom = Math.max(bottom, node.offsetTop + node.offsetHeight);
+  }
+  panel.style.setProperty('--relay-shelf-peek-height', `${bottom + 2}px`);
+  toggle.hidden = rows.length <= 2;
+  toggle.setAttribute('aria-expanded', String(!peek));
+  const label = peek ? '展开素材' : '收起素材';
+  toggle.setAttribute('aria-label', label); toggle.title = label;
+  if (peek) { list.scrollTop = 0; panel.scrollTop = 0; }
+}
+function scheduleShelfMeasure() {
+  cancelAnimationFrame(shelfFrame);
+  shelfFrame = requestAnimationFrame(measureShelf);
+}
+
+function resetShelfMeasure() {
+  finishShelfMotion();
+  scheduleShelfMeasure();
+}
+
+function finishShelfMotion() {
+  if (!shelfMotion) return;
+  shelfMotion = null;
+  cancelUiMotion(warehouseRoot);
+  relayScope().classList.remove('is-shelf-moving');
+  // 伸缩期间镜像跟随编辑区铺满；结束后恢复正文的自然高度。
+  renderCompose();
+  measureShelf();
+}
+
+function toggleShelf() {
+  const rail = relayScope();
+  // 连点从当前画面续接，必须先量再取消上一轮。
+  const before = warehouseRoot.getBoundingClientRect().height;
+  finishShelfMotion();
+  warehouseRoot.classList.toggle('is-peek');
+  measureShelf();
+  renderCompose();
+  const after = warehouseRoot.getBoundingClientRect().height;
+  if (Math.abs(after - before) < 1 || document.visibilityState === 'hidden') return;
+  const animation = animateUi(warehouseRoot, [{ height: `${before}px` }, { height: `${after}px` }], { duration: 260 });
+  if (!animation) return;
+  shelfMotion = animation;
+  rail.classList.add('is-shelf-moving');
+  const finish = () => { if (shelfMotion === animation) finishShelfMotion(); };
+  animation.finished.then(finish, finish);
+}
 
 /* 栏级作用域：素材分区之外的节点（栏头菜单等）要从这里找。 */
 function relayScope() {
@@ -57,7 +120,8 @@ function relayScope() {
       每次加入后的 toast 都提供撤销。 */
 function sourceItem(entry, { removable = true } = {}) {
   const locked = snapshotLocked(entry);
-  const visibleTitle = locked ? '已锁定的成人内容' : entry.title;
+  const suffix = entry.scope === 'selection' ? ' · 选段' : entry.channel?.endsWith('negative') ? ' · 负向' : '';
+  const visibleTitle = locked ? '已锁定的成人内容' : entry.title + suffix;
   const hasNegative = !locked && Boolean(String(entry.negative || '').trim());
 
   const chip = document.createElement('div');
@@ -72,10 +136,12 @@ function sourceItem(entry, { removable = true } = {}) {
   main.className = 'tag-relay-chip-main';
   main.draggable = !locked;
   if (!locked) {
+    main.classList.add('ui-press');
     main.setAttribute('role', 'button');
     main.tabIndex = 0;
   }
   main.title = locked ? '重新开启对应内容权限后可继续使用' : visibleTitle + '　·　点一下加入方案，也可以直接拖上去';
+  if (!locked && entry.scope === 'selection') main.title += '\n' + (entry.prompt || entry.negative || '').slice(0, 240);
 
   /* 缩略图缩成 16px 圆点：它在这里只是视觉锚点，42px 的图在芯片里没有位置。 */
   const dot = document.createElement('span');
@@ -100,7 +166,7 @@ function sourceItem(entry, { removable = true } = {}) {
   if (hasNegative) {
     const negative = document.createElement('button');
     negative.type = 'button';
-    negative.className = 'tag-relay-chip-negative';
+    negative.className = 'tag-relay-chip-negative ui-press';
     negative.textContent = '负';
     negative.title = '仅把这条的负向内容加入方案';
     negative.setAttribute('aria-label', `仅将${visibleTitle}的负向内容加入方案`);
@@ -125,7 +191,7 @@ function sourceItem(entry, { removable = true } = {}) {
   if (removable) {
     const remove = document.createElement('button');
     remove.type = 'button';
-    remove.className = 'tag-relay-chip-x';
+    remove.className = 'tag-relay-chip-x ui-press';
     remove.textContent = '×';
     remove.setAttribute('aria-label', '从最近复制移除' + visibleTitle);
     remove.onclick = async () => {
@@ -233,6 +299,7 @@ function setSourceMode(next) {
 
 function renderWarehouse({ motion = true } = {}) {
   if (!warehouseRoot) return;
+  finishShelfMotion();
   const list = warehouseRoot.querySelector('#relaySourceList');
   const empty = warehouseRoot.querySelector('#relaySourceEmpty');
   const status = warehouseRoot.querySelector('#relaySourceStatus');
@@ -259,6 +326,7 @@ function renderWarehouse({ motion = true } = {}) {
   if (clear) {
     clear.disabled = fav || relayInbox().length === 0;
   }
+  scheduleShelfMeasure();
 }
 
 function renderRelayChrome() {
@@ -280,46 +348,25 @@ function renderRelayChrome() {
      而同一个素材数还同时出现在浮钮角标和素材页签上，一共三处。 */
 }
 
-/* 把方案块拖出编排区 = 移出方案。桌面时法典正文直接收 drop；抽屉 / sheet 打开时
-   遮罩盖在法典上方，所以遮罩也必须是同一个目标。只认方案 MIME，取消拖拽绝不删除。
-   这里刻意不切换目标 class：dragover 会按指针频率触发，在巨大 #main 上反复重绘会拖慢 drop。 */
-function bindRemoveByDrag() {
-  const targets = [
-    warehouseRoot,
-    document.querySelector('#main'),
-    document.querySelector('#tagRelayRailBackdrop'),
-  ].filter(Boolean);
-  if (!targets.length) return;
-  const isPlanDrag = event => [...(event.dataTransfer?.types || [])].includes(RELAY_PLAN_MIME);
-  const contextFrom = event => {
-    let context = null;
-    try {
-      context = JSON.parse(event.dataTransfer?.getData(RELAY_PLAN_CONTEXT_MIME) || 'null');
-    } catch {}
-    return {
-      itemId: String(context?.itemId || event.dataTransfer?.getData(RELAY_PLAN_MIME) || ''),
-      planId: String(context?.planId || ''),
-    };
-  };
-  for (const target of targets) {
-    target.addEventListener('dragover', event => {
-      if (!isPlanDrag(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = 'move';
-    }, true);
-    target.addEventListener('drop', async event => {
-      if (!isPlanDrag(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const context = contextFrom(event);
-      if (context.itemId) await removeBlock(context.itemId, { planId: context.planId });
-    }, true);
-  }
-}
-
 function bindWarehouse() {
   if (!warehouseRoot) return;
+  /* 货架默认收起（is-peek），只露前两行；这颗钮来回切。 */
+  const zone = warehouseRoot;
+  const shelfToggle = relayScope().querySelector('#relayShelfToggle');
+  if (shelfToggle && zone) {
+    shelfToggle.addEventListener('click', toggleShelf);
+  }
+  relayScope().addEventListener('relayclose', finishShelfMotion);
+  window.addEventListener('resize', resetShelfMeasure);
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', finishShelfMotion);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) finishShelfMotion(); });
+  let shelfWidth = 0;
+  new ResizeObserver(entries => {
+    const width = entries[0].contentRect.width;
+    if (width !== shelfWidth) { shelfWidth = width; scheduleShelfMeasure(); }
+  }).observe(warehouseRoot.querySelector('#relaySourceList'));
+  document.fonts?.ready.then(resetShelfMeasure);
+  document.fonts?.addEventListener('loadingdone', resetShelfMeasure);
   for (const button of warehouseRoot.querySelectorAll('[data-relay-source]')) {
     button.addEventListener('click', () => setSourceMode(button.dataset.relaySource));
   }
@@ -435,8 +482,8 @@ export function refreshRelayAccess() {
   renderCompose({ motion: false });
 }
 
-export function setupTagRelay() {
-  setupRelayStore();
+export async function setupTagRelay() {
+  await setupRelayStore();
   setupTagRelayRail();
   warehouseRoot = railPaneRoot('warehouse');
   setupRelayCompose(railPaneRoot('compose'));
@@ -444,7 +491,6 @@ export function setupTagRelay() {
   if (!relayBound) {
     relayBound = true;
     bindWarehouse();
-  bindRemoveByDrag();
     /* 状态变了由 store 广播：角标永远更新（它是入库唯一的即时反馈），
        列表只打脏标记，等侧栏开着或切过去才真画。
        ⚠ 编排页签上的块数同属「角标」：在素材页签点「加入方案」时 compose 不是当前

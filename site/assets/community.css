@@ -47,7 +47,7 @@ button:disabled{cursor:not-allowed}
 .home-link:hover{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 .topbar-actions{margin-left:auto;display:flex;align-items:center;gap:6px;flex:none}
 .icon-btn,.submit-top-btn{
-  border:0;background:transparent;color:var(--text);height:36px;border-radius:11px;
+  border:0;background:transparent;color:var(--text);height:36px;border-radius:999px;
   display:inline-grid;place-items:center;transition:background .15s,color .15s,opacity .15s;
 }
 .icon-btn{width:36px}
@@ -85,7 +85,7 @@ body.dark .theme-btn .moon{display:block}
 .hero-copy p{margin:14px 0 0;max-width:640px;color:var(--muted);font-size:16px;line-height:1.75}
 .hero-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:22px}
 .primary-btn,.ghost-btn{
-  border:1px solid transparent;border-radius:14px;padding:11px 16px;font-weight:850;
+  border:1px solid transparent;border-radius:999px;min-height:36px;padding:8px 14px;font-size:12px;font-weight:850;
   display:inline-flex;align-items:center;gap:8px;transition:translate .16s,filter .16s,background .16s,border-color .16s,color .16s;
 }
 .primary-btn{background:var(--accent);color:var(--on-accent);box-shadow:0 12px 26px color-mix(in srgb,var(--accent) 24%,transparent)}
@@ -183,7 +183,7 @@ body.dark .theme-btn .moon{display:block}
   background:linear-gradient(135deg,var(--accent-soft),var(--tagbg));
 }
 .card-fav-btn{
-  position:absolute;right:8px;top:8px;z-index:3;width:30px;height:30px;border:0;border-radius:10px;
+  position:absolute;right:8px;top:8px;z-index:3;width:30px;height:30px;border:0;border-radius:999px;
   display:grid;place-items:center;background:rgba(0,0,0,.46);color:#fff;
   backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
   transition:background .15s,color .15s,scale .15s;
@@ -267,7 +267,7 @@ body.dark .theme-btn .moon{display:block}
 }
 .community-mask.show .dialog-panel{translate:0 0;scale:1}
 .dialog-close{
-  position:absolute;top:14px;right:14px;z-index:2;width:38px;height:38px;border:0;border-radius:12px;
+  position:absolute;top:14px;right:14px;z-index:2;width:38px;height:38px;border:0;border-radius:999px;
   background:var(--tagbg);color:var(--muted);font-size:22px;line-height:1;display:grid;place-items:center;
 }
 .dialog-close:hover{background:var(--red);color:#fff}
@@ -416,7 +416,7 @@ body.dark .sub-source-none{background:rgba(133,79,11,.32);color:#f0c078}
 .sub-more-body{padding:0 14px 14px}
 .sub-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}
 .sub-actions button{
-  border:0;background:var(--accent);color:var(--on-accent);border-radius:12px;padding:11px 26px;font-weight:900;
+  border:1px solid transparent;background:var(--accent);color:var(--on-accent);border-radius:999px;min-height:36px;padding:8px 14px;font-size:12px;font-weight:850;
 }
 .sub-actions button:disabled{opacity:.58}
 .sub-err{color:var(--red);font-size:12px;font-weight:750;min-height:18px}
@@ -466,9 +466,9 @@ html.vt-arrived .topbar,html.vt-arrived .community-main{animation:none}
   .topbar{width:calc(100% - 16px);top:8px;margin-top:8px;padding:0 8px;gap:8px}
   .brand{font-size:15px}
   .home-link span{display:none}
-  .submit-top-btn{width:36px;padding:0;border-radius:11px}
+  .submit-top-btn{width:36px;padding:0}
   .submit-top-btn span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-  .community-sd-badge{width:36px;justify-content:center;padding:0;border-radius:11px}
+  .community-sd-badge{width:36px;justify-content:center;padding:0}
   .community-sd-badge>span:nth-child(2),.community-sd-badge>i{display:none}
   .community-main{width:calc(100% - 16px);margin-top:14px}
   .community-hero{grid-template-columns:1fr;gap:18px;padding-top:16px}
@@ -497,7 +497,32 @@ html.vt-arrived .topbar,html.vt-arrived .community-main{animation:none}
   .sub-label-row{align-items:flex-start;flex-direction:column}
 }
 
+/* 独立页同样消费 ui-kit 的按压时序，避免局部 transition 覆盖共享 scale。 */
+.ui-press{transition:var(--ui-control-transition)}
+.primary-btn.ui-press:active,.submit-inline.ui-press:active,.community-sd-badge.ui-press:active{translate:0 0}
+
+@media (pointer:coarse){
+  .ui-press:not(.submit-inline):not(.sub-drop),.bar-btn,.panel-action,.orig-link,.sub-actions button{min-width:44px;min-height:44px}
+  .icon-btn,.submit-top-btn,.community-sd-badge,.card-fav-btn,.dialog-close,.search-clear{height:44px}
+  .icon-btn,.card-fav-btn,.dialog-close,.search-clear{width:44px}
+  .search-wrap input{height:48px;padding-right:54px}
+  .search-clear{right:2px}
+  .image-count{right:58px}
+  .sub-preview button{width:44px;height:44px}
+  .community-detail-copy h2{padding-right:36px}
+}
+@media (pointer:coarse) and (max-width:760px){
+  .topbar{height:auto;min-height:54px;flex-wrap:wrap;padding-block:4px;gap:4px}
+  .topbar-actions{gap:0}
+  .submit-top-btn,.community-sd-badge{width:44px}
+}
+@media (pointer:coarse) and (max-width:360px){
+  .topbar:has(.community-sd-badge:not([hidden])) .brand{display:none}
+}
+html.motion-off *,html.motion-off *::before,html.motion-off *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+html.motion-off :is(.primary-btn,.submit-inline,.community-sd-badge,.community-card):hover,html.motion-off .community-card:focus-visible{translate:none}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .primary-btn:hover,.submit-inline:hover,.community-sd-badge:hover,.community-card:hover,.community-card:focus-visible{translate:none}
   ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
 }

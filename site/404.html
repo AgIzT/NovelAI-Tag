@@ -29,21 +29,21 @@
    取值与 assets/tokens.css 同源，只留这张页真正用到的几个。 */
 :root{
   --bg:#eef0f6;--panel:#ffffff;--text:#232a3c;--muted:#878da3;--line:#e2e5f0;
-  --accent:#6f5cf2;--accent-soft:#ece9fe;--tagbg:#f3f4fa;
+  --accent:#6f5cf2;--accent-soft:#ece9fe;--tagbg:#f3f4fa;--on-accent:#fff;
   --shadow:0 1px 3px rgba(28,32,58,.08),0 6px 18px rgba(28,32,58,.05);
   --font:"Outfit","PingFang SC","Microsoft YaHei",-apple-system,"Segoe UI",Roboto,sans-serif;
   --mono:"IBM Plex Mono","PingFang SC","Microsoft YaHei",Menlo,Consolas,monospace;
 }
 .dark{
   --bg:#0b0d13;--panel:#12141d;--text:#e8eaf3;--muted:#8a91a6;--line:#242a3a;
-  --accent:#8b7cf8;--accent-soft:#262050;--tagbg:#1b202e;
+  --accent:#8b7cf8;--accent-soft:#262050;--tagbg:#1b202e;--on-accent:#131316;
   --shadow:0 1px 3px rgba(0,0,0,.45);
 }
-.theme-teal{--accent:#0fa173;--accent-soft:#dff4ea}
+.theme-teal{--accent:#0fa173;--accent-soft:#dff4ea;--on-accent:#131316}
 .theme-teal.dark{--accent:#2ecb86;--accent-soft:#14352a}
-.theme-sakura{--accent:#e0577f;--accent-soft:#fce8ee}
+.theme-sakura{--accent:#e0577f;--accent-soft:#fce8ee;--on-accent:#131316}
 .theme-sakura.dark{--accent:#f08fb0;--accent-soft:#3d2230}
-.theme-amber{--accent:#a87f2f;--accent-soft:#f1e7cd}
+.theme-amber{--accent:#a87f2f;--accent-soft:#f1e7cd;--on-accent:#131316}
 .theme-amber.dark{--accent:#d2a651;--accent-soft:#332a1a}
 .theme-indigo{--accent:#2563c9;--accent-soft:#e2ebfb}
 .theme-indigo.dark{--accent:#5b9bf5;--accent-soft:#122744}
@@ -72,17 +72,18 @@ p{margin:12px 0 0;font-size:14.5px;line-height:1.75;color:var(--muted)}
 }
 .acts{margin:26px 0 0;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 a.btn{
-  display:inline-flex;align-items:center;gap:7px;padding:10px 20px;border-radius:11px;
+  display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:10px 20px;border-radius:999px;
   font-size:14.5px;font-weight:600;text-decoration:none;border:1px solid transparent;
-  transition:transform .16s ease,box-shadow .16s ease,background .16s ease;
+  transition:transform .16s ease,scale .14s ease,box-shadow .16s ease,background .16s ease;
 }
-a.primary{background:var(--accent);color:#fff;box-shadow:var(--shadow)}
+a.primary{background:var(--accent);color:var(--on-accent);box-shadow:var(--shadow)}
 a.ghost{background:var(--tagbg);color:var(--text);border-color:var(--line)}
 a.btn:hover{transform:translateY(-1px)}
 a.primary:hover{box-shadow:0 6px 18px var(--accent-soft)}
 a.ghost:hover{background:var(--accent-soft)}
-a.btn:active{transform:translateY(0)}
-@media (prefers-reduced-motion:reduce){a.btn{transition:none}a.btn:hover{transform:none}}
+a.btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+a.btn:active{transform:translateY(0);scale:.96}
+@media (prefers-reduced-motion:reduce){a.btn{transition:none}a.btn:hover{transform:none}a.btn:active{scale:1}}
 </style>
 </head>
 <body>
@@ -93,7 +94,7 @@ a.btn:active{transform:translateY(0)}
   <div class="path" id="p"></div>
   <div class="acts">
     <a class="btn primary" href="/">回法典图鉴</a>
-    <a class="btn ghost" href="/strings">去词条串</a>
+    <a class="btn ghost" href="/strings">去共创广场</a>
   </div>
 </div>
 <script>

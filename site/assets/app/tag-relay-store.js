@@ -8,16 +8,19 @@
 import { toast } from './feedback.js';
 import {
   TAG_RELAY_STORAGE_KEY,
+  TAG_RELAY_LEGACY_STORAGE_KEYS,
   getActivePlan,
-  loadRelayState,
+  loadRelayStateStatus,
   normalizeRelayState,
   touchInboxEntry,
   trimStateToBudget,
-} from './tag-relay-core.js';
-import { snapshotEntry } from './tag-relay-snapshot.js';
+} from './tag-relay-v4.js';
+import { snapshotEntry, snapshotFragment } from './tag-relay-snapshot.js';
 
 let current = null;
+let storageIssue = null;
 let bound = false;
+let initialization = null;
 const listeners = new Set();
 const RELAY_LOCK_KEY = `${TAG_RELAY_STORAGE_KEY}:lock`;
 const RELAY_SIGNAL_KEY = `${TAG_RELAY_STORAGE_KEY}:signal`;
@@ -36,8 +39,18 @@ const STORAGE_BLOCKED = Object.freeze({ ok: false, reason: 'storage' });
 
 /* 惰性加载：import 本模块不该产生 localStorage 读取，等第一次真要用再读。 */
 export function relayState() {
-  if (!current) current = loadRelayState();
+  if (!current) {
+    const loaded = loadRelayStateStatus();
+    current = loaded.state;
+    storageIssue = loaded.ok ? null : loaded.reason;
+    if (storageIssue) reportFailure(storageIssue);
+  }
   return current;
+}
+
+export function getRelayStorageIssue() {
+  relayState();
+  return storageIssue;
 }
 
 export function relayInbox() {
@@ -206,7 +219,7 @@ function tryWrite(storage, payload, changed) {
 
 /* ⚠ 内存换上的必须是**同一次** normalize 的产物：normalizeRelayState 会给缺失的时间戳
    补 new Date()，跑两遍可能差出几毫秒，磁盘与内存就再也字节不一致了。 */
-function persistState(next, changed) {
+function persistState(next, changed, { allowTrim = true } = {}) {
   const storage = globalThis.localStorage;
   if (!storage?.setItem) return { ok: false, reason: 'save' };
   const normalized = normalizeRelayState(next);
@@ -214,6 +227,8 @@ function persistState(next, changed) {
   const attempt = tryWrite(storage, payload, changed);
   if (attempt.ok) return { ok: true, next: normalized };
   if (!attempt.quota) return { ok: false, reason: 'save' };
+  /* 首次迁移必须完整保留成品历史。写不下就保留旧 key，等待用户腾出空间后重试。 */
+  if (!allowTrim) return { ok: false, reason: 'quota' };
 
   /* 配额撞墙的自救。真正撑爆的是复制历史，而「清空复制历史」埋在编排页签里，
      一句「请检查浏览器存储权限」不可能把用户领过去；先自己丢掉最旧的几条再试一次。
@@ -228,6 +243,32 @@ function persistState(next, changed) {
 }
 
 function reportFailure(reason) {
+  if (reason === 'migration-save' || reason === 'migration-quota') {
+    toast('旧中转站数据已保留，迁移未保存', '!', {
+      label: '重试', onClick: async () => { await initializeRelay(); },
+    });
+    return;
+  }
+  if (reason === 'conflict' || reason === 'missing-plan') {
+    toast('方案已在另一处更新，本地输入已保留', '!');
+    return;
+  }
+  if (reason === 'future-version') {
+    toast('中转站数据来自更新版本，请刷新页面；原数据已保留', '!');
+    return;
+  }
+  if (reason === 'corrupt-data') {
+    toast('中转站原数据无法读取，已停止写入以保留内容', '!');
+    return;
+  }
+  if (reason === 'migration-mismatch') {
+    toast('旧方案暂时无法无损转换，原数据已保留', '!');
+    return;
+  }
+  if (reason === 'invalid-backup') {
+    toast('中转站备份无效，原方案保持不变', '!');
+    return;
+  }
   if (reason === 'lock') {
     toast('中转站正在被另一个标签页更新，请重试', '!');
     return;
@@ -237,40 +278,96 @@ function reportFailure(reason) {
     return;
   }
   if (reason === 'quota') {
-    toast('中转站已存满，请到编排页签清空复制历史', '!');
+    toast('中转站已存满，请清理成品记录后重试', '!');
     return;
   }
   toast('中转站保存失败，请检查浏览器存储权限', '!');
 }
 
+/* 读取可以同步展示，迁移写入必须与普通提交共用同一把锁。失败时旧 key 一字不动，
+   再次调用会重新读取、校验和试编译；成功后 v4 优先，不会重复导入旧方案。 */
+export async function initializeRelay() {
+  if (initialization) return await initialization;
+  /* 先留可读候选，写入失败后仍能查看；锁内会再读一遍作为唯一提交底本。 */
+  relayState();
+  initialization = (async () => {
+    const transaction = await withRelayLock(() => {
+      const loaded = loadRelayStateStatus();
+      if (!loaded.ok) return { ok: false, reason: loaded.reason };
+      if (!loaded.migrated) return { ok: true, next: loaded.state, migrated: false };
+      const saved = persistState(loaded.state, 'all', { allowTrim: false });
+      return saved.ok ? { ...saved, migrated: true } : {
+        ...saved, reason: saved.reason === 'quota' ? 'migration-quota' : 'migration-save',
+      };
+    });
+    if (!transaction.ok) {
+      storageIssue = transaction.reason;
+      reportFailure(storageIssue);
+      publish({ changed: 'all', source: 'migration', issue: storageIssue });
+      return { ok: false, reason: storageIssue };
+    }
+    current = transaction.next;
+    storageIssue = null;
+    publish({ changed: 'all', source: transaction.migrated ? 'migration' : 'load' });
+    return { ok: true, migrated: transaction.migrated };
+  })();
+  try { return await initialization; } finally { initialization = null; }
+}
+
+export const retryRelayMigration = initializeRelay;
+
 /* changed 用来告诉视图「脏了哪一块」：inbox / plan / history / all。
    侧栏据此只重绘对应的页签——入库现在挂在复制这条最高频的路径上，
    每次都全量重建 50 张带图卡片会直接压到复制反馈的动效上。 */
-export async function commitRelay(mutator, { changed = 'all' } = {}) {
+export async function commitRelay(mutator, { changed = 'all', planId, revision, expectedRevision = revision } = {}) {
   const transaction = await withRelayLock(() => {
     /* ⚠ 不再 clone：loadRelayState 走的是 JSON.parse + normalizeRelayState，产出的已是
        全新对象图，与 current 没有任何共享引用。再 structuredClone + 再 normalize 一遍是白跑，
        实测占单次提交四成耗时。 */
-    const next = loadRelayState();
+    const loaded = loadRelayStateStatus();
+    if (!loaded.ok) {
+      storageIssue = loaded.reason;
+      return { ok: false, reason: loaded.reason };
+    }
+    const next = loaded.state;
+    if (planId && expectedRevision !== undefined) {
+      const plan = next.plans.find(item => item.id === planId);
+      if (!plan || plan.revision !== expectedRevision) {
+        return { ok: false, reason: plan ? 'conflict' : 'missing-plan', next, planId, revision: plan?.revision };
+      }
+    }
     let result;
     try {
       result = mutator(next);
     } catch (error) {
       /* 事务语义：锁照样在 finally 里释放，next 是独立副本，内存与磁盘都没被碰过。 */
       console.warn('[tag-relay] 中转站提交回调出错', error);
-      return { ok: false, reason: 'mutator' };
+      return { ok: false, reason: error.reason || 'mutator' };
     }
-    return { ...persistState(next, changed), result };
+    if (result?.ok === false && ['conflict', 'missing-plan'].includes(result.reason)) {
+      return { ok: false, reason: result.reason, next, result, planId, revision: result.plan?.revision };
+    }
+    const saved = persistState(next, changed, { allowTrim: !loaded.migrated });
+    if (!saved.ok && loaded.migrated) {
+      saved.reason = saved.reason === 'quota' ? 'migration-quota' : 'migration-save';
+    }
+    return { ...saved, result };
   });
 
   /* ⚠ 先落盘再换内存：写失败时内存与磁盘不会失步，用户手里的中转站还是刚才那份。 */
   if (!transaction.ok) {
+    if (transaction.reason === 'conflict' || transaction.reason === 'missing-plan') {
+      current = transaction.next;
+      storageIssue = null;
+      publish({ changed: 'plan', source: 'conflict', issue: transaction.reason, planId: transaction.planId });
+    } else if (transaction.reason.startsWith('migration-')) storageIssue = transaction.reason;
     reportFailure(transaction.reason);
-    return { ok: false, result: transaction.result };
+    return { ok: false, result: transaction.result, reason: transaction.reason, planId: transaction.planId, revision: transaction.revision };
   }
   /* ⚠ 换上的是**规整后**的那一份，与磁盘上的字节同源。直接换 mutator 改过的 next，
      将来任何加进 normalize 的规整都会让内存与磁盘悄悄分叉。 */
   current = transaction.next;
+  storageIssue = null;
   if (transaction.trimmed) {
     toast(`中转站已存满，已自动清理 ${transaction.trimmed} 条最旧的复制历史`, '!');
   }
@@ -297,6 +394,14 @@ export function prepareCopiedEntry(entry) {
   }
 }
 
+export function prepareCopiedFragment(entry, fragment) {
+  if (!entry) return null;
+  try { return snapshotFragment(entry, fragment); } catch (error) {
+    console.warn('[tag-relay] 无法建立片段快照', error);
+    return null;
+  }
+}
+
 export async function recordPreparedCopiedEntry(snapshot) {
   if (!snapshot) return false;
   const result = await commitRelay(next => touchInboxEntry(next, snapshot), { changed: 'inbox' });
@@ -310,12 +415,15 @@ export function subscribeRelay(listener) {
 }
 
 function reloadFromStorage(source, changed = 'all') {
-  current = loadRelayState();
-  publish({ changed, source });
+  const loaded = loadRelayStateStatus();
+  storageIssue = loaded.ok ? null : loaded.reason;
+  if (loaded.ok || !current) current = loaded.state;
+  if (storageIssue) reportFailure(storageIssue);
+  publish({ changed, source, issue: storageIssue });
 }
 
-export function setupRelayStore() {
-  if (bound) return;
+export async function setupRelayStore() {
+  if (bound) return await initializeRelay();
   bound = true;
   /* 跨标签页同步。⚠ storage 事件只在**别的**标签页写入时触发，
      所以同页内的修改必须走 commitRelay，指望它兜底是不行的。 */
@@ -324,6 +432,11 @@ export function setupRelayStore() {
        不认 storageArea 就会被当成 localStorage 被清空，整份重载一次。
        （惯例照抄 favorites-backup.js 的 subscribeFavoritesChanges。） */
     if (event.storageArea !== globalThis.localStorage) return;
+    if (TAG_RELAY_LEGACY_STORAGE_KEYS.includes(event.key)) {
+      toast('旧版页面更新了中转站，请刷新旧页面；当前方案保持不变', '!');
+      publish({ changed: 'legacy', source: 'storage', issue: 'legacy-updated' });
+      return;
+    }
     if (event.key === RELAY_SIGNAL_KEY) {
       /* 信号先到、数据后到：这里只记脏区，真正的重读等主 key 的事件。 */
       pendingChange = readChangeKind(event.newValue);
@@ -342,4 +455,5 @@ export function setupRelayStore() {
   window.addEventListener('pageshow', event => {
     if (event?.persisted) reloadFromStorage('pageshow');
   });
+  return await initializeRelay();
 }

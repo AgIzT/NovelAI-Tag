@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 
 import {
   TAG_RELAY_STORAGE_KEY,
+  TAG_RELAY_LEGACY_STORAGE_KEYS,
+  getActivePlan,
   loadRelayState,
   recordCopyHistory,
   saveRelayState,
   touchInboxEntry,
-} from '../site/assets/app/tag-relay-core.js';
+} from '../site/assets/app/tag-relay-v4.js';
+import * as legacy from '../site/assets/app/tag-relay-core.js';
 
 const LOCK_KEY = `${TAG_RELAY_STORAGE_KEY}:lock`;
 const SIGNAL_KEY = `${TAG_RELAY_STORAGE_KEY}:signal`;
@@ -20,10 +23,12 @@ const previousSetTimeout = globalThis.setTimeout;
 const values = new Map();
 /* 配额只对主 key 生效：撞墙时信号 key 仍要能写，才能验到「写失败会补发一条 all」。 */
 let quotaLimit = Infinity;
+const writes = [];
 const storage = {
   getItem: key => values.get(key) ?? null,
   setItem: (key, value) => {
     const text = String(value);
+    writes.push({ key, text });
     if (key === TAG_RELAY_STORAGE_KEY && text.length > quotaLimit) {
       const error = new Error('storage is full');
       error.name = 'QuotaExceededError';
@@ -101,7 +106,7 @@ try {
 
   const events = [];
   store.subscribeRelay((_, meta) => events.push(meta));
-  store.setupRelayStore();
+  await store.setupRelayStore();
 
   assert.equal((await store.commitRelay(next => touchInboxEntry(next, entry('one')), { changed: 'inbox' })).ok, true);
 
@@ -306,6 +311,118 @@ try {
     values.get(TAG_RELAY_STORAGE_KEY),
     '并发结束后内存仍须与磁盘字节一致',
   );
+
+  // ---- 方案 revision 冲突：不运行旧草稿写入，store 保持磁盘新状态 ----
+  const localPlan = getActivePlan(store.relayState());
+  const localDraft = { text: 'unfinished local tail', revision: localPlan.revision };
+  const peerState = loadRelayState(storage);
+  const peerPlan = getActivePlan(peerState);
+  peerPlan.positive.text = 'peer saved tag';
+  peerPlan.revision += 1;
+  assert.equal(saveRelayState(peerState, storage), true);
+  const peerBytes = values.get(TAG_RELAY_STORAGE_KEY);
+  const peerSignal = values.get(SIGNAL_KEY);
+  let staleMutationRan = false;
+  const conflict = await store.commitRelay(next => {
+    staleMutationRan = true;
+    getActivePlan(next).positive.text = localDraft.text;
+  }, { changed: 'plan', planId: localPlan.id, revision: localDraft.revision });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.reason, 'conflict');
+  assert.equal(conflict.revision, peerPlan.revision);
+  assert.equal(staleMutationRan, false, '过期 revision 不得执行 mutator');
+  assert.equal(values.get(TAG_RELAY_STORAGE_KEY), peerBytes, '冲突不得改写磁盘新输入');
+  assert.equal(values.get(SIGNAL_KEY), peerSignal, '冲突不得广播伪提交');
+  assert.equal(JSON.stringify(store.relayState()), peerBytes, 'store 应换成最新已存状态');
+  assert.equal(localDraft.text, 'unfinished local tail', '调用方草稿对象不得被 store 改写');
+  assert.equal(events.at(-1).source, 'conflict');
+  assert.match(lastToast(), /本地输入已保留/);
+
+  const refused = await store.commitRelay(() => ({ ok: false, reason: 'conflict' }), { changed: 'plan' });
+  assert.equal(refused.ok, false, '模型拒绝 revision 时不得把失败当成功写回');
+  assert.equal(values.get(TAG_RELAY_STORAGE_KEY), peerBytes);
+
+  // ---- 旧页面写 v3 / v1 只提示重载，不以旧状态覆盖 v4 或本页编辑 ----
+  for (const key of TAG_RELAY_LEGACY_STORAGE_KEYS) {
+    fire('storage', { key, storageArea: storage, newValue: '{"version":1}' });
+    assert.equal(events.at(-1).issue, 'legacy-updated');
+    assert.equal(JSON.stringify(store.relayState()), peerBytes);
+    assert.equal(values.get(TAG_RELAY_STORAGE_KEY), peerBytes);
+    assert.match(lastToast(), /旧版页面更新/);
+  }
+
+  // ---- v3 迁移在锁中一次落盘；失败不裁历史、不碰旧 key，可原样重试 ----
+  values.clear();
+  const old = legacy.createRelayState({ now: '2026-09-20T12:00:00.000Z' });
+  const oldPlan = legacy.getActivePlan(old);
+  legacy.appendEntryToPlan(old, oldPlan.id, {
+    ...entry('legacy'), title: '旧组, 2025', prompt: 'blue sky, cloud',
+    access: { nsfw: false, r18g: false },
+  }, { weight: 1.2, now: '2026-09-20T12:00:00.000Z' });
+  legacy.recordCopyHistory(old, {
+    label: '原成品记录', output: { positive: 'original output bytes  ', negative: '', positiveCount: 1, negativeCount: 0 },
+  }, { now: '2026-09-20T12:00:00.000Z' });
+  const oldBytes = legacy.serializeRelayState(old);
+  const oldKey = TAG_RELAY_LEGACY_STORAGE_KEYS[0];
+  values.set(oldKey, oldBytes);
+  const migratingStore = await import(`../site/assets/app/tag-relay-store.js?migration=${Date.now()}`);
+  const migrationCandidate = JSON.stringify(migratingStore.relayState());
+  assert.equal(migratingStore.relayState().history.length, 1);
+  quotaLimit = 10;
+  const failedMigration = await migratingStore.initializeRelay();
+  assert.equal(failedMigration.ok, false);
+  assert.equal(failedMigration.reason, 'migration-quota');
+  assert.equal(values.has(TAG_RELAY_STORAGE_KEY), false, '首次迁移失败不能写空 v4 占位');
+  assert.equal(values.get(oldKey), oldBytes, '失败保留旧 key 所有字节');
+  assert.equal(JSON.stringify(migratingStore.relayState()), migrationCandidate, '迁移失败不得偷偷裁旧历史');
+  assert.equal(migratingStore.getRelayStorageIssue(), 'migration-quota');
+  assert.match(lastToast(), /旧中转站数据已保留/);
+  assert.equal(toastNode.children[1]?.textContent, '重试');
+  quotaLimit = Infinity;
+  const writesBeforeMigration = writes.filter(item => item.key === TAG_RELAY_STORAGE_KEY).length;
+  const retriedMigration = await migratingStore.retryRelayMigration();
+  assert.equal(retriedMigration.ok, true);
+  assert.equal(retriedMigration.migrated, true);
+  assert.equal(writes.filter(item => item.key === TAG_RELAY_STORAGE_KEY).length, writesBeforeMigration + 1,
+    '校验试编译后只能一次提交迁移数据');
+  assert.equal(values.get(oldKey), oldBytes);
+  assert.equal(migratingStore.relayState().history[0].positive, JSON.parse(oldBytes).history[0].positive);
+  assert.equal(JSON.stringify(migratingStore.relayState()), values.get(TAG_RELAY_STORAGE_KEY));
+  assert.equal(migratingStore.getRelayStorageIssue(), null);
+  const migratedBytes = values.get(TAG_RELAY_STORAGE_KEY);
+  const writesAfterMigration = writes.length;
+  assert.equal((await migratingStore.initializeRelay()).migrated, false);
+  assert.equal(values.get(TAG_RELAY_STORAGE_KEY), migratedBytes, '重复加载不得重复导入');
+  assert.equal(writes.length, writesAfterMigration, '已经迁移时无需再次写盘');
+
+  // 最老的 v1 也只迁入新 key；其原始串既不规范化回写，也不被删掉。
+  values.clear();
+  const oldestKey = TAG_RELAY_LEGACY_STORAGE_KEYS[1];
+  const oldestBytes = JSON.stringify({ ...JSON.parse(oldBytes), version: 1 });
+  values.set(oldestKey, oldestBytes);
+  const oldestStore = await import(`../site/assets/app/tag-relay-store.js?oldest=${Date.now()}`);
+  assert.equal((await oldestStore.initializeRelay()).migrated, true);
+  assert.equal(values.get(oldestKey), oldestBytes);
+  assert.equal(values.has(oldKey), false, 'v1 直接迁入 v4，不生成或覆盖 v3');
+  assert.equal(oldestStore.relayState().history.length, 1);
+  values.set(oldKey, oldBytes);
+
+  // ---- 未来/损坏 schema：拒写，不用空方案降级重写 ----
+  for (const [bytes, reason] of [
+    ['{"version":5,"plans":[]}', 'future-version'],
+    ['{broken', 'corrupt-data'],
+  ]) {
+    values.set(TAG_RELAY_STORAGE_KEY, bytes);
+    let mutationRan = false;
+    const result = await migratingStore.commitRelay(() => { mutationRan = true; });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, reason);
+    assert.equal(mutationRan, false);
+    assert.equal(values.get(TAG_RELAY_STORAGE_KEY), bytes);
+    assert.equal(values.get(oldKey), oldBytes);
+    assert.equal((await migratingStore.initializeRelay()).ok, false);
+    assert.equal(values.get(TAG_RELAY_STORAGE_KEY), bytes);
+  }
 } finally {
   console.warn = previousWarn;
   globalThis.setTimeout = previousSetTimeout;

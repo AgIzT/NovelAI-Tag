@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   TAG_RELAY_HISTORY_LIMIT,
   TAG_RELAY_SCHEMA_VERSION,
+  TAG_RELAY_STORAGE_KEY,
   appendBlockToPlan,
   appendEntryToPlan,
   cleanPrompt,
@@ -51,12 +52,13 @@ function entry(overrides = {}) {
 }
 
 // “移出方案”的撤销恢复原槽位本身：顺序、id、编辑状态与历史遗留重复都不能漂。
+// v3 已把正负向拆为独立槽位；本组使用正向片段，负向兄弟的独立性另行断言。
 {
   const state = createRelayState({ now: NOW });
   const plan = state.plans[0];
   appendBlockToPlan(state, plan.id, { title: 'A', prompt: 'a' }, { id: 'restore-a', now: NOW });
   const middle = appendEntryToPlan(state, plan.id, entry({
-    title: '改过的 B', tags: 'edited-b', access: { nsfw: true, r18g: false }, accessKnown: true,
+    title: '改过的 B', tags: 'edited-b', channel: 'positive', access: { nsfw: true, r18g: false }, accessKnown: true,
   }), { id: 'restore-b', codexId: 'book-a', weight: 0.7, enabled: false, now: NOW }).item;
   appendBlockToPlan(state, plan.id, { title: 'C', prompt: 'c' }, { id: 'restore-c', now: NOW });
   const snapshot = JSON.parse(JSON.stringify(middle));
@@ -71,7 +73,7 @@ function entry(overrides = {}) {
   assert.equal(restorePlanItem(state, 'missing-plan', snapshot, 1, { now: NOW }), null);
 
   const removed = removePlanItem(state, plan.id, middle.id, { now: NOW });
-  assert.equal(appendEntryToPlan(state, plan.id, entry(), {
+  assert.equal(appendEntryToPlan(state, plan.id, entry({ channel: 'positive' }), {
     id: 'replacement-b', codexId: 'book-a', now: NOW,
   }).added, true);
   assert.equal(
@@ -82,10 +84,10 @@ function entry(overrides = {}) {
 
   const legacy = createRelayState({ now: NOW });
   const legacyPlan = legacy.plans[0];
-  const first = appendEntryToPlan(legacy, legacyPlan.id, entry(), {
+  const first = appendEntryToPlan(legacy, legacyPlan.id, entry({ channel: 'positive' }), {
     id: 'legacy-a', codexId: 'book-a', allowDuplicate: true, now: NOW,
   }).item;
-  const second = appendEntryToPlan(legacy, legacyPlan.id, entry(), {
+  const second = appendEntryToPlan(legacy, legacyPlan.id, entry({ channel: 'positive' }), {
     id: 'legacy-b', codexId: 'book-a', allowDuplicate: true, now: NOW,
   }).item;
   assert.equal(first.entryKey, second.entryKey);
@@ -94,6 +96,19 @@ function entry(overrides = {}) {
     maxEntryCopies: 2, now: NOW,
   }), '旧数据本来就有两个同源槽位时仍可原样撤销');
   assert.deepEqual(legacyPlan.items.map(item => item.id), ['legacy-a', 'legacy-b']);
+}
+
+// 正向槽位移出和撤销不应修改独立的负向兄弟。
+{
+  const state = createRelayState({ now: NOW });
+  const plan = state.plans[0];
+  const added = appendEntryToPlan(state, plan.id, entry(), { id: 'paired', now: NOW });
+  assert.deepEqual(added.items.map(item => [item.id, item.channel]), [['paired', 'positive'], ['paired-negative', 'negative']]);
+  const negative = structuredClone(added.items[1]);
+  const removed = removePlanItem(state, plan.id, 'paired', { now: NOW });
+  assert.deepEqual(plan.items, [negative]);
+  assert.ok(restorePlanItem(state, plan.id, removed, 0, { now: NOW }));
+  assert.deepEqual(plan.items[1], negative);
 }
 
 // Stable source keys dedupe title/prompt revisions, but keep codices separate.
@@ -154,19 +169,20 @@ function entry(overrides = {}) {
   assert.equal(renamePlan(state, plan.id, '都市地雷系', { now: NOW })?.name, '都市地雷系');
   assert.equal(setActivePlan(state, 'missing'), false);
 
-  const first = appendEntryToPlan(state, plan.id, entry(), {
+  const first = appendEntryToPlan(state, plan.id, entry({ channel: 'positive' }), {
     id: 'slot-entry',
     codexId: 'book-a',
     now: NOW,
   });
-  const duplicate = appendEntryToPlan(state, plan.id, entry({ title: '新标题' }), {
+  const duplicate = appendEntryToPlan(state, plan.id, entry({ title: '新标题', channel: 'positive' }), {
     codexId: 'book-a',
+    allowDuplicate: false,
     now: NOW,
   });
   const block = appendBlockToPlan(state, plan.id, {
     title: '氛围块',
     prompt: 'cinematic lighting',
-    negative: 'text',
+    channel: 'positive',
   }, { id: 'slot-block', now: NOW });
   assert.equal(first.added, true);
   assert.equal(duplicate.added, false);
@@ -236,7 +252,7 @@ function entry(overrides = {}) {
     plans: [], activePlanId: '', history: [],
   };
   const migrated = normalizeRelayState(legacy, { now: NOW });
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, TAG_RELAY_SCHEMA_VERSION);
   assert.deepEqual(migrated.inbox.map(item => item.title), ['最新', '最旧']);
 
   // 已经是 v2 的不能再掉头
@@ -308,7 +324,7 @@ function entry(overrides = {}) {
     negative: 'shared-negative, watermark',
   }, { id: 'block-a', now: NOW });
 
-  const nai = compilePlan(state, { target: 'nai' });
+  const nai = compilePlan(state, { target: 'nai', dedupe: true });
   assert.deepEqual(nai.positiveTokens, [
     'masterpiece',
     '{soft light}',
@@ -332,7 +348,7 @@ function entry(overrides = {}) {
 
   /* 断言整份 token 列表而不是 assert.match：多出无关内容也要能被发现 */
   updatePlanItem(state, plan.id, 'block-a', { weight: 0.8 }, { now: NOW });
-  const weightedNai = compilePlan(state, { target: 'nai' });
+  const weightedNai = compilePlan(state, { target: 'nai', dedupe: true });
   assert.deepEqual(weightedNai.positiveTokens, [
     'masterpiece',
     '{soft light}',
@@ -340,16 +356,14 @@ function entry(overrides = {}) {
     '1girl',
     '0.8::{soft light}, cinematic::',
   ]);
-  /* ⚠ 锁住现状：块权重**同样**作用于负向通道。用户拉低块权重想「少一点这个概念」时，
-     这块的负面约束也会一起放松——这是有意设计（块权重＝整块的存在感），
-     见 tag-relay-core.js 里 compilePlanChannel 的注释。别当 bug 改掉。 */
+  /* v3 将正负拆为独立节点后，修改正向权重不再隐式改动负向。 */
   assert.deepEqual(weightedNai.negativeTokens, [
     'bad hands',
     'shared-negative',
-    '0.8::shared-negative, watermark::',
+    'watermark',
   ]);
 
-  const sd = compilePlan(state, { target: 'sd' });
+  const sd = compilePlan(state, { target: 'sd', dedupe: true });
   assert.deepEqual(sd.positiveTokens, [
     'masterpiece',
     '(soft light:1.05)',
@@ -360,7 +374,7 @@ function entry(overrides = {}) {
   assert.deepEqual(sd.negativeTokens, [
     'bad hands',
     'shared-negative',
-    '(shared-negative, watermark:0.8)',
+    'watermark',
   ]);
 
   const plain = compilePlan(state, { target: 'plain', dedupe: false });
@@ -535,7 +549,7 @@ function entry(overrides = {}) {
   const loaded = loadRelayState(storage, { now: NOW });
   assert.deepEqual(loaded, JSON.parse(serializeRelayState(state, { now: NOW })));
 
-  values.set('fadian-tag-relay-v1', '{bad json');
+  values.set(TAG_RELAY_STORAGE_KEY, '{bad json');
   const fallback = loadRelayState(storage, { now: NOW });
   assert.equal(fallback.activePlanId, 'plan-default');
   assert.equal(fallback.plans.length, 1);
@@ -715,18 +729,23 @@ function entry(overrides = {}) {
     title: '原标题', prompt: '原正文', negative: '原负面',
   }, { id: 'patch-target', now: NOW });
   const patch = body => updatePlanItem(state, plan.id, 'patch-target', body, { now: NOW });
+  const negative = plan.items.find(candidate => candidate.id === 'patch-target-negative');
+  const patchNegative = body => updatePlanItem(state, plan.id, negative.id, body, { now: NOW });
 
   patch({ title: undefined, prompt: undefined, negative: undefined });
+  patchNegative({ title: undefined, negative: undefined });
   assert.deepEqual(
-    [item.title, item.prompt, item.negative],
+    [item.title, item.prompt, negative.negative],
     ['原标题', '原正文', '原负面'],
     'undefined 不该把字段清空（旧版只有 title 分支有兜底）',
   );
   patch({ enabled: false });
-  assert.deepEqual([item.title, item.prompt, item.negative], ['原标题', '原正文', '原负面']);
+  assert.deepEqual([item.title, item.prompt, negative.negative], ['原标题', '原正文', '原负面']);
   assert.equal(item.enabled, false);
   patch({ prompt: '', negative: '' });
-  assert.deepEqual([item.prompt, item.negative], ['', ''], '显式空串才是清空');
+  assert.equal(negative.negative, '原负面', '正向修改不应跨通道覆盖负向');
+  patchNegative({ negative: '' });
+  assert.deepEqual([item.prompt, negative.negative], ['', ''], '显式空串才是清空');
   patch({ positive: '别名正文' });
   assert.equal(item.prompt, '别名正文', 'positive 是 prompt 的别名');
   patch({ weight: 0 });

@@ -1162,7 +1162,7 @@ function pastUpdatesMenu(past) {
   ];
   if (!updateSelect) {
     updateSelect = createSelectMenu({
-      className: 'update-filter-select',
+      className: 'update-filter-select is-pill',
       onChange: value => setUpdateFilter(value),
     });
     updateSelectKey = '';

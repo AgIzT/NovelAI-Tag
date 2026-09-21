@@ -15,21 +15,22 @@ export function renderCategoryRail(onSelect) {
   const rail = $('#categoryRail');
   if (!rail) return;
   const items = [{ label: '全部', value: null }, ...COMMUNITY_CATEGORIES.map(category => ({ label: category, value: category }))];
-  rail.innerHTML = '';
-  const frag = document.createDocumentFragment();
+  const existing = new Map([...rail.children].map(button => [button.dataset.category, button]));
 
   for (const item of items) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'category-chip';
-    btn.textContent = item.label;
-    btn.dataset.category = item.value || '';
-    btn.setAttribute('aria-pressed', String((state.activeCategory || '') === (item.value || '')));
-    btn.addEventListener('click', () => onSelect(item.value));
-    frag.appendChild(btn);
+    const key = item.value || '';
+    let btn = existing.get(key);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'category-chip ui-press';
+      btn.textContent = item.label;
+      btn.dataset.category = key;
+      btn.addEventListener('click', () => onSelect(item.value));
+      rail.appendChild(btn);
+    }
+    btn.setAttribute('aria-pressed', String((state.activeCategory || '') === key));
   }
-
-  rail.appendChild(frag);
 }
 
 export function renderResultBar() {
@@ -103,100 +104,130 @@ export function renderEmptyState({ onSubmit, onClearSearch, onShowAll, onShowNSF
     if (!item.action) continue;
     const btn = document.createElement('button');
     btn.type = 'button';
+    btn.className = 'ui-press';
     btn.textContent = item.label;
     btn.addEventListener('click', item.action);
     actionBox?.appendChild(btn);
   }
 }
 
-export function renderGrid(entries, { onOpenDetail, onToggleFavorite } = {}) {
+const cardEntries = new WeakMap();
+
+export function renderGrid(entries, handlers = {}) {
   const grid = $('#communityGrid');
   if (!grid) return;
-  grid.innerHTML = '';
-  if (!entries.length) return;
-
-  const frag = document.createDocumentFragment();
-  entries.forEach((entry, index) => {
-    const firstImage = entry.images[0];
-    const category = entry.category?.[0] || '随手分享';
-    const card = document.createElement('article');
-    card.className = 'community-card';
-    card.tabIndex = 0;
-    card.setAttribute('role', 'button');
-    card.setAttribute('aria-label', `查看投稿：${entry.title || category}`);
-
-    const media = document.createElement('div');
-    media.className = firstImage ? 'community-card-media' : 'community-card-media no-image';
-    if (firstImage) {
-      media.style.setProperty('--img-ratio', String(imageRatio(firstImage)));
-      const img = document.createElement('img');
-      img.src = imageUrl(firstImage.file);
-      img.alt = entry.title || category;
-      img.loading = 'lazy';
-      img.addEventListener('load', () => {
-        if (!(img.naturalWidth > 0 && img.naturalHeight > 0)) return;
-        if (!(Number(firstImage.width) > 0)) firstImage.width = img.naturalWidth;
-        if (!(Number(firstImage.height) > 0)) firstImage.height = img.naturalHeight;
-        media.style.setProperty('--img-ratio', String(imageRatio(firstImage)));
-      }, { once: true });
-      media.appendChild(img);
-      if (entry.images.length > 1) {
-        const count = document.createElement('span');
-        count.className = 'image-count';
-        count.textContent = `${entry.images.length} 张`;
-        media.appendChild(count);
-      }
-      if (firstImage.params) {
-        const param = document.createElement('span');
-        param.className = 'param-badge';
-        param.textContent = '✦';
-        param.title = '原图含生成参数，详情页可查看原图';
-        media.appendChild(param);
-      }
-    } else {
-      media.innerHTML = '<span>Prompt</span>';
-    }
-    if (entry.nsfw) {
-      const badge = document.createElement('span');
-      badge.className = 'nsfw-badge';
-      badge.textContent = 'NSFW';
-      media.appendChild(badge);
-    }
-
-    const body = document.createElement('div');
-    body.className = 'community-card-body';
-    body.innerHTML = `
-      <div class="card-meta"><span>${escHtml(category)}</span>${entry.submitter ? `<span>投稿人 ${escHtml(entry.submitter)}</span>` : ''}</div>
-      <h2>${escHtml(entry.title || category + '分享')}</h2>
-      <p>${escHtml(promptExcerpt(entry.prompt))}</p>
-      <div class="card-tags">${(entry.tags || []).slice(0, 4).map(tag => `<span>${escHtml(tag)}</span>`).join('')}</div>
-    `;
-    const likeButton = createLikeButton(entry, 'card-like-overlay');
-    if (likeButton) media.appendChild(likeButton);
-
-    const fav = document.createElement('button');
-    fav.type = 'button';
-    fav.className = 'card-fav-btn';
-    fav.setAttribute('aria-label', isFavorite(entry) ? '取消收藏' : '收藏');
-    fav.setAttribute('aria-pressed', String(isFavorite(entry)));
-    fav.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.8 2.45 4.96 5.48.8-3.96 3.86.94 5.46L12 16.3l-4.9 2.58.93-5.46-3.96-3.86 5.48-.8L12 3.8Z"/></svg>';
-    fav.addEventListener('click', event => {
-      event.stopPropagation();
-      onToggleFavorite?.(entry);
-    });
-    fav.addEventListener('keydown', event => event.stopPropagation());
-
-    card.appendChild(fav);
-    card.append(media, body);
-    card.addEventListener('click', () => onOpenDetail?.(entry, 0));
-    card.addEventListener('keydown', event => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      onOpenDetail?.(entry, 0);
-    });
-    card.style.setProperty('--card-i', String(Math.min(index, 18)));
-    frag.appendChild(card);
+  const focused = document.activeElement;
+  const focusedCard = focused?.closest('.community-card');
+  const previousCards = [...grid.children];
+  const focusedIndex = previousCards.indexOf(focusedCard);
+  const existing = new Map(previousCards.map(card => [card.dataset.entryId, card]));
+  const nextCards = entries.map((entry, index) => {
+    const previous = existing.get(String(entry.id));
+    const card = previous && cardEntries.get(previous) === entry
+      ? previous : createCard(entry, handlers);
+    if (card !== previous) card.style.setProperty('--card-i', String(Math.min(index, 18)));
+    const favorite = card.querySelector('.card-fav-btn');
+    const active = isFavorite(entry);
+    favorite.setAttribute('aria-pressed', String(active));
+    favorite.setAttribute('aria-label', active ? '取消收藏' : '收藏');
+    return card;
   });
+  const nextSet = new Set(nextCards);
+  for (const card of previousCards) if (!nextSet.has(card)) card.remove();
+  // 不把保留节点移入 fragment：卸载再插入也会丢焦点并重播入场。
+  let cursor = grid.firstElementChild;
+  for (const card of nextCards) {
+    if (card !== cursor) grid.insertBefore(card, cursor);
+    cursor = card.nextElementSibling;
+  }
+  if (focusedIndex >= 0 && document.activeElement !== focused) {
+    const card = nextCards.find(item => item.dataset.entryId === focusedCard.dataset.entryId)
+      || nextCards[Math.min(focusedIndex, nextCards.length - 1)];
+    const target = focused.isConnected ? focused
+      : focused.matches('.card-fav-btn') ? card?.querySelector('.card-fav-btn') : card;
+    (target || $('#favFilterBtn'))?.focus({ preventScroll: true });
+  }
+}
 
-  grid.appendChild(frag);
+function createCard(entry, { onOpenDetail, onToggleFavorite } = {}) {
+  const firstImage = entry.images[0];
+  const category = entry.category?.[0] || '随手分享';
+  const card = document.createElement('article');
+  card.className = 'community-card';
+  card.dataset.entryId = String(entry.id);
+  cardEntries.set(card, entry);
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', `查看投稿：${entry.title || category}`);
+
+  const media = document.createElement('div');
+  media.className = firstImage ? 'community-card-media' : 'community-card-media no-image';
+  if (firstImage) {
+    media.style.setProperty('--img-ratio', String(imageRatio(firstImage)));
+    const img = document.createElement('img');
+    img.src = imageUrl(firstImage.file);
+    img.alt = entry.title || category;
+    img.loading = 'lazy';
+    img.addEventListener('load', () => {
+      if (!(img.naturalWidth > 0 && img.naturalHeight > 0)) return;
+      if (!(Number(firstImage.width) > 0)) firstImage.width = img.naturalWidth;
+      if (!(Number(firstImage.height) > 0)) firstImage.height = img.naturalHeight;
+      media.style.setProperty('--img-ratio', String(imageRatio(firstImage)));
+    }, { once: true });
+    media.appendChild(img);
+    if (entry.images.length > 1) {
+      const count = document.createElement('span');
+      count.className = 'image-count';
+      count.textContent = `${entry.images.length} 张`;
+      media.appendChild(count);
+    }
+    if (firstImage.params) {
+      const param = document.createElement('span');
+      param.className = 'param-badge';
+      param.textContent = '✦';
+      param.title = '原图含生成参数，详情页可查看原图';
+      media.appendChild(param);
+    }
+  } else {
+    media.innerHTML = '<span>Prompt</span>';
+  }
+  if (entry.nsfw) {
+    const badge = document.createElement('span');
+    badge.className = 'nsfw-badge';
+    badge.textContent = 'NSFW';
+    media.appendChild(badge);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'community-card-body';
+  body.innerHTML = `
+    <div class="card-meta"><span>${escHtml(category)}</span>${entry.submitter ? `<span>投稿人 ${escHtml(entry.submitter)}</span>` : ''}</div>
+    <h2>${escHtml(entry.title || category + '分享')}</h2>
+    <p>${escHtml(promptExcerpt(entry.prompt))}</p>
+    <div class="card-tags">${(entry.tags || []).slice(0, 4).map(tag => `<span>${escHtml(tag)}</span>`).join('')}</div>
+  `;
+  const likeButton = createLikeButton(entry, 'card-like-overlay');
+  if (likeButton) media.appendChild(likeButton);
+
+  const fav = document.createElement('button');
+  fav.type = 'button';
+  fav.className = 'card-fav-btn ui-press';
+  fav.setAttribute('aria-label', isFavorite(entry) ? '取消收藏' : '收藏');
+  fav.setAttribute('aria-pressed', String(isFavorite(entry)));
+  fav.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.8 2.45 4.96 5.48.8-3.96 3.86.94 5.46L12 16.3l-4.9 2.58.93-5.46-3.96-3.86 5.48-.8L12 3.8Z"/></svg>';
+  fav.addEventListener('click', event => {
+    event.stopPropagation();
+    onToggleFavorite?.(entry);
+  });
+  fav.addEventListener('keydown', event => event.stopPropagation());
+
+  card.appendChild(fav);
+  card.append(media, body);
+  card.addEventListener('click', () => onOpenDetail?.(entry, 0, { trigger: card }));
+  card.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    onOpenDetail?.(entry, 0, { trigger: card });
+  });
+  return card;
 }

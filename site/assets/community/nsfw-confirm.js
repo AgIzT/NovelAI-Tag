@@ -14,14 +14,14 @@ function ensureMask() {
   mask.setAttribute('aria-labelledby', 'communityNsfwTitle');
   mask.innerHTML = `
     <div class="dialog-panel community-confirm-panel">
-      <button class="dialog-close" type="button" data-community-nsfw-cancel aria-label="关闭">×</button>
+      <button class="ui-press dialog-close" type="button" data-community-nsfw-cancel aria-label="关闭">×</button>
       <div class="community-confirm-icon" aria-hidden="true">18+</div>
       <h2 id="communityNsfwTitle">成人内容提示</h2>
       <p>开启后，共创广场会混合展示可能包含成人向、裸露、性暗示或露骨内容的投稿。</p>
       <p>请确认你所在地区允许访问此类内容，并且你已年满 18 周岁或达到当地法定成年年龄。</p>
       <div class="community-confirm-actions">
-        <button class="ghost-btn" type="button" data-community-nsfw-cancel>暂不开启</button>
-        <button class="primary-btn" type="button" data-community-nsfw-accept>我已成年，开启混显</button>
+        <button class="ui-press ghost-btn" type="button" data-community-nsfw-cancel>暂不开启</button>
+        <button class="ui-press primary-btn" type="button" data-community-nsfw-accept>我已成年，开启混显</button>
       </div>
     </div>`;
   document.body.appendChild(mask);

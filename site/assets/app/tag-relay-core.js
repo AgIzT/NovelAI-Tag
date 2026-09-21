@@ -2,8 +2,9 @@ import { naiToSd } from './nai-sd.js';
 
 export { naiToSd } from './nai-sd.js';
 
-export const TAG_RELAY_STORAGE_KEY = 'fadian-tag-relay-v1';
-export const TAG_RELAY_SCHEMA_VERSION = 2;
+export const TAG_RELAY_STORAGE_KEY = 'fadian-tag-relay-v3';
+export const TAG_RELAY_LEGACY_STORAGE_KEY = 'fadian-tag-relay-v1';
+export const TAG_RELAY_SCHEMA_VERSION = 3;
 export const TAG_RELAY_INBOX_LIMIT = 50;
 export const TAG_RELAY_HISTORY_LIMIT = 20;
 export const TAG_RELAY_TARGETS = Object.freeze(['nai', 'sd', 'plain']);
@@ -18,6 +19,18 @@ function isObject(value) {
 function text(value, fallback = '') {
   if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
   return fallback;
+}
+
+function rawText(value, fallback = '') {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback;
+}
+
+export class RelayDataError extends Error {
+  constructor(reason, message) {
+    super(message);
+    this.name = 'RelayDataError';
+    this.reason = reason;
+  }
 }
 
 function timestamp(value, fallback = new Date().toISOString()) {
@@ -136,7 +149,7 @@ function normalizeAccess(value, source = {}) {
  */
 export function stableEntryKey(entry, context = {}) {
   const source = isObject(entry) ? entry : {};
-  const explicit = text(source.relayKey);
+  const explicit = text(source.fragmentKey || source.relayKey);
   if (explicit) return explicit;
 
   const codexId = text(
@@ -163,6 +176,15 @@ export function stableEntryKey(entry, context = {}) {
   return `entry:local:${hashText(signature)}`;
 }
 
+export function stableFragmentKey(entry, fragment = {}, context = {}) {
+  const sourceKey = text(entry?.sourceKey) || stableEntryKey({ ...entry, relayKey: '', fragmentKey: '' }, context);
+  const signature = JSON.stringify([
+    fragment.channel || 'positive', fragment.scope || 'selection',
+    fragment.characterIndex ?? null, rawText(fragment.text),
+  ]);
+  return `${sourceKey}:fragment:${hashText(signature)}`;
+}
+
 export function normalizeRelayEntry(entry, context = {}) {
   const source = isObject(entry) ? entry : {};
   const fallbackNow = nowIso(context);
@@ -175,6 +197,13 @@ export function normalizeRelayEntry(entry, context = {}) {
   const entryId = text(source.entryId ?? source.id ?? source.key ?? context.entryId);
   return {
     key: stableEntryKey(source, context),
+    sourceKey: text(source.sourceKey, stableEntryKey({ ...source, relayKey: '', fragmentKey: '' }, context)),
+    fragmentKey: text(source.fragmentKey),
+    relayKey: text(source.fragmentKey || source.relayKey),
+    scope: text(source.scope, 'entry'),
+    channel: ['positive', 'negative', 'character-positive', 'character-negative'].includes(source.channel)
+      ? source.channel : '',
+    characterIndex: Number.isInteger(source.characterIndex) ? source.characterIndex : null,
     codexId,
     entryId,
     title: text(source.title, entryId || '未命名词条'),
@@ -207,24 +236,37 @@ function normalizeWeight(value) {
   return Math.min(10, Math.max(0.05, parsed));
 }
 
-function normalizePlanItem(item, context = {}) {
+export function normalizePlanItem(item, context = {}) {
   const source = isObject(item) ? item : {};
   const embedded = isObject(source.entry) ? source.entry : source;
   const kind = source.kind === 'block' ? 'block' : 'entry';
   const fallbackNow = nowIso(context);
   const entry = kind === 'entry' ? normalizeRelayEntry(embedded, context) : null;
+  const nodeType = ['group', 'tag', 'text'].includes(source.nodeType) ? source.nodeType : 'group';
+  const channel = source.channel === 'negative' ? 'negative' : 'positive';
+  const contentText = nodeType === 'text' ? rawText : text;
   return {
     id: text(source.id ?? (source.uid != null ? `slot-${source.uid}` : ''))
       || generatedId(kind === 'entry' ? 'entry-slot' : 'block-slot'),
     kind,
+    nodeType,
+    channel,
+    linkedId: text(source.linkedId),
+    sourceKey: text(source.sourceKey, entry?.sourceKey || ''),
+    fragmentKey: text(source.fragmentKey, entry?.fragmentKey || ''),
+    scope: text(source.scope, entry?.scope || 'custom'),
+    characterIndex: Number.isInteger(source.characterIndex) ? source.characterIndex : null,
     entryKey: kind === 'entry'
       ? text(source.entryKey ?? source.relayKey ?? source.key, entry.key)
       : '',
     codexId: kind === 'entry' ? text(source.codexId, entry.codexId) : '',
     entryId: kind === 'entry' ? text(source.entryId, entry.entryId) : '',
     title: text(source.title, kind === 'entry' ? entry.title : '自定义块'),
-    prompt: text(source.prompt ?? source.positive ?? source.tags, kind === 'entry' ? entry.prompt : ''),
-    negative: text(source.negative, kind === 'entry' ? entry.negative : ''),
+    prompt: contentText(source.prompt ?? source.positive ?? source.tags, kind === 'entry' ? entry.prompt : ''),
+    negative: contentText(source.negative, kind === 'entry' ? entry.negative : ''),
+    ...(Array.isArray(source.parts) ? { parts: source.parts.filter(isObject).map((part, index) => ({
+      id: text(part.id, `part-${index}`), raw: rawText(part.raw), enabled: part.enabled !== false,
+    })) } : {}),
     characterPrompts: kind === 'entry'
       ? normalizeCharacterPrompts(source.characterPrompts ?? entry.characterPrompts)
       : normalizeCharacterPrompts(source.characterPrompts),
@@ -250,7 +292,16 @@ function normalizePlan(plan, context = {}) {
   const fallbackNow = nowIso(context);
   const items = [];
   const usedIds = new Set();
-  for (const rawItem of Array.isArray(source.items) ? source.items : []) {
+  const expandedItems = (Array.isArray(source.items) ? source.items : []).flatMap(rawItem => {
+    if (rawItem?.channel === 'positive' || rawItem?.channel === 'negative') return [rawItem];
+    const item = normalizePlanItem(rawItem, context);
+    const linkedId = item.id;
+    const result = [{ ...item, channel: 'positive', linkedId, negative: '' }];
+    if (item.negative) result.push({ ...item, id: `${item.id}-negative`, channel: 'negative', linkedId,
+      prompt: '', characterPrompts: [] });
+    return result;
+  });
+  for (const rawItem of expandedItems) {
     const item = normalizePlanItem(rawItem, context);
     const base = item.id;
     let next = base;
@@ -264,6 +315,7 @@ function normalizePlan(plan, context = {}) {
     id: text(source.id) || generatedId('plan'),
     name: text(source.name ?? source.title, DEFAULT_PLAN_NAME),
     revision: Math.max(0, Number.parseInt(source.revision ?? source.rev, 10) || 0),
+    dedupe: typeof source.dedupe === 'boolean' ? source.dedupe : context.legacy === true,
     items,
     createdAt: timestamp(source.createdAt, fallbackNow),
     updatedAt: timestamp(source.updatedAt, fallbackNow),
@@ -312,8 +364,8 @@ function normalizeHistoryRecord(record, context = {}) {
   const joinMode = ['comma', 'newline'].includes(source.joinMode ?? source.join)
     ? (source.joinMode ?? source.join)
     : 'comma';
-  const positive = text(source.positive ?? (channel === 'positive' ? source.output : ''));
-  const negative = text(source.negative ?? (channel === 'negative' ? source.output : ''));
+  const positive = rawText(source.positive ?? (channel === 'positive' ? source.output : ''));
+  const negative = rawText(source.negative ?? (channel === 'negative' ? source.output : ''));
   return {
     id: text(source.id) || generatedId('copy'),
     label: text(source.label, plan.name),
@@ -356,6 +408,9 @@ export function createRelayState(options = {}) {
 export function normalizeRelayState(raw, options = {}) {
   if (!isObject(raw)) return createRelayState(options);
   const now = nowIso(options);
+  if (Number(raw.version) > TAG_RELAY_SCHEMA_VERSION) {
+    throw new RelayDataError('future-version', '中转站数据来自更新版本，请更新页面后重试');
+  }
 
   const inbox = [];
   const inboxKeys = new Set();
@@ -383,7 +438,7 @@ export function normalizeRelayState(raw, options = {}) {
   const planIds = new Set();
   for (const item of Array.isArray(raw.plans) ? raw.plans : []) {
     if (!isObject(item)) continue;
-    const plan = normalizePlan(item, { now });
+    const plan = normalizePlan(item, { now, legacy: rawVersion < 3 || !Number.isFinite(rawVersion) });
     const base = plan.id;
     let next = base;
     let suffix = 2;
@@ -402,7 +457,7 @@ export function normalizeRelayState(raw, options = {}) {
   const rawHistory = raw.history ?? raw.copyHistory;
   const history = (Array.isArray(rawHistory) ? rawHistory : [])
     .filter(isObject)
-    .map(item => normalizeHistoryRecord(item, { now }))
+    .map(item => normalizeHistoryRecord(item, { now, legacy: rawVersion < 3 || !Number.isFinite(rawVersion) }))
     .slice(0, limit);
 
   return {
@@ -418,23 +473,54 @@ export function serializeRelayState(state, options = {}) {
   return JSON.stringify(normalizeRelayState(state, options));
 }
 
-export function loadRelayState(storage = globalThis.localStorage, options = {}) {
+function parseStoredState(raw, options = {}) {
+  let parsed;
   try {
-    const raw = storage?.getItem?.(options.key || TAG_RELAY_STORAGE_KEY);
-    if (!raw) return createRelayState(options);
-    return normalizeRelayState(JSON.parse(raw), options);
+    parsed = JSON.parse(raw);
   } catch {
-    return createRelayState(options);
+    throw new RelayDataError('corrupt-data', '中转站数据损坏，原始内容已保留');
   }
+  if (isObject(parsed) && Number(parsed.version) > TAG_RELAY_SCHEMA_VERSION) {
+    throw new RelayDataError('future-version', '中转站数据来自更新版本，请更新页面后重试');
+  }
+  if (!isObject(parsed) || !Array.isArray(parsed.plans)
+    || parsed.plans.some(plan => !isObject(plan) || !Array.isArray(plan.items)
+      || plan.items.some(item => !isObject(item)))
+    || (parsed.inbox !== undefined && !Array.isArray(parsed.inbox))
+    || (parsed.history !== undefined && !Array.isArray(parsed.history))) {
+    throw new RelayDataError('corrupt-data', '中转站数据结构不完整，原始内容已保留');
+  }
+  return normalizeRelayState(parsed, options);
+}
+
+export function loadRelayStateStatus(storage = globalThis.localStorage, options = {}) {
+  try {
+    const key = options.key || TAG_RELAY_STORAGE_KEY;
+    const raw = storage?.getItem?.(key);
+    if (raw !== null && raw !== undefined) {
+      return { ok: true, state: parseStoredState(raw, options), migrated: false };
+    }
+    const legacy = !options.key && storage?.getItem?.(TAG_RELAY_LEGACY_STORAGE_KEY);
+    if (legacy !== null && legacy !== undefined && legacy !== false) {
+      return { ok: true, state: parseStoredState(legacy, options), migrated: true };
+    }
+    return { ok: true, state: createRelayState(options), migrated: false };
+  } catch (error) {
+    return { ok: false, state: createRelayState(options), reason: error.reason || 'storage', error };
+  }
+}
+
+export function loadRelayState(storage = globalThis.localStorage, options = {}) {
+  return loadRelayStateStatus(storage, options).state;
 }
 
 export function saveRelayState(state, storage = globalThis.localStorage, options = {}) {
   try {
-    storage?.setItem?.(
-      options.key || TAG_RELAY_STORAGE_KEY,
-      serializeRelayState(state, options),
-    );
-    return Boolean(storage?.setItem);
+    if (!loadRelayStateStatus(storage, options).ok) return false;
+    const key = options.key || TAG_RELAY_STORAGE_KEY;
+    const payload = serializeRelayState(state, options);
+    storage?.setItem?.(key, payload);
+    return storage?.getItem?.(key) === payload;
   } catch {
     return false;
   }
@@ -554,11 +640,14 @@ export function appendEntryToPlan(state, planId, entry, options = {}) {
   const plan = getPlan(state, planId);
   if (!plan) return { added: false, item: null };
   const normalized = normalizeRelayEntry(entry, options);
-  if (options.allowDuplicate !== true) {
+  if (normalized.channel === 'character-negative') {
+    return { added: false, item: null, reason: 'character-channel' };
+  }
+  if (options.allowDuplicate === false) {
     const existing = plan.items.find(item => item.kind === 'entry' && item.entryKey === normalized.key);
     if (existing) return { added: false, item: existing };
   }
-  const item = normalizePlanItem({
+  const base = {
     ...normalized,
     id: planItemId(plan, options, 'entry-slot'),
     kind: 'entry',
@@ -566,27 +655,76 @@ export function appendEntryToPlan(state, planId, entry, options = {}) {
     enabled: options.enabled !== false,
     weight: options.weight,
     createdAt: nowIso(options),
-  }, options);
-  plan.items.push(item);
+  };
+  const linkedId = base.id;
+  const items = [];
+  const positive = normalized.channel !== 'negative'
+    && (normalized.prompt || normalized.characterPrompts.length);
+  if (positive || !normalized.negative) items.push(normalizePlanItem({ ...base,
+    channel: 'positive', negative: '', linkedId }, options));
+  if (normalized.negative && normalized.channel !== 'positive' && normalized.channel !== 'character-positive') {
+    items.push(normalizePlanItem({ ...base,
+      id: uniqueId([...plan.items, ...items], positive ? `${base.id}-negative` : base.id, 'entry-slot'),
+      channel: 'negative', prompt: '', characterPrompts: [], linkedId }, options));
+  }
+  const index = Number.isInteger(options.index) ? Math.max(0, Math.min(plan.items.length, options.index)) : plan.items.length;
+  plan.items.splice(index, 0, ...items);
   touchPlan(plan, options);
-  return { added: true, item };
+  return { added: true, item: items[0], items };
 }
 
 export function appendBlockToPlan(state, planId, block = {}, options = {}) {
   const plan = getPlan(state, planId);
   if (!plan) return null;
   const source = typeof block === 'string' ? { prompt: block } : block;
-  const item = normalizePlanItem({
+  const base = {
     ...source,
     id: planItemId(plan, options, 'block-slot'),
     kind: 'block',
     enabled: options.enabled ?? source.enabled,
     weight: options.weight ?? source.weight,
     createdAt: nowIso(options),
+  };
+  const items = normalizePlan({ items: [base] }, options).items;
+  const index = Number.isInteger(options.index) ? Math.max(0, Math.min(plan.items.length, options.index)) : plan.items.length;
+  plan.items.splice(index, 0, ...items);
+  touchPlan(plan, options);
+  return items[0];
+}
+
+/** Node insertion keeps source identity separate from the new editable instance. */
+export function insertPlanNode(state, planId, node = {}, index, options = {}) {
+  const plan = getPlan(state, planId);
+  if (!plan) return null;
+  const source = typeof node === 'string' ? { prompt: node, nodeType: 'tag' } : node;
+  const item = normalizePlanItem({ ...source, kind: source.kind || 'block',
+    id: uniqueId(plan.items, source.id || options.id, 'node'),
+    channel: source.channel === 'negative' ? 'negative' : 'positive',
   }, options);
-  plan.items.push(item);
+  const target = Number.isInteger(index) ? Math.max(0, Math.min(plan.items.length, index)) : plan.items.length;
+  plan.items.splice(target, 0, item);
   touchPlan(plan, options);
   return item;
+}
+
+export function replacePlanItems(state, planId, items, options = {}) {
+  const plan = getPlan(state, planId);
+  if (!plan) return { ok: false, reason: 'missing-plan' };
+  if (options.expectedRevision !== undefined && options.expectedRevision !== plan.revision) {
+    return { ok: false, reason: 'conflict', revision: plan.revision };
+  }
+  if (!Array.isArray(items)) return { ok: false, reason: 'invalid-items' };
+  plan.items = normalizePlan({ ...plan, items }, options).items;
+  touchPlan(plan, options);
+  return { ok: true, revision: plan.revision, items: plan.items };
+}
+
+export function setPlanDedupe(state, planId, enabled, options = {}) {
+  const plan = getPlan(state, planId);
+  if (!plan) return null;
+  plan.dedupe = enabled === true;
+  touchPlan(plan, options);
+  return plan;
 }
 
 export function updatePlanItem(state, planId, itemId, patch = {}, options = {}) {
@@ -597,9 +735,18 @@ export function updatePlanItem(state, planId, itemId, patch = {}, options = {}) 
      少了兜底的话 `{prompt: undefined}` 会把正文抹掉，而同一个 patch 里的 title 却安然无恙。 */
   if (Object.hasOwn(patch, 'title')) item.title = text(patch.title, item.title);
   if (Object.hasOwn(patch, 'prompt') || Object.hasOwn(patch, 'positive')) {
-    item.prompt = text(patch.prompt ?? patch.positive, item.prompt);
+    item.prompt = (item.nodeType === 'text' ? rawText : text)(patch.prompt ?? patch.positive, item.prompt);
+    if ((patch.prompt ?? patch.positive) !== undefined && !Object.hasOwn(patch, 'parts')) delete item.parts;
   }
-  if (Object.hasOwn(patch, 'negative')) item.negative = text(patch.negative, item.negative);
+  if (Object.hasOwn(patch, 'negative')) {
+    item.negative = (item.nodeType === 'text' ? rawText : text)(patch.negative, item.negative);
+    if (patch.negative !== undefined && !Object.hasOwn(patch, 'parts')) delete item.parts;
+  }
+  if (Object.hasOwn(patch, 'parts')) {
+    if (Array.isArray(patch.parts)) item.parts = normalizePlanItem({ ...item, parts: patch.parts }).parts;
+    else delete item.parts;
+  }
+  if (['group', 'tag', 'text'].includes(patch.nodeType)) item.nodeType = patch.nodeType;
   if (Object.hasOwn(patch, 'enabled') || Object.hasOwn(patch, 'on')) {
     item.enabled = patch.enabled !== false && patch.on !== false;
   }
@@ -637,9 +784,8 @@ export function removePlanItem(state, planId, itemId, options = {}) {
   return removed;
 }
 
-/* 撤销“移出方案”必须把原来的槽位本身放回来，不能重新 append 素材：后者会换 id，
-   还可能丢掉用户改过的正文、权重、停用状态与原顺序。maxEntryCopies 默认守住“一条素材
-   一槽位”的现行不变式；调用方可传删除前的同 key 数量，让历史遗留的重复槽位也能原样撤销。 */
+/* 撤销恢复原实例，保住正文、权重、停用状态与顺序。旧调用方仍可显式传
+   maxEntryCopies；混合编辑器默认允许同一来源的多个独立实例。 */
 export function restorePlanItem(state, planId, item, toIndex, options = {}) {
   const plan = getPlan(state, planId);
   if (!plan || !isObject(item)) return null;
@@ -647,7 +793,7 @@ export function restorePlanItem(state, planId, item, toIndex, options = {}) {
   if (!Number.isInteger(parsed)) return null;
   const restored = normalizePlanItem(item, options);
   if (plan.items.some(candidate => candidate.id === restored.id)) return null;
-  if (restored.kind === 'entry') {
+  if (restored.kind === 'entry' && options.maxEntryCopies !== undefined) {
     const maxCopies = Math.max(1, Number.parseInt(options.maxEntryCopies, 10) || 1);
     const copies = plan.items.filter(candidate => (
       candidate.kind === 'entry' && candidate.entryKey === restored.entryKey
@@ -676,8 +822,20 @@ export function splitTopLevel(value) {
   let round = 0;
   let numeric = false;
   let numericClosed = false;
+  let quoted = false;
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
+    if (char === '\\') {
+      part += source.slice(index, index + 2);
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      part += char;
+      continue;
+    }
+    if (quoted) { part += char; continue; }
     const pair = source.slice(index, index + 2);
     if (pair === '::') {
       if (numeric) {
@@ -778,11 +936,22 @@ export function compileRelayBlock(value, options = {}) {
    ⚠ 负向**只取词条级** negative，角色级负面绝不并进来：NAI 里那是按角色分槽填的，
    把几条词条的角色 uc 揉成一个全局 uc 会过度压制画面。想精确填槽的走灯箱。
    （这是 docs/decisions/Tag中转站.md 的明文约束，要改先去改文档。） */
-function itemPrompt(item, channel) {
-  if (channel === 'negative') return cleanPrompt(item.negative);
+export function planItemPrompt(item) {
+  if (Array.isArray(item?.parts)) {
+    return item.parts.filter(part => part.enabled !== false).map(part => rawText(part.raw)).filter(Boolean).join(', ');
+  }
+  if (item?.channel === 'negative') return rawText(item.negative);
+  if (item?.nodeType === 'text') return rawText(item.prompt);
   const parts = [item.prompt];
   for (const character of item.characterPrompts || []) parts.push(character.prompt);
   return parts.map(cleanPrompt).filter(Boolean).join(',\n');
+}
+
+function itemPrompt(item, channel) {
+  if (item.channel && item.channel !== channel) return '';
+  if (item.channel) return planItemPrompt(item);
+  if (channel === 'negative') return cleanPrompt(item.negative);
+  return planItemPrompt(item);
 }
 
 /** 这个块带没带角色级负面——界面据此提示「未并入」，别让它悄无声息地消失 */
@@ -790,9 +959,8 @@ export function itemHasCharacterNegative(item) {
   return (item?.characterPrompts || []).some(character => String(character?.negative || '').trim());
 }
 
-/* 去重默认开着：源串里同一个 tag 出现两次多半是整理时的手滑，帮用户合掉是服务。
-   但合掉了必须说出来——`merged` 把合并了哪几条、各丢了几次一并带出去，界面显示成「已合并 N 条重复」。
-   透明比给一个开关便宜：用户不用做选择，也不会某天疑惑「我明明加了两条怎么少了」。 */
+/* 新方案按所见输出；迁移的旧方案保留去重。显式输出选项优先于方案设置，
+   merged 同时返回实际合并结果，避免用户看不见被省略的词。 */
 export function compilePlanChannel(plan, channel, options = {}) {
   if (!plan || !['positive', 'negative'].includes(channel)) return { text: '', tokens: [], merged: [] };
   let tokens = [];
@@ -809,7 +977,7 @@ export function compilePlanChannel(plan, channel, options = {}) {
     if (compiled) tokens.push(...splitTopLevel(compiled));
   }
   const merged = [];
-  if (options.dedupe !== false) {
+  if ((options.dedupe ?? plan.dedupe ?? true) === true) {
     const seen = new Map();
     const kept = [];
     for (const token of tokens) {
@@ -923,4 +1091,69 @@ export function restoreHistoryAsPlan(state, historyId, options = {}) {
   state.plans.push(plan);
   state.activePlanId = plan.id;
   return plan;
+}
+
+export function exportRelayBackup(state, options = {}) {
+  return JSON.stringify({
+    format: 'fadian-tag-relay',
+    version: TAG_RELAY_SCHEMA_VERSION,
+    exportedAt: nowIso(options),
+    state: normalizeRelayState(state, options),
+  }, null, 2);
+}
+
+export function validateRelayBackup(value) {
+  let backup = value;
+  if (typeof value === 'string') {
+    try { backup = JSON.parse(value); } catch {
+      throw new RelayDataError('invalid-backup', '文件不是有效的中转站 JSON 备份');
+    }
+  }
+  if (!isObject(backup) || backup.format !== 'fadian-tag-relay' || !isObject(backup.state)) {
+    throw new RelayDataError('invalid-backup', '请选择中转站导出的备份文件');
+  }
+  if (Number(backup.version) > TAG_RELAY_SCHEMA_VERSION) {
+    throw new RelayDataError('future-version', '备份来自更新版本，请更新页面后恢复');
+  }
+  try { return parseStoredState(JSON.stringify(backup.state)); } catch (error) {
+    if (error.reason === 'future-version') throw error;
+    throw new RelayDataError('invalid-backup', '备份结构不完整，现有方案保持原样');
+  }
+}
+
+/** Recovery always adds copies; an import never overwrites a live plan. */
+export function importRelayBackup(state, value, options = {}) {
+  const imported = validateRelayBackup(value);
+  const plans = [];
+  for (const source of imported.plans) {
+    const plan = normalizePlan({ ...source,
+      id: uniqueId(state.plans, '', 'plan'),
+      name: `${source.name}（恢复）`,
+      createdAt: nowIso(options), updatedAt: nowIso(options),
+    });
+    state.plans.push(plan);
+    plans.push(plan);
+  }
+  if (plans.length && options.activate !== false) state.activePlanId = plans[0].id;
+  const importedInboxKeys = new Set();
+  for (const entry of [...imported.inbox].reverse()) {
+    if (!state.inbox.some(item => item.key === entry.key)) {
+      state.inbox.unshift(entry);
+      importedInboxKeys.add(entry.key);
+    }
+  }
+  state.inbox.splice(TAG_RELAY_INBOX_LIMIT);
+  const importedHistoryIds = new Set();
+  for (const record of imported.history) {
+    const id = uniqueId(state.history, '', 'copy');
+    state.history.push({ ...record, id });
+    importedHistoryIds.add(id);
+  }
+  state.history.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  state.history = state.history.slice(0, TAG_RELAY_HISTORY_LIMIT);
+  const inboxCount = state.inbox.filter(entry => importedInboxKeys.has(entry.key)).length;
+  const historyCount = state.history.filter(record => importedHistoryIds.has(record.id)).length;
+  return { plans, planCount: plans.length, inboxCount, historyCount,
+    droppedInboxCount: importedInboxKeys.size - inboxCount,
+    droppedHistoryCount: importedHistoryIds.size - historyCount };
 }

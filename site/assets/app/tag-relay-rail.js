@@ -96,9 +96,10 @@ function setOpenDirect(open, trigger = null) {
       : (fallback instanceof HTMLElement && fallback !== document.body ? fallback : null);
     /* 浮层态是模态语义：焦点必须进去，否则读屏与键盘用户还停在页面底下 */
     if (overlayQuery.matches) {
-      (rail.querySelector('#relayPlanPickerBtn') || rail.querySelector('button') || rail).focus?.();
+      (rail.querySelector('#tagRelayRailClose') || rail).focus?.();
     }
   } else {
+    rail.dispatchEvent(new CustomEvent('relayclose'));
     /* 没走完的确认 / 命名条不能留到下一次打开——「清空最近复制」「删除方案」
        这类 danger 条尤其危险：用户以为已经放弃，回来随手一点就真执行了。 */
     cancelRelayAction();
@@ -189,7 +190,7 @@ function bindRail() {
     if (tab) showRailTab(tab.dataset.railTab);
   });
 
-  /* Esc 由内向外。Inspector / 历史的处理器也绑在 rail 上，而且 compose 比本模块晚初始化；
+  /* Esc 由内向外。内层菜单的处理器也绑在 rail 上，而且比本模块晚初始化；
      stopPropagation 阻止不了同一节点上已经排在前面的监听。因此外壳必须先看 DOM 状态主动
      让出这一击，不能指望内层事后截断，否则抽屉 / sheet 会一键把面板和整栏一起关掉。 */
   const hasOpenInnerLayer = () => [
@@ -197,7 +198,6 @@ function bindRail() {
     '#relayPlanMenu',
     '#relaySourceMenu',
     '#relayCopyHistory',
-    '#relayInspector',
   ].some(selector => {
     const layer = rail.querySelector(selector);
     return layer && !layer.hidden;
@@ -250,7 +250,7 @@ function bindRail() {
       if (!isClosed()) openHistoryLayer(RAIL_LAYER_ID);
       if (!isClosed() && !rail.contains(document.activeElement)) {
         lastTrigger = document.activeElement;
-        (rail.querySelector('#relayPlanPickerBtn') || rail.querySelector('button') || rail).focus?.();
+        (rail.querySelector('#tagRelayRailClose') || rail).focus?.();
       }
     } else {
       /* 浮层 → 停靠：开栏时 openHistoryLayer 是 push 出来的一条真记录，

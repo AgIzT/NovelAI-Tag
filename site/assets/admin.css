@@ -83,6 +83,15 @@ body.dark .theme-toggle .moon{display:block}
 .soft-btn{border:1px solid var(--line);background:var(--tagbg);color:var(--text)}
 .soft-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 
+/* 后台保留紧凑密度，通用按钮使用和公开页面相同的按压契约。 */
+.icon-action,.ghost-btn,.primary-btn,.danger-btn,.soft-btn{transition:var(--ui-control-transition)}
+:is(.icon-action,.ghost-btn,.primary-btn,.danger-btn,.soft-btn):not(:disabled):not([aria-disabled="true"]):active{scale:var(--ui-press-scale);translate:0 0}
+html.motion-off :is(.icon-action,.ghost-btn,.primary-btn,.danger-btn,.soft-btn):not(:disabled):not([aria-disabled="true"]):active{scale:1;translate:none}
+@media(prefers-reduced-motion:reduce){
+  :is(.icon-action,.ghost-btn,.primary-btn,.danger-btn,.soft-btn):not(:disabled):not([aria-disabled="true"]):active{scale:1;translate:none}
+  .primary-btn:hover{translate:none}
+}
+
 /* 登录 */
 .login-card{
   width:min(420px,calc(100vw - 24px));margin:clamp(54px,11vh,112px) auto 0;padding:28px;
@@ -496,6 +505,8 @@ button.is-busy,button[aria-busy="true"]{pointer-events:none;cursor:progress}
   .detail-actions{bottom:-12px;margin:14px -12px -12px;padding-inline:12px}
 }
 
+.ui-press{transition:var(--ui-control-transition)}
+html.motion-off *,html.motion-off *::before,html.motion-off *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}

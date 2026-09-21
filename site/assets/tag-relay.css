@@ -35,15 +35,16 @@
    重排由 ui.js 那个观察 #main 的 ResizeObserver 自动接管），窄屏转浮层抽屉 + 遮罩，
    手机再转底部 sheet。这样它不像外挂上去的东西——站里本来就有一个长得一样的。 */
 .tag-relay-rail{
+  --relay-rail-height:calc(100dvh - var(--topbar-h) - 12px);
   position:sticky;top:var(--topbar-h);align-self:flex-start;flex:0 0 440px;width:440px;
-  height:calc(100vh - var(--topbar-h) - 12px);overflow:hidden;min-height:0;
+  height:var(--relay-rail-height);max-height:var(--relay-rail-height);overflow:hidden;min-height:0;
   display:flex;flex-direction:column;
   background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);
-  /* top/height 跟着 --topbar-h 走：智能顶栏收起时（body.tb-hidden）左边的 .sidebar 有
-     top .3s / height .3s，这根镜像栏没有就会一个滑一个跳。时长与缓动照抄 .sidebar。 */
+  /* 顶栏显隐时 top / height / max-height 同步过渡，保持底边稳定。
+     漏掉 max-height 会先瞬间压短栏高，再随 top 下移，素材区因此回弹。 */
   transition:flex-basis .26s cubic-bezier(.22,1,.36,1),width .26s cubic-bezier(.22,1,.36,1),
-    top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1);
+    top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1),max-height .3s cubic-bezier(.22,1,.36,1);
 }
 .tag-relay-rail.closed{flex-basis:0;width:0;padding:0;border-color:transparent;box-shadow:none}
 .tag-relay-rail-backdrop{display:none}
@@ -54,10 +55,10 @@
 .tag-relay-rail-head h2{margin:0;font:800 17px/1.25 var(--font-display);letter-spacing:.5px;white-space:nowrap}
 .tag-relay-rail-gap{flex:1;min-width:0}
 .tag-relay-rail-close{
-  flex:none;width:30px;height:30px;border:0;border-radius:9px;background:transparent;
-  color:var(--muted);font-size:19px;line-height:1;
+  flex:none;width:30px;height:30px;border:0;border-radius:10px;background:transparent;
+  color:var(--muted);font-size:19px;line-height:1;cursor:pointer;
 }
-.tag-relay-rail-close:hover{background:var(--tagbg);color:var(--text)}
+.tag-relay-rail-close:hover{background:var(--tagbg);color:var(--accent)}
 
 .tag-relay-inline-action{
   flex:none;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;
@@ -85,11 +86,6 @@
 body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 
 /* 补：新增控件与角色负面提示 */
-.tag-relay-add-block{
-  flex:none;height:32px;padding:0 10px;border:1px dashed var(--line);border-radius:10px;
-  background:var(--card);color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap;
-}
-.tag-relay-add-block:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .tag-relay-tab-count{
   margin-left:5px;min-width:16px;display:inline-block;padding:0 5px;border-radius:999px;
   background:rgba(255,255,255,.24);font-size:10px;font-weight:800;
@@ -97,11 +93,6 @@ body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 .tag-relay-tab-count[hidden]{display:none}
 .tag-relay-channel.warn{background:rgba(245,179,1,.16);color:#a5760a}
 body.dark .tag-relay-channel.warn{color:#f3c261}
-.tag-relay-inspector-note{
-  margin:0;padding:6px 8px;border-radius:8px;background:var(--tagbg);
-  color:var(--muted);font-size:10.5px;line-height:1.55;
-}
-.tag-relay-inspector-note[hidden]{display:none}
 /* 两个来源页签共用的面板：列表与空态互斥显示，role="tabpanel" 挂在它们的共同父节点上。
    ⚠ 它是新插进来的一层，必须自己接住 flex:1 + min-height:0，否则列表撑不满、也滚不动。 */
 .tag-relay-rail .tag-relay-source-panel{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -126,11 +117,12 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
      68/67 仍高于要压住的一切：瀑布流(.masonry 无 z-index)、.float-actions(40)、左目录栏(25/24)、
      移动搜索条(55)；而设置类浮层(.settings-mask=70)、飞图(.lb-fly=90)、收入芯片(95)、toast(1400) 继续在它之上。 */
   .tag-relay-rail{
+    --relay-rail-height:calc(100dvh - var(--topbar-h) - 8px);
     position:fixed;z-index:68;top:var(--topbar-h);right:8px;left:auto;
     width:min(440px,calc(100vw - 16px));flex-basis:auto;
-    height:calc(100vh - var(--topbar-h) - 8px);box-shadow:var(--shadow-hover);
+    box-shadow:var(--shadow-hover);
     transition:transform .26s cubic-bezier(.22,1,.36,1),
-      top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1);
+      top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1),max-height .3s cubic-bezier(.22,1,.36,1);
   }
   .tag-relay-rail.closed{
     transform:translateX(calc(100% + 16px));width:min(440px,calc(100vw - 16px));
@@ -144,7 +136,8 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 @media (max-width:600px){
   /* 手机转底部 sheet */
   .tag-relay-rail{
-    top:auto;bottom:0;right:0;left:0;width:100%;height:min(88dvh,720px);
+    --relay-rail-height:min(88dvh,720px);
+    top:auto;bottom:0;right:0;left:0;width:100%;
     border-radius:22px 22px 0 0;border-bottom:0;
   }
   .tag-relay-rail.closed{transform:translateY(calc(100% + 16px));width:100%}
@@ -156,7 +149,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 /* 短屏里的方案改成单列横条后会多占几行；sheet 再抬高一点，尽量同时留下
    五六条方案和一整行素材，避免在两个相邻小滚动区来回滚。 */
 @media (max-width:600px) and (max-height:640px){
-  .tag-relay-rail{height:min(calc(100dvh - 36px),720px)}
+  .tag-relay-rail{--relay-rail-height:min(calc(100dvh - 36px),720px)}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -206,15 +199,13 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 
 /* ---------- 编排台 ---------- */
 .tag-relay-manual{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:8px;margin:10px 14px 0;padding:11px;border:1px solid var(--line);border-radius:13px;background:var(--card);box-shadow:var(--shadow)}
-.tag-relay-manual label,.tag-relay-inspector label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:10px;font-weight:800}
-.tag-relay-manual .is-wide,.tag-relay-inspector .is-wide{grid-column:1/-1}
-.tag-relay-manual input,.tag-relay-manual select,.tag-relay-manual textarea,
-.tag-relay-inspector input,.tag-relay-inspector select,.tag-relay-inspector textarea{
+.tag-relay-manual label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:10px;font-weight:800}
+.tag-relay-manual .is-wide{grid-column:1/-1}
+.tag-relay-manual input,.tag-relay-manual select,.tag-relay-manual textarea{
   width:100%;border:1px solid var(--line);border-radius:9px;background:var(--tagbg);color:var(--text);padding:8px 9px;font:500 11.5px/1.45 var(--font-ui);resize:vertical;
 }
-.tag-relay-manual textarea,.tag-relay-inspector textarea{font-family:var(--font-prompt)}
-.tag-relay-manual input:focus,.tag-relay-manual select:focus,.tag-relay-manual textarea:focus,
-.tag-relay-inspector input:focus,.tag-relay-inspector select:focus,.tag-relay-inspector textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tag-relay-manual textarea{font-family:var(--font-prompt)}
+.tag-relay-manual input:focus,.tag-relay-manual select:focus,.tag-relay-manual textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .tag-relay-manual-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:6px}
 .tag-relay-manual-actions button{min-height:32px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);padding:5px 12px;font-size:11px;font-weight:800}
 .tag-relay-manual-actions .tag-relay-primary{color:var(--on-accent);background:var(--accent);border-color:var(--accent)}
@@ -227,14 +218,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-plan-empty{flex:1;display:grid;place-content:center;justify-items:center;text-align:center;padding:20px;color:var(--muted)}
 .tag-relay-plan-empty>span{width:58px;height:58px;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:18px;background:var(--accent-soft);color:var(--accent);font-size:24px}
 .tag-relay-plan-empty b{margin-top:14px;color:var(--text);font-size:14px}
-
-.tag-relay-inspector{position:absolute;left:14px;right:14px;bottom:14px;z-index:5;padding:12px;border:1px solid var(--popover-line);border-radius:15px;background:var(--popover-glass);box-shadow:var(--popover-shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
-/* ⚠ .tag-relay-inspector-head / -head b / -head button(:hover) / -grid / -actions 这六条原本在这里
-   还有一份独立页版本，被下面「侧栏内：编排分区」那份逐条覆盖，改一处不生效、改两处才生效。
-   已删掉这里的死份；下面三条不是重复项（下面没有同名规则），留在原位以免打乱层叠顺序。 */
-.tag-relay-inspector-actions button{min-height:32px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);padding:5px 12px;font-size:10.5px;font-weight:800}
-.tag-relay-inspector-actions .is-danger:hover{border-color:var(--new);color:var(--new)}
-.tag-relay-inspector-actions .tag-relay-primary{margin-left:auto;color:var(--on-accent);background:var(--accent);border-color:var(--accent)}
 
 /* ---------- 输出台 ---------- */
 .tag-relay-output{padding-bottom:14px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
@@ -258,30 +241,26 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-copy-secondary{align-self:flex-end;margin:6px 14px 0;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--muted);padding:5px 10px;font-size:10.5px;font-weight:800}
 .tag-relay-copy-secondary:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .tag-relay-copy-secondary:disabled{opacity:.42;cursor:not-allowed}
-.tag-relay-copy-primary{margin:auto 14px 0;min-height:50px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;width:calc(100% - 28px);border:0;border-radius:14px;background:var(--accent);color:var(--on-accent);padding:9px 14px;box-shadow:0 8px 24px var(--accent-glow);text-align:left}
-.tag-relay-copy-primary:hover{box-shadow:0 12px 30px color-mix(in srgb,var(--accent) 30%,transparent);transform:translateY(-1px)}
-.tag-relay-copy-primary:disabled{opacity:.42;cursor:not-allowed;transform:none;box-shadow:none}
-.tag-relay-copy-primary span{font-size:13px;font-weight:900}
 .tag-relay-copy-note{margin:7px 16px 0;color:var(--muted);font-size:9.5px;line-height:1.45}
 
 .tag-relay-mobile-tabs{display:none}
 .tag-relay-plan-menu-wrap{position:relative;flex:none}
 .tag-relay-history-toggle{
-  flex:none;height:32px;border:1px solid var(--line);border-radius:10px;background:var(--card);
+  flex:none;height:30px;border:1px solid var(--line);border-radius:999px;background:var(--card);
   color:var(--muted);padding:0 8px;font-size:11px;font-weight:800;
 }
 .tag-relay-history-toggle:hover,.tag-relay-history-toggle[aria-expanded="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .tag-relay-history-count{margin-left:4px;color:inherit;font-size:9px}
 .tag-relay-history-count:empty{display:none}
 .tag-relay-plan-more{
-  width:32px;height:32px;border:1px solid var(--line);border-radius:10px;background:var(--card);
-  color:var(--muted);font-size:16px;line-height:1;
+  width:32px;height:32px;border:0;border-radius:10px;background:transparent;
+  color:var(--muted);font-size:16px;line-height:1;cursor:pointer;
 }
-.tag-relay-plan-more:hover{border-color:var(--accent);color:var(--accent)}
+.tag-relay-plan-more:hover{background:var(--tagbg);color:var(--accent)}
 .tag-relay-plan-menu{
   position:absolute;right:0;top:calc(100% + 6px);z-index:6;min-width:132px;padding:6px;
-  border:1px solid var(--popover-line);border-radius:12px;background:var(--popover-glass);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);background:var(--popover-glass);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
   display:flex;flex-direction:column;gap:2px;
 }
 .tag-relay-plan-menu button{
@@ -312,7 +291,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-history-card p{margin:0;color:var(--muted);font:500 9.5px/1.45 var(--font-prompt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .tag-relay-history-card button{align-self:flex-start;border:1px solid var(--accent);border-radius:999px;background:var(--accent-soft);color:var(--accent);padding:5px 10px;font-size:10.5px;font-weight:800}
 .tag-relay-history-actions{display:flex;align-items:center;gap:6px}
-.tag-relay-history-actions button{border-radius:8px;padding:5px 8px}
+.tag-relay-history-actions button{padding:5px 8px}
 .tag-relay-history-locked{color:var(--muted);font-size:10.5px;font-weight:800}
 
 .tag-relay-rail .tag-relay-plan-lane{
@@ -326,28 +305,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 }
 .tag-relay-rail .tag-relay-plan-empty b{color:var(--text);font-size:13.5px}
 .tag-relay-rail .tag-relay-plan-empty small{margin-top:5px;font-size:11.5px;line-height:1.6;max-width:230px}
-
-/* ⚠ 一屏化后编辑器必须是**浮层**：它现在是栏的直接子节点，static 会让它在弹出时
-   把上下两个分区和贴底成品一起顶开——那正是这次要消灭的「一次操作糊掉半屏」。 */
-.tag-relay-rail .tag-relay-inspector{
-  position:absolute;left:12px;right:12px;bottom:12px;z-index:7;
-  border:1px solid var(--popover-line);border-radius:14px;background:var(--popover-glass);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  padding:12px;display:flex;flex-direction:column;gap:8px;max-height:min(46vh,390px);overflow-y:auto;
-}
-.tag-relay-inspector-head{display:flex;align-items:center;justify-content:space-between}
-.tag-relay-inspector-head b{font-size:13px}
-.tag-relay-inspector-head button{border:0;background:transparent;color:var(--muted);font-size:17px;line-height:1;width:26px;height:26px;border-radius:8px}
-.tag-relay-inspector-head button:hover{background:var(--tagbg);color:var(--text)}
-.tag-relay-inspector-grid{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px}
-.tag-relay-inspector-grid label,.tag-relay-inspector-field{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;font-weight:800}
-.tag-relay-inspector-grid input,.tag-relay-inspector-grid select,.tag-relay-inspector-field textarea{
-  border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--text);
-  padding:6px 8px;font-size:12px;font-weight:500;
-}
-.tag-relay-inspector-field textarea{font-family:var(--font-prompt);resize:vertical}
-.tag-relay-inspector-actions{display:flex;gap:8px}
-.tag-relay-inspector-actions>*{flex:1}
 
 .tag-relay-rail .tag-relay-output{
   flex:none;border-top:1px solid var(--line);padding:10px 16px 14px;background:var(--bg);
@@ -376,15 +333,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-rail .tag-relay-output{padding:10px 14px 14px}
 }
 
-/* 这里原有一整块 @media (max-width:920px)：独立工作台页的遗留，已删。
-   逐个核过里面的类名——.tag-relay-top-title / -plan-title / -plan-actions / -copy-primary /
-   -source-card / -source-thumb / -source-main / -source-actions 在 index.html 和全部 JS 里
-   零引用（侧栏用的是 .tag-relay-quick-item）；剩下的 -planbar / -plan-lane / -block /
-   -inspector / -output 确实在用，但每一条属性都被下面 .tag-relay-rail 开头的规则逐条盖住了。
-   ⚠ 唯一盖不住、也正是要删它的原因：.tag-relay-planbar{overflow-x:auto}。
-   按规范 overflow-x:auto 会把 overflow-y 从 visible 提成 auto，于是绝对定位、
-   top:calc(100% + 6px) 的 .tag-relay-plan-menu 落在滚动容器之外被裁，
-   900px 下「⋯」菜单只能在条子内部滚动才看得见。 */
+
 
 @media (max-width:600px){
   /* 手机原本已有随机 / 密度 / 回顶三层；中转按钮只追加到最上方，不改它们原有顺序。 */
@@ -395,7 +344,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 
 @media (prefers-reduced-motion:reduce){
   /* .float-actions 也进来：它的 right 过渡是跟着侧栏滑动补的，减少动效时同样该断掉 */
-  .tag-relay-rail,.tag-relay-source-card,.tag-relay-block,.tag-relay-primary,.tag-relay-copy-primary,
+  .tag-relay-rail,.tag-relay-source-card,.tag-relay-block,.tag-relay-primary,
   .float-actions{transition:none!important}
 }
 
@@ -408,7 +357,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
    ============================================================ */
 
 /* ---- 栏头：吞掉原来的方案条 ---- */
-.tag-relay-plan-picker{flex:1;min-width:0;max-width:154px;--select-height:26px;--select-font-size:11.5px}
+.tag-relay-plan-picker{flex:1;min-width:0;max-width:154px;--select-font-size:11.5px}
 
 /* ---- 分区骨架 ---- */
 .tag-relay-rail .tag-relay-zone{
@@ -427,6 +376,22 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-rail .tag-relay-zone-plan:has(.tag-relay-block-bar:not([hidden])){min-height:172px}
 .tag-relay-rail .tag-relay-zone-plan .tag-relay-plan-lane{flex:0 1 auto}
 .tag-relay-rail .tag-relay-zone-source{flex:1 1 0;min-height:88px}
+/* 仅列表按实际前两行裁切，分区头和空态不计入限高。其余项保持布局供重测，但不可聚焦。 */
+.tag-relay-rail .tag-relay-zone-source.is-peek{flex:0 0 auto;min-height:0}
+.tag-relay-rail .tag-relay-zone-source.is-peek .tag-relay-source-panel{flex:none;max-height:var(--relay-shelf-peek-height,68px);overflow:hidden}
+.tag-relay-rail .tag-relay-zone-source.is-peek .tag-relay-source-panel:has(.tag-relay-source-list[hidden]){max-height:none}
+.tag-relay-rail .tag-relay-zone-source.is-peek .tag-relay-source-list{flex:none;overflow:visible}
+.tag-relay-rail .tag-relay-source-list{position:relative}
+.tag-relay-rail:not(.is-shelf-moving) .tag-relay-chip[aria-hidden="true"]{visibility:hidden}
+/* 真实高度参与排版：货架向上伸展，编辑框同步让位，不缩放文字。 */
+.tag-relay-rail.is-shelf-moving .tag-relay-zone-source{flex:0 0 auto;min-height:0;overflow:hidden}
+.tag-relay-rail.is-shelf-moving .tag-relay-zone-source .tag-relay-source-panel{flex:1;max-height:none;overflow:hidden}
+.tag-relay-rail.is-shelf-moving .tag-relay-source-list{flex:none;overflow:visible}
+/* 与邻近的 ⋯（32×32）齐平；.icon-btn 的 36px 在栏内偏大。 */
+.relay-shelf-toggle{flex:none;width:32px;height:32px;font-size:13px;border-radius:10px;color:var(--muted)}
+.relay-shelf-toggle[aria-expanded="true"]{color:var(--accent)}
+.relay-disclosure-caret{display:block;flex:none;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transform-origin:center;transition:rotate .2s cubic-bezier(.22,1,.36,1)}
+[aria-expanded="true"]>.relay-disclosure-caret{rotate:180deg}
 
 .tag-relay-zone-head{display:flex;align-items:center;gap:6px;min-height:24px;flex:none}
 /* 分区名：两个区都得有，否则「工作台 / 货架」全靠一条 1px 线区分。 */
@@ -565,8 +530,6 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   color:var(--muted);font:800 11px/1.2 var(--font-prompt);white-space:nowrap;text-align:left;
 }
 .tag-relay-output-summary:hover{border-color:var(--accent);color:var(--accent)}
-.tag-relay-output-caret{flex:none;transition:transform .16s}
-.tag-relay-output-summary[aria-expanded="true"] .tag-relay-output-caret{transform:rotate(180deg)}
 .tag-relay-output-boxes{display:flex;flex-direction:column;gap:7px}
 
 /* ---- 成品记录：浮层，且开在自己的入口正上方 ----
@@ -576,12 +539,12 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-rail .tag-relay-history{
   position:absolute;left:14px;right:14px;bottom:calc(100% - 8px);z-index:6;
   max-height:min(52vh,340px);display:flex;flex-direction:column;
-  border:1px solid var(--popover-line);border-radius:15px;background:var(--popover-glass);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);background:var(--popover-glass);
+  box-shadow:var(--popover-shadow);backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
 }
 
 @media (prefers-reduced-motion:reduce){
-  .tag-relay-chip,.tag-relay-chip-x,.tag-relay-output-caret{transition:none}
+  .tag-relay-chip,.tag-relay-chip-x,.relay-disclosure-caret{transition:none}
 }
 
 /* ≤600px 底部 sheet：高度最紧，素材仍要至少露出一整行 */
@@ -806,8 +769,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 /* 隐藏态仍由 HTML hidden 同步维护；display 的离散过渡只负责把可见退场撑到末帧，
    不延迟 aria-expanded，也不让 JS 等动画。位移使用独立 translate，避免占用 transform。 */
 .tag-relay-plan-menu,
-.tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,
-.tag-relay-rail .tag-relay-inspector,.tag-relay-inline-action{
+.tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,.tag-relay-inline-action{
   opacity:1;translate:0 0;scale:1;
   transition:opacity .16s ease,translate .18s cubic-bezier(.22,1,.36,1),
     scale .18s cubic-bezier(.22,1,.36,1),display .18s allow-discrete;
@@ -819,14 +781,14 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
     display .22s allow-discrete;
 }
 .tag-relay-plan-menu{transform-origin:top center}
-.tag-relay-rail .tag-relay-history,.tag-relay-rail .tag-relay-inspector{transform-origin:bottom center}
+.tag-relay-rail .tag-relay-history{transform-origin:bottom center}
 .tag-relay-plan-menu[hidden]{
   display:none;opacity:0;translate:0 -6px;scale:.97;pointer-events:none;
 }
 .tag-relay-output-boxes[hidden],.tag-relay-inline-action[hidden]{
   display:none;max-height:0;opacity:0;translate:0 -5px;scale:.99;pointer-events:none;
 }
-.tag-relay-rail .tag-relay-history[hidden],.tag-relay-rail .tag-relay-inspector[hidden]{
+.tag-relay-rail .tag-relay-history[hidden]{
   display:none;opacity:0;translate:0 9px;scale:.985;pointer-events:none;
 }
 @starting-style{
@@ -836,7 +798,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   .tag-relay-output-boxes:not([hidden]),.tag-relay-inline-action:not([hidden]){
     max-height:0;opacity:0;translate:0 -5px;scale:.99;
   }
-  .tag-relay-rail .tag-relay-history:not([hidden]),.tag-relay-rail .tag-relay-inspector:not([hidden]){
+  .tag-relay-rail .tag-relay-history:not([hidden]){
     opacity:0;translate:0 9px;scale:.985;
   }
 }
@@ -844,8 +806,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 @media (prefers-reduced-motion:reduce){
   .tag-relay-source-slider,
   .tag-relay-plan-menu,
-  .tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,
-  .tag-relay-rail .tag-relay-inspector,.tag-relay-inline-action{
+  .tag-relay-output-boxes,.tag-relay-rail .tag-relay-history,.tag-relay-inline-action{
     transition:none!important;
   }
 }
@@ -880,13 +841,11 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   max-height:0;min-height:0;margin-top:0;padding-top:0;padding-bottom:0;
   opacity:0;translate:0 -5px;pointer-events:none;
 }
-.tag-relay-rail :is(.tag-relay-add-block,.tag-relay-plan-more,.tag-relay-history-toggle,
-  .tag-relay-output-summary,.tag-relay-rail-close,.tag-relay-chip-main){
-  transition:background .16s,border-color .16s,color .16s,scale .12s;
-}
-.tag-relay-rail button:not(.ui-select-button):not(.ui-select-option):active:not(:disabled),.tag-relay-chip-main:active{scale:.96}
+/* 控件的按压和偏好门控走 ui-kit；局部样式不能再漏掉 scale 的过渡。 */
+.tag-relay-rail .ui-press{transition:var(--ui-control-transition)}
+.tag-relay-rail .tag-relay-chip-x.ui-press{transition:var(--ui-control-transition),opacity .16s}
 .tag-relay-plan-card:has(.tag-relay-plan-card-main:active):not(.is-dragging){scale:.97}
-.tag-relay-plan-card{transition:box-shadow .16s,opacity .16s,filter .16s,scale .12s}
+.tag-relay-plan-card{transition:box-shadow .16s,opacity .16s,filter .16s,scale .14s ease}
 .tag-relay-plan-card.is-selected{box-shadow:0 0 0 2px var(--accent) inset}
 .tag-relay-chip{transition:border-color .16s,background .16s,color .16s,opacity .16s}
 .tag-relay-plan-lane{transition:background .16s,box-shadow .16s}
@@ -914,7 +873,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   }
   .tag-relay-rail:not(.closed)+.tag-relay-rail-backdrop{opacity:1;visibility:visible;pointer-events:auto}
 }
-@media (max-height:480px){
+@media (max-height:480px),(pointer:coarse) and (max-height:640px){
   .tag-relay-rail{overflow-y:auto;overscroll-behavior:contain}
   .tag-relay-rail .tag-relay-zone-source{flex:none;min-height:100px}
 }
@@ -924,4 +883,98 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 }
 @media (prefers-reduced-motion:reduce){
   .tag-relay-rail *,.tag-relay-rail *::after,.tag-relay-rail-backdrop{transition:none!important;animation:none!important}
+}
+
+/* 真文本与镜像共用排版；token 的颜色、图片、注音不改变字符推进宽度。 */
+.tag-relay-rail .tag-relay-plan-lane.relay-editor{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;align-content:normal;gap:0;min-height:0;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:visible;transition:border-color .16s,box-shadow .16s}
+.tag-relay-rail .tag-relay-plan-lane.relay-editor:focus-within{border-color:color-mix(in srgb,var(--accent) 60%,var(--line));box-shadow:0 0 0 2px var(--accent-soft)}
+.tag-relay-rail .tag-relay-zone-plan{min-height:0;max-height:58%;overflow-y:auto;overscroll-behavior:contain}
+.relay-editor>div{flex-shrink:0;min-width:0}
+/* 通道切换：站内共用 .seg-tabs 的形制，这里只压窄尺寸去适配 440px 栏。 */
+.relay-editor-channels{min-height:0;margin:0;border:0;border-bottom:1px solid var(--line);border-radius:11px 11px 0 0;background:var(--tagbg)}
+.relay-editor-channels>button{min-height:28px;font-size:12px}
+/* 输入框外壳。⚠ 外框只在这一层，surface 与 mirror/input 的排版参数一个都不动 ——
+   mirror 是 position:absolute;inset:0，给 surface 加 padding 会让镜像层与 textarea 的字符落点错开。 */
+.relay-editor-frame{padding:4px 12px 6px;min-width:0}
+.relay-save-state{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px;color:var(--muted);font:11px/1.5 var(--font-ui)}
+.relay-save-state button{border:1px solid var(--line);border-radius:999px;padding:3px 8px;background:var(--card);color:var(--text);font:inherit;cursor:pointer}
+.relay-token-panel>button,.relay-token-panel>a{border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--text);padding:4px 10px;font:12px/1.5 var(--font-ui);cursor:pointer;text-decoration:none}
+.relay-editor-surface{position:relative;width:100%;box-sizing:border-box;margin:0;padding:0;text-align:left;border:0;border-radius:0;background:transparent;min-height:56px;max-height:300px;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
+.relay-editor-surface>.relay-editor-mirror,.relay-editor-surface>.relay-editor-input{
+  box-sizing:border-box;font:400 13px/2.6 var(--font-prompt);font-style:normal;
+  letter-spacing:0;word-spacing:normal;padding:8px 0 14px;margin:0;border:0;
+  white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:2;
+  /* inline token 会切断整串 shaping；两层都关掉字偶距/连字，保证断行也相同。 */
+  text-transform:none;text-indent:0;text-align:left;direction:ltr;font-kerning:none;font-variant-ligatures:none;
+}
+.relay-editor-surface>.relay-editor-mirror{position:absolute;left:0;right:0;top:0;pointer-events:none;color:var(--text);min-height:56px;overflow:hidden}
+.relay-editor-surface>.relay-editor-input{position:relative;display:block;width:100%;min-height:56px;resize:none;background:transparent;color:transparent;caret-color:var(--accent);outline:none;overflow:hidden;box-shadow:none;border-radius:0}
+.relay-editor-input::selection{background:color-mix(in srgb,var(--muted) 22%,transparent);color:transparent}
+.relay-editor-surface.is-empty .relay-editor-mirror::after{content:'输入 tag，或从下方选择素材';position:absolute;left:0;top:8px;color:var(--muted)}
+.relay-editor-surface.is-composing>.relay-editor-input{color:var(--text)}
+.relay-editor-surface.is-composing>.relay-editor-mirror{visibility:hidden}
+.relay-token{position:relative;font:inherit;letter-spacing:inherit}
+.relay-token.is-up{color:color-mix(in srgb,#35a76a 75%,var(--text))}
+.relay-token.is-down{color:color-mix(in srgb,#d74b66 75%,var(--text))}
+.relay-token.is-fold{color:var(--accent);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 75%,transparent);text-underline-offset:3px;text-decoration-thickness:1.5px}
+/* 不替换逗号字形，避免全角/半角推进宽度改变。收尾记号脱离排版。 */
+.relay-token.is-fold::after{content:'';position:absolute;right:0;bottom:-3px;height:5px;border-right:1.5px solid currentColor;pointer-events:none}
+.relay-token.is-off{opacity:.45;text-decoration:line-through}
+.relay-token.is-duplicate{text-decoration:underline dotted color-mix(in srgb,var(--muted) 55%,transparent);text-underline-offset:3px}
+.relay-token.is-fold.is-duplicate{text-decoration-style:solid;text-decoration-color:var(--accent);text-decoration-thickness:1.5px;border-bottom:1px dotted var(--muted)}
+.relay-token.is-fold.is-off{text-decoration-line:underline line-through}
+.relay-token.is-locked{color:transparent;text-decoration:none}
+.relay-token.is-locked::after{display:none}
+.relay-token .zh{position:absolute;left:0;top:1.75em;display:inline-flex;align-items:center;gap:4px;font:11px/1.2 var(--font-ui);color:var(--muted);white-space:nowrap;max-width:132px;overflow:hidden;text-overflow:ellipsis;pointer-events:none;user-select:none;text-decoration:none}
+.relay-token.is-fold .zh{color:var(--accent);opacity:.75;max-width:100%}
+.relay-token .pic{flex:none;width:11px;height:11px;border-radius:2px;object-fit:cover;pointer-events:none;user-select:none}
+.relay-token-panel{display:flex;flex-wrap:wrap;align-items:center;gap:6px;border:0;border-top:1px solid var(--line);border-radius:0 0 11px 11px;background:var(--tagbg);padding:8px 12px;font:12px/1.5 var(--font-ui)}
+.relay-editor-actions{position:relative}
+/* 就地命名悬浮在选区操作条上方，不参与高度分配，也不挤动滚动区。 */
+.relay-editor-actions>.tag-relay-inline-action{position:absolute;left:-1px;right:-1px;bottom:calc(100% + 6px);z-index:5;grid-template-columns:minmax(0,1fr) auto;margin:0;padding:8px 12px;max-height:none;overflow:visible;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:var(--shadow);opacity:1;translate:0 0;scale:1;transition:opacity .16s ease,translate .18s cubic-bezier(.22,1,.36,1),display .18s allow-discrete}
+.relay-editor-actions>.tag-relay-inline-action[hidden]{opacity:0;translate:0 4px}
+.relay-editor-actions>.tag-relay-inline-action .tag-relay-inline-action-buttons{grid-column:2;grid-row:1}
+@starting-style{
+  .relay-editor-actions>.tag-relay-inline-action:not([hidden]){opacity:0;translate:0 4px}
+}
+.relay-token-name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px/1.5 var(--font-prompt)}
+.relay-token-meaning{color:var(--muted);margin-right:auto;font-size:11px}
+.relay-token-mult{color:var(--accent);font:12px/1.5 var(--font-prompt)}
+.relay-token-panel>button:hover,.relay-token-panel>a:hover{background:var(--tagbg);border-color:var(--accent)}
+.relay-token-panel>button:disabled{opacity:.4;cursor:default}
+.relay-dedupe-option{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);padding:5px 0}
+.relay-dedupe-option input{accent-color:var(--accent)}
+@media(pointer:coarse){
+  .relay-editor-surface>.relay-editor-mirror,.relay-editor-surface>.relay-editor-input{font-size:16px}
+  .tag-relay-rail :is(button,.tag-relay-chip-main,.relay-token-panel>a){min-height:44px;min-width:44px}
+  .tag-relay-rail .tag-relay-copy-main{min-height:46px}
+  .tag-relay-rail :is(.tag-relay-plan-more,.tag-relay-rail-close,.relay-shelf-toggle){width:44px;height:44px}
+  .tag-relay-rail .tag-relay-chip{height:46px;max-width:100%}
+  .tag-relay-rail :is(.tag-relay-chip-x,.tag-relay-chip-negative){height:44px;margin-right:0}
+  .tag-relay-rail .tag-relay-output-option{grid-template-columns:1fr}
+  .tag-relay-history-actions{flex-wrap:wrap}
+  .relay-dedupe-option{min-height:44px}
+}
+@media(max-width:600px){
+  .tag-relay-rail.is-editing{background:var(--bg)}
+  .tag-relay-rail.is-editing .tag-relay-zone-plan{flex:0 1 auto;max-height:calc(100dvh - 300px);min-height:110px;background:var(--bg)}
+  .tag-relay-rail.is-editing .tag-relay-zone-source{min-height:0}
+  .tag-relay-rail.is-editing .relay-editor-surface{max-height:34dvh}
+}
+/* 素材收起后，释放的高度交给可编辑区域；侧栏仍停靠，不能把死白搬到栏外。 */
+.tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .tag-relay-zone-plan{flex:1 1 0;min-height:0;max-height:none}
+.tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .tag-relay-plan-lane.relay-editor{flex:1 1 0;min-height:0}
+.tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-frame{display:flex;flex-direction:column;flex:1 1 0;min-height:0}
+.tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-frame[hidden]{display:none}
+.tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-surface{flex:1 1 0;min-height:0;max-height:none}
+.tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-mirror,
+.tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-input{min-height:100%}
+@media(max-height:480px),(pointer:coarse) and (max-height:640px){
+  /* 键盘压缩可用高度时让整栏滚动，不能把正文压成零高。 */
+  .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .tag-relay-zone-plan{flex:none;overflow:visible}
+  .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .tag-relay-plan-lane.relay-editor,
+  .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-frame{flex:none}
+  .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-surface{flex:none;min-height:56px;max-height:34dvh}
+  .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-mirror,
+  .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-input{min-height:56px}
 }

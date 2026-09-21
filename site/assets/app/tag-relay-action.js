@@ -9,18 +9,16 @@ function finish(value, { restoreFocus = true } = {}) {
   if (!pending || !refs) return;
   const { resolve } = pending;
   pending = null;
+  // 退场期间保留完整内容与高度；下一次 request 再重置，避免逐行塌掉。
   refs.root.hidden = true;
-  refs.input.value = '';
-  refs.inputWrap.hidden = true;
-  refs.message.textContent = '';
-  refs.confirm.classList.remove('is-danger');
   const trigger = lastTrigger;
   lastTrigger = null;
+  if (trigger?.getAttribute('aria-controls') === refs.root.id) trigger.setAttribute('aria-expanded', 'false');
   resolve(value);
   if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
 
-/* 收栏 / 切页签时把没走完的确认条收掉。这条 form 是三个页签的公共兄弟节点，
+/* 收栏 / 切页签时把没走完的确认条收掉。这条 form 在侧栏内复用，
    既不随页签隐藏也不随收栏销毁，留着就会在下一次打开时原样浮现。
    ⚠ 危险的是「清空最近复制」「清空复制历史」「删除方案」这三条 danger 操作：
    用户以为自己已经放弃了，回来随手点一下「确认」就真执行。
@@ -48,6 +46,9 @@ export function setupRelayAction(root = document) {
     refs = null;
     return;
   }
+  // 局部命名可临时放到操作条旁；其它确认仍从这个原位展开。
+  refs.slot = document.createComment('relay action');
+  refs.root.before(refs.slot);
   refs.root.addEventListener('submit', event => {
     event.preventDefault();
     if (refs.inputWrap.hidden) finish(true);
@@ -69,20 +70,32 @@ export function requestRelayAction({
   danger = false,
   input = null,
   trigger = document.activeElement,
+  before = null,
+  toggle = false,
 } = {}) {
   setupRelayAction();
   if (!refs) return Promise.resolve(null);
+  if (pending && toggle && before && refs.root.nextElementSibling === before) {
+    finish(null);
+    return Promise.resolve(null);
+  }
   if (pending) finish(null, { restoreFocus: false });
+  if (before instanceof HTMLElement && before.isConnected) before.before(refs.root);
+  else refs.slot.after(refs.root);
   if (trigger instanceof HTMLElement) lastTrigger = trigger;
+  if (before && trigger instanceof HTMLButtonElement) {
+    trigger.setAttribute('aria-controls', refs.root.id);
+    trigger.setAttribute('aria-expanded', 'true');
+  }
   refs.title.textContent = String(title || '确认操作');
   refs.message.textContent = String(message || '');
   refs.message.hidden = !message;
   refs.confirm.textContent = String(confirmLabel || '确认');
   refs.confirm.classList.toggle('is-danger', Boolean(danger));
   refs.inputWrap.hidden = !input;
+  refs.input.value = input ? String(input.value || '') : '';
   if (input) {
     refs.inputLabel.textContent = String(input.label || '名称');
-    refs.input.value = String(input.value || '');
     refs.input.maxLength = Math.max(1, Number(input.maxLength) || 60);
   }
   refs.root.hidden = false;
