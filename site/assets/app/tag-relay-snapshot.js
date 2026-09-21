@@ -7,7 +7,7 @@ import { isEntryNsfw, isR18gEntry } from './access.js';
 import { findCodexMeta } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { state } from './state.js';
-import { stableEntryKey } from './tag-relay-core.js';
+import { stableEntryKey, stableFragmentKey } from './tag-relay-core.js';
 
 /* 归属永远算在词条的真实法典下：收藏墙 / 全站搜索里的词条带 _srcCodexId，
    照它回溯正主，否则会记成 favorites / site-search 这两本并不存在的书。 */
@@ -48,6 +48,27 @@ export function snapshotEntry(entry) {
       r18g: isR18gEntry({ ...entry, path }),
     },
     accessKnown: true,
+  };
+}
+
+/** Keep the copied range and its source identity as separate facts. */
+export function snapshotFragment(entry, fragment = {}) {
+  const source = snapshotEntry(entry);
+  const channel = ['positive', 'negative', 'character-positive', 'character-negative'].includes(fragment.channel)
+    ? fragment.channel : 'positive';
+  const raw = String(fragment.text ?? '');
+  const scope = String(fragment.scope || 'selection');
+  const sourceKey = stableEntryKey(source);
+  const fragmentKey = stableFragmentKey({ ...source, sourceKey }, { ...fragment, channel, scope, text: raw });
+  return {
+    ...source,
+    sourceKey, fragmentKey, relayKey: fragmentKey, channel, scope,
+    title: fragment.label ? `${source.title || '词条'} · ${fragment.label}` : source.title,
+    characterIndex: Number.isInteger(fragment.characterIndex) ? fragment.characterIndex : null,
+    prompt: channel.endsWith('negative') ? '' : raw,
+    tags: channel.endsWith('negative') ? '' : raw,
+    negative: channel.endsWith('negative') ? raw : '',
+    characterPrompts: [],
   };
 }
 

@@ -230,7 +230,7 @@ export async function init() {
     /* ⚠ 必须排在分级开关恢复之后：建栏时会立刻渲染一次「最近复制」，而 snapshotLocked 读的是
        内存里的 state.allowNsfw / allowR18g。它原先在模块体里跑，早于这里，首屏那一版整列都会
        被误判成锁定——之前只是被 store 里那次无条件的 pageshow 重载恰好盖住了。 */
-    setupTagRelay();
+    await setupTagRelay();
     applyDensity(localStorage.getItem(DENSITY_STORAGE_KEY), { render: false });
     state.searchScope = normalizeSearchScope(localStorage.getItem(SEARCH_SCOPE_STORAGE_KEY));
     const { codexes, media, about } = await loadBootstrapData();

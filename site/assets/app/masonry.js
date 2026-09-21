@@ -586,6 +586,7 @@ export function makeCard(placement) {
       ev.stopPropagation();
       copyText(e.negative, `已复制负面：${e.title}`, node, {
         entry: e,
+        fragment: { text: e.negative, channel: 'negative', scope: 'negative' },
         sampleLabel: '已复制负面',
       });
     };

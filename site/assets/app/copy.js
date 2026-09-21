@@ -6,7 +6,7 @@ import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
 import { playCopySample } from './copy-fx.js';
 import { relayTossTarget } from './tag-relay-rail.js';
-import { prepareCopiedEntry, recordPreparedCopiedEntry } from './tag-relay-store.js';
+import { prepareCopiedEntry, prepareCopiedFragment, recordPreparedCopiedEntry } from './tag-relay-store.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { isEntryAccessBlocked, isR18gEntry, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { findCodexMeta } from './data.js';
@@ -71,10 +71,12 @@ export async function copyEntry(e, node) {
   const message = `${negative ? '已复制正向' : '已复制'}${charNote}：${e.title}`;
   return copyText(entryPromptText(e), message, node, {
     entry: e,
+    fragment: { text: entryPromptText(e), channel: 'positive', scope: 'merged-positive' },
     followUp: negative ? {
       label: '再复制负面',
       text: e.negative,
       message: `已复制负面：${e.title}`,
+      fragment: { text: e.negative, channel: 'negative', scope: 'negative' },
     } : null,
   });
 }
@@ -112,7 +114,12 @@ function probeLocked(probe) {
 export async function copyText(text, message, node, options = {}) {
   /* 词条归属必须在任何 await 之前冻住；否则剪贴板授权等待期间切换法典，
      snapshotEntry 会读到新的 state.codex，把刚复制的旧词条挂到错误书下。 */
-  const relaySnapshot = options.entry ? prepareCopiedEntry(options.entry) : null;
+  const relaySnapshot = options.relaySnapshot || (options.entry
+    ? (options.fragment ? prepareCopiedFragment(options.entry, options.fragment) : prepareCopiedEntry(options.entry))
+    : null);
+  const followUpSnapshot = options.followUp?.fragment && options.entry
+    ? prepareCopiedFragment(options.entry, options.followUp.fragment)
+    : null;
   /* 有些复制仍归属于一条词条、却不应入库（例如图片的 raw tag）。用
      accessEntry 复用同一份冻结分级快照，而不是把它伪装成没有来源的普通文本。 */
   const accessSnapshot = relaySnapshot
@@ -206,12 +213,14 @@ export async function copyText(text, message, node, options = {}) {
       onClick: () => copyText(followUp.text, followUp.message || '已复制负面', node, {
         sampleLabel: '已复制负面',
         accessSnapshot,
+        relaySnapshot: followUpSnapshot,
+        expectRelayIntake: Boolean(followUp.fragment && options.entry),
       }),
     }
     : null;
   /* 看 options.entry 而不是 relaySnapshot：快照压根没建出来也是「没入库」，
      用户点的是词条复制，中转站里却什么都没多，这件事必须说出来。 */
-  const intakeFailed = Boolean(options.entry) && !intake;
+  const intakeFailed = Boolean(options.entry || options.relaySnapshot || options.expectRelayIntake) && !intake;
   toast(
     `${message}${formatted.converted ? '（SD 格式）' : ''}${intakeFailed ? '；中转站未保存，请重试' : ''}`,
     intakeFailed ? '!' : '✓',

@@ -15,8 +15,9 @@ import {
   restoreHistoryAsPlan,
   serializeRelayState,
 } from '../site/assets/app/tag-relay-core.js';
-import { snapshotEntry, snapshotLocked } from '../site/assets/app/tag-relay-snapshot.js';
+import { snapshotEntry, snapshotFragment, snapshotLocked } from '../site/assets/app/tag-relay-snapshot.js';
 import { state } from '../site/assets/app/state.js';
+import * as v4 from '../site/assets/app/tag-relay-v4.js';
 
 const APP = new URL('../site/assets/app/', import.meta.url);
 
@@ -328,6 +329,23 @@ await withAccess({}, () => {
   );
 });
 
+// v4 存储往返不能丢掉冻结的分级，也不能把未知来源变成已知。
+await withAccess({ allowNsfw: true, allowR18g: true }, () => {
+  let saved = v4.normalizeRelayState({ version: 3, plans: [{ id: 'v4-access', items: [
+    { kind: 'entry', title: '未知来源', prompt: 'unknown-body', accessKnown: false },
+    { kind: 'entry', title: '成人来源', prompt: 'adult-body', access: { nsfw: true, r18g: false }, accessKnown: true },
+  ] }], activePlanId: 'v4-access' });
+  for (let round = 0; round < 3; round++) {
+    saved = v4.normalizeRelayState(JSON.parse(v4.serializeRelayState(saved)));
+    const folds = v4.planFolds(saved.plans[0]);
+    assert.equal(folds.find(fold => fold.title === '未知来源').accessKnown, false);
+    assert.equal(snapshotLocked(folds.find(fold => fold.title === '未知来源')), true);
+    assert.deepEqual(folds.find(fold => fold.title === '成人来源').access, { nsfw: true, r18g: false });
+  }
+  state.allowNsfw = false;
+  assert.equal(v4.compilePlan(saved, { isLocked: snapshotLocked }).positive, '', 'v4 编译同样遵循撤权与未知来源门控');
+});
+
 /* ============================================================
    8. 侧栏「编排」分区：混合方案编译 + 复制历史三分支
    ------------------------------------------------------------
@@ -353,9 +371,26 @@ function fakeClassList() {
 
 function fakeElement(tag = 'div') {
   const styleValues = new Map();
+  let ownText = '';
+  const matches = (element, selector) => {
+    if (selector.startsWith('#')) return element.id === selector.slice(1);
+    if (selector.startsWith('.')) return element.className.split(/\s+/).includes(selector.slice(1)) || element.classList.contains(selector.slice(1));
+    const attr = selector.match(/^\[([\w-]+)(?:=["']?([^"'\]]+)["']?)?\]$/);
+    if (attr) {
+      const key = attr[1].replace(/^data-/, '').replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+      const value = attr[1].startsWith('data-') ? element.dataset[key] : element.getAttribute(attr[1]);
+      return attr[2] === undefined ? value != null : value === attr[2];
+    }
+    return element.tagName === selector.toUpperCase();
+  };
   const node = {
+    nodeType: tag === '#fragment' ? 11 : 1,
     tagName: String(tag).toUpperCase(),
     children: [],
+    parentNode: null,
+    get childNodes() { return node.children; },
+    get firstChild() { return node.children[0] || null; },
+    get firstElementChild() { return node.children[0] || null; },
     get lastElementChild() { return node.children.at(-1) || null; },
     listeners: new Map(),
     dataset: {},
@@ -366,7 +401,8 @@ function fakeElement(tag = 'div') {
     attrs: new Map(),
     classList: fakeClassList(),
     className: '',
-    textContent: '',
+    get textContent() { return ownText + node.children.map(child => child.textContent || '').join(''); },
+    set textContent(value) { node.replaceChildren(); ownText = String(value); },
     value: '',
     title: '',
     type: '',
@@ -377,6 +413,12 @@ function fakeElement(tag = 'div') {
     tabIndex: 0,
     isConnected: true,
     offsetWidth: 1,
+    offsetHeight: 50,
+    scrollHeight: 50,
+    scrollTop: 0,
+    selectionStart: 0,
+    selectionEnd: 0,
+    selectionDirection: 'none',
     offsetParent: {},
     addEventListener(type, listener) {
       node.listeners.set(type, [...(node.listeners.get(type) || []), listener]);
@@ -387,22 +429,32 @@ function fakeElement(tag = 'div') {
        的单层结构，没有真的父链，所以直接把自己当成那条栏返回——本测试只关心能不能查到节点。 */
     closest(selector) {
       if (String(selector).includes('tag-relay-rail')) return node;
-      if (selector === '[data-plan-id]' && node.dataset.planId) return node;
-      if (selector === '[role="option"]' && node.getAttribute('role') === 'option') return node;
-      return null;
+      return matches(node, selector) ? node : node.parentNode?.closest(selector) || null;
     },
     fire(type, event = {}) {
-      for (const listener of node.listeners.get(type) || []) {
+      const listeners = [...(node.listeners.get(type) || []), ...(typeof node['on' + type] === 'function' ? [node['on' + type]] : [])];
+      for (const listener of listeners) {
         listener({ type, target: node, currentTarget: node, preventDefault() {}, stopPropagation() {}, ...event });
       }
     },
     setAttribute(name, value) { node.attrs.set(name, String(value)); },
     getAttribute(name) { return node.attrs.has(name) ? node.attrs.get(name) : null; },
     removeAttribute(name) { node.attrs.delete(name); },
-    append(...nodes) { node.children.push(...nodes); },
-    appendChild(child) { node.children.push(child); return child; },
-    replaceChildren(...nodes) { node.children = [...nodes]; },
-    remove() {},
+    append(...nodes) { nodes.forEach(child => node.appendChild(child)); },
+    before(...nodes) { nodes.forEach(child => node.parentNode?.insertBefore(child, node)); },
+    appendChild(child) { return node.insertBefore(child, null); },
+    insertBefore(child, reference) {
+      if (child?.nodeType === 11) { [...child.children].forEach(part => node.insertBefore(part, reference)); return child; }
+      if (typeof child === 'string') child = { nodeType: 3, textContent: child, parentNode: null, contains(other) { return this === other; } };
+      if (child.parentNode) child.parentNode.children.splice(child.parentNode.children.indexOf(child), 1);
+      child.parentNode = node;
+      const at = reference ? node.children.indexOf(reference) : node.children.length;
+      assert.ok(at >= 0, 'insertBefore 的 reference 必须是直接子节点');
+      node.children.splice(at, 0, child);
+      return child;
+    },
+    replaceChildren(...nodes) { ownText = ''; node.children.forEach(child => { child.parentNode = null; }); node.children = []; node.append(...nodes); },
+    remove() { if (node.parentNode) node.parentNode.children.splice(node.parentNode.children.indexOf(node), 1); node.parentNode = null; },
     cloneNode() {
       const clone = fakeElement(tag);
       clone.className = node.className;
@@ -412,10 +464,11 @@ function fakeElement(tag = 'div') {
     getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 50, x: 0, y: 0 }; },
     contains(other) { return other === node || node.children.some(child => child.contains?.(other)); },
     focus() { if (globalThis.document) globalThis.document.activeElement = node; },
-    select() {},
-    setSelectionRange() {},
-    querySelector: () => null,
-    querySelectorAll: () => [],
+    click() { if (!node.disabled) node.fire('click'); },
+    select() { node.setSelectionRange(0, node.value.length); },
+    setSelectionRange(start, end, direction = 'none') { node.selectionStart = start; node.selectionEnd = end; node.selectionDirection = direction; },
+    querySelector(selector) { return node.querySelectorAll(selector)[0] || null; },
+    querySelectorAll(selector) { return elementsIn(node, child => child !== node && child.nodeType === 1 && selector.split(',').some(part => matches(child, part.trim()))); },
   };
   return node;
 }
@@ -447,7 +500,8 @@ async function fireAsync(node, type, event = {}) {
     stopPropagation() {},
     ...event,
   };
-  await Promise.all((node.listeners.get(type) || []).map(listener => listener(base)));
+  const listeners = [...(node.listeners.get(type) || []), ...(typeof node['on' + type] === 'function' ? [node['on' + type]] : [])];
+  await Promise.all(listeners.map(listener => listener(base)));
 }
 
 const savedGlobals = {
@@ -456,6 +510,9 @@ const savedGlobals = {
   localStorage: globalThis.localStorage,
   HTMLElement: globalThis.HTMLElement,
   requestAnimationFrame: globalThis.requestAnimationFrame,
+  cancelAnimationFrame: globalThis.cancelAnimationFrame,
+  ResizeObserver: globalThis.ResizeObserver,
+  fetch: globalThis.fetch,
 };
 const installedTestNavigator = !globalThis.navigator;
 if (installedTestNavigator) {
@@ -476,6 +533,7 @@ relayShell.querySelector = selector => {
   if (mounted) return mounted;
   if (!pool.has(selector)) {
     const node = fakeElement('div');
+    node.id = selector.startsWith('#') ? selector.slice(1) : '';
     node.hidden = initiallyHidden.has(selector);
     if (selector === '#relayPlanList') {
       node.querySelectorAll = query => query === '[role="option"]'
@@ -529,6 +587,10 @@ globalThis.window = {
   performance,
 };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
+globalThis.cancelAnimationFrame = () => {};
+globalThis.ResizeObserver = class ResizeObserver { observe() {} disconnect() {} };
+// 权限行为测试不依赖真实网络；空词表也避免迟到响应在 DOM 清理后重绘。
+globalThis.fetch = async () => new Response(JSON.stringify({ version: 1, tags: {}, shards: [] }), { status: 200 });
 Object.defineProperty(testNavigator, 'locks', {
   configurable: true,
   value: {
@@ -552,6 +614,7 @@ globalThis.document = {
   removeEventListener() {},
   createElement: tag => fakeElement(tag),
   createElementNS: (_namespace, tag) => fakeElement(tag),
+  createDocumentFragment: () => fakeElement('#fragment'),
   querySelector: () => null,
   querySelectorAll: () => [],
   getElementById: () => null,
@@ -567,6 +630,7 @@ try {
     rating: 'r18',
     codexId: 'c1',
     entryId: 'x1',
+    image: 'https://example.invalid/private-adult-source.png',
     access: { nsfw: true, r18g: false },
     accessKnown: true,
   };
@@ -628,25 +692,16 @@ try {
   await withAccess({}, async () => {
     const view = compose.setupRelayCompose(relayRoot);
 
-    /* —— 方案横条：拖拽外壳、可选主体、直接删除必须是三个不嵌套的职责 —— */
-    const initialCards = ref('#relayPlanLane').children;
-    assert.equal(initialCards.length, 2);
-    for (const card of initialCards) {
-      assert.equal(card.getAttribute('role'), 'group');
-      const mains = elementsIn(card, node => node.className === 'tag-relay-plan-card-main');
-      const removes = elementsIn(card, node => node.className === 'tag-relay-plan-card-remove');
-      assert.equal(mains.length, 1, '每条方案块必须有一个独立的可选主体');
-      assert.equal(mains[0].getAttribute('role'), 'button');
-      assert.equal(card.draggable, false, '删除键所在的外壳不能 draggable，否则从 × 起拖会误拖卡片');
-      assert.equal(mains[0].draggable, card.dataset.itemId !== 'locked-1');
-      assert.equal(removes.length, 1, '每条方案块必须直接提供一个移出按钮');
-      assert.equal(removes[0].tagName, 'BUTTON');
-    }
-    const lockedRemove = elementsIn(
-      initialCards.find(card => card.dataset.itemId === 'locked-1'),
-      node => node.className === 'tag-relay-plan-card-remove',
-    )[0];
-    assert.doesNotMatch(lockedRemove.getAttribute('aria-label'), /成人词条/, '锁定块的删除按钮不得泄露真实标题');
+    await view.ready;
+    const lane = ref('#relayPlanLane');
+    const inputs = () => elementsIn(lane, node => node.tagName === 'TEXTAREA');
+    const allMarkup = () => elementsIn(lane, () => true).map(node => [
+      node.textContent, node.value, node.title, node.src, node.href,
+      ...[...(node.attrs?.values() || [])],
+    ].filter(Boolean).join(' ')).join(' ');
+    assert.equal(inputs().length, 2, '正负通道保留各自的原生 textarea');
+    assert.doesNotMatch(allMarkup(), /成人词条|adult-positive|adult-negative|private-adult-source/, '撤权时镜像、textarea 与可访问属性都不含锁定标题、正文或图片');
+    assert.equal(elementsIn(lane, node => node.tagName === 'IMG').length, 0, '锁定来源图片不能进入 DOM');
 
     /* —— 混合方案编译：受限块的 tag 一个字都不许进成品 —— */
     assert.equal(ref('#relayPositiveOutput').value, '1.2::{sunlight}::');
@@ -655,11 +710,14 @@ try {
     assert.doesNotMatch(ref('#relayNegativeOutput').value, /adult-negative/, '负向通道同样要摘掉受限块');
     assert.equal(ref('#relayCopyPositive').disabled, false);
 
-    // 开关打开后同一方案要能编出完整成品（证明上面不是把内容永久丢了）
+    // 开关打开后同一方案要能编出完整成品，证明锁定没有永久删除数据。
     state.allowNsfw = true;
+    compose.refreshComposeAccess();
     view.render();
     assert.equal(ref('#relayPositiveOutput').value, '1.2::{sunlight}::, adult-positive');
     assert.equal(ref('#relayNegativeOutput').value, '1.2::blurry::, adult-negative');
+    assert.match(allMarkup(), /成人词条/);
+    assert.equal(elementsIn(lane, node => node.tagName === 'IMG').length, 1, '解锁后来源图片恢复，锁定断言不能靠永久隐藏图片通过');
 
     /* —— footer 分段控件：真实 scope + 三种格式 + 两种连接 —— */
     const naiOutput = ref('#relayPositiveOutput').value;
@@ -682,119 +740,27 @@ try {
     planPicker.fire('click');
     assert.equal(planList.hidden, false);
     assert.equal(planPicker.getAttribute('aria-expanded'), 'true');
-    relayShell.fire('keydown', { key: 'Escape' });
+    planList.fire('keydown', { key: 'Escape' });
     assert.equal(planList.hidden, true);
     assert.equal(planPicker.getAttribute('aria-expanded'), 'false');
     assert.equal(document.activeElement, planPicker, 'Escape 关闭方案列表后要把焦点还给触发按钮');
 
-    /* —— 同一词条只能进入当前方案一次 ——
-       常规重复由内存预检查拦下；Promise.all 则让两次请求一起越过预检查，验证 Web Lock
-       内的 core 去重仍生效。完整 / 仅负向还必须共用冻结的本地 relayKey。 */
-    const laneIds = () => ref('#relayPlanLane').children.map(card => card.dataset.itemId);
-    const originalIds = laneIds();
+    /* —— 撤权后连隐藏通道与原生剪贴板都必须滤掉来源 —— */
+    state.allowNsfw = false;
+    compose.refreshComposeAccess();
+    view.render();
+    assert.doesNotMatch(allMarkup(), /成人词条|adult-positive|adult-negative|private-adult-source/);
+    for (const input of inputs()) {
+      input.focus(); input.select();
+      const clipboard = new Map();
+      input.fire('copy', { clipboardData: { setData: (type, value) => clipboard.set(type, value) } });
+      assert.doesNotMatch(clipboard.get('text/plain') || '', /成人词条|adult-positive|adult-negative/, '原生复制不能绕过分级');
+    }
+    const before = inputs().map(input => input.value);
     await compose.addSourceToPlan(LOCKED_ITEM);
     await compose.addSourceToPlan(LOCKED_ITEM, { negativeOnly: true });
-    view.render();
-    assert.deepEqual(laneIds(), originalIds, '方案里已有的真实词条不得因完整或仅负向入口再加一块');
-
-    const localEntry = {
-      title: '本地去重词条',
-      prompt: 'local-positive',
-      negative: 'local-negative',
-      access: { nsfw: false, r18g: false },
-      accessKnown: true,
-    };
-    await Promise.all([
-      compose.addSourceToPlan(localEntry),
-      compose.addSourceToPlan(localEntry),
-    ]);
-    view.render();
-    assert.equal(laneIds().length, originalIds.length + 1, '并发加入同一素材也只能落一个方案块');
-    const localCard = ref('#relayPlanLane').children.find(card => visibleText(card).includes(localEntry.title));
-    assert.ok(localCard, '并发去重后应保留先进入的那一个块');
-    await compose.addSourceToPlan(localEntry, { negativeOnly: true });
-    view.render();
-    assert.equal(laneIds().length, originalIds.length + 1, '无来源 ID 的仅负向投影也要命中原完整词条');
-    const localRemove = elementsIn(localCard, node => node.className === 'tag-relay-plan-card-remove')[0];
-    await fireAsync(localRemove, 'click');
-    view.render();
-    assert.deepEqual(laneIds(), originalIds, '卡片内删除必须直接移出该块，且不污染后续拖排状态');
-
-    const negativeFirst = {
-      title: '先负向词条',
-      prompt: 'must-not-upgrade',
-      negative: 'negative-first',
-      access: { nsfw: false, r18g: false },
-      accessKnown: true,
-    };
-    await compose.addSourceToPlan(negativeFirst, { negativeOnly: true });
-    await compose.addSourceToPlan(negativeFirst);
-    view.render();
-    assert.doesNotMatch(ref('#relayPositiveOutput').value, /must-not-upgrade/, '重复加入不能暗中覆盖先进入的仅负向块');
-    assert.match(ref('#relayNegativeOutput').value, /negative-first/);
-    const negativeCard = ref('#relayPlanLane').children.find(card => visibleText(card).includes(negativeFirst.title));
-    assert.ok(negativeCard);
-    await compose.removeBlock(negativeCard.dataset.itemId);
-    view.render();
-    assert.deepEqual(laneIds(), originalIds);
-
-    /* —— 原生拖放：自投不误移；异步 drop 也不依赖会被 dragend 清空的模块状态 —— */
-    const makeDataTransfer = () => {
-      const transferData = new Map();
-      return {
-        types: [],
-        effectAllowed: '',
-        dropEffect: '',
-        setData(type, value) {
-          transferData.set(type, String(value));
-          if (!this.types.includes(type)) this.types.push(type);
-        },
-        getData(type) { return transferData.get(type) || ''; },
-        setDragImage() {},
-      };
-    };
-
-    const lane = ref('#relayPlanLane');
-    const self = lane.children[0];
-    const selfTransfer = makeDataTransfer();
-    let selfDropStopped = false;
-    self.fire('dragstart', { dataTransfer: selfTransfer, offsetX: 20, offsetY: 20 });
-    const selfDropTasks = (self.listeners.get('drop') || []).map(listener => listener({
-      type: 'drop', target: self, currentTarget: self, dataTransfer: selfTransfer,
-      preventDefault() {}, stopPropagation() { selfDropStopped = true; },
-    }));
-    // 假 DOM 不会自动冒泡；旧实现没 stopPropagation 时，显式模拟事件继续落到 lane。
-    if (!selfDropStopped) {
-      selfDropTasks.push(...(lane.listeners.get('drop') || []).map(listener => listener({
-        type: 'drop', target: self, currentTarget: lane, dataTransfer: selfTransfer,
-        preventDefault() {}, stopPropagation() {},
-      })));
-    }
-    self.fire('dragend', { dataTransfer: selfTransfer });
-    await Promise.all(selfDropTasks);
-    view.render();
-    assert.deepEqual(
-      ref('#relayPlanLane').children.map(card => card.dataset.itemId),
-      ['plain-1', 'locked-1'],
-      '条目拖回自身时必须截断冒泡，不能被轨道 drop 误移到末尾',
-    );
-
-    const [dragged, target] = ref('#relayPlanLane').children;
-    const dataTransfer = makeDataTransfer();
-    dragged.fire('dragstart', { dataTransfer, offsetX: 20, offsetY: 20 });
-    target.fire('dragover', { dataTransfer, clientX: 90, clientY: 25 });
-    const dropTasks = (target.listeners.get('drop') || []).map(listener => listener({
-      type: 'drop', target, currentTarget: target, dataTransfer, clientX: 90, clientY: 25,
-      preventDefault() {}, stopPropagation() {},
-    }));
-    dragged.fire('dragend', { dataTransfer });
-    await Promise.all(dropTasks);
-    view.render();
-    assert.deepEqual(
-      ref('#relayPlanLane').children.map(card => card.dataset.itemId),
-      ['locked-1', 'plain-1'],
-      'dragend 先发生也不能清掉已捕获的拖拽条目 ID',
-    );
+    assert.deepEqual(inputs().map(input => input.value), before, '锁定素材的完整与仅负向入口都必须拒绝');
+    await view.flush();
 
     /* —— 复制历史的三条分支 —— */
     state.allowNsfw = false;
@@ -834,6 +800,25 @@ try {
     assert.equal(buttonsIn(unlockedCard).length, 2);
     assert.equal(buttonsIn(stillEmpty).length, 0, '缺快照是数据缺陷，开关全开也解不开');
     assert.equal(buttonsIn(stillNoAccess).length, 0);
+
+    // 详情选段经过 editor → store 后仍是原来源片段；历史恢复不能重新生成身份或入库时间。
+    const fragment = normalizeRelayEntry(snapshotFragment({ id: 'selected-source', title: '选择片段', tags: '1.2::backpack, gloves::',
+      _srcCodexId: 'book-safe', rating: 'safe', path: ['outdoors'] },
+    { text: '1.2::backpack::', channel: 'positive', scope: 'selection' }));
+    await compose.addSourceToPlan(fragment, { focus: false });
+    await view.flush();
+    const stored = JSON.parse(storage.get(v4.TAG_RELAY_STORAGE_KEY));
+    const plan = v4.getActivePlan(stored);
+    const fold = v4.planFolds(plan).find(item => item.entryId === 'selected-source');
+    assert.ok(fold, '所选片段进入 v4 持久化折叠表');
+    assert.equal(fold.body, fragment.prompt);
+    for (const field of ['key', 'sourceKey', 'fragmentKey', 'relayKey', 'scope', 'channel', 'addedAt']) {
+      assert.equal(fold[field], fragment[field], `来源片段 ${field} 不得在编辑器重建时丢失`);
+    }
+    const record = v4.recordCopyHistory(stored, { plan });
+    const restored = v4.restoreHistoryAsPlan(stored, record.id, { isLocked: snapshotLocked });
+    assert.deepEqual(v4.planFolds(restored).find(item => item.entryId === 'selected-source'), fold,
+      '成品恢复必须保住完整旁路条目，包括来源身份与原 addedAt');
   });
 
   /* ============================================================

@@ -3,6 +3,10 @@ import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl }
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
+import { toast } from './feedback.js';
+import { snapshotFragment, snapshotLocked } from './tag-relay-snapshot.js';
+import { tokenizePrompt, serializeSelection } from './prompt-fragments.js';
+import { lookupTagZh } from './tag-zh-core.js';
 import { naiToSd } from './nai-sd.js';
 import { recordRecentEntry } from './history.js';
 import { atlasUrlForRoute, syncUrlState } from './router.js';
@@ -513,12 +517,169 @@ export function isLightboxKeydownBlocked(ev) {
 /* 灯箱里每个提示词框记住自己的原文：开关中文对照、对照表晚到或 SD 预览切换时都从这里重画，
    不从 DOM 反推（DOM 里已经混进了中文小字）。 */
 const promptBlocks = new WeakMap();
+const promptSelections = new WeakMap();
+
+function updateSelectionControls(selection) {
+  const count = selection.ids.size;
+  selection.count.textContent = `已选 ${count} 项`;
+  selection.copy.disabled = !count;
+  selection.add.disabled = !count || selection.channel === 'character-negative';
+  selection.all.textContent = count === selection.pieces.length ? '清空选择' : '全选';
+}
+
+function renderPromptSelection(pre, selection) {
+  const shards = isTagZhEnabled() ? peekTagZh(selection.codexId) : null;
+  const fragment = document.createDocumentFragment();
+  for (const piece of selection.pieces) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'prompt-selection-token';
+    button.dataset.fragmentId = piece.id;
+    button.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+    const en = document.createElement('span');
+    en.className = 'tag-zh-en';
+    en.textContent = piece.raw;
+    button.append(en);
+    const hit = lookupTagZh(shards, piece.key);
+    if (hit) {
+      const zh = document.createElement('span');
+      zh.className = `tag-zh-zh${hit.source === 'a' ? ' is-ai' : ''}`;
+      zh.textContent = `${piece.negative ? '−' : ''}${hit.zh}`;
+      button.append(zh);
+    }
+    if (piece.opaque) button.title = '这段语法作为整体选取，以保留原意';
+    button.onclick = event => {
+      event.stopPropagation();
+      if (selection.ids.has(piece.id)) selection.ids.delete(piece.id);
+      else selection.ids.add(piece.id);
+      button.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+      updateSelectionControls(selection);
+    };
+    fragment.append(button);
+  }
+  pre.replaceChildren(fragment);
+  pre.classList.add('prompt-selecting');
+  pre.classList.remove('tag-zh-on');
+  updateSelectionControls(selection);
+}
+
+function stopPromptSelection(pre) {
+  const selection = promptSelections.get(pre);
+  if (!selection) return;
+  selection.active = false;
+  selection.ids.clear();
+  selection.bar.hidden = true;
+  selection.toggle.setAttribute('aria-pressed', 'false');
+  pre.classList.remove('prompt-selecting');
+}
+
+function bindPromptSelection(pre, text, { entry, channel = 'positive', characterIndex, label = '' } = {}) {
+  if (!pre) return;
+  const previous = promptSelections.get(pre);
+  previous?.toggle.remove();
+  previous?.bar.remove();
+  promptSelections.delete(pre);
+  pre.classList.remove('prompt-selecting');
+  if (!String(text || '').trim()) return;
+  const head = pre.previousElementSibling;
+  if (!head?.classList.contains('section-head')) return;
+  const makeButton = (text, className = '') => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.textContent = text;
+    return button;
+  };
+  const toggle = makeButton('选择 tag', 'prompt-selection-toggle');
+  toggle.setAttribute('aria-pressed', 'false');
+  head.append(toggle);
+  const bar = document.createElement('div');
+  bar.className = 'prompt-selection-bar';
+  bar.hidden = true;
+  const count = document.createElement('span');
+  count.className = 'prompt-selection-count';
+  count.setAttribute('role', 'status');
+  const all = makeButton('全选');
+  const copy = makeButton('复制所选');
+  const add = makeButton('加入当前方案');
+  const cancel = makeButton('取消');
+  bar.append(count, all, copy, add, cancel);
+  if (channel === 'character-negative') {
+    const note = document.createElement('span');
+    note.className = 'prompt-selection-note';
+    note.textContent = '角色负向请复制到对应角色槽；不会加入全局负向。';
+    add.title = '当前方案尚不编辑角色负向槽';
+    bar.append(note);
+  }
+  pre.after(bar);
+  const selection = {
+    active: false, ids: new Set(), pieces: tokenizePrompt(text), text: String(text),
+    entry, channel, characterIndex, label, codexId: lightboxEntrySourceId(entry),
+    toggle, bar, count, all, copy, add,
+  };
+  promptSelections.set(pre, selection);
+  const finish = () => {
+    stopPromptSelection(pre);
+    renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
+    toggle.focus();
+  };
+  toggle.onclick = event => {
+    event.stopPropagation();
+    if (selection.active) { finish(); return; }
+    if (!refreshLightboxAccess(entry)) return;
+    selection.active = true;
+    bar.hidden = false;
+    toggle.setAttribute('aria-pressed', 'true');
+    const sdPreview = head.querySelector('.sd-preview-toggle');
+    sdPreview?.setAttribute('aria-pressed', 'false');
+    if (sdPreview) sdPreview.textContent = 'SD 预览';
+    pre.classList.remove('sd-previewing');
+    clearTagZhDetails(pre.parentElement);
+    renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
+    pre.querySelector('button')?.focus();
+  };
+  all.onclick = event => {
+    event.stopPropagation();
+    if (selection.ids.size === selection.pieces.length) selection.ids.clear();
+    else selection.pieces.forEach(piece => selection.ids.add(piece.id));
+    renderPromptSelection(pre, selection);
+  };
+  cancel.onclick = event => { event.stopPropagation(); finish(); };
+  const selectedFragment = () => ({
+    text: serializeSelection(text, selection.ids), channel, characterIndex,
+    scope: 'selection', label,
+  });
+  copy.onclick = event => {
+    event.stopPropagation();
+    if (!selection.ids.size || !refreshLightboxAccess(entry)) return;
+    const fragment = selectedFragment();
+    void copyText(fragment.text, `已复制 ${selection.ids.size} 项：${entry.title}`, copy, { entry, fragment });
+  };
+  add.onclick = async event => {
+    event.stopPropagation();
+    if (!selection.ids.size || channel === 'character-negative' || !refreshLightboxAccess(entry)) return;
+    const restoreFocus = document.activeElement === add;
+    add.disabled = true;
+    try {
+      const snapshot = snapshotFragment(entry, selectedFragment());
+      const { addSourceToPlan } = await import('./tag-relay-compose.js');
+      if (!snapshotLocked(snapshot)) await addSourceToPlan(snapshot, { focus: false });
+    } catch {
+      toast('未能加入方案，请重试', '!');
+    } finally {
+      updateSelectionControls(selection);
+      if (restoreFocus && add.isConnected && selection.active && sameLightboxEntry(state.lightbox?.entry, entry)) add.focus({ preventScroll: true });
+    }
+  };
+}
 
 function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
   if (!pre) return;
   const source = String(text || '');
   const sourceCodexId = codexId ?? lightboxEntrySourceId(state.lightbox?.entry);
   promptBlocks.set(pre, { text: source, highlighted, codexId: sourceCodexId });
+  const selection = promptSelections.get(pre);
+  if (selection?.active) { renderPromptSelection(pre, selection); return; }
   const terms = highlighted ? currentHighlightTerms() : [];
   const shards = isTagZhEnabled() ? peekTagZh(sourceCodexId) : null;
   const translated = Array.isArray(shards) && renderTagZhPrompt(pre, source, { shards, terms });
@@ -531,6 +692,7 @@ function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
 function forgetPromptBlock(pre, text) {
   if (!pre) return;
   promptBlocks.delete(pre);
+  bindPromptSelection(pre, '');
   pre.classList.remove('tag-zh-on');
   pre.textContent = text;
 }
@@ -579,7 +741,7 @@ export function renderCharacterPrompts(entry) {
   block.hidden = !prompts.length;
   if (!prompts.length) return;
 
-  const addPromptBox = (parent, labelText, prompt, message) => {
+  const addPromptBox = (parent, labelText, prompt, message, channel, characterIndex) => {
     if (!String(prompt || '').trim()) return;
     const head = document.createElement('div');
     head.className = 'section-head';
@@ -592,24 +754,26 @@ export function renderCharacterPrompts(entry) {
     copy.onclick = ev => {
       ev.stopPropagation();
       if (!refreshLightboxAccess(entry)) return;
-      /* 分块复制的是某一个角色词，但入库存的是整条词条——库里的单位就是词条 */
-      copyText(prompt, `${message}：${entry.title}`, copy, { entry });
+      copyText(prompt, `${message}：${entry.title}`, copy, {
+        entry, fragment: { text: prompt, channel, scope: channel, characterIndex, label: labelText },
+      });
     };
     head.append(label, copy);
     const content = document.createElement('pre');
     renderPromptBlock(content, prompt, { highlighted: true, codexId: lightboxEntrySourceId(entry) });
     parent.append(head, content);
+    bindPromptSelection(content, prompt, { entry, channel, characterIndex, label: labelText });
   };
 
-  for (const item of prompts) {
+  for (const [characterIndex, item] of prompts.entries()) {
     const prompt = document.createElement('section');
     prompt.className = 'character-prompt';
     const label = String(item.label || 'char').trim() || 'char';
-    addPromptBox(prompt, label, item.prompt, `已复制 ${label}`);
+    addPromptBox(prompt, label, item.prompt, `已复制 ${label}`, 'character-positive', characterIndex);
     if (String(item.negative || '').trim()) {
       const negative = document.createElement('div');
       negative.className = 'character-prompt-negative';
-      addPromptBox(negative, `${label} Negative`, item.negative, `已复制 ${label} 负面`);
+      addPromptBox(negative, `${label} Negative`, item.negative, `已复制 ${label} 负面`, 'character-negative', characterIndex);
       prompt.appendChild(negative);
     }
     container.appendChild(prompt);
@@ -790,6 +954,8 @@ export function renderLightbox() {
   }
 
   const hasPositive = Boolean(String(e.tags || '').trim());
+  stopPromptSelection($('#lightboxTags'));
+  stopPromptSelection($('#lightboxNegative'));
   clearTagZhDetails($('#lightboxInfo'));
   if (hasPositive) renderPromptBlock($('#lightboxTags'), e.tags || '', { highlighted: true });
   else forgetPromptBlock($('#lightboxTags'), readableOriginal
@@ -811,6 +977,7 @@ export function renderLightbox() {
     pre.classList.remove('sd-previewing');
     button.onclick = available ? event => {
       event.stopPropagation();
+      stopPromptSelection(pre);
       const enabled = button.getAttribute('aria-pressed') !== 'true';
       button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
       button.textContent = enabled ? '恢复原文' : 'SD 预览';
@@ -822,6 +989,8 @@ export function renderLightbox() {
   };
   bindSdPreview($('#sdPositivePreview'), $('#lightboxTags'), e.tags || '', { highlighted: true });
   bindSdPreview($('#sdNegativePreview'), $('#lightboxNegative'), e.negative || '');
+  bindPromptSelection($('#lightboxTags'), e.tags || '', { entry: e, channel: 'positive' });
+  bindPromptSelection($('#lightboxNegative'), e.negative || '', { entry: e, channel: 'negative' });
   syncTagZhForEntry(e, seq);
 
   $('#copyPositive').hidden = !hasPositive;
@@ -831,10 +1000,12 @@ export function renderLightbox() {
     if (!refreshLightboxAccess(e)) return;
     copyText(e.tags, `已复制正向：${e.title}`, ev.currentTarget, {
       entry: e,
+      fragment: { text: e.tags, channel: 'positive', scope: 'positive' },
       followUp: String(e.negative || '').trim() ? {
         label: '再复制负面',
         text: e.negative,
         message: `已复制负面：${e.title}`,
+        fragment: { text: e.negative, channel: 'negative', scope: 'negative' },
       } : null,
     });
   };
@@ -845,6 +1016,7 @@ export function renderLightbox() {
     if (!refreshLightboxAccess(e)) return;
     copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget, {
       entry: e,
+      fragment: { text: e.negative, channel: 'negative', scope: 'negative' },
       sampleLabel: '已复制负面',
     });
   };

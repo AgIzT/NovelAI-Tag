@@ -2757,3 +2757,17 @@ html.motion-off{scroll-behavior:auto!important}
     animation:none!important;transition:none!important;
   }
 }
+
+/* 详情选词：译名仅辅助阅读，选择与复制使用原始英文片段。 */
+.prompt-selection-toggle{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:5px 9px;font:600 11px var(--font-ui)}
+.prompt-selection-toggle[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;white-space:normal;max-height:330px;overflow-y:auto}
+.prompt-selection-token{display:flex;flex-direction:column;gap:3px;max-width:100%;text-align:left;overflow-wrap:anywhere;white-space:normal;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);padding:6px 8px;font:12px/1.5 monospace}
+.prompt-selection-token[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
+.prompt-selection-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:7px 0 12px}
+.prompt-selection-bar[hidden]{display:none}
+.prompt-selection-bar button{border:1px solid var(--line);border-radius:8px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:11px/1.5 var(--font-ui)}
+.prompt-selection-bar button:disabled{opacity:.4;cursor:default}
+.prompt-selection-count{font:11px var(--font-ui);color:var(--muted)}
+.prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
+@media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle{min-height:44px}}

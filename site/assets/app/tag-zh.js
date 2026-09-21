@@ -6,6 +6,7 @@ import {
   lookupTagZh,
   normalizeTagZhShard,
   splitPromptPieces,
+  tagZhKey,
 } from './tag-zh-core.js';
 
 /* ---------------- tag 中文对照（灯箱提示词下方的中文小字） ----------------
@@ -90,6 +91,21 @@ export function peekTagZh(codexId) {
   const id = String(codexId || '');
   const shard = shardCache.get(id);
   return shard ? [coreShard, shard] : [coreShard];
+}
+
+/* 编辑器手写词没有固定归属：先查指定法典，再读其余已加载分片，不触发网络请求。 */
+export function lookupLoadedTagZh(value, preferredCodexIds = []) {
+  const key = tagZhKey(value);
+  if (!key || !coreShard) return null;
+  const preferred = [...new Set(preferredCodexIds.filter(Boolean).map(String))];
+  for (const id of preferred) {
+    const hit = lookupTagZh(peekTagZh(id), key);
+    if (hit) return hit;
+  }
+  return lookupTagZh([
+    coreShard,
+    ...[...shardCache].filter(([id, shard]) => shard && !preferred.includes(id)).map(([, shard]) => shard),
+  ], key);
 }
 
 /* 这本书的对照表是不是已经全到齐了。core 有全站高频词，先用它出译名不用等分书表；
