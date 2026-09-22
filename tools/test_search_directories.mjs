@@ -15,6 +15,16 @@ const { isEntryAccessBlocked } = await import(moduleUrl('access.js'));
 state.allowNsfw = false;
 state.allowR18g = false;
 
+// 目录建议也按完整短语和英文边界匹配，不能从多层路径拼出短语。
+{
+  const paths = [['long_hair'], ['very long hair'], ['long hairpin'], ['long', 'hair'], ['short hair, long skirt']];
+  const entries = paths.map((path, index) => ({ id: `phrase-${index}`, path }));
+  const matches = findRelatedDirectories({
+    entries, codex: { id: 'phrases' }, positiveTerms: ['long hair'], queryText: 'long hair',
+  });
+  assert.deepEqual(matches.map(item => item.name), ['long_hair', 'very long hair']);
+}
+
 {
   const entries = [
     { id: 'a', title: 'A', path: ['各式场景', '场景'] },

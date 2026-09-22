@@ -51,8 +51,8 @@
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
 | `data.js` | 引导数据、法典加载、规范化、目录树、更新筛选和数据状态提示 | — | `state.js`、`utils.js`、`media.js`、`feedback.js`、`../data-source.js` | 下载中的 Promise 先写入 `state.codexCache`，并发调用共享；失败时只清理对应 Promise 以允许重试；`updateFilterDefinitions` 按批次 id（`YYYY.M.D`）日期倒序返回并带 `time`，不吃 `codexes.json` 里数组的书写顺序 |
-| `search.js` | `q + f` 查询解析 / 序列化、字段筛选、稳定相关性排序、短语高亮与缓存失效 | 默认文本、字段值、筛选 needle 与目录短码的每词条 `WeakMap` 缓存 | `state.js`、`media.js`、`favorites.js`、`path-code.js` | 默认召回严格限于标题、标签和角色正向提示词；已知非法语法 fail-closed；编辑器原地改词条后必须调用 `invalidateSearchableText` |
-| `search-directories.js` | 构建目录选项、相关目录排序与缓存失效 | 按 entries 身份、来源模式、法典身份和权限态缓存目录表 | `state.js`、`access.js`、`path-code.js` | 只生成权限过滤后的真实来源目录；最终同级顺序取真实 tree，最多展示 5 项但保留完整 `totalCount` |
+| `search.js` | `q + f` 查询解析 / 序列化、字段筛选、稳定相关性排序、短语高亮、显式拆词与缓存失效 | 默认文本、字段值、筛选 needle 与目录短码的每词条 `WeakMap` 缓存 | `state.js`、`media.js`、`favorites.js`、`path-code.js` | 空格属于短语、逗号分 AND 条件；共享英文边界与下划线归一，保留字段/角色换行边界；默认召回严格限于标题、标签和角色正向提示词，非法语法 fail-closed；编辑后调用 `invalidateSearchableText` |
+| `search-directories.js` | 构建目录选项、相关目录排序与缓存失效 | 按 entries 身份、来源模式、法典身份和权限态缓存目录表 | `state.js`、`access.js`、`path-code.js`、`search.js` | 复用短语匹配边界，只生成权限过滤后的真实来源目录；最终同级顺序取真实 tree，最多展示 5 项但保留完整 `totalCount` |
 | `search-ui.js` | 中文筛选构造器 / popover、chip、错误 / 零结果状态与相关目录渲染 | 注入动作及委托点击所需的筛选 / 目录引用及条件标签动效 | `ui-motion.js` | 不拥有搜索或历史状态；注入添加 / 删除 / 清空筛选、示例、打开目录和状态动作 |
 | `router.js` | URL 读写、规范标题、分享路径、同书 `entryAliases` 旧词条深链、`hasActiveSearchRoute`、`beginAtlasLayeredSearch` 与词条深链 | `routerActions` | `state.js`、`utils.js`、`path-code.js`、`search.js`、`favorites-backup-core.js`、`access.js`、`browser-history.js` | `q` 保存正向输入，规范筛选用重复 `f`，普通浏览目录仍用 `p`，收藏夹用 `fd` 且忽略旧 `p`；首次搜索保留 push，后续变更 replace，移动搜索保留分层 Back；有图 / 无图详情统一支持深链与历史恢复；规范地址规则见本地私有文档 `docs/decisions/短链与地址栏规范地址.md` |
 | `copy.js` | 词条 / 文本 / 所选片段复制、组合提示词、最近记录、复制动效与中转站收入 | 已复制样式的计时器 `WeakMap` | `state.js`、`feedback.js`、`history.js`、`clipboard.js`、`clipboard-fallback.js`、`nai-sd.js`、`copy-fx.js`、`tag-relay-rail.js`、`tag-relay-store.js`、`tag-relay-snapshot.js`、`access.js`、`data.js` | `fragment` / `relaySnapshot` 明确本次原文范围；复制前冻结来源，成功后才收入同范围快照，失败不收录；转换后的显示或输出不改写保存的英文原文 |

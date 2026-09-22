@@ -91,6 +91,42 @@ function normalizeSearchText(value) {
   return normalizeInput(value).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/** 保留换行边界；tag 下划线与空格等价。身份与 URL 值仍用原归一规则。 */
+export function normalizeSearchMatchText(value) {
+  return normalizeInput(value).replace(/[_\t\f\v\p{Zs}]+/gu, ' ').trim().toLowerCase();
+}
+
+function normalizeSearchTerm(value) {
+  return normalizeSearchMatchText(value).replace(/\s+/g, ' ');
+}
+
+function isEnglishWordCode(code) {
+  return (code >= 97 && code <= 122) || (code >= 48 && code <= 57);
+}
+
+function searchTextIndex(text, term, from = 0) {
+  if (!term) return -1;
+  let index = text.indexOf(term, from);
+  if (index === -1) return -1;
+  const leftBoundary = isEnglishWordCode(term.charCodeAt(0));
+  const rightBoundary = isEnglishWordCode(term.charCodeAt(term.length - 1));
+  if (!leftBoundary && !rightBoundary) return index;
+  while (index !== -1) {
+    const end = index + term.length;
+    if ((!leftBoundary || !isEnglishWordCode(text.charCodeAt(index - 1)))
+        && (!rightBoundary || !isEnglishWordCode(text.charCodeAt(end)))) return index;
+    index = text.indexOf(term, index + 1);
+  }
+  return -1;
+}
+
+/** 参数已归一；匹配、排序、高亮共用英文边界。 */
+export function searchTextIncludes(text, term) {
+  return searchTextIndex(text, term) !== -1;
+}
+
+const PHRASE_FIELDS = new Set(['default', 'title', 'prompt', 'negative']);
+
 function canonicalField(value) {
   return FIELD_ALIASES.get(normalizeSearchText(value)) || '';
 }
@@ -131,10 +167,10 @@ function cachedSearchField(entry, field) {
   }
   if (Object.prototype.hasOwnProperty.call(cached, field)) return cached[field];
   let value = '';
-  if (field === 'title') value = normalizeSearchText(entry?.title);
-  else if (field === 'prompt') value = normalizeSearchText([entry?.tags, characterPromptText(entry)].filter(Boolean).join('\n'));
+  if (field === 'title') value = normalizeSearchMatchText(entry?.title);
+  else if (field === 'prompt') value = normalizeSearchMatchText([entry?.tags, characterPromptText(entry)].filter(Boolean).join('\n'));
   else if (field === 'negative') {
-    value = normalizeSearchText([entry?.negative, characterNegativeText(entry)].filter(Boolean).join('\n'));
+    value = normalizeSearchMatchText([entry?.negative, characterNegativeText(entry)].filter(Boolean).join('\n'));
   } else if (field === 'note') value = normalizeSearchText(entry?.note);
   else if (field === 'raw') value = normalizeSearchText(rawTagText(entry));
   else if (field === 'path') value = normalizeSearchText(entryActualPath(entry).join('/'));
@@ -146,8 +182,8 @@ function cachedSearchField(entry, field) {
 export function searchableText(entry) {
   const cached = searchableTextCache.get(entry);
   if (cached !== undefined) return cached;
-  const title = normalizeSearchText(entry?.title);
-  const prompt = normalizeSearchText([entry?.tags, characterPromptText(entry)].filter(Boolean).join('\n'));
+  const title = normalizeSearchMatchText(entry?.title);
+  const prompt = normalizeSearchMatchText([entry?.tags, characterPromptText(entry)].filter(Boolean).join('\n'));
   const text = [title, prompt].filter(Boolean).join('\n');
   searchableTextCache.set(entry, text);
   let fields = searchFieldCache.get(entry);
@@ -177,15 +213,17 @@ function scanQuery(input) {
   let quotedAtStart = false;
   let quotePrefix = '';
   let tokenStart = -1;
+  let group = 0;
   for (let index = 0; index < source.length; index++) {
     const ch = source[index];
-    if (tokenStart === -1 && !/\s/.test(ch)) tokenStart = index;
+    if (tokenStart === -1 && !/[\s,，、;；]/.test(ch)) tokenStart = index;
     if (quote) {
-      if (ch === quote) quote = '';
+      if (ch === '\\' && (source[index + 1] === quote || source[index + 1] === '\\')) buf += source[++index];
+      else if (ch === quote) quote = '';
       else buf += ch;
       continue;
     }
-    if (ch === '"' || ch === "'") {
+    if ((ch === '"' || ch === "'") && (!buf || buf === '-' || buf.endsWith(':'))) {
       if (!quoted) {
         quotedAtStart = buf.length === 0;
         quotePrefix = buf;
@@ -194,22 +232,36 @@ function scanQuery(input) {
       quoted = true;
       continue;
     }
-    if (/\s/.test(ch)) {
+    if (/[\s,，、;；]/.test(ch)) {
       if (buf || quoted) {
-        tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix, raw: source.slice(tokenStart, index) });
+        tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix, group, raw: source.slice(tokenStart, index) });
         buf = '';
         quoted = false;
         quotedAtStart = false;
         quotePrefix = '';
       }
       tokenStart = -1;
+      if (/[,，、;；\r\n]/.test(ch)) group += 1;
       continue;
     }
     buf += ch;
   }
-  if (buf || quoted) tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix, raw: source.slice(tokenStart), unclosed: Boolean(quote) });
+  if (buf || quoted) tokens.push({ value: buf, quoted, quotedAtStart, quotePrefix, group, raw: source.slice(tokenStart), unclosed: Boolean(quote) });
+  // 空格连接相邻普通词；引号、字段语法和逗号是明确的条件边界。
+  const phrases = [];
+  const isPlain = token => !token.quoted && !token.value.startsWith('-') && !token.unclosed
+    && !(token.value.includes(':') && canonicalField(token.value.split(':')[0]));
+  for (const token of tokens) {
+    const previous = phrases.at(-1);
+    if (previous && previous.group === token.group && isPlain(previous) && isPlain(token)) {
+      previous.value += ' ' + token.value;
+      previous.raw += ' ' + token.raw;
+    } else {
+      phrases.push({ ...token });
+    }
+  }
   return {
-    tokens,
+    tokens: phrases,
     issue: quote
       ? searchIssue('unclosed_quote', '引号没有闭合，请补全后再搜索', source)
       : null,
@@ -366,12 +418,12 @@ function filterIdentity(filter) {
   if (filter.field === 'directory') {
     return `directory\u0000${normalizeSearchText(filter.codexId)}\u0000${normalizeSearchText(filter.pathCode)}`;
   }
-  return `${filter.field}\u0000${filter.op}\u0000${normalizeSearchText(filter.value)}`;
+  return `${filter.field}\u0000${filter.op}\u0000${filterNeedle(filter)}`;
 }
 
 function filterConflictIdentity(filter) {
   if (!TEXT_FIELDS.has(filter.field)) return '';
-  return `${filter.field}\u0000${normalizeSearchText(filter.value)}`;
+  return `${filter.field}\u0000${filterNeedle(filter)}`;
 }
 
 function appendFilter(filter, filters, seen, conflicts, issues) {
@@ -437,24 +489,18 @@ export function serializeSearchFilters(filters = []) {
 }
 
 function queryTermsFromToken(token) {
-  if (token.quoted) {
-    const value = normalizeSearchText(token.value);
-    return value ? [value] : [];
-  }
-  return String(token.value || '')
-    .split(/[\s,，、;；]+/)
-    .map(normalizeSearchText)
-    .filter(Boolean);
+  const value = normalizeSearchTerm(token.value);
+  return value ? [value] : [];
 }
 
 function queryConditionsFromToken(token) {
   if (token.unclosed) return [];
-  const values = token.quoted ? [token.value] : String(token.value || '').split(/[\s,，、;；]+/);
-  return values.map(value => ({
-    value: normalizeSearchText(value),
-    label: String(value).trim(),
-    quoted: token.quoted,
-  })).filter(condition => condition.value);
+  const value = normalizeSearchTerm(token.value);
+  return value ? [{
+    value,
+    label: String(token.value).trim(),
+    quoted: token.quoted || /\s/.test(value),
+  }] : [];
 }
 
 function uniqueTerms(terms) {
@@ -472,8 +518,8 @@ function highlightOrder(terms) {
 
 function formatQueryToken(token) {
   const value = String(token.value || '');
-  return token.quoted || /\s/.test(value)
-    ? `"${value.replace(/"/g, '\\"')}"`
+  return token.quoted
+    ? `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
     : value;
 }
 
@@ -566,7 +612,7 @@ export function parseSearchQuery(raw, filterValues = []) {
   const textConditionKeys = new Set(uniquePositiveTerms.map(term => `default\u0000include\u0000${term}`));
   for (const filter of filters) {
     if (!TEXT_FIELDS.has(filter.field)) continue;
-    textConditionKeys.add(`${filter.field}\u0000${filter.op}\u0000${normalizeSearchText(filter.value)}`);
+    textConditionKeys.add(filterIdentity(filter));
   }
   if (textConditionKeys.size > SEARCH_TEXT_CONDITION_LIMIT) {
     issues.push(searchIssue(
@@ -578,7 +624,7 @@ export function parseSearchQuery(raw, filterValues = []) {
 
   const includeFilterTerms = filters
     .filter(filter => TEXT_FIELDS.has(filter.field) && filter.op === 'include')
-    .map(filter => normalizeSearchText(filter.value))
+    .map(filterNeedle)
     .filter(Boolean);
   const terms = highlightOrder(uniquePositiveTerms);
   const plan = {
@@ -594,7 +640,7 @@ export function parseSearchQuery(raw, filterValues = []) {
     hasErrors: issues.length > 0,
     hasActiveSearch: Boolean(input || filterInputs.length),
     highlightTerms: highlightOrder([...uniquePositiveTerms, ...includeFilterTerms]).slice(0, SEARCH_TEXT_CONDITION_LIMIT),
-    canonicalQuery: plainTokens.map(formatQueryToken).join(' ').trim(),
+    canonicalQuery: plainTokens.map(token => token.unclosed ? token.raw : formatQueryToken(token)).join(', ').trim(),
     hasLegacyFilters: extractedFilterCount > 0,
     canCanonicalize: extractedFilterCount > 0 && issues.length === 0,
   };
@@ -603,7 +649,7 @@ export function parseSearchQuery(raw, filterValues = []) {
 
 /** 删除一个正向条件，保留其余原始字段语法与未完成输入，不能借删除 chip 放宽错误查询。 */
 export function removeSearchQueryTerm(raw, value) {
-  const needle = normalizeSearchText(value);
+  const needle = normalizeSearchTerm(value);
   const { tokens } = scanQuery(raw);
   return tokens.flatMap(token => {
     const plan = parseSearchQuery(token.raw);
@@ -617,7 +663,21 @@ export function removeSearchQueryTerm(raw, value) {
           || single.positiveTerms.length !== 1 || single.positiveTerms[0] !== condition.value;
         return formatQueryToken({ value: condition.label, quoted: needsQuotes });
       });
-  }).join(' ').trim();
+  }).join(', ').trim();
+}
+
+/** 零结果时显式拆词；调用方保留筛选，错误输入不提供降级。 */
+export function splitSearchPhrases(plan) {
+  if (!plan || plan.hasErrors || !plan.queryConditions?.length) return '';
+  const words = plan.queryConditions.flatMap(condition => condition.value.split(/\s+/).filter(Boolean));
+  if (words.length === plan.queryConditions.length) return '';
+  const query = uniqueTerms(words).map(value => {
+    const single = parseSearchQuery(value);
+    const quoted = single.hasErrors || single.filters.length || single.positiveTerms.length !== 1
+      || single.positiveTerms[0] !== value;
+    return formatQueryToken({ value, quoted });
+  }).join(', ');
+  return parseSearchQuery(query, plan.filterValues).hasErrors ? '' : query;
 }
 
 function fieldText(entry, field) {
@@ -630,7 +690,8 @@ function fieldText(entry, field) {
 function filterNeedle(filter) {
   const cached = filterNeedleCache.get(filter);
   if (cached !== undefined) return cached;
-  const value = normalizeSearchText(filter.value);
+  const value = PHRASE_FIELDS.has(filter.field)
+    ? normalizeSearchTerm(filter.value) : normalizeSearchText(filter.value);
   filterNeedleCache.set(filter, value);
   return value;
 }
@@ -651,7 +712,9 @@ function matchesFilter(entry, filter) {
   if (filter.field === 'has') return hasEntryImage(entry) === filter.value;
   if (filter.field === 'fav') return isFav(entry) === filter.value;
   if (filter.field === 'directory') return matchesDirectoryFilter(entry, filter);
-  const includes = fieldText(entry, filter.field).includes(filterNeedle(filter));
+  const text = fieldText(entry, filter.field);
+  const needle = filterNeedle(filter);
+  const includes = PHRASE_FIELDS.has(filter.field) ? searchTextIncludes(text, needle) : text.includes(needle);
   return filter.op === 'exclude' ? !includes : includes;
 }
 
@@ -663,7 +726,7 @@ export function matchSearchPlan(entry, plan) {
     : (plan.terms?.length ? plan.terms : (plan.text ? [normalizeSearchText(plan.text)] : []));
   if (positiveTerms.length) {
     const text = searchableText(entry);
-    if (!positiveTerms.every(term => text.includes(term))) return false;
+    if (!positiveTerms.every(term => searchTextIncludes(text, term))) return false;
   }
   if (Array.isArray(plan.filters)) return !plan.filters.length || plan.filters.every(filter => matchesFilter(entry, filter));
   // 兼容尚未接入 filters 的旧调用者手工构造的 plan。
@@ -684,12 +747,12 @@ export function searchRelevanceTier(entry, plan) {
   const prompt = fieldText(entry, 'prompt');
   const wholeQuery = plan.text || '';
   if (wholeQuery && title === wholeQuery) return 0;
-  if (wholeQuery && title.startsWith(wholeQuery)) return 1;
-  if (terms.every(term => title.includes(term))) return 2;
-  const titleHits = terms.some(term => title.includes(term));
-  const promptHits = terms.some(term => prompt.includes(term));
-  if (titleHits && promptHits && terms.every(term => title.includes(term) || prompt.includes(term))) return 3;
-  if (terms.every(term => prompt.includes(term))) return 4;
+  if (wholeQuery && searchTextIndex(title, wholeQuery) === 0) return 1;
+  if (terms.every(term => searchTextIncludes(title, term))) return 2;
+  const titleHits = terms.some(term => searchTextIncludes(title, term));
+  const promptHits = terms.some(term => searchTextIncludes(prompt, term));
+  if (titleHits && promptHits && terms.every(term => searchTextIncludes(title, term) || searchTextIncludes(prompt, term))) return 3;
+  if (terms.every(term => searchTextIncludes(prompt, term))) return 4;
   return 5;
 }
 
@@ -742,11 +805,7 @@ export function entryTypeText(entry) {
 }
 
 export function highlightTermsFromText(text) {
-  const terms = normalizeInput(text)
-    .split(/[\s,，、;；]+/)
-    .map(normalizeSearchText)
-    .filter(Boolean);
-  return highlightOrder(terms).slice(0, SEARCH_TEXT_CONDITION_LIMIT);
+  return parseSearchQuery(text).highlightTerms;
 }
 
 export function currentHighlightTerms() {
@@ -754,11 +813,11 @@ export function currentHighlightTerms() {
 }
 
 export function hiddenSearchMatch(entry, terms = currentHighlightTerms()) {
-  const needles = uniqueTerms((terms || []).map(normalizeSearchText).filter(Boolean));
+  const needles = uniqueTerms((terms || []).map(normalizeSearchTerm).filter(Boolean));
   if (!needles.length) return null;
   // 角色正向 prompt 会直接展示在卡片提示词区域，因此属于可见字段。
   const visible = searchableText(entry);
-  const unresolved = needles.filter(term => !visible.includes(term));
+  const unresolved = needles.filter(term => !searchTextIncludes(visible, term));
   if (!unresolved.length) return null;
   const fields = [
     ['负面词', [entry?.negative, characterNegativeText(entry)].filter(Boolean).join('\n')],
@@ -785,7 +844,7 @@ export function hiddenSearchMatch(entry, terms = currentHighlightTerms()) {
 export function renderHighlightedText(element, text, terms = []) {
   if (!element) return;
   const raw = String(text || '');
-  const needles = highlightOrder((terms || []).map(normalizeSearchText).filter(Boolean));
+  const needles = highlightOrder((terms || []).map(normalizeSearchTerm).filter(Boolean));
   if (!needles.length) {
     element.textContent = raw;
     return;
@@ -798,7 +857,7 @@ export function renderHighlightedText(element, text, terms = []) {
     let bestIndex = -1;
     let bestTerm = '';
     for (const term of needles) {
-      const index = normalized.text.indexOf(term, normalizedPosition);
+      const index = searchTextIndex(normalized.text, term, normalizedPosition);
       if (index === -1) continue;
       if (bestIndex === -1 || index < bestIndex || (index === bestIndex && term.length > bestTerm.length)) {
         bestIndex = index;
@@ -835,10 +894,10 @@ function normalizedTextWithOffsets(raw) {
     const codePoint = raw.codePointAt(rawIndex);
     const character = String.fromCodePoint(codePoint);
     const rawEnd = rawIndex + character.length;
-    const normalized = normalizeInput(character).toLowerCase();
+    const normalized = normalizeInput(character).replace(/_/g, ' ').toLowerCase();
     for (let index = 0; index < normalized.length; index += 1) {
       const normalizedCharacter = normalized[index];
-      if (/\s/.test(normalizedCharacter)) {
+      if (/[^\S\r\n]/.test(normalizedCharacter)) {
         if (text) {
           if (pendingSpaceStart === -1) pendingSpaceStart = rawIndex;
           pendingSpaceEnd = rawEnd;

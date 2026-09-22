@@ -19,6 +19,7 @@ const {
   serializeSearchFilter,
   serializeSearchFilters,
   splitQueryTokens,
+  splitSearchPhrases,
 } = await import(moduleUrl('search.js'));
 const { encodePathCode } = await import(moduleUrl('path-code.js'));
 const { fetchCodex, normalizeCodex } = await import(moduleUrl('data.js'));
@@ -32,22 +33,22 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
 
 // 普通词和短语显示为可移除条件，但仍属于 q；删除时保留字段筛选和未完成输入。
 {
-  const query = '猫 蓝眼睛 "blue eyes"';
+  const query = '猫, 蓝眼睛 "blue eyes"';
   const plan = parseSearchQuery(query, ['-default:男性']);
   assert.deepEqual(plan.queryConditions, [
     { value: '猫', label: '猫', quoted: false },
     { value: '蓝眼睛', label: '蓝眼睛', quoted: false },
     { value: 'blue eyes', label: 'blue eyes', quoted: true },
   ]);
-  assert.equal(removeSearchQueryTerm(query, '蓝眼睛'), '猫 "blue eyes"');
+  assert.equal(removeSearchQueryTerm(query, '蓝眼睛'), '猫, "blue eyes"');
   assert.deepEqual(parseSearchQuery(removeSearchQueryTerm(query, '猫'), plan.filterValues).positiveTerms, ['蓝眼睛', 'blue eyes']);
   assert.deepEqual(plan.filterValues, ['-default:男性'], '展示 q chips 不得把关键词转成 f');
-  assert.equal(removeSearchQueryTerm('猫 猫 蓝眼睛', '猫'), '蓝眼睛', '删除去重条件必须移除所有等值词');
-  assert.equal(parseSearchQuery('猫 猫').queryConditions.length, 1);
+  assert.equal(removeSearchQueryTerm('猫, 猫, 蓝眼睛', '猫'), '蓝眼睛', '删除去重条件必须移除所有等值词');
+  assert.equal(parseSearchQuery('猫, 猫').queryConditions.length, 1);
   assert.equal(removeSearchQueryTerm('猫,蓝眼睛', '猫'), '蓝眼睛');
   assert.equal(removeSearchQueryTerm('猫 “Blue Eyes”', '猫'), '"Blue Eyes"');
   assert.equal(removeSearchQueryTerm('猫 "path:服装"', '猫'), '"path:服装"');
-  const escapedRemainder = parseSearchQuery(removeSearchQueryTerm('artist:foo,has:image', 'artist:foo'));
+  const escapedRemainder = parseSearchQuery(removeSearchQueryTerm('artist:foo,"has:image"', 'artist:foo'));
   assert.deepEqual(escapedRemainder.positiveTerms, ['has:image']);
   assert.deepEqual(escapedRemainder.filters, [], '逗号拆词后不能把剩余普通词误认成字段');
   for (const invalid of ['title:', 'has:other', '"blue eyes']) {
@@ -57,7 +58,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
   }
   assert.deepEqual(parseSearchQuery('猫 "blue eyes').queryConditions.map(item => item.value), ['猫']);
   assert.equal(removeSearchQueryTerm('猫', '猫'), '');
-  const eleven = Array.from({ length: 11 }, (_, index) => `词${index}`).join(' ');
+  const eleven = Array.from({ length: 11 }, (_, index) => `词${index}`).join(', ');
   assert.equal(parseSearchQuery(eleven).hasErrors, true);
   assert.equal(parseSearchQuery(removeSearchQueryTerm(eleven, '词0')).hasErrors, false);
   assert.equal(parseSearchQuery(removeSearchQueryTerm(eleven.replaceAll(' ', ','), '词0')).hasErrors, false);
@@ -158,12 +159,12 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     setupSearchUi();
     const chips = nodes.get('searchFilterChips');
     const display = query => renderSearchFilters({ queryConditions: parseSearchQuery(query).queryConditions });
-    let draft = '猫 蓝眼睛';
+    let draft = '猫, 蓝眼睛';
     display(draft);
     const oldRemove = chips.children[0].firstElementChild;
     const target = oldRemove.firstElementChild;
     assert.strictEqual(target.closest('[data-search-filter-index]'), oldRemove, '点击标签文字应找到整块删除按钮');
-    draft = '猫 蓝眼睛 白色';
+    draft = '猫, 蓝眼睛, 白色';
     let prevented = false;
     chips.listeners.get('pointerdown')({ button: 0, target, preventDefault() { prevented = true; } });
     if (!prevented) display(draft);
@@ -171,7 +172,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     nodes.get('searchFilterBtn').onFocus = () => display(draft);
     setSearchUiActions({ removeQueryTerm(value) { draft = removeSearchQueryTerm(draft, value); display(draft); } });
     chips.listeners.get('click')({ target });
-    assert.equal(draft, '蓝眼睛 白色', '第一次点击标签文字既删除旧条件，也保留最新输入');
+    assert.equal(draft, '蓝眼睛, 白色', '第一次点击标签文字既删除旧条件，也保留最新输入');
     const keyboardRemove = chips.children[0].firstElementChild;
     chips.listeners.get('click')({ target: keyboardRemove });
     assert.equal(draft, '白色', '键盘 click 无 pointerdown 也可删除');
@@ -181,6 +182,67 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     globalThis.requestAnimationFrame = originalFrame;
     globalThis.getComputedStyle = originalComputedStyle;
   }
+}
+
+// 多单词 tag 默认完整匹配，多个条件显式用逗号分开。
+{
+  const plan = parseSearchQuery('long hair');
+  assert.deepEqual(plan.positiveTerms, ['long hair']);
+  assert.deepEqual(plan.queryConditions, [{ value: 'long hair', label: 'long hair', quoted: true }]);
+  const cases = [
+    ['long hair', true], ['very long hair', true], ['LONG_HAIR', true],
+    ['long  hair', true], ['long\thair', true], ['long　hair', true],
+    ['short hair', false], ['long skirt', false], ['short hair, long skirt', false],
+    ['long hairpin', false], ['along hair', false], ['long, hair', false], ['long\nhair', false],
+    ['long hairpin, long hair', true], ['{long hair}', true], ['1.2::long hair::', true],
+  ];
+  for (const [tags, expected] of cases) {
+    assert.equal(matchSearchPlan({ title: '', tags }, plan), expected, tags);
+    assert.equal(matchSearchPlan({ title: '', tags }, parseSearchQuery('', ['prompt:long_hair'])), expected, `prompt: ${tags}`);
+    assert.equal(matchSearchPlan({ title: '', tags }, parseSearchQuery('', ['-prompt:long hair'])), !expected, `exclude: ${tags}`);
+  }
+  for (const entry of [
+    { title: 'long', tags: 'hair' },
+    { tags: 'long', characterPrompts: [{ prompt: 'hair' }] },
+    { tags: '', characterPrompts: [{ prompt: 'long' }, { prompt: 'hair' }] },
+  ]) assert.equal(matchSearchPlan(entry, plan), false, '短语不能跨字段或角色拼接');
+  assert.equal(matchSearchPlan({ characterPrompts: [{ prompt: 'long_hair' }] }, plan), true);
+  assert.equal(matchSearchPlan({ tags: 'long', characterPrompts: [{ prompt: 'hair' }] }, parseSearchQuery('"long\nhair"')), false);
+  assert.equal(matchSearchPlan({ tags: 'long', characterPrompts: [{ prompt: 'hair' }] }, parseSearchQuery('', ['prompt:long\nhair'])), false);
+  for (const query of ['long hair, blue eyes', 'long hair，blue eyes', 'long hair;blue eyes', 'long hair\nblue eyes', '"long hair" "blue eyes"']) {
+    const combined = parseSearchQuery(query);
+    assert.deepEqual(combined.positiveTerms, ['long hair', 'blue eyes'], query);
+    assert.equal(matchSearchPlan({ tags: 'blue eyes, very long_hair' }, combined), true);
+    assert.equal(matchSearchPlan({ tags: 'short hair, long skirt, blue eyes' }, combined), false);
+    const restored = parseSearchQuery(combined.canonicalQuery, combined.filterValues);
+    assert.deepEqual(restored.positiveTerms, combined.positiveTerms, '规范查询必须可往返');
+  }
+  assert.deepEqual(parseSearchQuery('长发，蓝眼').positiveTerms, ['长发', '蓝眼']);
+  assert.equal(matchSearchPlan({ title: '长发蓝眼少女' }, parseSearchQuery('长发，蓝眼')), true);
+  assert.deepEqual(parseSearchQuery("artist:o'brien").positiveTerms, ["artist:o'brien"]);
+  for (const query of [String.raw`"say \"hi\"", has:image`, String.raw`"path\\name", has:image`, 'artist:o\'brien, has:image']) {
+    const parsed = parseSearchQuery(query);
+    const restored = parseSearchQuery(parsed.canonicalQuery, parsed.filterValues);
+    assert.equal(restored.hasErrors, false, query);
+    assert.deepEqual(restored.positiveTerms, parsed.positiveTerms, query);
+  }
+  assert.deepEqual(parseSearchQuery('long_hair, long hair').positiveTerms, ['long hair']);
+  assert.equal(parseSearchQuery('', ['prompt:long_hair', 'prompt:long hair']).filters.length, 1);
+  assert.equal(parseSearchQuery('', ['prompt:long_hair', '-prompt:long hair']).hasErrors, true);
+  const removed = removeSearchQueryTerm('long hair, blue eyes, has:image', 'long_hair');
+  assert.deepEqual(parseSearchQuery(removed).positiveTerms, ['blue eyes']);
+  assert.deepEqual(parseSearchQuery(removed).filterValues, ['has:image']);
+  for (const query of ['long hair, "blue', 'long hair, title:', 'long hair, has:other']) {
+    assert.equal(parseSearchQuery(removeSearchQueryTerm(query, 'long hair')).hasErrors, true);
+  }
+  const filtered = parseSearchQuery('long hair, blue eyes', ['has:image', '-default:裙']);
+  const split = parseSearchQuery(splitSearchPhrases(filtered), filtered.filterValues);
+  assert.deepEqual(split.positiveTerms, ['long', 'hair', 'blue', 'eyes']);
+  assert.deepEqual(split.filterValues, filtered.filterValues);
+  assert.equal(splitSearchPhrases(parseSearchQuery('hair')), '');
+  assert.equal(splitSearchPhrases(parseSearchQuery('"long hair')), '');
+  assert.equal(splitSearchPhrases(parseSearchQuery('', ['prompt:long hair'])), '');
+  assert.equal(splitSearchPhrases(parseSearchQuery('one two three four five six seven eight nine ten eleven')), '');
 }
 
 // 引号短语保持整体匹配，高亮词与匹配词必须来自同一份 terms。
@@ -200,7 +262,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
   const plainWords = parseSearchQuery('red blue');
   assert.equal(plainWords.isSyntax, false);
   assert.equal(plainWords.text, 'red blue');
-  assert.deepEqual(plainWords.terms, ['blue', 'red']);
+  assert.deepEqual(plainWords.terms, ['red blue']);
   assert.deepEqual(plainWords.highlightTerms, plainWords.terms);
   assert.deepEqual(splitQueryTokens('path:"a b" "red dress"'), ['path:a b', 'red dress']);
 
@@ -242,6 +304,9 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     assert.equal(element.children[0].type, 'mark');
     assert.equal(element.children[0].textContent, 'ＡＢＣ   X');
     assert.equal(element.children[1].textContent, ' 尾部');
+    renderHighlightedText(element, 'long hairpin, ＬＯＮＧ＿ＨＡＩＲ, long\nhair, very long  hair', ['long hair']);
+    assert.deepEqual(element.children.filter(child => child.type === 'mark').map(child => child.textContent), ['ＬＯＮＧ＿ＨＡＩＲ', 'long  hair']);
+    assert.equal(element.children.map(child => child.textContent).join(''), 'long hairpin, ＬＯＮＧ＿ＨＡＩＲ, long\nhair, very long  hair');
   } finally {
     globalThis.document = originalDocument;
   }
@@ -262,7 +327,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
   for (const query of ['负面针', '备注针', '原始针', '目录针', '标签针', '角色负面针']) {
     assert.equal(matchSearchPlan(hiddenOnly, parseSearchQuery(query)), false, `${query} 不应进入默认召回`);
   }
-  assert.equal(matchSearchPlan(hiddenOnly, parseSearchQuery('普通标题 ordinary')), true);
+  assert.equal(matchSearchPlan(hiddenOnly, parseSearchQuery('普通标题, ordinary')), true);
   assert.equal(matchSearchPlan(hiddenOnly, parseSearchQuery('角色正向针')), true);
   assert.equal(matchSearchPlan(hiddenOnly, parseSearchQuery('-负面针')), true, '默认排除也只能查看默认可见字段');
   assert.doesNotMatch(searchableText(hiddenOnly), /目录针|负面针|备注针|原始针|标签针/);
@@ -293,7 +358,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
 {
   const plan = parseSearchQuery('猫 “blue eyes” -男性 标题：少女 图片：有 作者：Alice artist:foo');
   assert.deepEqual(plan.positiveTerms, ['猫', 'blue eyes', 'artist:foo']);
-  assert.equal(plan.canonicalQuery, '猫 "blue eyes" artist:foo');
+  assert.equal(plan.canonicalQuery, '猫, "blue eyes", artist:foo');
   assert.deepEqual(plan.filterValues, [
     '-default:男性',
     'title:少女',
@@ -421,7 +486,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     parseSearchQuery('，；、', ['has:image']),
     parseSearchQuery('', ['']),
     parseSearchQuery('', ['unknown:value']),
-    parseSearchQuery('一 二 三 四 五 六 七 八 九 十 十一'),
+    parseSearchQuery('一, 二, 三, 四, 五, 六, 七, 八, 九, 十, 十一'),
   ]) {
     assert.equal(plan.hasErrors, true);
     assert.equal(matchSearchPlan({ title: '一二三四五六七八九十十一', tags: '' }, plan), false);
@@ -432,12 +497,12 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
   assert.ok(invalidF.issues.some(issue => issue.code === 'empty_filter'));
   assert.equal(parseSearchQuery('title:').isSyntax, true);
   assert.equal(parseSearchQuery('，；、').issues[0].code, 'empty_search');
-  assert.equal(parseSearchQuery('一 二 三 四 五 六 七 八 九 十 十一').issues[0].code, 'too_many_text_conditions');
+  assert.equal(parseSearchQuery('一, 二, 三, 四, 五, 六, 七, 八, 九, 十, 十一').issues[0].code, 'too_many_text_conditions');
 }
 
 // 相关性分层固定，同层保持输入顺序；纯结构筛选不改变顺序。
 {
-  const plan = parseSearchQuery('blue eyes');
+  const plan = parseSearchQuery('blue, eyes');
   const entries = [
     { id: 'prompt-a', title: 'Portrait', tags: 'blue eyes' },
     { id: 'mixed', title: 'Blue portrait', tags: 'bright eyes' },

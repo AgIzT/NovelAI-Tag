@@ -6,7 +6,7 @@ import { animateUi } from './ui-motion.js';
 import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
-import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter } from './search.js';
+import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter, splitSearchPhrases } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
@@ -408,7 +408,7 @@ export function bindUI() {
     useExample: async query => {
       if (searchComposing) return;
       clearTimeout(st);
-      const combined = [searchInput.value.trim(), String(query || '').trim()].filter(Boolean).join(' ');
+      const combined = [searchInput.value.trim(), String(query || '').trim()].filter(Boolean).join(', ');
       searchInput.value = combined;
       await applySearchConditions({ query: combined }, { canonicalize: true });
     },
@@ -417,7 +417,13 @@ export function bindUI() {
       await uiActions.openRelatedDirectory(item);
     },
     runStatusAction: async action => {
-      if (action?.id === 'clear-filters') {
+      if (action?.id === 'split-phrases') {
+        if (searchComposing) return;
+        clearTimeout(st);
+        const plan = parseSearchQuery(searchInput.value, state.searchFilterValues);
+        const query = splitSearchPhrases(plan);
+        if (query) await applySearchConditions({ query, filterValues: plan.filterValues }, { canonicalize: true });
+      } else if (action?.id === 'clear-filters') {
         await applySearchConditions({ filterValues: [] });
       } else if (action?.id === 'clear-all') {
         await clearAllSearch();

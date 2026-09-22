@@ -1,6 +1,7 @@
 import { isEntryAccessBlocked } from './access.js';
 import { encodePathCode } from './path-code.js';
 import { state } from './state.js';
+import { normalizeSearchMatchText, searchTextIncludes } from './search.js';
 
 const PATH_SEP = '\u0001';
 let directoryListCache = new WeakMap();
@@ -15,7 +16,7 @@ function normalizeText(value) {
 
 function normalizedTerms(values) {
   return [...new Set((values || [])
-    .map(value => normalizeText(typeof value === 'object' ? value.value : value))
+    .map(value => normalizeSearchMatchText(typeof value === 'object' ? value.value : value))
     .filter(Boolean))];
 }
 
@@ -107,15 +108,15 @@ export function findRelatedDirectories({
   const available = Array.isArray(directories)
     ? directories
     : listSearchDirectories({ entries, codex, sourceView: siteSearchView });
-  const normalizedQuery = normalizeText(queryText);
+  const normalizedQuery = normalizeSearchMatchText(queryText);
   const matches = available
     .map(node => {
-      const name = normalizeText(node.name);
-      const breadcrumb = normalizeText(node.breadcrumb);
+      const name = normalizeSearchMatchText(node.name);
+      const breadcrumb = normalizeSearchMatchText(node.breadcrumb);
       let matchRank = -1;
       if (normalizedQuery && name === normalizedQuery) matchRank = 0;
-      else if (terms.every(term => name.includes(term))) matchRank = 1;
-      else if (terms.every(term => breadcrumb.includes(term))) matchRank = 2;
+      else if (terms.every(term => searchTextIncludes(name, term))) matchRank = 1;
+      else if (terms.every(term => searchTextIncludes(breadcrumb, term))) matchRank = 2;
       return { ...node, matchRank };
     })
     .filter(node => node.matchRank >= 0)

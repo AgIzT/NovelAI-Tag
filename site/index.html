@@ -169,8 +169,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
   <div class="search-wrap">
     <button id="searchScopeBtn" class="search-scope" type="button" aria-label="搜索范围：全站" title="当前搜索范围：全站。点击切到当前法典">全站</button>
-    <input id="search" type="search" placeholder="搜索标题或标签，空格表示同时满足" autocomplete="off" aria-describedby="searchHelp">
-    <span id="searchHelp" class="sr-only">默认搜索标题、标签和角色正向提示词。多个词用空格分开，结果需要同时满足。</span>
+    <input id="search" type="search" placeholder="搜索标题或标签，多个条件用逗号分隔" autocomplete="off" aria-describedby="searchHelp">
+    <span id="searchHelp" class="sr-only">搜索标题、标签和角色正向提示词。空格保留在短语内，多个条件用逗号分开，结果需要同时满足。</span>
     <button id="searchClear" class="search-clear" type="button" aria-label="清空搜索" title="清空搜索" hidden>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
     </button>
@@ -211,8 +211,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div id="searchSyntaxHint" class="search-filter-examples" aria-labelledby="searchExamplesTitle">
         <span id="searchExamplesTitle">写法示例</span>
         <div>
-          <button type="button" data-search-example="猫 蓝眼睛"><code>猫 蓝眼睛</code><small>同时包含</small></button>
-          <button type="button" data-search-example="&quot;blue eyes&quot;"><code>"blue eyes"</code><small>完整短语</small></button>
+          <button type="button" data-search-example="long hair, blue eyes"><code>long hair, blue eyes</code><small>同时包含</small></button>
+          <button type="button" data-search-example="long hair"><code>long hair</code><small>完整短语</small></button>
           <button type="button" data-search-example="-背景"><code>-背景</code><small>排除内容</small></button>
           <button type="button" data-search-example="path:构图"><code>path:构图</code><small>目录文字</small></button>
           <button type="button" data-search-example="has:image"><code>has:image</code><small>只看有图</small></button>

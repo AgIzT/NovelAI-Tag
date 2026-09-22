@@ -3,7 +3,7 @@ import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from '
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
 import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
-import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults } from './app/search.js';
+import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults, splitSearchPhrases } from './app/search.js';
 import { findRelatedDirectories, listSearchDirectories } from './app/search-directories.js';
 import { renderRelatedDirectories, renderSearchFilters, renderSearchStatus } from './app/search-ui.js';
 import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
@@ -672,13 +672,14 @@ function renderSearchExperience(plan, directoryOptions) {
   } else if (active && state.list.length === 0) {
     const count = state.relatedDirectoryCount;
     const actions = [];
+    if (splitSearchPhrases(plan)) actions.push({ id: 'split-phrases', label: '拆词搜索' });
     if (state.searchFilterValues.length) actions.push({ id: 'clear-filters', label: '清除筛选条件' });
     actions.push({ id: 'clear-all', label: '清空整个搜索', primary: true });
     if (state.searchScope === 'codex' && !state.siteSearchView) actions.push({ id: 'scope-site', label: '切换到全站搜索' });
     renderSearchStatus({
       kind: 'empty',
       message: `0 条图片结果，找到 ${count} 个相关目录。`,
-      detail: count ? '目录命中单独列出，不会把其中图片混入结果。' : '请调整关键词或减少筛选条件。',
+      detail: count ? '可打开下方相关目录，或调整搜索条件。' : '调整关键词或减少筛选条件。',
       actions,
     });
   } else {

@@ -1371,10 +1371,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(reportSource, /image && entryImageCanUseOriginal\(entry, image\)/);
   assert.match(lightboxSource, /return entryImageCanUseOriginal\(entry, item\);/);
   assert.match(indexSource, /rel="modulepreload" href="assets\/app\/original-capability\.js"/);
-  assert.match(indexSource, /placeholder="搜索标题或标签，空格表示同时满足"/);
+  assert.match(indexSource, /placeholder="搜索标题或标签，多个条件用逗号分隔"/);
   assert.match(indexSource, /id="searchFilterBtn"[\s\S]*aria-haspopup="dialog"[\s\S]*aria-controls="searchFilterPanel"/);
   assert.match(indexSource, /id="searchFilterPanel"[^>]*role="dialog"[^>]*aria-modal="false"[^>]*hidden/);
-  assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*猫 蓝眼睛[\s\S]*path:构图[\s\S]*has:image[\s\S]*fav:true/);
+  assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*long hair, blue eyes[\s\S]*path:构图[\s\S]*has:image[\s\S]*fav:true/);
   const scopeButtonHandler = uiSource.match(/searchScopeBtn\.onclick = \(\) => \{[\s\S]*?\n    \};/)?.[0] || '';
   assert.match(scopeButtonHandler, /void applySearchConditions\(\)/, '范围切换必须复用统一搜索历史入口');
   assert.doesNotMatch(scopeButtonHandler, /uiActions\.applySearch/, '范围切换不得绕过 searchHistory pending 状态');
