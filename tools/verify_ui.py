@@ -752,6 +752,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 "deviceScaleFactor": 1,
                 "mobile": mobile,
             })
+            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": mobile})
             wait_for(cdp, f"innerWidth === {width} && innerHeight === {height}", f"relay {mode} viewport")
             settle(cdp, 120)
 
@@ -1006,6 +1007,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
    documentOverflow: document.scrollingElement.scrollWidth - document.documentElement.clientWidth,
    editorOverflow: surface.scrollWidth - surface.clientWidth,
    inputFillsSurface: input.getBoundingClientRect().height >= surface.getBoundingClientRect().height - 1,
+   touch: matchMedia('(pointer:coarse)').matches,
+   editorHeight: surface.getBoundingClientRect().height,
+   primaryHeight: copy.height,
+   secondaryHeights: [...rail.querySelectorAll('.tag-relay-output-actions>button')].map(e=>e.getBoundingClientRect().height),
+   secondaryRows: new Set([...rail.querySelectorAll('.tag-relay-output-actions>button')].map(e=>Math.round(e.getBoundingClientRect().top))).size,
    copyVisible: copy.left >= rect.left - 1 && copy.right <= rect.right + 1 && copy.top >= 0 && copy.bottom <= innerHeight + 1,
    sourceVisible: rail.querySelector('.tag-relay-zone-source').getBoundingClientRect().height >= 30,
    caption: copyButton.textContent,
@@ -1024,9 +1030,21 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} editor/copy actions are inaccessible: {compose}")
             if compose["documentOverflow"] > 1 or compose["editorOverflow"] > 1:
                 raise CheckFailed(f"Relay {mode} horizontal overflow: {compose}")
+            if mobile and (not compose['touch'] or compose['editorHeight'] < 100
+                           or not 38 <= compose['primaryHeight'] <= 42
+                           or any(not 32 <= h <= 36 for h in compose['secondaryHeights'])
+                           or compose['secondaryRows'] != (2 if width <= 360 else 1)):
+                raise CheckFailed(f"Relay {mode} touch controls squeeze the editor: {compose}")
             if compose["mainAction"] != "relayCopyPositive" or "复制正向提示词" not in compose["caption"] or compose["secondaryCaption"] != "复制全部提示词" or not re.fullmatch(r"(NAI|SD|纯文本) · (逗号|逗号换行)", compose["summary"]):
                 raise CheckFailed(f"Relay {mode} output labels differ: {compose}")
             shots.append(screenshot(cdp, out_dir, f"tag-relay-{mode}"))
+
+            if mobile:
+                cdp.eval("document.querySelector('[data-format=plain]').click(); document.querySelector('[data-join=newline]').click()")
+                wait_for(cdp, "document.querySelector('#relayOutputSummary').textContent === '纯文本 · 逗号换行'", f"relay {mode} long format summary")
+                if cdp.eval("[...document.querySelectorAll('.tag-relay-output-actions>button')].some(e=>e.scrollWidth>e.clientWidth+1)"):
+                    raise CheckFailed(f"Relay {mode} long format label overlaps adjacent controls")
+                cdp.eval("document.querySelector('[data-format=nai]').click(); document.querySelector('[data-join=comma]').click()")
 
             # Closing and reopening must not discard the input's unblurred tail.
             tail = f", tail-{mode}"
@@ -1066,6 +1084,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if not short['copyReachable']:
             raise CheckFailed(f"Relay short viewport copy button is unreachable: {short}")
         check_no_errors(cdp)
+        cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
         return {"viewports": details, "shortViewport": short, "screenshots": shots}
 
     def announcements_panel():

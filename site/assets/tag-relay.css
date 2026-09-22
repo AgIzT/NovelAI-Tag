@@ -873,7 +873,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
   }
   .tag-relay-rail:not(.closed)+.tag-relay-rail-backdrop{opacity:1;visibility:visible;pointer-events:auto}
 }
-@media (max-height:480px),(pointer:coarse) and (max-height:640px){
+@media (max-height:480px){
   .tag-relay-rail{overflow-y:auto;overscroll-behavior:contain}
   .tag-relay-rail .tag-relay-zone-source{flex:none;min-height:100px}
 }
@@ -946,20 +946,38 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .relay-dedupe-option input{accent-color:var(--accent)}
 @media(pointer:coarse){
   .relay-editor-surface>.relay-editor-mirror,.relay-editor-surface>.relay-editor-input{font-size:16px}
-  .tag-relay-rail :is(button,.tag-relay-chip-main,.relay-token-panel>a){min-height:44px;min-width:44px}
-  .tag-relay-rail .tag-relay-copy-main{min-height:46px}
-  .tag-relay-rail :is(.tag-relay-plan-more,.tag-relay-rail-close,.relay-shelf-toggle){width:44px;height:44px}
-  .tag-relay-rail .tag-relay-chip{height:46px;max-width:100%}
-  .tag-relay-rail :is(.tag-relay-chip-x,.tag-relay-chip-negative){height:44px;margin-right:0}
+  /* 按用途分配触屏尺寸，不能把每个小动作都扩成同样大的按钮。 */
+  .tag-relay-rail :is(.relay-editor-channels>button,.tag-relay-source-tabs>button,.tag-relay-segment>button,
+    .relay-token-panel>button,.relay-token-panel>a,.tag-relay-inline-action-buttons>button,
+    .tag-relay-history-actions>button,.relay-save-state>button){min-height:34px;min-width:30px;font-size:12px}
+  .tag-relay-rail :is(.tag-relay-plan-menu>button,.ui-select-option){min-height:36px;font-size:12px}
+  .tag-relay-rail :is(.tag-relay-plan-more,.tag-relay-rail-close,.relay-shelf-toggle){width:32px;height:32px;min-width:32px;min-height:32px}
+  .tag-relay-rail .tag-relay-chip{height:36px;max-width:100%}
+  .tag-relay-rail .tag-relay-chip-main{font-size:12px}
+  .tag-relay-rail :is(.tag-relay-chip-x,.tag-relay-chip-negative){width:30px;height:32px;margin-right:0}
   .tag-relay-rail .tag-relay-output-option{grid-template-columns:1fr}
   .tag-relay-history-actions{flex-wrap:wrap}
-  .relay-dedupe-option{min-height:44px}
+  .relay-dedupe-option{min-height:34px}
 }
 @media(max-width:600px){
+  .tag-relay-rail-head{gap:6px;padding:10px 12px 6px}
+  .tag-relay-plan-picker .ui-select{--select-touch-height:34px;--select-font-size:12px}
+  .tag-relay-rail .tag-relay-zone{padding:7px 12px;gap:6px}
+  .tag-relay-rail .tag-relay-output{padding:8px 12px;gap:6px}
+  .tag-relay-rail .tag-relay-copy-main{min-height:40px;padding:8px 12px;font-size:14px}
+  .tag-relay-output-actions{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:4px}
+  .tag-relay-output-gap{display:none}
+  .tag-relay-output-actions>button{min-width:0;min-height:34px;height:auto;padding:4px 6px;font-size:12px;white-space:nowrap}
+  .tag-relay-output-actions .tag-relay-output-summary{gap:3px}
+  .tag-relay-output-summary>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tag-relay-output-actions .relay-disclosure-caret{width:12px;height:12px}
   .tag-relay-rail.is-editing{background:var(--bg)}
   .tag-relay-rail.is-editing .tag-relay-zone-plan{flex:0 1 auto;max-height:calc(100dvh - 300px);min-height:110px;background:var(--bg)}
   .tag-relay-rail.is-editing .tag-relay-zone-source{min-height:0}
   .tag-relay-rail.is-editing .relay-editor-surface{max-height:34dvh}
+}
+@media(max-width:360px){
+  .tag-relay-output-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 /* 素材收起后，释放的高度交给可编辑区域；侧栏仍停靠，不能把死白搬到栏外。 */
 .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .tag-relay-zone-plan{flex:1 1 0;min-height:0;max-height:none}
@@ -969,7 +987,7 @@ body.dark .tag-relay-channel.warn{color:#f3c261}
 .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-surface{flex:1 1 0;min-height:0;max-height:none}
 .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-mirror,
 .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .relay-editor-input{min-height:100%}
-@media(max-height:480px),(pointer:coarse) and (max-height:640px){
+@media(max-height:480px){
   /* 键盘压缩可用高度时让整栏滚动，不能把正文压成零高。 */
   .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .tag-relay-zone-plan{flex:none;overflow:visible}
   .tag-relay-rail:is(:has(.tag-relay-zone-source.is-peek),.is-shelf-moving) .tag-relay-plan-lane.relay-editor,
