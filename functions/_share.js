@@ -396,6 +396,7 @@ function renderMeta(card, { forShell = false } = {}) {
 
 const HEAD_OPEN_RE = /<head\b[^>]*>/i;
 const TITLE_RE = /<title\b[^>]*>[\s\S]*?<\/title>/i;
+const DESCRIPTION_RE = /<meta\b(?=[^>]*\bname\s*=\s*["']description["'])[^>]*>/i;
 
 async function readAppShell(context) {
   const url = new URL(APP_SHELL_PATH, context.request.url);
@@ -413,10 +414,10 @@ async function readAppShell(context) {
   return html;
 }
 
-/* 把卡片 head 塞进外壳：先摘掉外壳自带的 <title>（抓取器只认第一个，留着会打架），
+/* 把卡片 head 塞进外壳：先摘掉外壳自带的标题与首页简介，
    再整块插到 <head> 之后。真人拿到的是 App 本体，不再有跳转，地址栏就停在这条短链上。 */
 function injectCardHead(shell, card) {
-  const stripped = shell.replace(TITLE_RE, '');
+  const stripped = shell.replace(TITLE_RE, '').replace(DESCRIPTION_RE, '');
   const open = stripped.match(HEAD_OPEN_RE);
   if (!open) return null;
   const at = stripped.indexOf(open[0]) + open[0].length;

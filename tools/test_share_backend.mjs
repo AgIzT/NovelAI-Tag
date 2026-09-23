@@ -6,13 +6,14 @@ function r2Object(value) {
   return { json: async () => structuredClone(value) };
 }
 
-// 外壳只需最小结构：<head> 开标签、一个会被摘掉的 <title>、一条相对资源引用（验证 <base>）。
+// 外壳只需最小结构：<head> 开标签、会被摘掉的首页标题和简介、相对资源引用（验证 <base>）。
 const APP_SHELL = [
   '<!DOCTYPE html>',
   '<html lang="zh-CN">',
   '<head>',
   '<meta charset="UTF-8">',
   '<title>法典图鉴 · NovelAI 提示词</title>',
+  '<meta name="description" content="法典图鉴汇集社区整理的 NovelAI 提示词、画风串与图包">',
   '<link rel="stylesheet" href="assets/styles.css">',
   '</head>',
   '<body><div id="masonry"></div><script type="module" src="assets/app.js"></script></body>',
@@ -400,6 +401,8 @@ try {
     assert.equal(html.match(/<title>/g).length, 1, '只能留一个 <title>');
     assert.match(html, /<title>R2 词条 · R2 法典 \| 法典图鉴<\/title>/);
     assert.match(html, /<meta name="description" content="remote">/, 'QQ\/微信优先读普通 description');
+    assert.equal(html.match(/<meta name="description"/g).length, 1, '分享页只能保留自己的简介');
+    assert.doesNotMatch(html, /法典图鉴汇集社区整理的 NovelAI 提示词/, '首页简介不能留在分享页');
     assert.doesNotMatch(html, /name="robots"/, '安全卡是这条深链的规范地址，应当允许收录');
     assert.equal(response.headers.get('x-robots-tag'), null, '只有正式域的安全卡允许收录');
     // charset 必须落在前 1024 字节内，否则中文标题会被猜成别的编码

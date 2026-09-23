@@ -12,6 +12,7 @@ if (!document.querySelector('base[href]')) {
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>法典图鉴 · NovelAI 提示词</title>
+<meta name="description" content="法典图鉴汇集社区整理的 NovelAI 提示词、画风串与图包">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -698,7 +699,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   </div>
 </div>
 
-<div id="nsfwConfirm" class="settings-mask" hidden>
+<div id="nsfwConfirm" class="settings-mask" data-nosnippet hidden>
   <div class="settings-panel nsfw-panel" role="dialog" aria-modal="true" aria-labelledby="nsfwConfirmTitle">
     <button id="nsfwCancelX" class="settings-close" type="button" aria-label="关闭">×</button>
     <div class="nsfw-icon" aria-hidden="true">18+</div>
@@ -715,7 +716,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   </div>
 </div>
 
-<div id="r18gConfirm" class="settings-mask" hidden>
+<div id="r18gConfirm" class="settings-mask" data-nosnippet hidden>
   <div class="settings-panel r18g-panel" role="dialog" aria-modal="true" aria-labelledby="r18gConfirmTitle">
     <button id="r18gCancelX" class="settings-close" type="button" aria-label="关闭">×</button>
     <div class="r18g-icon" aria-hidden="true">⚠</div>
