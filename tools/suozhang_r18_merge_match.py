@@ -57,7 +57,7 @@ RISKY_STRUCTURE_KEYS = (
     "trackedInsertions",
     "trackedDeletions",
 )
-CONTENT_KEYS = ("title", "path", "tags", "characterPrompts", "isNew")
+CONTENT_KEYS = ("title", "path", "tags", "characterPrompts", "isNew", "negative")
 ASSET_KEYS = ("image", "original", "assetRev", "imageWidth", "imageHeight")
 MANUAL_MATCH_RULES = (
     {
@@ -84,12 +84,18 @@ MANUAL_MATCH_RULES = (
     },
 )
 
+# 2026.9.25 起源稿把「2+girl/+1boy系列」改名为「2+girl/2+boy系列」；两个目录名都认，
+# 应用前后的正式数据与新旧源稿才都能命中同一条规则。
+_SWAPPED_TITLE_PATHS = (
+    ["各种涩涩", "2+girl/+1boy系列", "协作侍奉"],
+    ["各种涩涩", "2+girl/2+boy系列", "协作侍奉"],
+)
 KNOWN_SOURCE_TITLE_CORRECTIONS = (
     {
         "key": "upper_swapped_title_corrupted_after",
         "formalId": "codex_6e699406-4863",
         "half": "upper",
-        "path": ["各种涩涩", "2+girl/+1boy系列", "协作侍奉"],
+        "paths": _SWAPPED_TITLE_PATHS,
         "sourceTitle": "被胁迫预备摄影学生少女",
         "correctedTitle": "恶堕之后",
     },
@@ -97,7 +103,7 @@ KNOWN_SOURCE_TITLE_CORRECTIONS = (
         "key": "upper_swapped_title_coerced_students",
         "formalId": "codex_6e699406-4864",
         "half": "upper",
-        "path": ["各种涩涩", "2+girl/+1boy系列", "协作侍奉"],
+        "paths": _SWAPPED_TITLE_PATHS,
         "sourceTitle": "恶堕之后",
         "correctedTitle": "被胁迫预备摄影学生少女",
     },
@@ -105,7 +111,8 @@ KNOWN_SOURCE_TITLE_CORRECTIONS = (
 
 
 def fingerprint(entry: dict[str, Any]) -> tuple[tuple[str, ...], str, str]:
-    return norm_path(entry), norm_title(entry), norm_tags(entry)
+    from codex_update_match import norm_prompt_value
+    return norm_path(entry), norm_title(entry), norm_prompt_value(entry)
 
 
 def is_artist_group_entry(entry: dict[str, Any]) -> bool:
@@ -290,8 +297,9 @@ def apply_known_source_title_corrections(
                 f"{rule['formalId']}, found {len(formal_hits)}"
             )
         formal = formal_hits[0]
+        rule_paths = {norm_path({"path": path}) for path in rule["paths"]}
         if (
-            norm_path(formal) != tuple(rule["path"])
+            norm_path(formal) not in rule_paths
             or norm_title(formal) != norm_title({"title": rule["correctedTitle"]})
         ):
             raise ValueError(
@@ -302,7 +310,7 @@ def apply_known_source_title_corrections(
         source_hits = [
             index
             for index, entry in enumerate(corrected_entries)
-            if norm_path(entry) == tuple(rule["path"])
+            if norm_path(entry) in rule_paths
             and str(entry.get("title", ""))
             in {rule["sourceTitle"], rule["correctedTitle"]}
             and norm_tags(entry) == norm_tags(formal)
@@ -508,6 +516,8 @@ def build_applied_codex(
             source_entry["characterPrompts"] = [
                 dict(item) for item in candidate["characterPrompts"]
             ]
+        if candidate.get("negative"):
+            source_entry["negative"] = candidate["negative"]
         old_index = old_by_new.get(new_index)
         if old_index is None:
             entry = source_entry
@@ -524,7 +534,7 @@ def build_applied_codex(
             for key in CONTENT_KEYS:
                 if key in source_entry:
                     entry[key] = source_entry[key]
-                elif key == "characterPrompts":
+                elif key in {"characterPrompts", "negative"}:
                     entry.pop(key, None)
             entry["id"] = old["id"]
             if "image" not in entry:

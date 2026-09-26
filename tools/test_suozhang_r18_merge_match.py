@@ -135,6 +135,27 @@ class SuozhangR18MergeMatchTests(unittest.TestCase):
         self.assertEqual([record["status"] for record in audit], ["applied", "applied"])
         self.assertTrue(match_entries(formal, corrected)["summary"]["strictReplayPass"])
 
+    def test_known_swapped_title_correction_survives_925_section_rename(self):
+        old_path = ["各种涩涩", "2+girl/+1boy系列", "协作侍奉"]
+        new_path = ["各种涩涩", "2+girl/2+boy系列", "协作侍奉"]
+        formal = [
+            item("恶堕之后", old_path, "corrupted,", entry_id="codex_6e699406-4863"),
+            item("被胁迫预备摄影学生少女", old_path, "coerced,", entry_id="codex_6e699406-4864"),
+        ]
+        source = [
+            item("被胁迫预备摄影学生少女", new_path, "corrupted,"),
+            item("恶堕之后", new_path, "coerced,"),
+        ]
+
+        corrected, audit = apply_known_source_title_corrections(source, formal, half="upper")
+        self.assertEqual([entry["title"] for entry in corrected], ["恶堕之后", "被胁迫预备摄影学生少女"])
+        self.assertEqual([record["status"] for record in audit], ["applied", "applied"])
+
+        # After applying 9.25 the formal data itself carries the new section name.
+        renamed = [{**entry, "path": new_path} for entry in formal]
+        _, audit = apply_known_source_title_corrections(corrected, renamed, half="upper")
+        self.assertEqual([record["status"] for record in audit], ["already_correct", "already_correct"])
+
     def test_audited_face_closeup_override_keeps_stable_id(self):
         path = ["基础涩涩", "各种体位", "后入/背后位"]
         old = [

@@ -54,6 +54,10 @@ def normalized_stem(stem):
 
 def codex_id(stem):
     norm = normalized_stem(stem)
+    if norm.startswith("n5所长"):
+        if "常规" in norm:
+            return "suozhang_nai5"
+        raise ValueError("N5 所长色色上下册须先合并，请使用所长多模型导入流程")
     for key, cid in ID_MAP:
         if normalized_stem(key) in norm:
             return cid
@@ -172,7 +176,7 @@ def expand_special_entries(entries):
     """把已知的复合词条拆成更适合网页复制的独立卡片。"""
     out = []
     for e in entries:
-        if not is_artist_group_entry(e):
+        if not is_artist_group_entry(e) or e.get("_expandedArtist"):
             out.append(e)
             continue
 
@@ -719,17 +723,36 @@ def convert_mengshen_docx(path, cid, title, ver, author, doc):
         "id": cid, "title": title, "version": ver, "author": author,
         "entryCount": len(final), "imagedCount": imaged, "reviewCount": len(review)}
 
-def parse_standard_docx_items(doc):
+def classify_nai5_line(text):
+    """N5 prompts include prose and short role/panel lines, not only tags."""
+    if re.match(r"^(?:char\d*|角色\d+|人物\d+)\s*[:：]", text, re.I):
+        return "tag"
+    # Parenthetical title notes are not prompt punctuation.
+    outside = re.sub(r"[（(][^）)]*[）)]", "", text)
+    if any(mark in outside for mark in (",", "，", ":", "：")):
+        return "tag"
+    if re.search(r"[A-Za-z]", text) and not has_cjk(text):
+        return "tag"
+    if len(text) >= 45:
+        return "tag"
+    return classify(text)
+
+
+def parse_standard_docx_items(doc, *, suozhang_model=None, kind_overrides=None,
+                              text_overrides=None, audit=None):
     """Parse a regular codex DOCX into entry-shaped items without writing files."""
     cats = [None, None, None, None]
     entries, cur = [], None
     compiler_oc_counts = defaultdict(int)
+    artist_title = ""
     seen_toc = False
-    for p in doc.paragraphs:
+    kind_overrides = kind_overrides or {}
+    text_overrides = text_overrides or {}
+    for paragraph_index, p in enumerate(doc.paragraphs):
         if p.style.name.startswith("toc"):
             seen_toc = True
             continue
-        lines = visible_lines(p.text)
+        lines = visible_lines(text_overrides.get(paragraph_index, p.text))
         if not lines:
             continue
         lv = outline_lvl(p)
@@ -742,10 +765,34 @@ def parse_standard_docx_items(doc):
         if not seen_toc:            # 跳过目录之前的零碎
             continue
         path_now = [c for c in cats if c]
-        if should_skip_path(path_now):
+        if should_skip_path(path_now) or (suozhang_model and "法典相关网站" in path_now):
             cur = None
             continue
         for t in lines:
+            if suozhang_model and path_now[-1:] == ["编纂者常用画师组"]:
+                if re.match(r"^NAI\d", t, re.I):
+                    artist_title = t
+                    cur = None
+                    continue
+                negative = re.match(r"^负面提示词\s*[:：]\s*(.*)$", t)
+                if negative:
+                    if cur is None or not cur.get("tags"):
+                        raise ValueError("Artist negative prompt has no preceding positive group")
+                    cur["negative"] = negative.group(1)
+                    continue
+                if classify(t) == "tag":
+                    number, body = strip_number_prefix(t)
+                    # NAI5's unnumbered following lines continue its numbered
+                    # group. Older periods retain their historical card labels.
+                    nai5 = bool(re.match(r"^NAI5(?:时期|[：:]|$)", artist_title, re.I))
+                    if cur is None or number is not None or not nai5:
+                        label = number or "1"
+                        cur = {"title": artist_title if label == "1" else f"{artist_title.rstrip('：:')}：{label}",
+                               "path": path_now, "tags": [], "isNew": is_pink(p), "_expandedArtist": True}
+                        entries.append(cur)
+                    cur["tags"].append(body)
+                    cur["isNew"] = cur["isNew"] or is_pink(p)
+                continue
             if is_compiler_oc_path(path_now):
                 marked = split_compiler_oc_marker(t)
                 if marked is not None:
@@ -789,7 +836,12 @@ def parse_standard_docx_items(doc):
                 cur = None
                 continue
 
-            kind = classify(t)
+            kind = kind_overrides.get(paragraph_index)
+            if kind is None:
+                kind = classify_nai5_line(t) if suozhang_model == "N5" else classify(t)
+            if audit is not None and kind != classify(t):
+                audit.append({"paragraph": paragraph_index, "before": classify(t), "after": kind,
+                              "sha256": hashlib.sha256(t.encode("utf-8")).hexdigest()})
             if kind == "title":
                 cur = {"title": t, "path": path_now, "tags": [], "isNew": is_pink(p)}
                 entries.append(cur)
@@ -813,6 +865,7 @@ def parse_standard_docx_items(doc):
             "path": e["path"],
             "tags": block,
             "isNew": e["isNew"],
+            **({"negative": e["negative"]} if e.get("negative") else {}),
         })
 
     return items
@@ -859,6 +912,8 @@ def normalize_standard_suozhang_items(items, old_entries):
 
 def convert(path, cid):
     stem = os.path.splitext(os.path.basename(path))[0]
+    if normalized_stem(stem).startswith("n5所长"):
+        raise ValueError("N5 所长法典须使用 import_suozhang_models.py 的合并与解析流程")
     title, ver, author = parse_meta(stem)
     meta = META_OVERRIDES.get(cid, {})
     title = meta.get("title", title)

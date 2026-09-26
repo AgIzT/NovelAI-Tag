@@ -10,6 +10,7 @@ new IDs are allocated after both current data and locally retained assets.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -30,7 +31,7 @@ if str(TOOLS_DIR) not in sys.path:
 REVIEW_THRESHOLD = 0.58
 MAX_REVIEW_CANDIDATES = 3
 ASSET_KEYS = ("image", "original", "assetRev", "imageWidth", "imageHeight")
-SOURCE_CONTENT_KEYS = ("title", "path", "tags", "isNew", "characterPrompts")
+SOURCE_CONTENT_KEYS = ("title", "path", "tags", "isNew", "characterPrompts", "negative")
 UPDATE_BATCHES_KEY = "updateBatches"
 RISKY_STRUCTURE_KEYS = (
     "tables",
@@ -49,6 +50,26 @@ AUDITED_NEW_OVERRIDES: dict[tuple[str, str], dict[str, dict[str, Any]]] = {
                 "7::anime,anime screencap,anime coloring,official style,"
                 "dense linework::,"
             ),
+            "isNew": True,
+        },
+    },
+    # Prompt text stays out of the public repository: these entries are
+    # identified by the SHA-256 of their normalized tags instead.
+    ("suozhang_r18", "2026.9.25"): {
+        # Real 9.25 addition left unhighlighted beside its pink sibling.
+        "codex_6e699406-6169": {
+            "title": "透明男压身正身位",
+            "path": ["基础涩涩", "各种体位", "正身位"],
+            "tagsSha256": "813a2e2df649822563eb884bc625fed758ac1acdb0b6d58f7d9d1ca0b4f93665",
+            "isNew": True,
+        },
+    },
+    ("suozhang_nai5_r18", "2026.9.25"): {
+        # Variant of a pink 9.25 card whose own title line was left unhighlighted.
+        "suozhang_nai5_r18-0431": {
+            "title": "其他版本（侧视）",
+            "path": ["r18g/重口", "刑罚"],
+            "tagsSha256": "03e2a71700f732f5b3b523a8a9a1cfce62a4de29e552d9ae453e2a11aa1f92f0",
             "isNew": True,
         },
     },
@@ -92,6 +113,20 @@ def _source_signature(entry: Mapping[str, Any]) -> tuple[Any, ...]:
     return (norm_title(entry), norm_path(entry), norm_tags(entry))
 
 
+def _override_signature(entry: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[Any, ...]:
+    """Compare by tag hash when the audited record stores only ``tagsSha256``."""
+    if "tagsSha256" not in expected:
+        return _source_signature(entry)
+    digest = hashlib.sha256(norm_tags(entry).encode("utf-8")).hexdigest()
+    return (norm_title(entry), norm_path(entry), digest)
+
+
+def _expected_override_signature(expected: Mapping[str, Any]) -> tuple[Any, ...]:
+    if "tagsSha256" not in expected:
+        return _source_signature(expected)
+    return (norm_title(expected), norm_path(expected), str(expected["tagsSha256"]).lower())
+
+
 def apply_audited_source_new_overrides(
     entries: list[dict[str, Any]],
     codex_id: str,
@@ -104,10 +139,10 @@ def apply_audited_source_new_overrides(
 
     applied: list[str] = []
     for entry_id, expected in overrides.items():
-        expected_signature = _source_signature(expected)
+        expected_signature = _expected_override_signature(expected)
         matches = [
             entry for entry in entries
-            if _source_signature(entry) == expected_signature
+            if _override_signature(entry, expected) == expected_signature
         ]
         if len(matches) != 1:
             raise ValueError(
@@ -143,8 +178,8 @@ def apply_audited_new_overrides(
             raise ValueError(
                 f"audited NEW override target is missing: {codex_id} {version} {entry_id}"
             )
-        actual_signature = _source_signature(entry)
-        expected_signature = _source_signature(expected)
+        actual_signature = _override_signature(entry, expected)
+        expected_signature = _expected_override_signature(expected)
         if actual_signature != expected_signature:
             raise ValueError(
                 f"audited NEW override target drifted: {codex_id} {version} {entry_id}"
@@ -173,6 +208,8 @@ def norm_character_prompts(entry: dict[str, Any]) -> tuple[tuple[tuple[str, str]
 
 def norm_prompt_value(entry: dict[str, Any]) -> str:
     parts = [norm_tags(entry)]
+    if entry.get("negative"):
+        parts.append("negative:" + norm_tags_value(entry["negative"]))
     for prompt in norm_character_prompts(entry):
         parts.append("|".join(f"{key}:{value}" for key, value in prompt))
     return "\n".join(part for part in parts if part)
@@ -619,6 +656,8 @@ def _entry_snapshot(entry: dict[str, Any], index: int) -> dict[str, Any]:
     }
     if "characterPrompts" in entry:
         result["characterPrompts"] = entry.get("characterPrompts")
+    if "negative" in entry:
+        result["negative"] = entry.get("negative")
     for key in ASSET_KEYS:
         if key in entry:
             result[key] = entry.get(key)
@@ -635,6 +674,8 @@ def _change_list(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
         changes.append("tags")
     if norm_character_prompts(old) != norm_character_prompts(new):
         changes.append("characterPrompts")
+    if norm_tags_value(old.get("negative")) != norm_tags_value(new.get("negative")):
+        changes.append("negative")
     if bool(old.get("isNew")) != bool(new.get("isNew")):
         changes.append("isNew")
     return changes
@@ -674,6 +715,7 @@ def _pair_exact_fingerprints(
         norm_title(entry),
         norm_tags(entry),
         norm_character_prompts(entry),
+        norm_tags_value(entry.get("negative")),
     )
     old_groups = _group_indices(unmatched_old, old_entries, key)
     new_groups = _group_indices(unmatched_new, new_entries, key)
@@ -1495,7 +1537,7 @@ def build_applied_codex(
             for key in SOURCE_CONTENT_KEYS:
                 if key in candidate:
                     value[key] = candidate[key]
-                elif key == "characterPrompts":
+                elif key in {"characterPrompts", "negative"}:
                     value.pop(key, None)
             value["id"] = old_entries[old_index]["id"]
         else:

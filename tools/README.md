@@ -17,8 +17,9 @@
 | --- | --- | --- |
 | `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 默认重写法典 JSON / 总索引；处理梦神内嵌图时还写 `originals/`、`site/images/`，并可能创建或删除待复核 TXT；`--archive-sources` 再移动源 DOCX，源文件被锁定时改为复制并写归档清单 |
 | `codex_update_match.py` | 新旧法典增量匹配、基线回放与门禁应用；流程见本地私有文档 `docs/经验/Word法典增量更新.md` | 默认不改正式数据，但会创建或覆盖 `output/` 匹配报告；`--apply` 才另写正式数据 |
-| `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
-| `import_suozhang_models.py` | **⚠ 条件：仅已审计的 2026.9.13 六份 Word**。N4.5 旧书增量及 N5 新书；源哈希锁定短中文续行修正，上下册先合并，8.31 基线严格回放 | 默认仅写统一 `output/suozhang-20260913-import/` 候选与计划；`--apply` 校验冻结计划并备份后写四本 JSON 和书目，失败恢复原文件；`--verify` 只读复验。不写图片、不联网、不发布；以后版本须重新核对源码中的源哈希与段落修正 |
+| `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上。9.25 起源稿分四卷，主流程不再适用，只作为合并、勘误与号段分配的公共库被导入 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
+| `import_suozhang_models.py` | **⚠ 条件：仅已审计的 2026.9.13 六份 Word**。N4.5 旧书增量及 N5 新书；源哈希锁定短中文续行修正，上下册先合并，8.31 基线严格回放 | 默认仅写统一 `output/suozhang-20260913-import/` 候选与计划；`--apply` 校验冻结计划并备份后写四本 JSON 和书目，失败恢复原文件；`--verify` 只读复验。不写图片、不联网、不发布；以后版本须重新核对源码中的源哈希与段落修正；其公共校验与 `--apply` / `--verify` 由 9.25 入口复用 |
+| `import_suozhang_20260925.py` | **⚠ 条件：仅已审计的 2026.9.25 八份 Word**。N4.5 色色改为卷一至卷四（卷一二归原上册号段、卷三四归原下册），重复的编纂者杂项证明完全相同才删，卷二复制的「多p/轮奸」逐字比对后去重，目录改名只在匹配时套别名；N5「画风搜集」并卡；9.13 源快照严格回放；删除逐条核对原因且拒绝删带图词条 | 默认仅写 `output/suozhang-20260925-import/` 候选、计划与下轮回放快照；`--apply` 校验冻结计划并备份后写四本 JSON 和书目，失败恢复原文件；`--verify` 只读复验。不写图片、不联网、不发布；下个版本须新建入口或重新审计全部常量 |
 | `import_docx_codex.py` | 导入结构特殊、带内嵌图片的 Word 法典（解构原典用） | 默认只出报告；`--apply` 才写 |
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
 | `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；读取响应中途断开（`IncompleteRead`）会按既有上限与退避重试当前请求，分页成功前不推进游标；连接 30 秒无进展即重试（请求 8 次、上传 6 次，退避封顶 10 秒），上传请求体分块发送，慢网大文件不会被超时误判；重试行写明断连 / 卡住，不再显示成 `[Errno 2]`，上传进度每 25 个一行；WebP 上传显式使用 `image/webp`，不依赖系统 MIME 表；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
@@ -104,7 +105,7 @@
 测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
 - Python · 导入与数据：`test_apply_pack_names.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
-- Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
+- Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang_20260925.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。

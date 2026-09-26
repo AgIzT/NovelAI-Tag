@@ -1053,6 +1053,26 @@ class CodexUpdateMatchTests(unittest.TestCase):
         self.assertTrue(source_entry["isNew"])
         self.assertEqual(applied, ["suozhang-5704"])
 
+    def test_audited_override_can_identify_entry_by_tag_hash(self):
+        import hashlib
+        import codex_update_match as module
+
+        tags = "sample, prompt,"
+        digest = hashlib.sha256(module.norm_tags({"tags": tags}).encode("utf-8")).hexdigest()
+        table = {("demo", "2026.9.25"): {"demo-0002": {
+            "title": "示例", "path": ["目录"], "tagsSha256": digest, "isNew": True,
+        }}}
+        with patch.dict(module.AUDITED_NEW_OVERRIDES, table):
+            hit = entry(None, "示例", ["目录"], "sample,prompt,", is_new=False)
+            self.assertEqual(
+                apply_audited_source_new_overrides([hit], "demo", "2026.9.25"), ["demo-0002"]
+            )
+            self.assertTrue(hit["isNew"])
+            with self.assertRaises(ValueError):
+                apply_audited_source_new_overrides(
+                    [entry(None, "示例", ["目录"], "other,", is_new=False)], "demo", "2026.9.25"
+                )
+
     def test_audited_unhighlighted_new_override_survives_same_version_reapply(self):
         old_entry = entry(
             "suozhang-5704",
