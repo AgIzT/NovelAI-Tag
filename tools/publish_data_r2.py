@@ -2,6 +2,7 @@
 """Publish site/data JSON as an immutable, atomic R2 release."""
 
 import argparse
+import concurrent.futures
 import datetime as dt
 import hashlib
 import http.client
@@ -21,6 +22,7 @@ try:
         R2Client,
         RETRYABLE_UPLOAD_STATUSES,
         describe_request_error,
+        guess_type,
         load_config,
         request_config,
         retry_delay,
@@ -32,6 +34,7 @@ except ImportError:
         R2Client,
         RETRYABLE_UPLOAD_STATUSES,
         describe_request_error,
+        guess_type,
         load_config,
         request_config,
         retry_delay,
@@ -47,6 +50,9 @@ KNOWN_CODEX_TYPES = {"codex", "string", "composition", "pack"}
 DEFAULT_DATA_PREFIX = "data"
 RELEASE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 POINTER_CACHE_CONTROL = "no-store"
+# Release files are small and independent; the pointer still waits for all of them.
+DEFAULT_RELEASE_WORKERS = 8
+RELEASE_PROGRESS_EVERY = 8
 RELEASE_RE = re.compile(r"^r-[0-9a-f]{20}$")
 REQUIRED_FILES = {
     "about.json",
@@ -255,11 +261,19 @@ class R2DataClient:
         return {
             "size": int(headers.get("content-length") or 0),
             "sha256": headers.get("x-amz-meta-sha256") or "",
+            "cache_control": headers.get("cache-control") or "",
+            "content_type": headers.get("content-type") or "",
         }
 
     def put_file(self, key, item, cache_control):
         return self._put_with_retries(
             lambda: self.raw.put_file(key, item.path, item.sha256, cache_control),
+            key,
+        )
+
+    def copy_file(self, source_key, key, item, cache_control):
+        return self._put_with_retries(
+            lambda: self.raw.copy_object(source_key, key, item.sha256, guess_type(item.path), cache_control),
             key,
         )
 
@@ -335,28 +349,89 @@ def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30, r
         raise RuntimeError("public manifest does not match the release just uploaded")
 
 
-def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None):
+def copy_sources(client, data_prefix, plan):
+    """Active-release files byte-identical to the plan, as relative path -> source key.
+
+    Best effort: without a readable active manifest every file is simply uploaded.
+    """
+    try:
+        pointer = client.get_json(f"{data_prefix}/current.json") or {}
+        source = safe_release(pointer.get("release"))
+        if not source or source == plan.release:
+            return {}
+        files = load_remote_manifest(client, data_prefix, source)["files"]
+    except Exception as ex:
+        print(f"active release unreadable, uploading every file: {describe_request_error(ex)}", flush=True)
+        return {}
+    sources = {}
+    for item in plan.files:
+        meta = files.get(item.relative_path)
+        if isinstance(meta, dict) and meta.get("sha256") == item.sha256 and meta.get("size") == item.size:
+            sources[item.relative_path] = f"{data_prefix}/releases/{source}/{item.relative_path}"
+    return sources
+
+
+def copy_matches(client, key, item):
+    # A copy must look exactly like an upload: bytes, and the headers put_file would set.
+    remote = client.head_metadata(key)
+    return (
+        metadata_matches(remote, item.size, item.sha256)
+        and remote.get("cache_control", RELEASE_CACHE_CONTROL) == RELEASE_CACHE_CONTROL
+        and remote.get("content_type", guess_type(item.path)) == guess_type(item.path)
+    )
+
+
+def publish_file(client, key, item, source_key=None):
+    """Put one release file and verify it; returns "skipped", "copied" or "uploaded"."""
+    # HEAD 已经证明远端对象与本地 size+SHA 一致，跳过时不必再验一次。
+    if metadata_matches(client.head_metadata(key), item.size, item.sha256):
+        return "skipped"
+    if source_key:
+        # 未改动的文件让 R2 在服务端从当前版本复制，不再重传字节；复制结果同样逐对象核对。
+        try:
+            client.copy_file(source_key, key, item, RELEASE_CACHE_CONTROL)
+            if copy_matches(client, key, item):
+                return "copied"
+            print(f"copy did not verify, uploading instead: {key}", flush=True)
+        except Exception as ex:
+            print(f"copy failed, uploading instead: {key}: {describe_request_error(ex)}", flush=True)
+    client.put_file(key, item, RELEASE_CACHE_CONTROL)
+    verify_object(client, key, item.size, item.sha256)
+    return "uploaded"
+
+
+def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None,
+                    workers=DEFAULT_RELEASE_WORKERS):
     data_prefix = normalize_prefix(data_prefix)
     release_prefix = f"{data_prefix}/releases/{plan.release}"
-    uploaded = 0
-    skipped = 0
-    for item in plan.files:
-        key = f"{release_prefix}/{item.relative_path}"
-        # HEAD 已经证明远端对象与本地 size+SHA 一致，跳过时不必再验一次。
-        if metadata_matches(client.head_metadata(key), item.size, item.sha256):
-            skipped += 1
-            continue
-        client.put_file(key, item, RELEASE_CACHE_CONTROL)
-        uploaded += 1
-        verify_object(client, key, item.size, item.sha256)
+    sources = copy_sources(client, data_prefix, plan)
+    counts = {"uploaded": 0, "copied": 0, "skipped": 0}
+    total = len(plan.files)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
+        futures = [
+            pool.submit(publish_file, client, f"{release_prefix}/{item.relative_path}", item,
+                        sources.get(item.relative_path))
+            for item in plan.files
+        ]
+        try:
+            for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                counts[future.result()] += 1
+                if done % RELEASE_PROGRESS_EVERY == 0 or done == total:
+                    print(f"release files: {done}/{total} (uploaded {counts['uploaded']}, "
+                          f"copied {counts['copied']}, skipped {counts['skipped']})", flush=True)
+        except BaseException:
+            # 任何一个文件失败都不写 manifest 和指针。
+            for future in futures:
+                future.cancel()
+            raise
 
     manifest_key = f"{release_prefix}/manifest.json"
     manifest_sha = sha256_bytes(plan.manifest_bytes)
     if metadata_matches(client.head_metadata(manifest_key), len(plan.manifest_bytes), manifest_sha):
-        skipped += 1
+        counts["skipped"] += 1
     else:
         client.put_bytes(manifest_key, plan.manifest_bytes, RELEASE_CACHE_CONTROL)
-        uploaded += 1
+        counts["uploaded"] += 1
         verify_object(client, manifest_key, len(plan.manifest_bytes), manifest_sha)
 
     if public_check:
@@ -370,7 +445,7 @@ def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=
     remote_pointer = client.get_json(current_key) or {}
     if remote_pointer.get("release") != plan.release or remote_pointer.get("contentHash") != plan.content_hash:
         raise RuntimeError("current pointer verification failed")
-    return {"uploaded": uploaded, "skipped": skipped, "pointer": pointer}
+    return {**counts, "pointer": pointer}
 
 
 def load_remote_manifest(client, data_prefix, release):
@@ -468,6 +543,7 @@ def main(argv=None):
         )
     result = publish_release(client, plan, data_prefix, public_check=public_check)
     print(f"uploaded: {result['uploaded']}")
+    print(f"copied: {result['copied']}")
     print(f"skipped: {result['skipped']}")
     print(f"activated: {result['pointer']['release']}")
     return 0

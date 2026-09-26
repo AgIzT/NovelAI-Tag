@@ -187,6 +187,27 @@ class CollectAssetsCoverTests(unittest.TestCase):
         self.assertEqual(issues, [])
         self.assertEqual(stats, {"hit": 1, "miss": 0})
 
+    def test_unchanged_thumbnail_reuses_the_recorded_size(self):
+        thumb = self.picture("demo", "demo-0001.jpg")
+        original = self.picture("demo", "demo-0001.png", original=True)
+        self.book(entryCount=1, entries=[{"id": "demo-0001", "image": thumb.name, "original": original.name}])
+        key = "images/demo/demo-0001.jpg"
+        manifest = {key: {**sync_r2.manifest_entry(thumb, sync_r2.sha256_hex(thumb)), "width": 12, "height": 18}}
+        local = {}
+        with patch.object(sync_r2, "image_dimensions", side_effect=AssertionError("thumbnail was reopened")):
+            sync_r2.collect_assets(manifest_objects=manifest, local_meta=local)
+        self.assertEqual((local[key]["width"], local[key]["height"]), (12, 18))
+        self.assertEqual(local["originals/demo/demo-0001.png"]["sha256"], sync_r2.sha256_hex(original))
+
+        # A thumbnail touched since the last sync is measured again and the entry follows it.
+        manifest[key]["mtime_ns"] -= 1
+        with patch.object(sync_r2, "image_dimensions", return_value=(40, 60)) as measure:
+            sync_r2.collect_assets(apply_metadata=True, manifest_objects=manifest, local_meta=local)
+        measure.assert_called_once_with(thumb)
+        self.assertEqual((local[key]["width"], local[key]["height"]), (40, 60))
+        entry = sync_r2.load_json(self.data / "demo.json")["entries"][0]
+        self.assertEqual((entry["imageWidth"], entry["imageHeight"]), (40, 60))
+
     def test_cover_cannot_escape_its_local_cache_directory(self):
         self.book(cover="../../private.txt")
         assets, issues, _, _ = sync_r2.collect_assets()
@@ -233,15 +254,88 @@ class R2IncompleteResponseTests(unittest.TestCase):
     def test_repeated_incomplete_listing_stops_before_upload_or_manifest_write(self):
         body = self.page("first")
         args = SimpleNamespace(dry_run=False, check_only=False, verbose=False)
-        with patch.object(sync_r2.urllib.request, "urlopen", side_effect=[
-            self.response(body, truncate=True) for _ in range(3)
-        ]) as urlopen, patch.object(sync_r2.R2Client, "put_file") as upload, \
+        with patch.object(sync_r2.urllib.request, "urlopen",
+                          side_effect=lambda *_args, **_kwargs: self.response(body, truncate=True)) as urlopen, \
+                patch.object(sync_r2.R2Client, "put_file") as upload, \
                 patch.object(sync_r2, "write_manifest") as manifest, redirect_stdout(io.StringIO()):
             with self.assertRaises(http.client.IncompleteRead):
                 sync_r2.sync_assets(args, self.config(), [], manifest_objects={})
-        self.assertEqual(urlopen.call_count, 3)
+        # images/ and originals/ are listed side by side. The first range to give up after its
+        # 3 attempts cancels the other unless that one already started its own 3 attempts.
+        self.assertIn(urlopen.call_count, (3, 4, 5, 6))
         upload.assert_not_called()
         manifest.assert_not_called()
+
+
+class FakeListing:
+    """Serves ListObjectsV2 pages over a fixed key set, honouring start-after and tokens."""
+
+    def __init__(self, keys, page_size):
+        self.keys = sorted(keys)
+        self.page_size = page_size
+        self.queries = []
+        self.lock = threading.Lock()
+
+    def __call__(self, method, key, query=None, **_kwargs):
+        with self.lock:
+            self.queries.append(dict(query))
+        after = query.get("continuation-token") or query.get("start-after") or ""
+        rest = [k for k in self.keys if k.startswith(query["prefix"]) and k > after]
+        page = rest[:self.page_size]
+        more = len(rest) > self.page_size
+        contents = "".join(f"<Contents><Key>{k}</Key><Size>{len(k)}</Size></Contents>" for k in page)
+        body = (f'<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">{contents}'
+                f'<IsTruncated>{str(more).lower()}</IsTruncated>'
+                f'<NextContinuationToken>{page[-1] if more else ""}</NextContinuationToken></ListBucketResult>')
+        return 200, {}, body.encode()
+
+
+class ParallelListingTests(unittest.TestCase):
+    def client(self, listing):
+        client = sync_r2.R2Client({"account_id": "test", "access_key_id": "test",
+                                   "secret_access_key": "test", "bucket": "test"})
+        client._request = listing
+        return client
+
+    def test_key_ranges_cover_the_whole_prefix(self):
+        known = [f"images/a/{n:04d}.jpg" for n in range(1, 11)] + ["originals/a/0001.png"]
+        self.assertEqual(sync_r2.list_key_ranges("images", known, per_range=4), [
+            ("images", None, "images/a/0004.jpg"),
+            ("images", "images/a/0004.jpg", "images/a/0008.jpg"),
+            ("images", "images/a/0008.jpg", None),
+        ])
+        self.assertEqual(sync_r2.list_key_ranges("originals/", [], per_range=4), [("originals", None, None)])
+
+    def test_parallel_ranges_return_exactly_the_sequential_listing(self):
+        local = [f"images/a/{n:04d}.jpg" for n in range(1, 11)] + [f"originals/a/{n:04d}.png" for n in range(1, 6)]
+        # Remote-only keys before, between and after the local boundaries, plus other prefixes.
+        remote = local + ["images/a/0000.jpg", "images/a/0004.jpg-old", "images/a/0005x.jpg", "images/zz/9.jpg",
+                          "images.bak/a.jpg", "originals/b/1.png", "data/current.json"]
+        sequential = self.client(FakeListing(remote, page_size=2))
+        expected = {}
+        with redirect_stdout(io.StringIO()):
+            for prefix in ("images", "originals"):
+                expected.update(sequential.list_objects_v2(prefix))
+        listing = FakeListing(remote, page_size=2)
+        with patch.object(sync_r2, "LIST_PAGE_SIZE", 4), redirect_stdout(io.StringIO()) as output:
+            objects = sync_r2.list_remote_objects(self.client(listing), ["images", "originals"], local, workers=4)
+        self.assertEqual(objects, expected)
+        self.assertEqual(len(objects), len(remote) - 2)
+        # Each range stops at its upper bound instead of paging on through the prefix:
+        # images 3 + 3 + 2 pages, originals 2 + 1.
+        self.assertEqual(len(listing.queries), 11)
+        self.assertEqual(sum("start-after" in query for query in listing.queries), 3)
+        self.assertIn("listed 20 remote objects (5/5 ranges)", output.getvalue())
+
+    def test_failed_range_stops_the_listing(self):
+        def broken(method, key, query=None, **_kwargs):
+            if query.get("start-after"):
+                raise RuntimeError("range failed")
+            return FakeListing(["images/a/1.jpg"], page_size=1000)(method, key, query=query)
+
+        with patch.object(sync_r2, "LIST_PAGE_SIZE", 1), redirect_stdout(io.StringIO()), \
+                self.assertRaisesRegex(RuntimeError, "range failed"):
+            sync_r2.list_remote_objects(self.client(broken), ["images"], ["images/a/1.jpg"], workers=2)
 
 
 class LocalServer:
@@ -388,6 +482,32 @@ class R2NetworkStallTests(unittest.TestCase):
         self.assertEqual((counts["upload"], failures), (30, []))
         progress = [line for line in output.getvalue().splitlines() if line.startswith("upload progress")]
         self.assertEqual(progress, ["upload progress: 25/30, fail 0", "upload progress: 30/30, fail 0"])
+
+    def test_manifest_keeps_the_scan_entry_for_skipped_and_uploaded_objects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assets, local = [], {}
+            for name in ("same.jpg", "new.jpg"):
+                path = root / name
+                path.write_bytes(name.encode())
+                sha = sync_r2.sha256_hex(path)
+                assets.append(("image", "demo", name, path, sha))
+                local["images/demo/" + name] = {**sync_r2.manifest_entry(path, sha), "width": 7, "height": 9}
+            remote = {"images/demo/same.jpg": {"size": len(b"same.jpg")}}
+            args = SimpleNamespace(dry_run=False, check_only=False, verbose=False, workers=2, retries=0,
+                                   retry_base_delay=0, request_timeout=None, request_retries=None)
+            with patch.object(sync_r2, "R2Client") as client_class, \
+                    patch.object(sync_r2, "list_remote_objects", return_value=remote) as listing, \
+                    patch.object(sync_r2, "MANIFEST_PATH", root / "manifest.json"), \
+                    redirect_stdout(io.StringIO()):
+                client_class.return_value.put_file.return_value = (200, {}, b"")
+                counts, failures = sync_r2.sync_assets(args, self.config(), assets, manifest_objects={},
+                                                       local_meta=local)
+            written = json.loads((root / "manifest.json").read_text(encoding="utf-8"))["objects"]
+        self.assertEqual((counts["skip"], counts["upload"], failures), (1, 1, []))
+        self.assertEqual(written, local)
+        # The listing is cut at the keys this sync will compare.
+        self.assertEqual(sorted(listing.call_args.args[2]), sorted(local))
 
 
 if __name__ == "__main__":

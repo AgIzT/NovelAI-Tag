@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 from tools.publish_data_r2 import (
     POINTER_CACHE_CONTROL,
+    RELEASE_CACHE_CONTROL,
     R2DataClient,
     activate_release,
     build_release_plan,
@@ -28,12 +29,13 @@ class FakeClient:
         self.objects = {}
         self.operations = []
         self.fail_key = ""
+        self.copy_ignores_headers = False
 
     def head_metadata(self, key):
         item = self.objects.get(key)
         if not item:
             return None
-        return {"size": len(item["body"]), "sha256": item["sha256"]}
+        return {"size": len(item["body"]), "sha256": item["sha256"], "cache_control": item["cache"]}
 
     def put_file(self, key, item, cache_control):
         if key == self.fail_key:
@@ -47,6 +49,13 @@ class FakeClient:
             raise RuntimeError("injected upload failure")
         self.objects[key] = {"body": body, "sha256": sha256_bytes(body), "cache": cache_control}
         self.operations.append(("put", key))
+
+    def copy_file(self, source_key, key, item, cache_control):
+        source = self.objects.get(source_key)
+        if not source:
+            raise RuntimeError(f"upload failed {key}: 404 b'NoSuchKey'")
+        self.objects[key] = source if self.copy_ignores_headers else {**source, "cache": cache_control}
+        self.operations.append(("copy", key))
 
     def get_json(self, key):
         item = self.objects.get(key)
@@ -197,6 +206,57 @@ class PublishDataR2Tests(unittest.TestCase):
             forward = activate_release(client, "data", back["previousRelease"])
             self.assertEqual(forward["release"], second.release)
             self.assertEqual(forward["previousRelease"], first.release)
+
+    def test_unchanged_files_are_copied_from_the_active_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            first = build_release_plan(root)
+            client = FakeClient()
+            publish_release(client, first)
+            write_json(root / "about.json", {"changed": True})
+            second = build_release_plan(root)
+            client.operations.clear()
+            with redirect_stdout(io.StringIO()) as output:
+                result = publish_release(client, second)
+            prefix = f"data/releases/{second.release}/"
+            copied = {key for op, key in client.operations if op == "copy"}
+            uploaded = {key for op, key in client.operations if op == "put"}
+            self.assertEqual(copied, {prefix + item.relative_path for item in second.files
+                                      if item.relative_path != "about.json"})
+            self.assertEqual(uploaded, {prefix + "about.json", prefix + "manifest.json", "data/current.json"})
+            self.assertEqual((result["copied"], result["uploaded"], result["skipped"]), (len(second.files) - 1, 2, 0))
+            self.assertEqual(client.operations[-1], ("put", "data/current.json"))
+            self.assertIn(f"release files: {len(second.files)}/{len(second.files)}", output.getvalue())
+            pointer, _manifest = check_current_release(client)
+            self.assertEqual(pointer["previousRelease"], first.release)
+
+    def test_copy_that_fails_or_does_not_verify_falls_back_to_upload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            first = build_release_plan(root)
+            client = FakeClient()
+            publish_release(client, first)
+            old = f"data/releases/{first.release}/"
+            del client.objects[old + "demo.json"]
+            client.objects[old + "codexes.json"]["sha256"] = "corrupt"
+            # An R2 copy that kept the source headers instead of the ones sent.
+            client.objects[old + "media.json"]["cache"] = "no-store"
+            client.copy_ignores_headers = True
+            write_json(root / "about.json", {"changed": True})
+            second = build_release_plan(root)
+            client.operations.clear()
+            with redirect_stdout(io.StringIO()) as output:
+                publish_release(client, second)
+            prefix = f"data/releases/{second.release}/"
+            for name in ("demo.json", "codexes.json", "media.json"):
+                self.assertIn(("put", prefix + name), client.operations)
+            self.assertIn(("copy", prefix + "strings.json"), client.operations)
+            self.assertEqual(client.objects[prefix + "media.json"]["cache"], RELEASE_CACHE_CONTROL)
+            self.assertIn("copy failed, uploading instead", output.getvalue())
+            self.assertIn("copy did not verify, uploading instead", output.getvalue())
+            check_current_release(client)
 
     def test_failed_release_does_not_update_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -55,6 +55,8 @@ MAX_RETRY_DELAY = 10.0
 DEFAULT_REQUEST_TIMEOUT = 30.0
 DEFAULT_REQUEST_RETRIES = 8
 UPLOAD_PROGRESS_EVERY = 25
+# ListObjectsV2 returns at most this many keys per page.
+LIST_PAGE_SIZE = 1000
 RETRYABLE_UPLOAD_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
 RETRYABLE_REQUEST_STATUSES = RETRYABLE_UPLOAD_STATUSES
 # A response cut off during read() raises HTTPException, not OSError.
@@ -112,17 +114,51 @@ def sha256_hex(path):
     return h.hexdigest()
 
 
-def manifest_entry(path, sha):
-    stat = path.stat()
-    return {
+def stat_or_none(path):
+    """Stat a file once; None wherever Path.exists() would report False."""
+    try:
+        return path.stat()
+    except OSError as ex:
+        if isinstance(ex, (FileNotFoundError, NotADirectoryError)) or getattr(ex, "winerror", None) in (21, 123, 1921):
+            return None
+        raise
+
+
+def local_entry(stat, sha, dims=None):
+    entry = {
         "size": stat.st_size,
         "mtime_ns": stat.st_mtime_ns,
         "sha256": sha,
     }
+    if dims:
+        entry["width"], entry["height"] = dims
+    return entry
 
 
-def sha256_cached(path, key, manifest_objects, hash_stats=None):
-    stat = path.stat()
+def manifest_entry(path, sha):
+    return local_entry(path.stat(), sha)
+
+
+def remember_local(local_meta, key, stat, sha, dims=None):
+    # A thumbnail can also be a cover or secondary image; keep the size read for it.
+    local_meta[key] = {**local_meta.get(key, {}), **local_entry(stat, sha, dims)}
+
+
+def cached_dimensions(cached, stat):
+    # A thumbnail unchanged since the last successful sync keeps the size read then.
+    if (
+        cached
+        and cached.get("size") == stat.st_size
+        and cached.get("mtime_ns") == stat.st_mtime_ns
+        and isinstance(cached.get("width"), int)
+        and isinstance(cached.get("height"), int)
+    ):
+        return cached["width"], cached["height"]
+    return None
+
+
+def sha256_cached(path, key, manifest_objects, hash_stats=None, stat=None):
+    stat = stat or path.stat()
     cached = (manifest_objects or {}).get(key) or {}
     if (
         cached.get("sha256")
@@ -157,7 +193,7 @@ def rev_from_hashes(hashes):
 
 
 def image_dimensions(path):
-    if not path or not path.exists():
+    if not path:
         return None
     try:
         with Image.open(path) as im:
@@ -230,7 +266,7 @@ def media_from_config(cfg):
     }
 
 
-def codex_files():
+def codex_documents():
     for path in sorted(DATA_DIR.glob("*.json")):
         if path.name in ("codexes.json", "media.json") or path.name.startswith("strings"):
             continue
@@ -239,6 +275,11 @@ def codex_files():
             continue
         if not isinstance(data.get("id"), str) or not data["id"] or data["id"] != path.stem:
             continue
+        yield path, data
+
+
+def codex_files():
+    for path, _data in codex_documents():
         yield path
 
 
@@ -322,21 +363,26 @@ def collect_cover_assets(codexes, assets, issues, image_prefix, manifest_objects
         assets.append(("image", asset_cid, cover, cover_path, sha))
 
 
-def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
+def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_meta=None):
+    """Scan local media. `local_meta`, if given, receives key -> the manifest entry
+    (size, mtime, sha256, thumbnail size) seen during this scan, so the sync step
+    need not stat or open the files again."""
     assets = []
     issues = []
     changed_files = []
     hash_stats = {"hit": 0, "miss": 0}
     cfg = cfg or {}
     manifest_objects = manifest_objects or {}
+    local_meta = {} if local_meta is None else local_meta
     image_prefix = cfg.get("image_prefix") or DEFAULT_IMAGE_PREFIX
     original_prefix = cfg.get("original_prefix") or DEFAULT_ORIGINAL_PREFIX
     cover_sources = []
+    books = {}
 
-    for codex_path in codex_files():
-        codex = load_json(codex_path)
+    for codex_path, codex in codex_documents():
         cover_sources.append(codex)
         cid = codex.get("id") or codex_path.stem
+        books[cid] = codex
         changed = False
         imaged = 0
 
@@ -353,10 +399,13 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
             eid = entry.get("id")
             asset_cid = entry.get("assetCodexId") or cid
             thumb_path = THUMB_DIR / asset_cid / image
-            if not thumb_path.exists():
+            thumb_key = key_for(image_prefix, asset_cid, image)
+            thumb_stat = stat_or_none(thumb_path)
+            dims = None
+            if thumb_stat is None:
                 issues.append(f"missing thumbnail: {asset_cid}/{image}")
             else:
-                dims = image_dimensions(thumb_path)
+                dims = cached_dimensions(manifest_objects.get(thumb_key), thumb_stat) or image_dimensions(thumb_path)
                 if dims and (entry.get("imageWidth") != dims[0] or entry.get("imageHeight") != dims[1]):
                     entry["imageWidth"], entry["imageHeight"] = dims
                     changed = True
@@ -364,7 +413,8 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
             original_name, original_path, duplicate = first_original(asset_cid, eid, entry.get("original"))
             if duplicate:
                 issues.append(f"multiple originals for {eid}; using {original_name}")
-            if original_name and original_path and original_path.exists():
+            original_stat = stat_or_none(original_path) if original_name and original_path else None
+            if original_stat is not None:
                 if entry.get("original") != original_name:
                     entry["original"] = original_name
                     changed = True
@@ -373,18 +423,23 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
             else:
                 issues.append(f"missing original for imaged entry: {eid}")
 
-            thumb_key = key_for(image_prefix, asset_cid, image)
             original_key = key_for(original_prefix, asset_cid, original_name) if original_name else ""
-            thumb_sha = sha256_cached(thumb_path, thumb_key, manifest_objects, hash_stats) if thumb_path.exists() else ""
-            original_sha = (
-                sha256_cached(original_path, original_key, manifest_objects, hash_stats)
-                if original_key and original_path and original_path.exists()
+            thumb_sha = (
+                sha256_cached(thumb_path, thumb_key, manifest_objects, hash_stats, thumb_stat)
+                if thumb_stat is not None
                 else ""
             )
-            if thumb_path.exists():
+            original_sha = (
+                sha256_cached(original_path, original_key, manifest_objects, hash_stats, original_stat)
+                if original_stat is not None
+                else ""
+            )
+            if thumb_stat is not None:
                 assets.append(("image", asset_cid, image, thumb_path, thumb_sha))
-            if original_name and original_path and original_path.exists():
+                remember_local(local_meta, thumb_key, thumb_stat, thumb_sha, dims)
+            if original_stat is not None:
                 assets.append(("original", asset_cid, original_name, original_path, original_sha))
+                remember_local(local_meta, original_key, original_stat, original_sha)
 
             rev_hashes = [thumb_sha, original_sha]
 
@@ -400,15 +455,23 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
                 sec_orig_path = ORIG_DIR / asset_cid / sec_orig
                 sec_thumb_key = key_for(image_prefix, asset_cid, sec)
                 sec_orig_key = key_for(original_prefix, asset_cid, sec_orig)
-                if sec_thumb_path.exists():
-                    sec_thumb_sha = sha256_cached(sec_thumb_path, sec_thumb_key, manifest_objects, hash_stats)
+                sec_thumb_stat = stat_or_none(sec_thumb_path)
+                if sec_thumb_stat is not None:
+                    sec_thumb_sha = sha256_cached(
+                        sec_thumb_path, sec_thumb_key, manifest_objects, hash_stats, sec_thumb_stat
+                    )
                     assets.append(("image", asset_cid, sec, sec_thumb_path, sec_thumb_sha))
+                    remember_local(local_meta, sec_thumb_key, sec_thumb_stat, sec_thumb_sha)
                     rev_hashes.append(sec_thumb_sha)
                 else:
                     issues.append(f"missing secondary thumbnail: {asset_cid}/{sec}")
-                if sec_orig_path.exists():
-                    sec_orig_sha = sha256_cached(sec_orig_path, sec_orig_key, manifest_objects, hash_stats)
+                sec_orig_stat = stat_or_none(sec_orig_path)
+                if sec_orig_stat is not None:
+                    sec_orig_sha = sha256_cached(
+                        sec_orig_path, sec_orig_key, manifest_objects, hash_stats, sec_orig_stat
+                    )
                     assets.append(("original", asset_cid, sec_orig, sec_orig_path, sec_orig_sha))
+                    remember_local(local_meta, sec_orig_key, sec_orig_stat, sec_orig_sha)
                     rev_hashes.append(sec_orig_sha)
                 else:
                     issues.append(f"missing secondary original: {asset_cid}/{sec_orig}")
@@ -431,18 +494,19 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None):
     collect_cover_assets(
         cover_sources, assets, issues, image_prefix, manifest_objects, hash_stats
     )
-    update_index(apply_metadata=apply_metadata, changed_files=changed_files)
+    update_index(apply_metadata=apply_metadata, changed_files=changed_files, books=books)
     return assets, issues, changed_files, hash_stats
 
 
-def update_index(apply_metadata=False, changed_files=None):
+def update_index(apply_metadata=False, changed_files=None, books=None):
     index_path = DATA_DIR / "codexes.json"
     index = load_json(index_path, [])
     changed = False
-    by_id = {}
-    for codex_path in codex_files():
-        codex = load_json(codex_path)
-        by_id[codex.get("id") or codex_path.stem] = codex
+    by_id = books
+    if by_id is None:
+        by_id = {}
+        for codex_path, codex in codex_documents():
+            by_id[codex.get("id") or codex_path.stem] = codex
     for item in index:
         cid = item.get("id")
         if cid in by_id:
@@ -622,7 +686,19 @@ class R2Client:
         }
         return self._request("PUT", key, body=body, headers=headers, retries=0)
 
-    def list_objects_v2(self, prefix):
+    def copy_object(self, source_key, key, sha, content_type, cache_control):
+        # Server-side copy: no body is sent. REPLACE sets exactly the headers put_bytes would.
+        headers = {
+            "x-amz-copy-source": urllib.parse.quote(f"/{self.bucket}/{source_key}", safe="/~"),
+            "x-amz-metadata-directive": "REPLACE",
+            "Content-Type": content_type or "application/octet-stream",
+            "Cache-Control": cache_control,
+            "x-amz-meta-sha256": sha,
+        }
+        return self._request("PUT", key, headers=headers, retries=0)
+
+    def list_objects_v2(self, prefix, start_after=None, stop_after=None, quiet=False):
+        """List keys under `prefix`; with start_after / stop_after only the range (start_after, stop_after]."""
         objects = {}
         token = None
         pages = 0
@@ -632,20 +708,26 @@ class R2Client:
         while True:
             query = {
                 "list-type": "2",
-                "max-keys": "1000",
+                "max-keys": str(LIST_PAGE_SIZE),
                 "prefix": prefix,
             }
             if token:
                 query["continuation-token"] = token
+            elif start_after:
+                query["start-after"] = start_after
             status, _headers, body = self._request("GET", "", query=query, retry_statuses=RETRYABLE_REQUEST_STATUSES)
             if status >= 400:
                 raise RuntimeError(f"list failed for {prefix or '<bucket>'}: {status} {body[:200]!r}")
             pages += 1
             root = ET.fromstring(body)
+            last_key = ""
             for item in root.findall("./{*}Contents"):
                 key = item.findtext("./{*}Key")
                 size = item.findtext("./{*}Size")
                 if not key:
+                    continue
+                last_key = key
+                if stop_after is not None and key > stop_after:
                     continue
                 try:
                     size = int(size or "0")
@@ -658,12 +740,14 @@ class R2Client:
                 }
             truncated = (root.findtext("./{*}IsTruncated") or "").lower() == "true"
             token = root.findtext("./{*}NextContinuationToken")
-            print(
-                f"listed {len(objects)} remote objects under {prefix or '<bucket>'} "
-                f"({pages} page(s))",
-                flush=True,
-            )
-            if not truncated or not token:
+            if not quiet:
+                print(
+                    f"listed {len(objects)} remote objects under {prefix or '<bucket>'} "
+                    f"({pages} page(s))",
+                    flush=True,
+                )
+            # Keys arrive in ascending order, so a page reaching stop_after ends the range.
+            if not truncated or not token or (stop_after is not None and last_key >= stop_after):
                 break
         return objects
 
@@ -686,15 +770,45 @@ def write_manifest(cfg, objects):
     write_json(MANIFEST_PATH, data, indent=2)
 
 
-def list_remote_objects(client, prefixes):
+def list_key_ranges(prefix, known_keys, per_range=None):
+    """Cut a prefix into ranges of about one LIST page each, at known key boundaries.
+
+    Ranges are (start_after, stop_after]: the first opens at the start of the prefix and
+    the last is open-ended, so together they cover every remote key, known locally or not.
+    """
+    per_range = per_range or LIST_PAGE_SIZE
+    prefix = prefix.strip("/")
+    scope = prefix + "/" if prefix else ""
+    known = sorted({key for key in known_keys if key.startswith(scope)})
+    bounds = known[per_range - 1::per_range]
+    return [(prefix, start, stop) for start, stop in zip([None] + bounds, bounds + [None])]
+
+
+def list_remote_objects(client, prefixes, known_keys=(), workers=1):
+    # One page takes seconds on a slow route and continuation tokens only go one page at
+    # a time, so list page-sized key ranges side by side instead.
+    ranges = [job for prefix in prefixes for job in list_key_ranges(prefix, known_keys)]
     remote = {}
-    for prefix in prefixes:
-        remote.update(client.list_objects_v2(prefix))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(int(workers), len(ranges)))) as pool:
+        futures = [
+            pool.submit(client.list_objects_v2, prefix, start_after=start, stop_after=stop, quiet=True)
+            for prefix, start, stop in ranges
+        ]
+        try:
+            for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                remote.update(future.result())
+                print(f"listed {len(remote)} remote objects ({done}/{len(ranges)} ranges)", flush=True)
+        except BaseException:
+            # An incomplete listing must never drive uploads: stop queued ranges and fail.
+            for future in futures:
+                future.cancel()
+            raise
     return remote
 
 
-def remote_needs_upload(remote_objects, manifest_objects, key, path, sha):
-    local_size = path.stat().st_size
+def remote_needs_upload(remote_objects, manifest_objects, key, path, sha, local_size=None):
+    if local_size is None:
+        local_size = path.stat().st_size
     remote = remote_objects.get(key)
     manifest = manifest_objects.get(key) or {}
     if not remote:
@@ -824,7 +938,7 @@ def sync_strings_assets(args, cfg, assets):
     return counts, failures
 
 
-def sync_assets(args, cfg, assets, manifest_objects=None):
+def sync_assets(args, cfg, assets, manifest_objects=None, local_meta=None):
     client = R2Client(request_config(cfg, args))
     image_prefix = cfg["image_prefix"]
     original_prefix = cfg["original_prefix"]
@@ -840,28 +954,37 @@ def sync_assets(args, cfg, assets, manifest_objects=None):
     failures = []
     prefixes = sorted({image_prefix, original_prefix})
     manifest_objects = manifest_objects or {}
+    local_meta = local_meta or {}
     next_manifest = {}
     lock = threading.Lock()
+    planned = [
+        (key_for(image_prefix if kind == "image" else original_prefix, cid, filename), path, sha)
+        for kind, cid, filename, path, sha in assets
+    ]
 
     print("listing remote objects", flush=True)
-    remote_objects = list_remote_objects(client, prefixes)
+    remote_objects = list_remote_objects(client, prefixes, [key for key, _path, _sha in planned], workers)
     print(f"remote objects loaded: {len(remote_objects)}", flush=True)
 
     # Pass 1 (in-memory, fast): diff local vs remote/manifest -> decide skip vs upload.
     pending = []
-    for kind, cid, filename, path, sha in assets:
-        prefix = image_prefix if kind == "image" else original_prefix
-        key = key_for(prefix, cid, filename)
+    for key, path, sha in planned:
         counts["checked"] += 1
+        # Reuse the scan's stat only when it describes the bytes that were hashed.
+        meta = local_meta.get(key)
+        if not meta or meta.get("sha256") != sha:
+            meta = None
         try:
-            needs_upload, reason = remote_needs_upload(remote_objects, manifest_objects, key, path, sha)
+            needs_upload, reason = remote_needs_upload(
+                remote_objects, manifest_objects, key, path, sha, meta["size"] if meta else None
+            )
         except Exception as ex:
             counts["fail"] += 1
             failures.append(f"{key}: {ex}")
             continue
         if not needs_upload:
             counts["skip"] += 1
-            next_manifest[key] = manifest_entry(path, sha)
+            next_manifest[key] = dict(meta) if meta else manifest_entry(path, sha)
             if args.verbose:
                 print(f"skip {key}: {reason}")
             continue
@@ -869,7 +992,7 @@ def sync_assets(args, cfg, assets, manifest_objects=None):
         if args.dry_run or args.check_only:
             print(f"would upload {key}: {reason}")
             continue
-        pending.append((key, path, sha))
+        pending.append((key, path, sha, meta))
 
     # Pass 2 (parallel): upload only the files that actually need it.
     if pending:
@@ -881,7 +1004,7 @@ def sync_assets(args, cfg, assets, manifest_objects=None):
         done = [0]
 
         def _upload(item):
-            key, path, sha = item
+            key, path, sha, meta = item
             def _log_retry(message):
                 with lock:
                     print(message, flush=True)
@@ -903,7 +1026,8 @@ def sync_assets(args, cfg, assets, manifest_objects=None):
                         failures.append(f"upload failed {key} after {attempts} attempt(s): {status} {body[:200]!r}")
                 else:
                     with lock:
-                        next_manifest[key] = manifest_entry(path, sha)
+                        # put_file re-hashed the bytes it sent, so the scan's entry still holds.
+                        next_manifest[key] = dict(meta) if meta else manifest_entry(path, sha)
                         if attempts > 1:
                             print(f"uploaded {key} after {attempts} attempts", flush=True)
                     if args.verbose:
@@ -970,10 +1094,12 @@ def main():
     cfg = load_config(required=need_cfg)
     apply_metadata = not args.dry_run
     manifest_objects = load_manifest()
+    local_meta = {}
     assets, issues, changed_files, hash_stats = collect_assets(
         apply_metadata=apply_metadata,
         cfg=cfg,
         manifest_objects=manifest_objects,
+        local_meta=local_meta,
     )
 
     strings_assets = collect_strings_assets()
@@ -1004,7 +1130,7 @@ def main():
         print("dry-run skipped remote checks because r2_config.json is incomplete.")
         return 0 if not issues else 2
 
-    counts, failures = sync_assets(args, cfg, assets, manifest_objects=manifest_objects)
+    counts, failures = sync_assets(args, cfg, assets, manifest_objects=manifest_objects, local_meta=local_meta)
     print("remote sync")
     for key in ("checked", "upload", "skip", "fail"):
         print(f"{key}: {counts[key]}")
