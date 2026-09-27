@@ -2770,7 +2770,8 @@ pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
 .prompt-selection-count{font:11px var(--font-ui);color:var(--muted)}
 .prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
-@media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle,.section-head button{min-height:44px}}
+/* 触屏详情里这几排跟上方动作行同高 38px（窄屏那条已给动作行 38px）；抬到 44px 会让 12px 字的胶囊比动作行还胖一圈。 */
+@media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle,.lightbox-actions button,.section-head button{min-height:38px}}
 
 /* 详情动作与定位分开：停用动效时保留折叠/导航的定位终态。 */
 @media(prefers-reduced-motion:reduce){

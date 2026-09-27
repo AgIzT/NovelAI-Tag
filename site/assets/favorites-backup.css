@@ -273,7 +273,6 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
   .favorites-backup-stats>div{padding:9px}
   .favorites-backup-stats strong{font-size:19px}
   .favorites-view-backup-btn{width:100%;margin-left:0}
-  .community-result-row .favorites-backup-result-btn{width:100%}
 }
 
 @media(prefers-reduced-motion:reduce){

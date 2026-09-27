@@ -7,6 +7,8 @@
   --ui-control-transition:background .16s,color .16s,border-color .16s,box-shadow .16s,transform .16s,translate .16s,scale .14s ease;
   --ui-popover-blur:18px;
   --ui-popover-radius:16px;
+  /* 窄屏/触屏下同排胶囊（.bar-btn、.ui-select.is-pill）的高度，与中转站次要动作同一档。 */
+  --ui-bar-touch-height:34px;
 }
 /* 独立操作控件显式接入；编辑区、定位容器不参与按压缩放。 */
 .ui-press{transition:var(--ui-control-transition)}
@@ -98,12 +100,13 @@
 }
 .seg-tabs>button[aria-selected="true"]>span{background:color-mix(in srgb,var(--on-accent) 22%,transparent);color:var(--on-accent)}
 
-/* 窄屏工具栏与同排单选入口共用 44px 命中高度。 */
+/* 窄屏把面板动作抬到 44px 触控地板；结果栏/工具栏胶囊常并排换行，只抬到 34px——
+   12px 字配 44px 高会撑成一排异常宽大的胶囊（中转站手机布局修过同一个坑）。 */
 @media (max-width:600px){
-  .bar-btn,.panel-action{min-height:44px}
+  .panel-action{min-height:44px}
   .panel-action.is-sm{min-height:38px}
 }
-@media(pointer:coarse){.bar-btn{min-height:44px}}
+@media (max-width:600px),(pointer:coarse){.bar-btn{min-height:var(--ui-bar-touch-height)}}
 @media (prefers-reduced-motion:reduce){
   .bar-btn,.panel-action,.seg-tabs>button,.seg-tabs::before{transition:none!important}
   .bar-btn:active:not(:disabled),.panel-action:active:not(:disabled),.seg-tabs>button:active:not(:disabled){scale:1}
@@ -137,7 +140,7 @@
 .ui-select-button:active:not(:disabled){scale:var(--ui-press-scale)}
 .ui-select-button:disabled,.ui-select-option:disabled{opacity:.46;cursor:not-allowed}
 /* 与结果栏胶囊按钮同排的单选入口，共用形制而非由业务页逐个覆盖。 */
-.ui-select.is-pill{--select-height:30px;--select-touch-height:44px}
+.ui-select.is-pill{--select-height:30px}
 .ui-select.is-pill .ui-select-button{border-radius:999px;background:var(--card);padding:4px 12px}
 .ui-select-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ui-select-arrow{
@@ -172,6 +175,10 @@
 @starting-style{.ui-select-list:not([hidden]){opacity:0;translate:0 -6px;scale:.97}}
 @media(max-width:600px){
   .ui-select-button,.ui-select-option{min-height:var(--select-touch-height,44px)}
+}
+/* 胶囊入口的触发按钮跟 .bar-btn 同条件同高度；展开后的选项是列表项，仍按上一条给 44px。 */
+@media(max-width:600px),(pointer:coarse){
+  .ui-select.is-pill .ui-select-button{min-height:var(--ui-bar-touch-height)}
 }
 @media(prefers-reduced-motion:reduce){
   .ui-select-button,.ui-select-option,.ui-select-arrow,.ui-select-list,.panel-input,

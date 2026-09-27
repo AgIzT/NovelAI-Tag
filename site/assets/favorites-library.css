@@ -133,14 +133,12 @@
   .favorites-heading { flex-basis: 100%; }
   .favorites-head-controls { width: 100%; justify-content: space-between; }
   .favorites-desktop-controls { flex: 1; }
-  .favorites-head-controls .bar-btn { min-height: 44px; }
-  .favorites-sort.ui-select.is-pill { --select-height: 44px; }
+  /* 排序/批量整理/⋯ 的触屏高度交给 ui-kit 的 .bar-btn 与 .is-pill 统一给，这里别再单独撑到 44px。 */
   .favorites-heading h1 { font-size: 23px; }
   .favorites-heading { gap: 7px; }
   .favorites-batch-bar { flex-wrap: wrap; justify-content: center; gap: 6px; bottom: max(10px, env(safe-area-inset-bottom)); width: calc(100vw - 20px); padding: 10px; }
   .favorites-batch-bar strong { flex-basis: 100%; text-align: center; }
   .favorites-batch-bar .panel-action { padding-inline: 12px; }
-  .favorite-organize-button { min-height: 44px; }
   .favorite-library-card .card-badges { top: 60px; }
   .favorites-folder-open { min-height: 44px; }
   .favorites-folder-more { opacity: 1; width: 44px; height: 44px; margin-right: 0; }

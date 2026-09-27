@@ -501,8 +501,13 @@ html.vt-arrived .topbar,html.vt-arrived .community-main{animation:none}
 .ui-press{transition:var(--ui-control-transition)}
 .primary-btn.ui-press:active,.submit-inline.ui-press:active,.community-sd-badge.ui-press:active{translate:0 0}
 
+/* 触屏按用途分配尺寸，别给所有 .ui-press 统一撑 44×44（中转站手机布局修过同一个坑）：
+   纯图标件、图上角标和表单/面板动作保 44px 命中；带字胶囊跟主站 .bar-btn 一档 34px，
+   主按钮与分类签用自身 36px 左右的高度，不再加码。 */
 @media (pointer:coarse){
-  .ui-press:not(.submit-inline):not(.sub-drop),.bar-btn,.panel-action,.orig-link,.sub-actions button{min-width:44px;min-height:44px}
+  .home-link,.panel-action,.sub-actions button{min-width:44px;min-height:44px}
+  .community-like-btn.card-like-overlay{min-height:44px}
+  .orig-link,.prompt-heading button,.empty-actions button,.community-like-btn{min-height:var(--ui-bar-touch-height)}
   .icon-btn,.submit-top-btn,.community-sd-badge,.card-fav-btn,.dialog-close,.search-clear{height:44px}
   .icon-btn,.card-fav-btn,.dialog-close,.search-clear{width:44px}
   .search-wrap input{height:48px;padding-right:54px}
