@@ -77,7 +77,8 @@ SPACES = re.compile(r"\s+")
 
 def tag_key(piece: str) -> str:
     """一段 tag 原文 → 查表键；不值得查的（空、无英文字母、画师前缀、超长）返回空串。"""
-    text = str(piece or "").replace("\\(", "\x01").replace("\\)", "\x02")
+    # 括号前不管几个反斜杠都算一次转义（\\( 多是 JSON 转义套了两层）
+    text = re.sub(r"\\+\)", "\x02", re.sub(r"\\+\(", "\x01", str(piece or "")))
     for _ in range(12):
         before = text
         text = text.strip()
@@ -90,6 +91,11 @@ def tag_key(piece: str) -> str:
         while text.endswith(")") and text.count(")") > text.count("("):
             text = text[:-1]
         if text.startswith("(") and text.endswith(")"):
+            text = text[1:-1]
+        # 转义括号本来是字面括号（hatsune miku \(cosplay\)）；但把整段连权重一起包住的
+        # \(hands up:1.1\) 是被误转义的 SD 权重，拆掉一层，下面照常去权重。
+        if (text.startswith("\x01") and text.endswith("\x02")
+                and SD_WEIGHT_SUFFIX.search(text.lstrip("\x01").rstrip("\x02").strip())):
             text = text[1:-1]
         text = SD_WEIGHT_SUFFIX.sub("", text)
         if text == before:

@@ -29,7 +29,8 @@ function countChar(text, ch) {
 /* 一段 tag 原文 → 查表键：剥掉 NAI 的 {} [] 与 1.2:: 权重、SD 的 (tag:1.2)，
    小写、下划线当空格、压空白。空、无英文字母、画师前缀和超长的一律返回空串（不查）。 */
 export function tagZhKey(piece) {
-  let text = String(piece ?? '').replace(/\\\(/g, '\u0001').replace(/\\\)/g, '\u0002');
+  // 括号前不管几个反斜杠都算一次转义（\\( 多是 JSON 转义套了两层）
+  let text = String(piece ?? '').replace(/\\+\(/g, '\u0001').replace(/\\+\)/g, '\u0002');
   for (let i = 0; i < 12; i += 1) {
     const before = text;
     text = text.trim().replace(WEIGHT_PREFIX, '');
@@ -38,6 +39,12 @@ export function tagZhKey(piece) {
     while (text.startsWith('(') && countChar(text, '(') > countChar(text, ')')) text = text.slice(1);
     while (text.endsWith(')') && countChar(text, ')') > countChar(text, '(')) text = text.slice(0, -1);
     if (text.startsWith('(') && text.endsWith(')')) text = text.slice(1, -1);
+    // 转义括号本来是字面括号（hatsune miku \(cosplay\)）；但把整段连权重一起包住的
+    // \(hands up:1.1\) 是被误转义的 SD 权重，拆掉一层，下面照常去权重。
+    if (text.startsWith('\u0001') && text.endsWith('\u0002')
+        && SD_WEIGHT_SUFFIX.test(text.replace(/^\u0001+/, '').replace(/\u0002+$/, '').trim())) {
+      text = text.slice(1, -1);
+    }
     text = text.replace(SD_WEIGHT_SUFFIX, '');
     if (text === before) break;
   }
