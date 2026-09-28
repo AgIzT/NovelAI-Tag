@@ -777,7 +777,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="favorites-backup-mark" aria-hidden="true">⇄</span>
         <div>
           <h2 id="favoritesBackupTitle">收藏备份与恢复</h2>
-          <p id="favoritesBackupIntro">备份包含收藏、收藏夹、归类和备注。导出 JSON 文件或复制迁移文本，可在另一台设备恢复。</p>
+          <p id="favoritesBackupIntro">备份包含收藏、收藏夹、归类和备注。导出 JSON 文件、复制迁移文本或生成取件码，可在另一台设备恢复。</p>
         </div>
       </div>
       <button id="favoritesBackupClose" class="favorites-backup-close ui-press" type="button" aria-label="关闭收藏备份弹窗">×</button>
@@ -810,8 +810,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <section class="favorites-backup-section favorites-pickup-section" id="favoritesPickupSection" aria-labelledby="favoritesPickupTitle">
         <div class="favorites-backup-section-heading">
           <div>
-            <h3 id="favoritesPickupTitle">用取件码搬到另一台设备</h3>
-            <p>收藏会临时存放在本站服务器，10 分钟后或取用一次后自动删除。</p>
+            <h3 id="favoritesPickupTitle">取件码</h3>
+            <p>生成时上传当前收藏，10 分钟内有效，只能取一次。</p>
           </div>
           <button id="favoritesPickupCreateBtn" class="panel-action is-primary favorites-backup-primary" type="button">生成取件码</button>
         </div>
@@ -823,7 +823,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <button id="favoritesPickupCopyBtn" class="panel-action favorites-backup-secondary" type="button">复制取件码</button>
         </div>
         <div class="favorites-pickup-redeem">
-          <label for="favoritesPickupInput">在这台设备上取件</label>
+          <label for="favoritesPickupInput">输入取件码</label>
           <div class="favorites-pickup-row">
             <input id="favoritesPickupInput" class="panel-input favorites-pickup-input" type="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="16" placeholder="XXXX-XXXX" enterkeyhint="go">
             <button id="favoritesPickupRedeemBtn" class="panel-action favorites-backup-secondary" type="button">取件</button>

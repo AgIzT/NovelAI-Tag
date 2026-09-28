@@ -201,8 +201,8 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   const code = sender.doc.nodes.get('favoritesPickupCode').textContent;
   assert.match(code, /^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
   assert.equal(sender.doc.nodes.get('favoritesPickupResult').hidden, false);
-  assert.match(sender.doc.nodes.get('favoritesPickupExpiry').textContent, /前有效 · 取用一次即失效/);
-  assert.match(sender.doc.nodes.get('favoritesBackupStatus').textContent, /取件码已生成/);
+  assert.match(sender.doc.nodes.get('favoritesPickupExpiry').textContent, /^\d{2}:\d{2} 前有效$/);
+  assert.equal(sender.doc.nodes.get('favoritesBackupStatus').textContent, '取件码已生成：法典图鉴 2 条，共创广场 1 条，收藏夹 5 个。');
   const stored = pickupEnv.COMMUNITY_DB.rows('SELECT payload FROM favorites_pickups');
   assert.equal(stored.length, 1);
   assert.ok(stored[0].payload.startsWith('NAITAG1.'), '上传的是压缩后的迁移文本');
@@ -221,7 +221,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   const late = await setup(make([]));
   late.doc.nodes.get('favoritesPickupInput').value = code;
   await late.doc.nodes.get('favoritesPickupRedeemBtn').fire('click'); await late.waitIdle();
-  assert.match(late.doc.nodes.get('favoritesBackupError').textContent, /已被取用/);
+  assert.match(late.doc.nodes.get('favoritesBackupError').textContent, /已被取用，在原设备重新生成/);
   assert.equal(late.doc.nodes.get('favoritesImportPreview').hidden, true);
 }
 
@@ -239,7 +239,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   try {
     const off = await setup(make(['alpha:a']));
     await off.doc.nodes.get('favoritesPickupCreateBtn').fire('click'); await off.waitIdle();
-    assert.match(off.doc.nodes.get('favoritesBackupError').textContent, /暂不可用/);
+    assert.match(off.doc.nodes.get('favoritesBackupError').textContent, /取件码服务不可用，改用「复制迁移文本」或「导出 JSON」/);
     assert.equal(off.doc.nodes.get('favoritesPickupResult').hidden, true);
   } finally {
     pickupEnv.FAVORITES_PICKUP_ENABLED = 'true';

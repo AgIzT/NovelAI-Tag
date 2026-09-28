@@ -101,9 +101,9 @@ function friendlyError(error) {
 
 function formatPickupExpiry(value) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '10 分钟内有效 · 取用一次即失效';
+  if (Number.isNaN(date.getTime())) return '10 分钟内有效';
   const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  return `${time} 前有效 · 取用一次即失效`;
+  return `${time} 前有效`;
 }
 
 function formatExportedAt(value) {
@@ -526,7 +526,7 @@ export function setupFavoritesBackup(options = {}) {
       codexes,
       exportedAt: new Date().toISOString(),
     });
-    return { transfer: await encodeFavoritesTransfer(json), skippedCount: current.skippedCount };
+    return { transfer: await encodeFavoritesTransfer(json), current };
   };
 
   exportTextButton?.addEventListener('click', async () => {
@@ -543,7 +543,7 @@ export function setupFavoritesBackup(options = {}) {
         setStatus(shown ? '自动复制未成功，已打开手动复制面板。' : '自动复制未成功，改用 JSON 文件。');
         return;
       }
-      setStatus(`${transfer.length > 10_000 ? '迁移文本较长，聊天工具可能截断；建议同时保留 JSON 文件。' : '迁移文本已复制，可发送给自己并在另一台设备粘贴恢复。'}${skippedStatus(built.skippedCount)}`);
+      setStatus(`${transfer.length > 10_000 ? '迁移文本较长，聊天工具可能截断；建议同时保留 JSON 文件。' : '迁移文本已复制，可发送给自己并在另一台设备粘贴恢复。'}${skippedStatus(built.current.skippedCount)}`);
     } catch (error) {
       setError(friendlyError(error));
     } finally {
@@ -562,7 +562,8 @@ export function setupFavoritesBackup(options = {}) {
       const built = await buildTransferText();
       if (!built) return;
       showPickup(await createPickup(built.transfer));
-      setStatus(`取件码已生成，在另一台设备的「收藏备份与恢复」里输入即可。${skippedStatus(built.skippedCount)}`);
+      const { current } = built;
+      setStatus(`取件码已生成：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条，收藏夹 ${current.library.folders.length} 个。${skippedStatus(current.skippedCount)}`);
     } catch (error) {
       setError(friendlyError(error));
     } finally {
@@ -576,7 +577,7 @@ export function setupFavoritesBackup(options = {}) {
     if (!code) return;
     const result = await writeClipboardText(code);
     if (result.ok) setStatus('取件码已复制。');
-    else if (!showClipboardFallback(code, { trigger: pickupCopyButton })) setStatus('自动复制未成功，请手动抄写取件码。');
+    else if (!showClipboardFallback(code, { trigger: pickupCopyButton })) setStatus('自动复制未成功，手动抄写取件码。');
   });
 
   const redeemFromInput = async () => {
@@ -584,7 +585,7 @@ export function setupFavoritesBackup(options = {}) {
     const source = pickupInput?.value || '';
     resetImport();
     if (!source.trim()) {
-      setError('输入另一台设备上显示的取件码。');
+      setError('输入取件码后再取件。');
       pickupInput?.focus();
       return;
     }
@@ -593,7 +594,6 @@ export function setupFavoritesBackup(options = {}) {
       const { code, payload } = await redeemPickup(source);
       if (pickupInput) pickupInput.value = '';
       await prepareImportText(await decodeFavoritesTransfer(payload), `取件码 ${code}`);
-      if (!status?.textContent) setStatus('取件成功，这个取件码已失效。检查预览后点击恢复。');
     } catch (error) {
       setError(friendlyError(error));
     } finally {

@@ -61,12 +61,12 @@ function rows(result) {
 export async function readPickupBody(request) {
   const declared = Number(request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > PICKUP_MAX_BODY_BYTES) {
-    return { status: 413, error: '收藏数据太大，请改用 JSON 文件' };
+    return { status: 413, error: '收藏数据超过取件码上限' };
   }
   let text;
   try { text = await request.text(); } catch { return { status: 400, error: '请求内容无法读取' }; }
   if (new TextEncoder().encode(text).byteLength > PICKUP_MAX_BODY_BYTES) {
-    return { status: 413, error: '收藏数据太大，请改用 JSON 文件' };
+    return { status: 413, error: '收藏数据超过取件码上限' };
   }
   try {
     const data = JSON.parse(text);

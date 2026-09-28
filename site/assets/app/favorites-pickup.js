@@ -6,6 +6,7 @@ export const PICKUP_MAX_PAYLOAD_CHARS = 1_000_000;
 const CODE_RE = new RegExp(`^[${PICKUP_CODE_ALPHABET}]{8}$`);
 const CREATE_URL = '/api/favorites-pickup';
 const REDEEM_URL = '/api/favorites-pickup/redeem';
+const UNAVAILABLE_MESSAGE = '取件码服务不可用，改用「复制迁移文本」或「导出 JSON」。';
 
 function pickupError(code, message) {
   const error = new Error(message);
@@ -26,12 +27,11 @@ export function formatPickupCode(code) {
 
 // 404 只在取件时代表码失效；生成时说明接口不存在，按不可用处理。
 function statusMessage(status, fallback, action) {
-  if (status === 404 && action === 'redeem') return '取件码无效、已过期或已被取用。';
-  if (status === 404) return '取件码暂不可用，请改用迁移文本或 JSON 文件。';
-  if (status === 413) return '收藏数据太大，无法用取件码搬运，请改用 JSON 文件。';
-  if (status === 429) return '操作太频繁，请过几分钟再试。';
-  if (status === 503) return '取件码暂不可用，请改用迁移文本或 JSON 文件。';
-  return fallback || '取件码请求失败，请稍后再试。';
+  if (status === 404 && action === 'redeem') return '取件码无效、已过期或已被取用，在原设备重新生成。';
+  if (status === 404 || status === 503) return UNAVAILABLE_MESSAGE;
+  if (status === 413) return '收藏数据超过取件码上限，改用「导出 JSON」。';
+  if (status === 429) return '操作太频繁，几分钟后再试。';
+  return fallback || '取件码请求失败，稍后再试。';
 }
 
 async function postJson(url, body, fetchImpl, action) {
@@ -45,7 +45,7 @@ async function postJson(url, body, fetchImpl, action) {
       credentials: 'same-origin',
     });
   } catch {
-    throw pickupError('PICKUP_NETWORK', '网络连接失败，请检查网络后重试。');
+    throw pickupError('PICKUP_NETWORK', '网络连接失败，检查网络后重试。');
   }
   let data = null;
   try { data = await response.json(); } catch {}
@@ -59,7 +59,7 @@ async function postJson(url, body, fetchImpl, action) {
 export async function createPickup(transferText, { fetch: fetchImpl = globalThis.fetch } = {}) {
   const payload = String(transferText || '');
   if (!payload.startsWith('NAITAG1.')) {
-    throw pickupError('PICKUP_UNSUPPORTED', '当前浏览器不能压缩收藏数据，请改用 JSON 文件。');
+    throw pickupError('PICKUP_UNSUPPORTED', '当前浏览器不支持压缩收藏数据，改用「导出 JSON」。');
   }
   if (payload.length > PICKUP_MAX_PAYLOAD_CHARS) {
     throw pickupError('PICKUP_TOO_LARGE', statusMessage(413));

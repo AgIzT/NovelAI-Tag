@@ -20,7 +20,7 @@ export async function onRequestPost(context) {
     const rate = await consumePickupRateLimit(env, request, 'redeem');
     if (!rate.allowed) {
       return json(
-        { ok: false, error: '尝试太频繁，请稍后再试' },
+        { ok: false, error: '操作太频繁，几分钟后再试' },
         429,
         { 'retry-after': String(rate.retryAfter) },
       );
@@ -28,7 +28,7 @@ export async function onRequestPost(context) {
     const code = normalizePickupCode(body.data.code);
     if (!code) return err('取件码应为 8 位字母或数字');
     const payload = await redeemPickup(env, code);
-    if (!payload) return err('取件码无效、已过期或已被取用', 404);
+    if (!payload) return err('取件码无效、已过期或已被取用，在原设备重新生成', 404);
     return json({ ok: true, payload });
   } catch (error) {
     console.error(JSON.stringify({ message: 'favorites pickup redeem failed', error: errorMessage(error) }));

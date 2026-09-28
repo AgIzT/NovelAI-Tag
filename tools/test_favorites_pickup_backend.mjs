@@ -70,10 +70,10 @@ async function redeem(env, code, options) {
 {
   const reply = (status, body) => async () => new Response(JSON.stringify(body), { status });
   const message = async promise => { try { await promise; } catch (error) { return error.message; } return ''; };
-  assert.match(await message(frontPickup.createPickup(PAYLOAD, { fetch: reply(404, { ok: false }) })), /暂不可用/);
+  assert.match(await message(frontPickup.createPickup(PAYLOAD, { fetch: reply(404, { ok: false }) })), /服务不可用/);
   assert.match(await message(frontPickup.redeemPickup('K7M29QXA', { fetch: reply(404, { ok: false }) })), /已被取用/);
   assert.match(await message(frontPickup.createPickup(PAYLOAD, { fetch: async () => { throw new TypeError('offline'); } })), /网络连接失败/);
-  assert.match(await message(frontPickup.createPickup('{"raw":"json"}', { fetch: reply(200, { ok: true }) })), /不能压缩/);
+  assert.match(await message(frontPickup.createPickup('{"raw":"json"}', { fetch: reply(200, { ok: true }) })), /不支持压缩/);
   assert.match(await message(frontPickup.createPickup(PAYLOAD, { fetch: async () => new Response('<html>', { status: 405 }) })), /请求失败/);
   assert.match(await message(frontPickup.redeemPickup('abc', { fetch: reply(200, { ok: true }) })), /8 位/);
 }
