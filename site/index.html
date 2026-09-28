@@ -807,6 +807,30 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </dl>
       </section>
 
+      <section class="favorites-backup-section favorites-pickup-section" id="favoritesPickupSection" aria-labelledby="favoritesPickupTitle">
+        <div class="favorites-backup-section-heading">
+          <div>
+            <h3 id="favoritesPickupTitle">用取件码搬到另一台设备</h3>
+            <p>收藏会临时存放在本站服务器，10 分钟后或取用一次后自动删除。</p>
+          </div>
+          <button id="favoritesPickupCreateBtn" class="panel-action is-primary favorites-backup-primary" type="button">生成取件码</button>
+        </div>
+        <div id="favoritesPickupResult" class="favorites-pickup-result" hidden>
+          <div class="favorites-pickup-code-wrap">
+            <output id="favoritesPickupCode" class="favorites-pickup-code" aria-label="取件码"></output>
+            <span id="favoritesPickupExpiry" class="favorites-pickup-expiry"></span>
+          </div>
+          <button id="favoritesPickupCopyBtn" class="panel-action favorites-backup-secondary" type="button">复制取件码</button>
+        </div>
+        <div class="favorites-pickup-redeem">
+          <label for="favoritesPickupInput">在这台设备上取件</label>
+          <div class="favorites-pickup-row">
+            <input id="favoritesPickupInput" class="panel-input favorites-pickup-input" type="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="16" placeholder="XXXX-XXXX" enterkeyhint="go">
+            <button id="favoritesPickupRedeemBtn" class="panel-action favorites-backup-secondary" type="button">取件</button>
+          </div>
+        </div>
+      </section>
+
       <section class="favorites-backup-section favorites-migration-section" aria-labelledby="favoritesMigrationTitle">
         <div class="favorites-backup-section-heading">
           <div>

@@ -50,6 +50,7 @@ body.local-edition #shareLightbox,
 body.local-edition .report-card-btn,
 body.local-edition [data-favorites-migration-banner],
 body.local-edition .favorites-migration-section,
+body.local-edition .favorites-pickup-section,
 body.local-edition [data-favorites-community-stat] { display: none !important; }
 body.local-edition .favorites-backup-stats { grid-template-columns: minmax(0, 1fr); }
 """.lstrip()
@@ -86,6 +87,7 @@ LOCAL_HTML_REPLACEMENTS = {
 LOCAL_HTML_BLOCKS_TO_REMOVE = (
     ('<aside class="favorites-migration-banner"', "</aside>"),
     ('<section class="favorites-backup-section favorites-migration-section"', "</section>"),
+    ('<section class="favorites-backup-section favorites-pickup-section"', "</section>"),
     ('<link rel="manifest"', ">"),
 )
 

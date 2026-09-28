@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { loadFavoritesTestModules } from './favorites-library-test-loader.mjs';
+import { SqliteD1, readMigrations } from './sqlite-d1-test-harness.mjs';
+import { onRequestPost as pickupCreatePost } from '../functions/api/favorites-pickup/index.js';
+import { onRequestPost as pickupRedeemPost } from '../functions/api/favorites-pickup/redeem.js';
+import * as pickupModule from '../site/assets/app/favorites-pickup.js';
+import * as transferModule from '../site/assets/app/favorites-transfer.js';
 const modules = await loadFavoritesTestModules();
 const { core, library, store, backupStore } = modules;
 const codexes = [{ id: 'alpha' }];
@@ -68,7 +73,8 @@ async function setup(initialLibrary, localEdition = false) {
     './browser-history.js': { closeHistoryLayer: () => false, forgetHistoryLayer() {}, openHistoryLayer() {}, registerHistoryLayer() {} },
     './favorites-origin-migration.js': { setupFavoritesOriginMigration() {} },
     '../data-source.js': { fetchDataJson: async () => codexes },
-    './favorites-transfer.js': { decodeFavoritesTransfer: async text => text, encodeFavoritesTransfer: async text => text },
+    './favorites-transfer.js': transferModule,
+    './favorites-pickup.js': pickupModule,
     './clipboard.js': { writeClipboardText: async () => ({ ok: true }) },
     './clipboard-fallback.js': { showClipboardFallback: () => false },
   };
@@ -82,6 +88,22 @@ async function setup(initialLibrary, localEdition = false) {
   return { storage, doc: currentDoc, libraryStore, blobs, waitIdle, async importText(text) { currentDoc.nodes.get('favoritesImportText').value = text; await currentDoc.nodes.get('favoritesImportTextBtn').fire('click'); } };
 }
 const make = keys => library.migrateV1Favorites(keys, { codexes });
+
+// 取件码走真实前端模块与真实 Functions 处理器，D1 用 node:sqlite 模拟。
+const PICKUP_ORIGIN = 'https://test.example';
+const pickupMigration = await readMigrations('0001_community_likes.sql', '0002_engagement_tombstones.sql', '0003_favorites_pickup.sql');
+const pickupEnv = { FAVORITES_PICKUP_ENABLED: 'true', RATE_LIMIT_SALT: 'ui-salt', COMMUNITY_DB: new SqliteD1(pickupMigration) };
+const pickupRequests = [];
+globalThis.fetch = async (url, init = {}) => {
+  pickupRequests.push(url);
+  const request = new Request(PICKUP_ORIGIN + url, {
+    method: init.method,
+    headers: { ...init.headers, origin: PICKUP_ORIGIN, 'cf-connecting-ip': '192.0.2.10' },
+    body: init.body,
+  });
+  const handler = url === '/api/favorites-pickup/redeem' ? pickupRedeemPost : pickupCreatePost;
+  return handler({ env: pickupEnv, request });
+};
 const serialize = value => backupStore.serializeLibraryFavorites({ library: value, codexes, communityIds: ['community-before'] });
 
 // 空夹也可导出；真正的点击处理器生成 V2 文件。
@@ -170,5 +192,65 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   const recovery = JSON.parse(await broken.blobs.get(broken.doc.downloads[0].href).text());
   assert.equal(recovery.communityRaw, null);
 }
+// 取件码往返：A 设备生成，B 设备取件后走同一套预览与合并；同码不能再取。
+{
+  const sender = await setup(make(['alpha:a', 'alpha:b']));
+  assert.equal(sender.doc.nodes.get('favoritesPickupCreateBtn').disabled, false);
+  assert.equal(sender.doc.nodes.get('favoritesPickupResult').hidden, true);
+  await sender.doc.nodes.get('favoritesPickupCreateBtn').fire('click'); await sender.waitIdle();
+  const code = sender.doc.nodes.get('favoritesPickupCode').textContent;
+  assert.match(code, /^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+  assert.equal(sender.doc.nodes.get('favoritesPickupResult').hidden, false);
+  assert.match(sender.doc.nodes.get('favoritesPickupExpiry').textContent, /前有效 · 取用一次即失效/);
+  assert.match(sender.doc.nodes.get('favoritesBackupStatus').textContent, /取件码已生成/);
+  const stored = pickupEnv.COMMUNITY_DB.rows('SELECT payload FROM favorites_pickups');
+  assert.equal(stored.length, 1);
+  assert.ok(stored[0].payload.startsWith('NAITAG1.'), '上传的是压缩后的迁移文本');
+
+  const receiver = await setup(make(['alpha:c']));
+  receiver.doc.nodes.get('favoritesPickupInput').value = code.toLowerCase().replace('-', ' ');
+  await receiver.doc.nodes.get('favoritesPickupRedeemBtn').fire('click'); await receiver.waitIdle();
+  assert.equal(receiver.doc.nodes.get('favoritesBackupError').textContent, '');
+  assert.equal(receiver.doc.nodes.get('favoritesImportPreview').hidden, false);
+  assert.equal(receiver.doc.nodes.get('favoritesPickupInput').value, '');
+  assert.equal(receiver.doc.nodes.get('favoritesRestoreBtn').disabled, false);
+  await receiver.doc.nodes.get('favoritesRestoreBtn').fire('click'); await receiver.waitIdle();
+  assert.deepEqual(library.libraryKeys(receiver.libraryStore.librarySnapshot()).sort(), ['alpha:a', 'alpha:b', 'alpha:c']);
+  assert.equal(pickupEnv.COMMUNITY_DB.rows('SELECT id FROM favorites_pickups').length, 0, '取件后服务端即删除');
+
+  const late = await setup(make([]));
+  late.doc.nodes.get('favoritesPickupInput').value = code;
+  await late.doc.nodes.get('favoritesPickupRedeemBtn').fire('click'); await late.waitIdle();
+  assert.match(late.doc.nodes.get('favoritesBackupError').textContent, /已被取用/);
+  assert.equal(late.doc.nodes.get('favoritesImportPreview').hidden, true);
+}
+
+// 可否生成与「复制迁移文本」同一判定；码格式不对在本地拦下，不发请求；服务不可用给出兜底提示。
+{
+  const empty = await setup(make([]));
+  assert.equal(empty.doc.nodes.get('favoritesPickupCreateBtn').dataset.empty, empty.doc.nodes.get('favoritesExportTextBtn').dataset.empty);
+  const before = pickupRequests.length;
+  empty.doc.nodes.get('favoritesPickupInput').value = 'abc';
+  await empty.doc.nodes.get('favoritesPickupRedeemBtn').fire('click'); await empty.waitIdle();
+  assert.match(empty.doc.nodes.get('favoritesBackupError').textContent, /8 位/);
+  assert.equal(pickupRequests.length, before);
+
+  pickupEnv.FAVORITES_PICKUP_ENABLED = 'false';
+  try {
+    const off = await setup(make(['alpha:a']));
+    await off.doc.nodes.get('favoritesPickupCreateBtn').fire('click'); await off.waitIdle();
+    assert.match(off.doc.nodes.get('favoritesBackupError').textContent, /暂不可用/);
+    assert.equal(off.doc.nodes.get('favoritesPickupResult').hidden, true);
+  } finally {
+    pickupEnv.FAVORITES_PICKUP_ENABLED = 'true';
+  }
+}
+
+// 本地版没有后端，取件码整块隐藏。
+{
+  const local = await setup(make(['alpha:a']), true);
+  assert.equal(local.doc.nodes.get('favoritesPickupSection').hidden, true);
+}
+
 console.warn = originalWarn;
 console.log('favorites backup UI: all tests passed');

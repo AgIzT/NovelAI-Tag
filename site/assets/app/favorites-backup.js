@@ -15,6 +15,7 @@ import { FAVORITES_LIBRARY_STORAGE_KEY, createLibraryRestorePlan, parseLibraryBa
 import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
 import { fetchDataJson } from '../data-source.js';
 import { decodeFavoritesTransfer, encodeFavoritesTransfer } from './favorites-transfer.js';
+import { createPickup, redeemPickup } from './favorites-pickup.js';
 import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
 
@@ -98,6 +99,13 @@ function friendlyError(error) {
   return messages[error.code] || error.message || '备份内容无效，未进行恢复。';
 }
 
+function formatPickupExpiry(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '10 分钟内有效 · 取用一次即失效';
+  const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  return `${time} 前有效 · 取用一次即失效`;
+}
+
 function formatExportedAt(value) {
   if (!value) return '未记录';
   const date = new Date(value);
@@ -147,6 +155,14 @@ export function setupFavoritesBackup(options = {}) {
   const replaceMessage = byId('favoritesReplaceMessage');
   const replaceBack = byId('favoritesReplaceBack');
   const replaceConfirmButton = byId('favoritesReplaceConfirmBtn');
+  const pickupSection = byId('favoritesPickupSection');
+  const pickupCreateButton = byId('favoritesPickupCreateBtn');
+  const pickupResult = byId('favoritesPickupResult');
+  const pickupCode = byId('favoritesPickupCode');
+  const pickupExpiry = byId('favoritesPickupExpiry');
+  const pickupCopyButton = byId('favoritesPickupCopyBtn');
+  const pickupInput = byId('favoritesPickupInput');
+  const pickupRedeemButton = byId('favoritesPickupRedeemBtn');
   const modeInputs = [...panel.querySelectorAll('input[name="favoritesRestoreMode"]')];
   const dialog = panel.querySelector('.favorites-backup-dialog');
   const replaceBackground = dialog
@@ -188,6 +204,10 @@ export function setupFavoritesBackup(options = {}) {
     if (replaceConfirmButton) replaceConfirmButton.disabled = busy;
     if (exportButton) exportButton.disabled = busy || exportButton.dataset.empty === '1';
     if (exportTextButton) exportTextButton.disabled = busy || exportTextButton.dataset.empty === '1';
+    if (pickupCreateButton) pickupCreateButton.disabled = busy || pickupCreateButton.dataset.empty === '1';
+    if (pickupCopyButton) pickupCopyButton.disabled = busy;
+    if (pickupInput) pickupInput.disabled = busy;
+    if (pickupRedeemButton) pickupRedeemButton.disabled = busy;
   };
 
   const resolveCodexes = async () => {
@@ -237,10 +257,11 @@ export function setupFavoritesBackup(options = {}) {
       exportButton.disabled = busy || empty;
       exportButton.title = empty ? '暂无收藏可备份' : '';
     }
-    if (exportTextButton) {
-      exportTextButton.dataset.empty = empty || corruptRecovery ? '1' : '0';
-      exportTextButton.disabled = busy || empty || Boolean(corruptRecovery);
-      exportTextButton.title = empty ? '暂无收藏可备份' : '';
+    for (const button of [exportTextButton, pickupCreateButton]) {
+      if (!button) continue;
+      button.dataset.empty = empty || corruptRecovery ? '1' : '0';
+      button.disabled = busy || empty || Boolean(corruptRecovery);
+      button.title = empty ? '暂无收藏可备份' : '';
     }
     if (current.skippedCount) setStatus(skippedStatus(current.skippedCount));
     if (parsedBackup && !preview?.hidden && !busy) buildPlans(current, await resolveCodexes());
@@ -314,6 +335,12 @@ export function setupFavoritesBackup(options = {}) {
     else setStatus('');
   };
 
+  const showPickup = pickup => {
+    if (pickupCode) pickupCode.textContent = pickup ? pickup.code : '';
+    if (pickupExpiry) pickupExpiry.textContent = pickup ? formatPickupExpiry(pickup.expiresAt) : '';
+    if (pickupResult) pickupResult.hidden = !pickup;
+  };
+
   const resetImport = () => {
     selectedFileName = '';
     parsedBackup = null;
@@ -381,6 +408,8 @@ export function setupFavoritesBackup(options = {}) {
 
   const open = async event => {
     resetImport();
+    showPickup(null);
+    if (pickupInput) pickupInput.value = '';
     openMask(panel, event?.currentTarget || document.activeElement);
     setBusy(true);
     try {
@@ -482,37 +511,100 @@ export function setupFavoritesBackup(options = {}) {
     }
   });
 
+  // 迁移文本与取件码共用同一份载荷；没有可备份内容时写好提示并返回 null。
+  const buildTransferText = async () => {
+    const codexes = await resolveCodexes();
+    const current = await readCurrent();
+    if (corruptRecovery) { setError('当前收藏数据无法读取，使用「导出当前原始数据」保存。'); return null; }
+    if (!current.atlasKeys.length && !current.library.folders.length && (localEdition || !current.communityIds.length)) {
+      setStatus('暂无收藏可备份。');
+      return null;
+    }
+    const json = serializeLibraryFavorites({
+      library: current.library,
+      communityIds: localEdition ? [] : current.communityIds,
+      codexes,
+      exportedAt: new Date().toISOString(),
+    });
+    return { transfer: await encodeFavoritesTransfer(json), skippedCount: current.skippedCount };
+  };
+
   exportTextButton?.addEventListener('click', async () => {
     setBusy(true);
     setError('');
     setStatus('');
     try {
-      const codexes = await resolveCodexes();
-      const current = await readCurrent();
-      if (corruptRecovery) { setError('当前收藏数据无法读取，使用「导出当前原始数据」保存。'); return; }
-      if (!current.atlasKeys.length && !current.library.folders.length && (localEdition || !current.communityIds.length)) {
-        setStatus('暂无收藏可备份。');
-        return;
-      }
-      const json = serializeLibraryFavorites({
-        library: current.library,
-        communityIds: localEdition ? [] : current.communityIds,
-        codexes,
-        exportedAt: new Date().toISOString(),
-      });
-      const transfer = await encodeFavoritesTransfer(json);
+      const built = await buildTransferText();
+      if (!built) return;
+      const { transfer } = built;
       const result = await writeClipboardText(transfer);
       if (!result.ok) {
         const shown = showClipboardFallback(transfer, { trigger: exportTextButton });
         setStatus(shown ? '自动复制未成功，已打开手动复制面板。' : '自动复制未成功，改用 JSON 文件。');
         return;
       }
-      setStatus(`${transfer.length > 10_000 ? '迁移文本较长，聊天工具可能截断；建议同时保留 JSON 文件。' : '迁移文本已复制，可发送给自己并在另一台设备粘贴恢复。'}${skippedStatus(current.skippedCount)}`);
+      setStatus(`${transfer.length > 10_000 ? '迁移文本较长，聊天工具可能截断；建议同时保留 JSON 文件。' : '迁移文本已复制，可发送给自己并在另一台设备粘贴恢复。'}${skippedStatus(built.skippedCount)}`);
     } catch (error) {
       setError(friendlyError(error));
     } finally {
       setBusy(false);
     }
+  });
+
+  if (localEdition && pickupSection) pickupSection.hidden = true;
+
+  pickupCreateButton?.addEventListener('click', async () => {
+    setBusy(true);
+    setError('');
+    setStatus('');
+    showPickup(null);
+    try {
+      const built = await buildTransferText();
+      if (!built) return;
+      showPickup(await createPickup(built.transfer));
+      setStatus(`取件码已生成，在另一台设备的「收藏备份与恢复」里输入即可。${skippedStatus(built.skippedCount)}`);
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setBusy(false);
+      if (pickupResult && !pickupResult.hidden) pickupCopyButton?.focus();
+    }
+  });
+
+  pickupCopyButton?.addEventListener('click', async () => {
+    const code = pickupCode?.textContent || '';
+    if (!code) return;
+    const result = await writeClipboardText(code);
+    if (result.ok) setStatus('取件码已复制。');
+    else if (!showClipboardFallback(code, { trigger: pickupCopyButton })) setStatus('自动复制未成功，请手动抄写取件码。');
+  });
+
+  const redeemFromInput = async () => {
+    if (busy) return;
+    const source = pickupInput?.value || '';
+    resetImport();
+    if (!source.trim()) {
+      setError('输入另一台设备上显示的取件码。');
+      pickupInput?.focus();
+      return;
+    }
+    setBusy(true);
+    try {
+      const { code, payload } = await redeemPickup(source);
+      if (pickupInput) pickupInput.value = '';
+      await prepareImportText(await decodeFavoritesTransfer(payload), `取件码 ${code}`);
+      if (!status?.textContent) setStatus('取件成功，这个取件码已失效。检查预览后点击恢复。');
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  pickupRedeemButton?.addEventListener('click', redeemFromInput);
+  pickupInput?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    redeemFromInput();
   });
 
   fileInput?.addEventListener('change', async () => {

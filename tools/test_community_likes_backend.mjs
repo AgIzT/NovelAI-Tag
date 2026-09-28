@@ -1,56 +1,16 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { DatabaseSync } from 'node:sqlite';
+import { SqliteD1 as SqliteD1Base, readMigrations } from './sqlite-d1-test-harness.mjs';
 
 import { onRequestGet as communityGet } from '../functions/api/community.js';
 import { onRequestPut as likePut, onRequestDelete as likeDelete } from '../functions/api/community-likes/[id].js';
 import { onRequestGet as adminGet, onRequestPost as adminPost } from '../functions/api/admin/community/[[path]].js';
 import { purgeCommunityLikes } from '../functions/_engagements.js';
 
-const MIGRATION = (await Promise.all([
-  readFile(new URL('../migrations/0001_community_likes.sql', import.meta.url), 'utf8'),
-  readFile(new URL('../migrations/0002_engagement_tombstones.sql', import.meta.url), 'utf8'),
-])).join('\n');
+const MIGRATION = await readMigrations('0001_community_likes.sql', '0002_engagement_tombstones.sql');
 const HTTPS_ORIGIN = 'https://likes.example.test';
 
-class SqliteD1Statement {
-  constructor(owner, sql, values = []) {
-    this.owner = owner;
-    this.sql = sql;
-    this.values = values;
-  }
-  bind(...values) { return new SqliteD1Statement(this.owner, this.sql, values); }
-  _execute() {
-    const statement = this.owner.sqlite.prepare(this.sql);
-    const results = statement.all(...this.values).map(row => ({ ...row }));
-    return { success: true, results, meta: {} };
-  }
-  async all() { return this._execute(); }
-  async run() { return this._execute(); }
-  async first(column) {
-    const row = this._execute().results[0] || null;
-    return column && row ? row[column] : row;
-  }
-}
-
-class SqliteD1 {
-  constructor() {
-    this.sqlite = new DatabaseSync(':memory:');
-    this.sqlite.exec(MIGRATION);
-  }
-  prepare(sql) { return new SqliteD1Statement(this, sql); }
-  async batch(statements) {
-    this.sqlite.exec('BEGIN IMMEDIATE');
-    try {
-      const results = statements.map(statement => statement._execute());
-      this.sqlite.exec('COMMIT');
-      return results;
-    } catch (error) {
-      this.sqlite.exec('ROLLBACK');
-      throw error;
-    }
-  }
-  rows(sql, ...values) { return this.sqlite.prepare(sql).all(...values).map(row => ({ ...row })); }
+class SqliteD1 extends SqliteD1Base {
+  constructor() { super(MIGRATION); }
 }
 
 class MemoryR2 {
