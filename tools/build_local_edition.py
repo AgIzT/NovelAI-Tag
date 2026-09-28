@@ -50,6 +50,7 @@ body.local-edition #shareLightbox,
 body.local-edition .report-card-btn,
 body.local-edition [data-favorites-migration-banner],
 body.local-edition .favorites-migration-section,
+body.local-edition .favorites-pickup-section,
 body.local-edition [data-favorites-community-stat] { display: none !important; }
 body.local-edition .favorites-backup-stats { grid-template-columns: minmax(0, 1fr); }
 """.lstrip()
@@ -74,7 +75,7 @@ LOCAL_ANNOUNCEMENTS = []
 
 LOCAL_HTML_REPLACEMENTS = {
     "用 JSON 文件搬运法典图鉴与共创广场收藏。": "用 JSON 文件备份和恢复本地法典收藏。",
-    "备份包含收藏、收藏夹、归类和备注。导出 JSON 文件或复制迁移文本，可在另一台设备恢复。":
+    "备份包含收藏、收藏夹、归类和备注。导出 JSON 文件、复制迁移文本或生成取件码，可在另一台设备恢复。":
         "备份包含本地法典收藏、收藏夹、归类和备注。导出 JSON 文件或复制迁移文本，可在另一台设备恢复。",
     "一份文件会同时包含两处收藏。": "备份文件只包含本地法典收藏。",
     "这会同时替换法典图鉴与共创广场收藏。": "这会替换当前设备的本地法典收藏。",
@@ -86,6 +87,7 @@ LOCAL_HTML_REPLACEMENTS = {
 LOCAL_HTML_BLOCKS_TO_REMOVE = (
     ('<aside class="favorites-migration-banner"', "</aside>"),
     ('<section class="favorites-backup-section favorites-migration-section"', "</section>"),
+    ('<section class="favorites-backup-section favorites-pickup-section"', "</section>"),
     ('<link rel="manifest"', ">"),
 )
 

@@ -7,6 +7,7 @@
 .favorites-backup-error[hidden],
 .favorites-migration-banner[hidden],
 .favorites-migration-feedback[hidden],
+.favorites-pickup-result[hidden],
 [data-favorites-migration-feedback][hidden]{display:none!important}
 
 .favorites-migration-banner{
@@ -152,6 +153,25 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 }
 .favorites-migration-fallback:hover{color:var(--accent);text-decoration-color:currentColor}
 
+/* 取件码：发送得到一个等宽大字短码，接收只要一个输入框；预览沿用下方恢复区。 */
+.favorites-pickup-result{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px;padding:12px 14px;
+  border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:13px;background:var(--accent-soft);
+}
+.favorites-pickup-code-wrap{min-width:0}
+.favorites-pickup-code{
+  display:block;color:var(--accent);font:800 26px/1.2 var(--font-mono);letter-spacing:.12em;
+  user-select:all;-webkit-user-select:all;
+}
+.favorites-pickup-expiry{display:block;margin-top:3px;color:var(--muted);font-size:11.5px;line-height:1.45}
+.favorites-pickup-result button{flex:none}
+.favorites-pickup-redeem{margin-top:13px;padding-top:12px;border-top:1px dashed var(--line)}
+.favorites-pickup-redeem label{display:block;margin-bottom:7px;color:var(--muted);font-size:11px;font-weight:800}
+.favorites-pickup-row{display:flex;align-items:stretch;gap:8px}
+.favorites-pickup-input{flex:1;font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase}
+.favorites-pickup-input::placeholder{letter-spacing:.08em}
+.favorites-pickup-row button{flex:none}
+
 .favorites-restore-modes{min-width:0;margin:13px 0 0;padding:0;border:0}
 .favorites-restore-modes legend{padding:0;margin-bottom:7px;color:var(--muted);font-size:11px;font-weight:800}
 .favorites-restore-modes label{
@@ -250,6 +270,8 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
   .favorites-backup-section-heading{flex-direction:column}
   .favorites-backup-heading-actions{width:100%;justify-content:stretch}
   .favorites-backup-heading-actions button{flex:1}
+  .favorites-pickup-result{align-items:stretch;flex-direction:column;gap:9px}
+  .favorites-pickup-code{font-size:24px}
   .favorites-backup-footer{align-items:stretch;flex-direction:column;gap:7px;padding:10px 14px}
   .favorites-backup-footer .favorites-backup-primary{width:100%}
   .clipboard-fallback-text{min-height:180px}

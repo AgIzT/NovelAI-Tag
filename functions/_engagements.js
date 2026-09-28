@@ -17,7 +17,7 @@ const ACTOR_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const encoder = new TextEncoder();
 
-function enabledFlag(value) {
+export function enabledFlag(value) {
   return value === true || TRUE_VALUES.has(String(value == null ? '' : value).trim().toLowerCase());
 }
 
@@ -119,7 +119,15 @@ export function isSameOriginWrite(request) {
   try { return new URL(origin).origin === new URL(request.url).origin; } catch { return false; }
 }
 
-async function rateIdentifier(salt, type, value) {
+export function clientIp(request) {
+  return String(
+    request.headers.get('cf-connecting-ip') ||
+    (request.headers.get('x-forwarded-for') || '').split(',')[0] ||
+    'unknown',
+  ).trim() || 'unknown';
+}
+
+export async function rateIdentifier(salt, type, value) {
   const bytes = await signText(salt, `${type}:${value}`);
   return bytesToBase64Url(bytes);
 }
@@ -137,11 +145,7 @@ export async function consumeCommunityLikeRateLimit(env, request, actorId, now =
   const db = env.COMMUNITY_DB;
   const bucketStart = Math.floor(now / RATE_WINDOW_MS) * RATE_WINDOW_MS;
   const expiresAt = bucketStart + RATE_BUCKET_RETENTION_MS;
-  const ip = String(
-    request.headers.get('cf-connecting-ip') ||
-    (request.headers.get('x-forwarded-for') || '').split(',')[0] ||
-    'unknown',
-  ).trim() || 'unknown';
+  const ip = clientIp(request);
   const identifiers = [];
   if (actorId) identifiers.push({ type: 'actor', value: actorId, limit: ACTOR_RATE_LIMIT });
   identifiers.push({ type: 'ip', value: ip, limit: IP_RATE_LIMIT });
