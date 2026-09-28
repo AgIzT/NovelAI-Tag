@@ -594,6 +594,8 @@ export function setupFavoritesBackup(options = {}) {
       const { code, payload } = await redeemPickup(source);
       if (pickupInput) pickupInput.value = '';
       await prepareImportText(await decodeFavoritesTransfer(payload), `取件码 ${code}`);
+      // 取件码在弹窗顶部，预览在下方恢复区；取到后把预览带进视野。
+      preview?.scrollIntoView?.({ block: 'nearest' });
     } catch (error) {
       setError(friendlyError(error));
     } finally {

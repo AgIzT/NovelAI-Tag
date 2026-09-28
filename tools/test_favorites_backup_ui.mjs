@@ -31,6 +31,7 @@ class Element {
   appendChild(node) { this.children.push(node); }
   replaceChildren(...nodes) { this.children = nodes; }
   focus() { document.activeElement = this; }
+  scrollIntoView() { this.scrolledIntoView = true; }
   remove() {}
   click() { if (this.tagName === 'a') document.downloads.push({ href: this.href, name: this.download }); }
 }
@@ -212,6 +213,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   await receiver.doc.nodes.get('favoritesPickupRedeemBtn').fire('click'); await receiver.waitIdle();
   assert.equal(receiver.doc.nodes.get('favoritesBackupError').textContent, '');
   assert.equal(receiver.doc.nodes.get('favoritesImportPreview').hidden, false);
+  assert.equal(receiver.doc.nodes.get('favoritesImportPreview').scrolledIntoView, true, '取件码在顶部，预览要被带进视野');
   assert.equal(receiver.doc.nodes.get('favoritesPickupInput').value, '');
   assert.equal(receiver.doc.nodes.get('favoritesRestoreBtn').disabled, false);
   await receiver.doc.nodes.get('favoritesRestoreBtn').fire('click'); await receiver.waitIdle();

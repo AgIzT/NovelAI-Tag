@@ -2154,7 +2154,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("document.querySelector('#favoritesViewBackupBtn').click()")
         wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.hidden", "favorites backup dialog")
         settle(cdp, 250)
-        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', migrationTitle: document.querySelector('#favoritesMigrationTitle')?.textContent || '', migrationButton: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '', migrationFallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '', result: document.querySelector('#resultInfo')?.textContent || '', cards: [...document.querySelectorAll('.card')].map(card => ({key: card.dataset.favoriteKey || '', title: card.querySelector('.card-title')?.textContent || '', path: card.querySelector('.card-path')?.textContent || '', favorite: card.querySelector('.fav-btn')?.textContent || ''})), normalHidden: " + ("true" if normal_hidden else "false") + "})")
+        data = cdp.eval("({button: document.querySelector('#favoritesViewBackupBtn')?.textContent.trim() || '', dialog: document.querySelector('#favoritesBackupTitle')?.textContent || '', atlas: document.querySelector('#favoritesCurrentAtlas')?.textContent || '', migrationTitle: document.querySelector('#favoritesMigrationTitle')?.textContent || '', migrationButton: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '', migrationFallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '', migrationHidden: document.querySelector('.favorites-migration-section')?.hidden === true, sections: [...document.querySelectorAll('#favoritesBackupPanel .favorites-backup-section:not([hidden])')].map(section => section.getAttribute('aria-labelledby')), result: document.querySelector('#resultInfo')?.textContent || '', cards: [...document.querySelectorAll('.card')].map(card => ({key: card.dataset.favoriteKey || '', title: card.querySelector('.card-title')?.textContent || '', path: card.querySelector('.card-path')?.textContent || '', favorite: card.querySelector('.fav-btn')?.textContent || ''})), normalHidden: " + ("true" if normal_hidden else "false") + "})")
         if not data["normalHidden"]:
             raise CheckFailed("Favorites backup entry was visible outside the favorites view")
         if "备份与恢复" not in data["button"] or data["dialog"] != "收藏备份与恢复":
@@ -2171,8 +2171,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Migrated favorite path does not match its current canonical codex: {card!r}")
         if any(card["favorite"] != "★" for card in data["cards"]):
             raise CheckFailed(f"Resolved historical favorites lost their active star: {data['cards']!r}")
-        if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "找回旧收藏":
-            raise CheckFailed("Favorites backup dialog is missing the permanent pages.dev migration entry")
+        # 旧 pages.dev 找回入口 2026-09-29 起暂时关闭：节点保留便于恢复，但必须隐藏。
+        if data["migrationTitle"] != "从旧 pages.dev 找回" or data["migrationButton"] != "找回旧收藏" or not data["migrationHidden"]:
+            raise CheckFailed("Favorites backup dialog should keep the pages.dev migration entry in DOM but hidden")
+        if data["sections"] != ["favoritesPickupTitle", "favoritesCurrentTitle", "favoritesImportTitle"]:
+            raise CheckFailed(f"Favorites backup sections are out of order: {data['sections']!r}")
         fallback_url = urllib.parse.urlparse(data["migrationFallback"])
         fallback_query = urllib.parse.parse_qs(fallback_url.query)
         if (
@@ -2970,9 +2973,13 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
           title: document.querySelector('#favoritesMigrationTitle')?.textContent || '',
           button: document.querySelector('.favorites-migration-section [data-favorites-migration-start]')?.textContent.trim() || '',
           fallback: document.querySelector('[data-favorites-migration-fallback]')?.href || '',
+          hidden: document.querySelector('.favorites-migration-section')?.hidden === true,
+          sections: [...document.querySelectorAll('#favoritesBackupPanel .favorites-backup-section:not([hidden])')].map(section => section.getAttribute('aria-labelledby')),
         })""")
-        if migration_entry["title"] != "从旧 pages.dev 找回" or migration_entry["button"] != "找回旧收藏":
-            raise CheckFailed("Community backup dialog is missing the permanent pages.dev migration entry")
+        if migration_entry["title"] != "从旧 pages.dev 找回" or migration_entry["button"] != "找回旧收藏" or not migration_entry["hidden"]:
+            raise CheckFailed("Community backup dialog should keep the pages.dev migration entry in DOM but hidden")
+        if migration_entry["sections"] != ["favoritesPickupTitle", "favoritesCurrentTitle", "favoritesImportTitle"]:
+            raise CheckFailed(f"Community backup sections are out of order: {migration_entry['sections']!r}")
         fallback_url = urllib.parse.urlparse(migration_entry["fallback"])
         fallback_query = urllib.parse.parse_qs(fallback_url.query)
         if (
