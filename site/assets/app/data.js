@@ -265,6 +265,10 @@ export function normalizeImageList(entry) {
       _hasOriginal: hasOriginal,
       rawTag: item.rawTag || item.rawTags || '',
     };
+    /* 套图逐图负面 / 角色词只存与顶层不同的，缺省即与顶层相同；所以只在数据里真有时才保留字段。 */
+    if (item.negative != null) normalized.negative = String(item.negative);
+    if (Array.isArray(item.characterPrompts)) normalized.characterPrompts = normalizeCharacterPrompts(item.characterPrompts);
+    else delete normalized.characterPrompts;
     if (toFront) out.unshift(normalized);
     else out.push(normalized);
   };

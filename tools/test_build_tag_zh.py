@@ -42,6 +42,25 @@ class TagKeyTest(unittest.TestCase):
         self.assertFalse(btz.ai_eligible("watermark:: -5::detailed skin"))
         self.assertFalse(btz.ai_eligible("signaturelogoartistnameworstqualitylowresugly"))
 
+    def test_prompt_fields_include_what_the_lightbox_shows_per_image(self):
+        entry = {
+            "tags": "artist, room",
+            "negative": "lowres",
+            "characterPrompts": [{"prompt": "girl", "negative": ""}],
+            "images": [
+                {"rawTag": "artist, room"},
+                {"rawTag": "artist,\nroom", "characterPrompts": [{"prompt": "boy", "negative": "hat"}]},
+                {"rawTag": "artist, beach", "negative": "blurry"},
+            ],
+        }
+        self.assertEqual(
+            btz.prompt_fields(entry),
+            ["artist, room", "lowres", "girl", "boy", "hat", "artist, beach", "blurry"],
+        )
+        # 单图词条的 rawTag 不在灯箱正向里出现（画风词典的原始 prompt），不收
+        single = {"tags": "artist:x", "images": [{"rawTag": "artist:x, 1girl, long prompt"}]}
+        self.assertEqual(btz.prompt_fields(single), ["artist:x"])
+
 
 class BuildTest(unittest.TestCase):
     def setUp(self):

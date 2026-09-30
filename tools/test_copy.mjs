@@ -508,7 +508,7 @@ function execDocument(result) {
   /* opt-in：不传 entry 的复制不得入库 */
   assert.doesNotMatch(copySource, /recordPreparedCopiedEntry\(\s*\)/);
   assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false \}\)/);
-  assert.match(lightboxSource, /copyText\(e\.negative[\s\S]*sampleLabel: '已复制负面'/);
+  assert.match(lightboxSource, /copyText\(negative[\s\S]*sampleLabel: '已复制负面'/);
   assert.match(lightboxSource, /#copyRawTag[\s\S]*copyText\(item\.rawTag[\s\S]*accessEntry: e/);
   assert.match(masonrySource, /copyText\(e\.negative[\s\S]*sampleLabel: '已复制负面'/);
   assert.match(moduleMapSource, /`copy-fx\.js`/);
@@ -532,13 +532,13 @@ function execDocument(result) {
   ]);
   assert.match(copySource, /return copyText\(entryPromptText\(e\), message, node/);
   // 灯箱的「复制正向」保持只给正面段（那里角色词是分块展示的，语义不含糊）；套图非封面图给该图自己的正向
-  assert.match(lightboxSource, /copyText\(positive, `已复制正向\$\{perImage \? `（\$\{imageLabel\}）` : ''\}：\$\{e\.title\}`/);
+  assert.match(lightboxSource, /copyText\(positive, `已复制正向\$\{noteFor\(prompts\.ownTags\)\}：\$\{e\.title\}`/);
   assert.match(copySource, /（含 \$\{charCount\} 组角色词）/);
   // 卡片和灯箱的「全部」都要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」
   assert.match(masonrySource, /allBtn\.hidden = !e\.negative && !charPrompts\.length/);
-  assert.match(lightboxSource, /\$\('#copyAll'\)\.hidden = !e\.negative && !\(e\.characterPrompts \|\| \[\]\)\.length/);
+  assert.match(lightboxSource, /\$\('#copyAll'\)\.hidden = !negative && !characterPrompts\.length/);
   for (const source of [masonrySource, lightboxSource]) {
-    assert.match(source, /已复制\$\{combinedPromptLabel\(e\)\}/);
+    assert.match(source, /已复制\$\{combinedPromptLabel\((?:e|shownEntry)\)\}/);
     assert.doesNotMatch(source, /已复制正向\+负面/);
   }
 }

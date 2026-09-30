@@ -100,6 +100,7 @@ const {
   getLightboxStepTarget,
   isLightboxKeydownBlocked,
   lightboxImagePositive,
+  lightboxImagePrompts,
   lightboxNavigationContext,
   lightboxOriginalAction,
   lightboxOriginalCopy,
@@ -681,6 +682,43 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(lightboxImagePositive(edited, entryImages(edited), 2).text, edited.tags, '与封面 rawTag 相同的图跟随顶层 tags');
   const coverless = { id: 'bare', tags: 'artist', images: [{ path: 'a.jpg' }, { path: 'b.jpg', rawTag: 'artist, night' }] };
   assert.deepEqual(lightboxImagePositive(coverless, entryImages(coverless), 1), { text: 'artist, night', perImage: true });
+}
+
+// 逐图负面 / 角色词：图上有就用图上的（空串 / 空数组也算），缺省取顶层；
+// 未经回填核对（无 perImagePrompts）时，逐图正向配的顶层负面与角色词要标出处。
+{
+  const cover = [{ label: 'char1', prompt: 'girl, sitting' }];
+  const own = [{ label: 'char1', prompt: 'girl, standing', negative: 'hat' }];
+  const raw = {
+    id: 'set', tags: 'artist, room', negative: 'lowres', characterPrompts: cover, perImagePrompts: true,
+    images: [
+      { path: 's1.jpg', rawTag: 'artist, room' },
+      { path: 's2.jpg', rawTag: 'artist, room', characterPrompts: own },
+      { path: 's3.jpg', rawTag: 'artist, beach', negative: '', characterPrompts: [] },
+      { path: 's4.jpg', rawTag: 'artist, beach' },
+    ],
+  };
+  const images = normalizeImageList(raw);
+  assert.equal('characterPrompts' in images[0], false, '归一化不给缺省的图凭空补字段');
+  assert.deepEqual(images[1].characterPrompts, own);
+  const coverView = lightboxImagePrompts(raw, images, 0);
+  assert.equal(coverView.characterPrompts, raw.characterPrompts);
+  assert.equal(coverView.ownCharacters || coverView.ownNegative || coverView.ownTags, false);
+  const second = lightboxImagePrompts(raw, images, 1);
+  assert.equal(second.tags, raw.tags, '正向同封面时仍显示顶层 tags');
+  assert.deepEqual(second.characterPrompts, own);
+  assert.equal(second.negative, 'lowres');
+  assert.deepEqual([second.ownTags, second.ownNegative, second.ownCharacters], [false, false, true]);
+  const third = lightboxImagePrompts(raw, images, 2);
+  assert.deepEqual([third.tags, third.negative, third.characterPrompts], ['artist, beach', '', []]);
+  assert.deepEqual([third.negativeFromCover, third.charactersFromCover], [false, false]);
+  const fourth = lightboxImagePrompts(raw, images, 3);
+  assert.deepEqual([fourth.negative, fourth.characterPrompts], ['lowres', cover]);
+  assert.deepEqual([fourth.negativeFromCover, fourth.charactersFromCover], [false, false], '已核对：缺省即与封面相同');
+  const unchecked = { ...raw, perImagePrompts: undefined };
+  const legacy = lightboxImagePrompts(unchecked, images, 3);
+  assert.deepEqual([legacy.negativeFromCover, legacy.charactersFromCover], [true, true]);
+  assert.deepEqual([lightboxImagePrompts(unchecked, images, 1).negativeFromCover], [false], '正向同封面时不标出处');
 }
 
 // 物理 original 与缩略 fallback 分开；提示是否承诺可读参数还要看来源 hasOriginal。

@@ -251,11 +251,29 @@ def load_table(path: Path) -> dict[str, str]:
 # ---- 统计 ----
 
 
-def prompt_fields(entry: dict) -> list[str]:
-    fields = [entry.get("tags"), entry.get("negative")]
-    for item in entry.get("characterPrompts") or []:
+def _compact(value) -> str:
+    return re.sub(r"\s+", " ", value).strip() if isinstance(value, str) else ""
+
+
+def _character_fields(items) -> list:
+    fields: list = []
+    for item in items or []:
         if isinstance(item, dict):
             fields += [item.get("prompt"), item.get("negative")]
+    return fields
+
+
+def prompt_fields(entry: dict) -> list[str]:
+    fields = [entry.get("tags"), entry.get("negative"), *_character_fields(entry.get("characterPrompts"))]
+    # 灯箱切到套图非封面图时显示的逐图原文（规则同 lightbox.js 的 lightboxImagePositive / lightboxImagePrompts）
+    images = [item for item in entry.get("images") or [] if isinstance(item, dict)]
+    if len(images) > 1:
+        cover = _compact(images[0].get("rawTag")) or _compact(entry.get("tags"))
+        for item in images[1:]:
+            own = _compact(item.get("rawTag"))
+            if own and own != cover:
+                fields.append(item.get("rawTag"))
+            fields += [item.get("negative"), *_character_fields(item.get("characterPrompts"))]
     return [value for value in fields if isinstance(value, str) and value.strip()]
 
 

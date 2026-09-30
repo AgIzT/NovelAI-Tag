@@ -734,11 +734,11 @@ function syncTagZhForEntry(entry, seq) {
   });
 }
 
-export function renderCharacterPrompts(entry) {
+export function renderCharacterPrompts(entry, { prompts: source = entry?.characterPrompts, imageLabel = '' } = {}) {
   const block = $('#characterPromptsBlock');
   const container = $('#lightboxCharacterPrompts');
   if (!block || !container) return;
-  const prompts = Array.isArray(entry?.characterPrompts) ? entry.characterPrompts : [];
+  const prompts = Array.isArray(source) ? source : [];
   container.replaceChildren();
   block.hidden = !prompts.length;
   if (!prompts.length) return;
@@ -754,18 +754,20 @@ export function renderCharacterPrompts(entry) {
     copy.type = 'button';
     copy.className = 'ui-press';
     copy.textContent = `复制 ${labelText}`;
+    // 逐图角色词进中转站时标题带上图号，否则各图的 char1 分不清
+    const fragmentLabel = imageLabel ? `${imageLabel} ${labelText}` : labelText;
     copy.onclick = ev => {
       ev.stopPropagation();
       if (!refreshLightboxAccess(entry)) return;
-      copyText(prompt, `${message}：${entry.title}`, copy, {
-        entry, fragment: { text: prompt, channel, scope: channel, characterIndex, label: labelText },
+      copyText(prompt, `${message}${imageLabel ? `（${imageLabel}）` : ''}：${entry.title}`, copy, {
+        entry, fragment: { text: prompt, channel, scope: channel, characterIndex, label: fragmentLabel },
       });
     };
     head.append(label, copy);
     const content = document.createElement('pre');
     renderPromptBlock(content, prompt, { highlighted: true, codexId: lightboxEntrySourceId(entry) });
     parent.append(head, content);
-    bindPromptSelection(content, prompt, { entry, channel, characterIndex, label: labelText });
+    bindPromptSelection(content, prompt, { entry, channel, characterIndex, label: fragmentLabel });
   };
 
   for (const [characterIndex, item] of prompts.entries()) {
@@ -863,7 +865,29 @@ export function lightboxImagePositive(entry, images, index) {
   return { text: own, perImage: true };
 }
 
-/* 逐图正向生效时，负面和角色词仍是封面那张的，标题上注明出处。 */
+/* 逐图负面 / 角色词由 tools/backfill_pack_image_prompts.py 从原图写进 images[]，只存与顶层不同的；
+   词条带 perImagePrompts 表示整组已核对，图上缺省即与顶层相同。没有这个标记时，
+   逐图正向配的负面与角色词只能取封面，标题注明出处。 */
+export function lightboxImagePrompts(entry, images, index) {
+  const list = Array.isArray(images) ? images : [];
+  const positive = lightboxImagePositive(entry, list, index);
+  const item = index > 0 ? list[index] : null;
+  const ownNegative = typeof item?.negative === 'string';
+  const ownCharacters = Array.isArray(item?.characterPrompts);
+  const coverOnly = positive.perImage && entry?.perImagePrompts !== true;
+  return {
+    tags: positive.text,
+    negative: ownNegative ? item.negative : String(entry?.negative || ''),
+    characterPrompts: ownCharacters ? item.characterPrompts : (entry?.characterPrompts || []),
+    ownTags: positive.perImage,
+    ownNegative,
+    ownCharacters,
+    negativeFromCover: coverOnly && !ownNegative,
+    charactersFromCover: coverOnly && !ownCharacters,
+  };
+}
+
+/* 负面和角色词只能取封面那张时，标题上注明出处。 */
 function setCoverSourceLabel(block, fromCover) {
   const label = block?.querySelector('.section-label');
   if (!label) return;
@@ -979,8 +1003,13 @@ export function renderLightbox() {
     creditEl.removeAttribute('href');
   }
 
-  const { text: positive, perImage } = lightboxImagePositive(e, lb.images, lb.index);
-  const imageLabel = perImage ? `第 ${lb.index + 1} 张` : '';
+  const prompts = lightboxImagePrompts(e, lb.images, lb.index);
+  const { tags: positive, negative, characterPrompts } = prompts;
+  const perImage = prompts.ownTags || prompts.ownNegative || prompts.ownCharacters;
+  const imageLabel = `第 ${lb.index + 1} 张`;
+  // 只有这张图自己的那一段才带「第 N 张」：中转站标题、复制提示都按段区分
+  const labelFor = own => (own ? imageLabel : '');
+  const noteFor = own => (own ? `（${imageLabel}）` : '');
   const hasPositive = Boolean(positive.trim());
   stopPromptSelection($('#lightboxTags'));
   stopPromptSelection($('#lightboxNegative'));
@@ -989,14 +1018,14 @@ export function renderLightbox() {
   else forgetPromptBlock($('#lightboxTags'), readableOriginal
     ? (exampleModel ? '暂无站内可复制 tags；生成参数保留在原图中。' : '暂无站内可复制 tags；原图就绪后可尝试拖入 NovelAI 读取。')
     : '暂无站内可复制 tags。');
-  renderCharacterPrompts(e);
-  if (e.negative) renderPromptBlock($('#lightboxNegative'), e.negative);
+  renderCharacterPrompts(e, { prompts: characterPrompts, imageLabel: labelFor(prompts.ownCharacters) });
+  if (negative) renderPromptBlock($('#lightboxNegative'), negative);
   else forgetPromptBlock($('#lightboxNegative'), '');
   $('#lightboxNote').textContent = e.note || '';
-  $('#negativeBlock').hidden = !e.negative;
+  $('#negativeBlock').hidden = !negative;
   $('#noteBlock').hidden = !e.note;
-  setCoverSourceLabel($('#negativeBlock'), perImage);
-  setCoverSourceLabel($('#characterPromptsBlock'), perImage);
+  setCoverSourceLabel($('#negativeBlock'), prompts.negativeFromCover);
+  setCoverSourceLabel($('#characterPromptsBlock'), prompts.charactersFromCover);
 
   const bindSdPreview = (button, pre, source, { highlighted = false } = {}) => {
     if (!button || !pre) return;
@@ -1018,9 +1047,9 @@ export function renderLightbox() {
     } : null;
   };
   bindSdPreview($('#sdPositivePreview'), $('#lightboxTags'), positive, { highlighted: true });
-  bindSdPreview($('#sdNegativePreview'), $('#lightboxNegative'), e.negative || '');
-  bindPromptSelection($('#lightboxTags'), positive, { entry: e, channel: 'positive', label: imageLabel });
-  bindPromptSelection($('#lightboxNegative'), e.negative || '', { entry: e, channel: 'negative' });
+  bindSdPreview($('#sdNegativePreview'), $('#lightboxNegative'), negative);
+  bindPromptSelection($('#lightboxTags'), positive, { entry: e, channel: 'positive', label: labelFor(prompts.ownTags) });
+  bindPromptSelection($('#lightboxNegative'), negative, { entry: e, channel: 'negative', label: labelFor(prompts.ownNegative) });
   syncTagZhForEntry(e, seq);
 
   $('#copyPositive').hidden = !hasPositive;
@@ -1028,41 +1057,44 @@ export function renderLightbox() {
   $('#copyPositive').onclick = ev => {
     ev.stopPropagation();
     if (!refreshLightboxAccess(e)) return;
-    copyText(positive, `已复制正向${perImage ? `（${imageLabel}）` : ''}：${e.title}`, ev.currentTarget, {
+    copyText(positive, `已复制正向${noteFor(prompts.ownTags)}：${e.title}`, ev.currentTarget, {
       entry: e,
-      fragment: { text: positive, channel: 'positive', scope: 'positive', label: imageLabel },
-      followUp: String(e.negative || '').trim() ? {
+      fragment: { text: positive, channel: 'positive', scope: 'positive', label: labelFor(prompts.ownTags) },
+      followUp: negative.trim() ? {
         label: '再复制负面',
-        text: e.negative,
-        message: `已复制负面：${e.title}`,
-        fragment: { text: e.negative, channel: 'negative', scope: 'negative' },
+        text: negative,
+        message: `已复制负面${noteFor(prompts.ownNegative)}：${e.title}`,
+        fragment: { text: negative, channel: 'negative', scope: 'negative', label: labelFor(prompts.ownNegative) },
       } : null,
     });
   };
-  $('#copyNegative').hidden = !e.negative;
+  $('#copyNegative').hidden = !negative;
   $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyNegative').onclick = ev => {
     ev.stopPropagation();
     if (!refreshLightboxAccess(e)) return;
-    copyText(e.negative, `已复制负面：${e.title}`, ev.currentTarget, {
+    copyText(negative, `已复制负面${noteFor(prompts.ownNegative)}：${e.title}`, ev.currentTarget, {
       entry: e,
-      fragment: { text: e.negative, channel: 'negative', scope: 'negative' },
+      fragment: { text: negative, channel: 'negative', scope: 'negative', label: labelFor(prompts.ownNegative) },
       sampleLabel: '已复制负面',
     });
   };
-  /* 逐图时「全部」= 这张图的正向 + 封面的角色词与负面，与面板显示一致；
+  /* 「全部」与面板显示一致：这张图有自己的正向 / 负面 / 角色词就用它的，其余取顶层；
      中转站按「词条 · 第 N 张」单独成卡，不顶掉整条词条那张。 */
   const shownEntry = perImage
-    ? { ...e, tags: positive, title: `${e.title} · ${imageLabel}`, relayKey: `${relayKeyFor(e)}:image:${lb.index + 1}` }
+    ? {
+      ...e, tags: positive, negative, characterPrompts,
+      title: `${e.title} · ${imageLabel}`, relayKey: `${relayKeyFor(e)}:image:${lb.index + 1}`,
+    }
     : e;
-  $('#copyAll').hidden = !e.negative && !(e.characterPrompts || []).length;
+  $('#copyAll').hidden = !negative && !characterPrompts.length;
   $('#copyAll').onclick = ev => {
     ev.stopPropagation();
     if (!refreshLightboxAccess(e)) return;
-    copyText(combinedPrompt(shownEntry), `已复制${combinedPromptLabel(e)}${perImage ? `（${imageLabel}）` : ''}：${e.title}`, ev.currentTarget, { entry: shownEntry });
+    copyText(combinedPrompt(shownEntry), `已复制${combinedPromptLabel(shownEntry)}${noteFor(perImage)}：${e.title}`, ev.currentTarget, { entry: shownEntry });
   };
   /* 逐图时正向框显示的就是这张图的 raw tag，按钮与「复制正向」重复。 */
-  $('#copyRawTag').hidden = !item.rawTag || perImage;
+  $('#copyRawTag').hidden = !item.rawTag || prompts.ownTags;
   $('#copyRawTag').onclick = ev => {
     ev.stopPropagation();
     if (!refreshLightboxAccess(e)) return;
