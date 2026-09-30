@@ -355,7 +355,7 @@ export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cfg = densityConfig();
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight) return cached.value;
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.sdMode === state.sdMode) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleWidth = cfg.mobile ? Math.max(1, width - 2 - cfg.bodyPadX * 2 - (cfg.titleActionWidth || 26)) : contentWidth;
   const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
@@ -370,7 +370,7 @@ export function estimateBodyMetrics(e, width) {
     height: Math.ceil(cfg.bodyPadTop + titleHeight + titleGap + tagsHeight + footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, sdMode: state.sdMode, value });
   return value;
 }
 
@@ -457,6 +457,18 @@ export function applyCardImageLoadPolicy(node, placement, {
     node._loadImage();
   }
   return policy;
+}
+
+export function refreshCardPrompts() {
+  const anchor = captureMasonryAnchor();
+  const highlightTerms = currentHighlightTerms();
+  for (const [index, node] of state.nodes) {
+    const entry = state.list[index];
+    if (!entry?.characterPrompts?.length) continue;
+    renderHighlightedText(node.querySelector('.card-tags'), entryPromptText(entry), highlightTerms);
+  }
+  relayoutVisible();
+  restoreMasonryAnchor(anchor);
 }
 
 export function updateVirtualCards(force = false) {

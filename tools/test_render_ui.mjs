@@ -1503,8 +1503,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.ok(toastZ > editMenuZ, `toast 层级必须高于编辑菜单（${toastZ} <= ${editMenuZ}）`);
 }
 
-// 角色词拆进 characterPrompts 之后的复制契约：一键复制 = 正面 + 角色词内容、去掉 char1： 标记，
-// 等于拆分前的原文减去标记（只给正面会让 623 条词条只剩两三个 tag，复刻不出图）。
+// 一键复制 = 主正向 + 角色正向；普通模式保留标记，SD 模式去掉标记。
 // 卡片预览与一键复制共用同一个文本源。见 tools/migrate_suozhang_char_prompts.py。
 {
   const { combinedPrompt, combinedPromptLabel, entryPromptText } = await import('../site/assets/app/copy.js');
@@ -1513,7 +1512,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     tags: '1girl,indoor,',
     characterPrompts: [{ label: 'char1', prompt: 'girl,blush,' }, { label: 'char2', prompt: 'boy,' }],
   };
-  assert.equal(entryPromptText(normal), '1girl,indoor,\ngirl,blush,\nboy,');
+  assert.equal(entryPromptText(normal, { sdMode: false }), '1girl,indoor,\n\nchar1:\ngirl,blush,\n\nchar2:\nboy,');
+  assert.equal(entryPromptText(normal, { sdMode: true }), '1girl,indoor,\ngirl,blush,\nboy,');
   assert.equal(combinedPromptLabel(normal), '正向+角色词');
   assert.equal(combinedPrompt(normal), '1girl,indoor,\n\nchar1:\ngirl,blush,\n\nchar2:\nboy,');
 
@@ -1523,16 +1523,30 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     tags: 'scene,',
     characterPrompts: [{ label: 'char1', prompt: 'girl,', negative: 'calm face,ugly,deformed,' }],
   };
-  assert.equal(entryPromptText(withCharNegative), 'scene,\ngirl,');
-  assert.doesNotMatch(entryPromptText(withCharNegative), /ugly|deformed/);
+  assert.equal(entryPromptText(withCharNegative, { sdMode: false }), 'scene,\n\nchar1:\ngirl,');
+  assert.equal(entryPromptText(withCharNegative, { sdMode: true }), 'scene,\ngirl,');
+  for (const sdMode of [false, true]) {
+    assert.doesNotMatch(entryPromptText(withCharNegative, { sdMode }), /ugly|deformed/);
+  }
   assert.equal(combinedPromptLabel(withCharNegative), '正向+角色词+负面');
 
-  // 整条都是角色词的词条（所长两本共 372 条）：不能复制出空串，也不带标签
+  // 只有角色词时仍能复制；普通模式带标记，SD 模式只给正文。
   const charOnly = { title: 'b', tags: '', characterPrompts: [{ label: 'char1', prompt: 'school uniform,' }] };
-  assert.equal(entryPromptText(charOnly), 'school uniform,');
+  assert.equal(entryPromptText(charOnly, { sdMode: false }), 'char1:\nschool uniform,');
+  assert.equal(entryPromptText(charOnly, { sdMode: true }), 'school uniform,');
+  assert.equal(entryPromptText({ tags: 'scene', characterPrompts: [
+    { label: 'char1', prompt: '' }, { prompt: 'portrait' },
+  ] }, { sdMode: false }), 'scene\n\nchar2:\nportrait');
 
   const plain = { title: 'c', tags: '1girl,' };
   assert.equal(entryPromptText(plain), '1girl,');
+  assert.equal(entryPromptText(plain, { sdMode: true }), '1girl,');
+  const previousSdMode = state.sdMode;
+  state.sdMode = false;
+  assert.equal(entryPromptText(normal), entryPromptText(normal, { sdMode: false }));
+  state.sdMode = true;
+  assert.equal(entryPromptText(normal), entryPromptText(normal, { sdMode: true }));
+  state.sdMode = previousSdMode;
   assert.equal(combinedPromptLabel(plain), '正向');
   assert.equal(combinedPromptLabel({ ...normal, negative: 'bad anatomy' }), '正向+角色词+负面');
   assert.equal(entryPromptText({ title: 'd', tags: '' }), '');

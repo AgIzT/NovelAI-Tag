@@ -31,23 +31,18 @@ function replayCopiedClass(node) {
   copiedClassTimers.set(node, timer);
 }
 
-/* 一键复制（点卡）与卡片标签预览共用的文本：正面串 + 各角色词内容，
-   但**去掉 `char1：` 这个标记本身**。输出等于角色词拆分前的原文减去标记。
-
-   为什么不是只给正面：所长两本里角色词才是 tag 大头（正面 tag 中位 8 个、角色词 26 个，
-   89% 的词条角色词比正面多，623 条正面 ≤3 个 tag）。只给正面 = 点一下拿到半句话，
-   复刻不出图——2026-08-07 连收两条用户反馈。
-   为什么也不是连标记一起给：最初那条 SD 反馈要去掉的正是 `char1：` 这个垃圾 token，
-   而不是 girl/blush 这些角色描述词（它们在 SD 里完全合法，且是画面主体）。
-   ⚠ 只拼角色词的**正面**。`characterPrompts[].negative`（character N uc 那批）
-   绝不能进正面串——那是"不要什么"，混进去等于反向作画。
-   要按角色分槽精确填的用户走灯箱分块或卡片「全部」（那两处保留 char1/char2 标签）。 */
-export function entryPromptText(e) {
+/* 一键复制与卡片预览共用：主正向 + 各角色正向。
+   普通模式保留角色标记并分段，SD 模式合并正文、去掉标记。
+   角色负面只走分块或「全部」，绝不混入正向。 */
+export function entryPromptText(e, { sdMode = state.sdMode } = {}) {
   const parts = [String(e?.tags || '').trim()];
-  for (const item of e?.characterPrompts || []) {
-    parts.push(String(item?.prompt || '').trim());
+  for (const [index, item] of (e?.characterPrompts || []).entries()) {
+    const prompt = String(item?.prompt || '').trim();
+    if (!prompt) continue;
+    const label = String(item?.label || '').trim() || `char${index + 1}`;
+    parts.push(sdMode ? prompt : `${label}:\n${prompt}`);
   }
-  return parts.filter(Boolean).join('\n');
+  return parts.filter(Boolean).join(sdMode ? '\n' : '\n\n');
 }
 
 export function combinedPromptLabel(e) {

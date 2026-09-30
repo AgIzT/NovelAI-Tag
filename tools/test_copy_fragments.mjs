@@ -53,7 +53,7 @@ const entry = {
   characterPrompts: [{ label: 'char1', prompt: 'backpack, gloves', negative: 'wet clothing' }],
 };
 await copyEntry(entry, null);
-assert.equal(written.at(-1), 'forest, sunlight\nbackpack, gloves');
+assert.equal(written.at(-1), 'forest, sunlight\n\nchar1:\nbackpack, gloves');
 assert.equal(stored.at(-1).prompt, entryPromptText(entry));
 assert.equal(stored.at(-1).negative, '');
 assert.deepEqual(stored.at(-1).characterPrompts, []);
@@ -93,6 +93,10 @@ assert.equal(stored.length, beforeFailure);
 clipboardResult = { ok: true };
 
 state.sdMode = true;
+await copyEntry(entry, null);
+assert.equal(written.at(-1), 'forest, sunlight\nbackpack, gloves');
+assert.equal(stored.at(-1).prompt, 'forest, sunlight\nbackpack, gloves');
+assert.equal(stored.at(-1).negative, '');
 await copyText(selection.text, 'copied', null, { entry, fragment: selection });
 assert.equal(written.at(-1), '(gloves:1.103)');
 assert.equal(stored.at(-1).prompt, '{{gloves}}');

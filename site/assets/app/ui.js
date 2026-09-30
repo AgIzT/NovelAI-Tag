@@ -9,7 +9,7 @@ import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter, splitSearchPhrases } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
-import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
+import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, refreshCardPrompts, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
 import { isTagZhEnabled, onTagZhChange, setTagZhEnabled } from './tag-zh.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
@@ -546,11 +546,13 @@ export function bindUI() {
     }
   };
   const applySdMode = (on, animate = true) => {
+    const changed = state.sdMode !== on;
     state.sdMode = on;
     if (sdToggle) sdToggle.checked = on;
     document.body.classList.toggle('sd-mode', on);
     localStorage.setItem('fadian-sdmode', on ? '1' : '0');
     showSdBadge(on, animate);
+    if (changed) refreshCardPrompts();
   };
   if (sdToggle) sdToggle.onchange = e => applySdMode(e.target.checked);
   if (sdBadge) sdBadge.onclick = () => applySdMode(false);

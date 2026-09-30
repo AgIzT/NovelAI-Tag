@@ -522,7 +522,7 @@ function execDocument(result) {
   );
 }
 
-// 一键复制 = 正面 + 角色词内容（去标记）；「全部」在只有角色词、没有负面时也要出现。
+// 一键复制 = 正面 + 角色词（普通模式保留标记、SD 模式去掉）；「全部」在只有角色词时也要出现。
 // （entryPromptText / combinedPromptLabel 的行为断言在 test_render_ui.mjs，那边有 DOM 桩）
 {
   const [copySource, masonrySource, lightboxSource] = await Promise.all([
