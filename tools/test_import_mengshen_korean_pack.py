@@ -14,7 +14,9 @@ from import_mengshen_korean_pack import (  # noqa: E402
     CONFIRMED_VISUAL_DUPLICATES,
     N5_COMMUNITY_NSFW_PATH,
     N5_COMMUNITY_SAFE_PATH,
+    N5_BOOK_ID,
     _legacy_community_path,
+    entry_from_group,
     index_cover_issue,
     index_meta,
     mark_source_duplicates,
@@ -120,6 +122,33 @@ class MengshenKoreanPackTests(unittest.TestCase):
             self.assertIsNone(index_cover_issue(row, root))
             row.pop("coverCodexId")
             self.assertIn("index_cover_asset_missing", index_cover_issue(row, root) or "")
+
+
+class KoreanSetEntryTests(unittest.TestCase):
+    def test_set_entry_carries_per_image_negative_and_character_prompts(self) -> None:
+        chars = [{"label": "char1", "prompt": "girl"}]
+        own = [{"label": "char1", "prompt": "boy"}, {"label": "char3", "prompt": "text"}]
+        members = [
+            {"prompt": "a", "negative": "lowres", "characterPrompts": chars},
+            {"prompt": "b", "negative": "lowres", "characterPrompts": own},
+            {"prompt": "c", "negative": "blurry", "characterPrompts": chars},
+        ]
+        group = {
+            "kind": "set", "acceptedMembers": members, "inputImageCount": 3,
+            "targetTitle": "韩网套图 900", "path": ["梦神 · N5社区图包", "韩网整理", "NSFW"],
+            "rating": "r18", "targetEntryId": "k900", "bookId": N5_BOOK_ID,
+        }
+        asset = {
+            "entryId": "k900", "image": "k900.jpg", "original": "k900.webp", "assetRev": "0" * 16,
+            "images": [{"path": f"k900-{i}.jpg", "original": f"k900-{i}.webp", "rawTag": m["prompt"]} for i, m in enumerate(members, 1)],
+        }
+        entry = entry_from_group(group, asset)
+        self.assertIs(entry["perImagePrompts"], True)
+        self.assertEqual(entry["note"], "套图：3 张；提示词随当前图切换。")
+        self.assertEqual(entry["images"][1]["characterPrompts"], own)
+        self.assertNotIn("negative", entry["images"][1])
+        self.assertEqual(entry["images"][2]["negative"], "blurry")
+        self.assertNotIn("characterPrompts", entry["images"][2])
 
 
 class KoreanSerialNumberTests(unittest.TestCase):

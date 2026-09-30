@@ -71,6 +71,71 @@ def clean_character_prompts(value: Any) -> list[dict[str, str]]:
     return out
 
 
+PER_IMAGE_PROMPTS_MARKER = "perImagePrompts"
+PER_IMAGE_PROMPT_KEYS = ("negative", "characterPrompts")
+
+
+def set_prompt_note(count: int) -> str:
+    """套图备注首行；灯箱切图时正向、负面与角色词都随图切换。只剩一张时没有可切换的图。"""
+    return f"套图：{count} 张；提示词随当前图切换。" if count > 1 else f"套图：{count} 张。"
+
+
+def per_image_prompt_fields(cover: dict[str, Any], member: dict[str, Any]) -> dict[str, Any]:
+    """套图非封面图与封面不同的负面 / 角色词；相同不写，缺省即与顶层相同。负面为空也写空串。"""
+    fields: dict[str, Any] = {}
+    negative = clean_text(member.get("negative"))
+    if negative != clean_text(cover.get("negative")):
+        fields["negative"] = negative
+    characters = clean_character_prompts(member.get("characterPrompts"))
+    if characters != clean_character_prompts(cover.get("characterPrompts")):
+        fields["characterPrompts"] = characters
+    return fields
+
+
+def attach_per_image_prompts(entry: dict[str, Any], members: list[dict[str, Any]]) -> dict[str, Any]:
+    """把逐图负面 / 角色词写进已组装套图的 images[1:] 并标记整组已核对；单图词条不动。
+
+    不走 ``imageFields``：那条路会丢掉空串，而「封面有负面、这张没有」必须写空串。
+    """
+    images = entry.get("images") or []
+    if len(members) < 2:
+        return entry
+    if len(images) != len(members):
+        raise ValueError(f"per-image prompts need one member per image: {entry.get('id')}")
+    cover = members[0]
+    for image, member in zip(images[1:], members[1:]):
+        for key in PER_IMAGE_PROMPT_KEYS:
+            image.pop(key, None)
+        image.update(per_image_prompt_fields(cover, member))
+    entry[PER_IMAGE_PROMPTS_MARKER] = True
+    return entry
+
+
+def effective_image_prompts(
+    entry: dict[str, Any], images: list[dict[str, Any]], index: int,
+) -> tuple[str, list[dict[str, str]]]:
+    """第 index 张图实际显示的 (负面, 角色词)：非封面图有逐图字段用它，否则取顶层（同 lightbox.js）。"""
+    image = images[index] if 0 < index < len(images) else {}
+    negative = image["negative"] if "negative" in image else entry.get("negative")
+    characters = image["characterPrompts"] if "characterPrompts" in image else entry.get("characterPrompts")
+    return clean_text(negative), clean_character_prompts(characters)
+
+
+def per_image_prompt_issues(entry: dict[str, Any], members: list[dict[str, Any]], label: str) -> list[str]:
+    """按来源行核对套图每张图实际显示的负面 / 角色词，以及整组核对标记。"""
+    images = list(entry.get("images") or [])
+    if len(images) < 2:
+        return []
+    issues = [] if entry.get(PER_IMAGE_PROMPTS_MARKER) is True else [f"{label}:per_image_prompts_marker"]
+    for index, (member, _image) in enumerate(zip(members, images)):
+        negative, characters = effective_image_prompts(entry, images, index)
+        if negative != clean_text(member.get("negative")):
+            issues.append(f"{label}[{index + 1}]:image_negative")
+        if characters != clean_character_prompts(member.get("characterPrompts")):
+            issues.append(f"{label}[{index + 1}]:image_character_prompts")
+    return issues
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

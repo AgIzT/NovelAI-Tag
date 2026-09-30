@@ -70,6 +70,27 @@ class BackfillTest(unittest.TestCase):
         again, _ = self.plan(entry)
         self.assertFalse(bf.apply_entry(entry, again), "重跑不应再有改动")
 
+    def test_old_set_notes_are_migrated_once(self) -> None:
+        old_notes = [
+            "套图：17 张；每张正向提示词保存在对应图片 raw tag，顶层正向、负面与角色框取封面。",
+            "套图：4 张；每张图的正向提示词已绑定为当前图 raw tag，负面词与角色词展示取封面。",
+            "套图：4 张；每张图的正向提示词随当前图切换，负面词与角色词展示取封面。",
+        ]
+        for old in old_notes:
+            with self.subTest(old=old):
+                entry = make_entry()
+                entry["note"] = old + "\n参数：Steps: 28"
+                targets, _ = self.plan(entry)
+                self.assertTrue(bf.apply_entry(entry, targets))
+                count = old.split("：")[1].split(" ")[0]
+                self.assertEqual(entry["note"], f"套图：{count} 张；提示词随当前图切换。\n参数：Steps: 28")
+                self.assertFalse(bf.apply_entry(entry, targets), "迁移后不再改动")
+        entry = make_entry()
+        entry["note"] = "作者备注：取封面。"
+        targets, _ = self.plan(entry)
+        bf.apply_entry(entry, targets)
+        self.assertEqual(entry["note"], "作者备注：取封面。", "非套图首行不动")
+
     def test_stale_image_field_is_removed_when_equal_to_top(self) -> None:
         entry = make_entry()
         entry["images"][3]["negative"] = "old"

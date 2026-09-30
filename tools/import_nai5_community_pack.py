@@ -129,15 +129,19 @@ EXPECTED_SOURCE_COUNTS = {
 sys.path.insert(0, str(ROOT / "tools"))
 from pack_import_core import (  # noqa: E402
     IMAGE_EXTS,
+    attach_per_image_prompts,
     build_tree,
     clean_character_prompts,
     clean_text,
+    effective_image_prompts,
     inspect_image_task,
     make_staging_directory,
     mark_exact_duplicates,
     normalized_suffix,
+    per_image_prompt_issues,
     run_parallel,
     serial_title,
+    set_prompt_note,
     sha256_file,
     validate_asset,
     write_asset_bundle_from_paths,
@@ -545,7 +549,7 @@ def write_audit_files(
             "withMultiplePositivePrompts": sum(group.get("accepted") and group["promptVariants"] > 1 for group in set_groups),
             "withMultipleNegativePrompts": sum(group.get("accepted") and group["negativeVariants"] > 1 for group in set_groups),
             "withMultipleCharacterPrompts": sum(group.get("accepted") and group["characterPromptVariants"] > 1 for group in set_groups),
-            "perImagePositivePromptPolicy": "images[].rawTag 保存每张原图正向提示词；顶层 tags/negative/characterPrompts 取封面",
+            "perImagePositivePromptPolicy": "images[].rawTag 保存每张原图正向提示词；顶层 tags/negative/characterPrompts 取封面；非封面图与封面不同的 negative/characterPrompts 写进该图，词条标 perImagePrompts",
         },
         "blockers": blockers,
         "files": {
@@ -580,10 +584,7 @@ def codex_payload(groups: list[dict[str, Any]], assets: dict[str, dict[str, Any]
         cover = rows[0]
         note_parts: list[str] = []
         if group["kind"] == "set":
-            note_parts.append(
-                f"套图：{len(rows)} 张；每张图的正向提示词已绑定为当前图 raw tag，"
-                "负面词与角色词展示取封面。"
-            )
+            note_parts.append(set_prompt_note(len(rows)))
             if len(rows) != group["inputImageCount"]:
                 note_parts.append(
                     f"源文件夹共 {group['inputImageCount']} 张；按 NAI5 且带 prompt 的导入门槛，"
@@ -603,7 +604,7 @@ def codex_payload(groups: list[dict[str, Any]], assets: dict[str, dict[str, Any]
             "id": group["entryId"],
             **{key: value for key, value in assets[group["entryId"]].items() if key != "entryId"},
         }
-        entries.append(entry)
+        entries.append(attach_per_image_prompts(entry, rows))
     if not entries:
         raise RuntimeError("no accepted entries")
     cover = next((entry for entry in entries if entry["id"] == PREFERRED_COVER_ENTRY_ID), None)
@@ -689,6 +690,7 @@ def validate_payload(
             issues.append(f"{entry_id}:cover_negative")
         if clean_character_prompts(entry.get("characterPrompts")) != clean_character_prompts(rows[0].get("characterPrompts")):
             issues.append(f"{entry_id}:cover_character_prompts")
+        issues.extend(per_image_prompt_issues(entry, rows, entry_id))
         for position, (item, row) in enumerate(zip(images, rows), 1):
             if len(rows) > 1 and clean_text(item.get("rawTag")) != clean_text(row.get("prompt")):
                 issues.append(f"{entry_id}[{position}]:raw_tag")
@@ -854,11 +856,15 @@ def validate_import() -> dict[str, Any]:
             expected_prompt = clean_text(item.get("rawTag")) if len(images) > 1 else clean_text(entry.get("tags"))
             if prompt != expected_prompt or prompt != clean_text(record.get("prompt")):
                 issues.append(f"{entry_id}[{position}]:prompt")
-            if position == 1:
-                if clean_text(metadata.negative) != clean_text(entry.get("negative")):
-                    issues.append(f"{entry_id}:negative")
-                if clean_character_prompts(metadata.character_prompts) != clean_character_prompts(entry.get("characterPrompts")):
-                    issues.append(f"{entry_id}:character_prompts")
+            # 每张图实际显示的负面 / 角色词都要等于该图原图参数（封面即顶层）
+            negative, characters = effective_image_prompts(entry, images, position - 1)
+            suffix = "" if position == 1 else f"[{position}]"
+            if clean_text(metadata.negative) != negative:
+                issues.append(f"{entry_id}{suffix}:negative")
+            if clean_character_prompts(metadata.character_prompts) != characters:
+                issues.append(f"{entry_id}{suffix}:character_prompts")
+        if len(images) > 1 and entry.get("perImagePrompts") is not True:
+            issues.append(f"{entry_id}:per_image_prompts_marker")
     if seen_originals != set(manifest_by_original):
         issues.append("manifest_output_set")
     if codex.get("tree") != build_tree(entries):
@@ -1513,10 +1519,7 @@ def _new_or_regrouped_entry(
     cover = rows[0]
     note_parts = []
     if group["kind"] == "set":
-        note_parts.append(
-            f"套图：{len(rows)} 张；每张图的正向提示词已绑定为当前图 raw tag，"
-            "负面词与角色词展示取封面。"
-        )
+        note_parts.append(set_prompt_note(len(rows)))
         if len(rows) != int(group["inputImageCount"]):
             note_parts.append(
                 f"源文件夹共 {group['inputImageCount']} 张；按原图去重及 NAI5 且带 prompt 的导入门槛，"
@@ -1524,7 +1527,7 @@ def _new_or_regrouped_entry(
             )
     if clean_text(cover.get("note")):
         note_parts.append(clean_text(cover["note"]))
-    return {
+    entry = {
         "title": group["targetTitle"],
         "serialTitle": group.get("targetSerialTitle") or group["targetTitle"],
         "path": group["path"],
@@ -1537,6 +1540,7 @@ def _new_or_regrouped_entry(
         "id": group["targetEntryId"],
         **{key: value for key, value in asset.items() if key != "entryId"},
     }
+    return attach_per_image_prompts(entry, rows)
 
 
 def updated_batch_payload(
@@ -1625,6 +1629,7 @@ def validate_batch_payload(codex: dict[str, Any], groups: list[dict[str, Any]]) 
             issues.append(f"{entry_id}:cover_negative")
         if clean_character_prompts(entry.get("characterPrompts")) != clean_character_prompts(rows[0].get("characterPrompts")):
             issues.append(f"{entry_id}:cover_character_prompts")
+        issues.extend(per_image_prompt_issues(entry, rows, entry_id))
         issues.extend(validate_asset(entry, thumb_dir, original_dir))
         for position, (image, row) in enumerate(zip(images, rows), 1):
             original = original_dir / str(image.get("original") or "")
@@ -1644,11 +1649,12 @@ def validate_batch_payload(codex: dict[str, Any], groups: list[dict[str, Any]]) 
                 continue
             if clean_text(metadata.prompt) != clean_text(row.get("prompt")):
                 issues.append(f"{entry_id}[{position}]:original_prompt")
-            if position == 1:
-                if clean_text(metadata.negative) != clean_text(entry.get("negative")):
-                    issues.append(f"{entry_id}:original_negative")
-                if clean_character_prompts(metadata.character_prompts) != clean_character_prompts(entry.get("characterPrompts")):
-                    issues.append(f"{entry_id}:original_character_prompts")
+            negative, characters = effective_image_prompts(entry, images, position - 1)
+            suffix = "" if position == 1 else f"[{position}]"
+            if clean_text(metadata.negative) != negative:
+                issues.append(f"{entry_id}{suffix}:original_negative")
+            if clean_character_prompts(metadata.character_prompts) != characters:
+                issues.append(f"{entry_id}{suffix}:original_character_prompts")
     expected_hashes = {
         str(row["sha256"])
         for group in accepted_groups

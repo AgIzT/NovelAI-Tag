@@ -119,5 +119,72 @@ class SerialTitleTests(unittest.TestCase):
         self.assertEqual(serial_title({"title": "韩网整理 014", "serialTitle": "  "}), "韩网整理 014")
 
 
+class PerImagePromptTests(unittest.TestCase):
+    """套图逐图负面 / 角色词：只写与封面不同的，负面为空也写空串，整组标 perImagePrompts。"""
+
+    COVER_CHARS = [{"label": "char1", "prompt": "girl, sitting"}]
+    OWN_CHARS = [{"label": "char1", "prompt": "girl, standing", "negative": "hat"}]
+
+    def members(self) -> list[dict]:
+        return [
+            {"prompt": "a", "negative": "lowres", "characterPrompts": self.COVER_CHARS},
+            {"prompt": "b", "negative": "lowres", "characterPrompts": self.OWN_CHARS},
+            {"prompt": "c", "negative": "", "characterPrompts": []},
+            {"prompt": "d", "negative": "lowres", "characterPrompts": self.COVER_CHARS},
+        ]
+
+    def entry(self) -> dict:
+        return {
+            "id": "set", "negative": "lowres", "characterPrompts": self.COVER_CHARS,
+            "images": [{"path": f"{i}.jpg", "rawTag": p} for i, p in enumerate("abcd", 1)],
+        }
+
+    def test_attach_writes_only_differences_and_marker(self) -> None:
+        from pack_import_core import PER_IMAGE_PROMPTS_MARKER, attach_per_image_prompts
+
+        entry = attach_per_image_prompts(self.entry(), self.members())
+        images = entry["images"]
+        self.assertIs(entry[PER_IMAGE_PROMPTS_MARKER], True)
+        self.assertEqual(images[0], {"path": "1.jpg", "rawTag": "a"}, "封面不写逐图字段")
+        self.assertEqual(images[1]["characterPrompts"], self.OWN_CHARS)
+        self.assertNotIn("negative", images[1])
+        self.assertEqual((images[2]["negative"], images[2]["characterPrompts"]), ("", []))
+        self.assertEqual(images[3], {"path": "4.jpg", "rawTag": "d"})
+
+    def test_attach_replaces_stale_fields_and_skips_single_images(self) -> None:
+        from pack_import_core import attach_per_image_prompts
+
+        entry = self.entry()
+        entry["images"][3]["negative"] = "stale"
+        attach_per_image_prompts(entry, self.members())
+        self.assertNotIn("negative", entry["images"][3])
+        single = {"id": "one", "images": [{"path": "1.jpg"}]}
+        self.assertEqual(attach_per_image_prompts(single, self.members()[:1]), {"id": "one", "images": [{"path": "1.jpg"}]})
+        with self.assertRaises(ValueError):
+            attach_per_image_prompts(self.entry(), self.members()[:3])
+
+    def test_effective_prompts_and_issues(self) -> None:
+        from pack_import_core import attach_per_image_prompts, effective_image_prompts, per_image_prompt_issues
+
+        entry = attach_per_image_prompts(self.entry(), self.members())
+        self.assertEqual(effective_image_prompts(entry, entry["images"], 0), ("lowres", self.COVER_CHARS))
+        self.assertEqual(effective_image_prompts(entry, entry["images"], 2), ("", []))
+        self.assertEqual(effective_image_prompts(entry, entry["images"], 3), ("lowres", self.COVER_CHARS))
+        self.assertEqual(per_image_prompt_issues(entry, self.members(), "set"), [])
+        entry["images"][1].pop("characterPrompts")
+        del entry["perImagePrompts"]
+        self.assertEqual(
+            per_image_prompt_issues(entry, self.members(), "set"),
+            ["set:per_image_prompts_marker", "set[2]:image_character_prompts"],
+        )
+
+    def test_set_note_no_longer_claims_cover_only(self) -> None:
+        from pack_import_core import set_prompt_note
+
+        self.assertEqual(set_prompt_note(17), "套图：17 张；提示词随当前图切换。")
+        self.assertNotIn("封面", set_prompt_note(3))
+        self.assertEqual(set_prompt_note(1), "套图：1 张。")
+
+
 if __name__ == "__main__":
     unittest.main()

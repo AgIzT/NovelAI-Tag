@@ -2,7 +2,9 @@
 
 图包导入时套图顶层 tags / negative / characterPrompts 取封面，逐图只存 rawTag。
 本工具从原图内嵌参数读出非封面图的负面与角色词，与顶层不同的写进 images[]，
-并给整组读全、封面核对无误的词条打 perImagePrompts:true（图上缺省字段即与顶层相同）。
+并给整组读全、封面核对无误的词条打 perImagePrompts:true（图上缺省字段即与顶层相同），
+同时把旧导入器写的套图备注首行（「……取封面。」）换成现行导入器的 set_prompt_note。
+现行导入器已直接写这些字段；本工具用于补齐改版前导入的数据。
 
 只处理 codexes.json 里 type 为 pack 的法典；画风词典等顶层是人工整理内容，不能用原图参数覆盖。
 默认只出计划；--apply 先备份再写，写完复跑计划必须零改动。可在每次图包导入后重跑。
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from datetime import datetime
@@ -21,15 +24,26 @@ TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from pack_import_core import clean_character_prompts, clean_text  # noqa: E402
+from pack_import_core import (  # noqa: E402
+    PER_IMAGE_PROMPT_KEYS,
+    PER_IMAGE_PROMPTS_MARKER,
+    clean_character_prompts,
+    clean_text,
+    set_prompt_note,
+)
 from sd_metadata_inspector import extract_image_metadata  # noqa: E402
 
 ROOT = TOOLS.parent
 DATA_DIR = ROOT / "site" / "data"
 ORIGINAL_ROOT = ROOT / "originals"
 OUTPUT_DIR = ROOT / "output" / "pack-image-prompts"
-MARKER = "perImagePrompts"
-IMAGE_FIELDS = ("negative", "characterPrompts")
+MARKER = PER_IMAGE_PROMPTS_MARKER
+IMAGE_FIELDS = PER_IMAGE_PROMPT_KEYS
+OLD_SET_NOTE = re.compile(r"^套图：(\d+) 张；[^\n]*取封面。", re.M)
+
+
+def migrate_set_note(note: str) -> str:
+    return OLD_SET_NOTE.sub(lambda match: set_prompt_note(int(match.group(1))), note, count=1)
 
 
 LAYOUTS = ("indent", "compact")
@@ -120,6 +134,10 @@ def apply_entry(entry: dict[str, Any], targets: list[dict[str, Any]]) -> bool:
                 changed = True
     if entry.get(MARKER) is not True:
         entry[MARKER] = True
+        changed = True
+    note = entry.get("note")
+    if isinstance(note, str) and migrate_set_note(note) != note:
+        entry["note"] = migrate_set_note(note)
         changed = True
     return changed
 

@@ -85,7 +85,7 @@
 | `import_nai5_artist_dictionary.py` | N5 四份来源对应 `artist_nai5_personal`；具名 PDF 标签纠错只改登记 ID 的 `title/tags`，见本地私有文档 `docs/decisions/NovelAI5画师词典.md` | 默认审计和 `--correct-existing` 预演不改正式数据，但会覆盖写 `output/` 报告；`--validate` 只读；纠错另加 `--apply` 才先备份并写正式 JSON；首次导入 `--apply` 会拒绝覆盖现状 |
 | `import_nai5_community_pack.py` | N5 社区图包；编号所长包走 `--batch-plan/apply/validate`，梦神后续包走 `--dream-plan/apply/validate`，均按原图 hash 保持稳定 ID，见本地私有文档 `docs/decisions/NovelAI5社区精选图包.md` | `--batch-plan` / `--dream-plan` / `--batch-validate` / `--dream-validate` 不改正式数据，但会覆盖写 `output/` 审计或复验报告；`--batch-apply` / `--dream-apply` 会备份并写正式数据；裸 `--apply` 仅属首次导入且拒绝覆盖 |
 | `import_mengshen_korean_pack.py` | 韩网图包跨 N5 与 N4.5 两本增量；套图保组并复用 `pack_import_core.py` | 默认计划和 `--validate` 均不改正式数据/资产，但都会覆盖写 `output/` 报告，校验还会写 `validation.json`；`--apply` 会先备份并隔离确认重复源图，再写新增资产、逐个临时替换两本法典与总索引，普通异常时尝试回滚，整体不是崩溃安全的跨文件原子事务 |
-| `backfill_pack_image_prompts.py` | 图包类（`type:"pack"`）法典套图的逐图负面 / 角色词：从原图参数读出，与顶层不同的写进 `images[]`，整组核对过的词条标 `perImagePrompts:true`；封面参数与顶层不符、正向与 `rawTag` 不符或原图读不出的整组跳过并报告；不碰画风词典等人工整理书。图包导入后可重跑 | 默认只写计划报告 `output/pack-image-prompts/`；`--apply` 先备份再写 `site/data/<书>.json`，写完复跑须零改动 |
+| `backfill_pack_image_prompts.py` | 图包类（`type:"pack"`）法典套图的逐图负面 / 角色词：从原图参数读出，与顶层不同的写进 `images[]`，整组核对过的词条标 `perImagePrompts:true`；封面参数与顶层不符、正向与 `rawTag` 不符或原图读不出的整组跳过并报告；顺带把旧套图备注首行（「……取封面。」）换成现行措辞；不碰画风词典等人工整理书。现行两个图包导入器已直接写这些字段，本工具补改版前的数据，可重跑 | 默认只写计划报告 `output/pack-image-prompts/`；`--apply` 先备份再写 `site/data/<书>.json`，写完复跑须零改动 |
 | `import_wof_artist_strings.py` | W.O.F 分区写入合并册 `artist_nai45_personal`，系列身份和媒体仍用 `artist_nai45_strings`；只替换 W.O.F 分区 | 默认扫描和 `--update-existing` 预演不改正式数据，但会覆盖写 `output/` 报告；`--validate` 只读；更新另加 `--apply` 才先备份并写正式数据/资产 |
 
 ## 🔒 已用完 · 一次性历史导入（禁止直接重跑）

@@ -206,6 +206,26 @@ class Nai5CommunityPackTests(unittest.TestCase):
         self.assertEqual(len(payload["entries"][0]["images"]), 2)
         self.assertIn("源文件夹共 3 张", payload["entries"][0]["note"])
 
+    def test_set_entries_carry_per_image_negative_and_character_prompts(self) -> None:
+        entry_id = f"{CODEX_ID}_suozhang_set_0002"
+        chars = [{"label": "char1", "prompt": "girl, standing"}]
+        rows = [
+            row(entry_id, 1, accepted=True, reason="accepted", prompt="first"),
+            {**row(entry_id, 2, accepted=True, reason="accepted", prompt="second"), "characterPrompts": chars},
+            {**row(entry_id, 3, accepted=True, reason="accepted", prompt="third"), "negative": ""},
+        ]
+        groups = [group(entry_id, entry_order=1, path=SUOZHANG_PATH, kind="set", input_count=3)]
+        finalize_groups(rows, groups)
+        payload = codex_payload(groups, {entry_id: asset(entry_id, ["first", "second", "third"])})
+        entry = payload["entries"][0]
+        self.assertIs(entry["perImagePrompts"], True)
+        self.assertEqual(entry["note"].split("\n")[0], "套图：3 张；提示词随当前图切换。")
+        self.assertNotIn("characterPrompts", entry["images"][0])
+        self.assertEqual(entry["images"][1]["characterPrompts"], chars)
+        self.assertNotIn("negative", entry["images"][1])
+        self.assertEqual(entry["images"][2]["negative"], "")
+        self.assertNotIn("characterPrompts", entry["images"][2])
+
     def test_safe_directory_is_first_and_supplies_cover(self) -> None:
         nsfw_id = f"{CODEX_ID}_suozhang_0001"
         safe_id = f"{CODEX_ID}_mengshen_0001"

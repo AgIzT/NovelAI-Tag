@@ -23,13 +23,16 @@ from typing import Any, Iterable
 from pack_import_core import (
     IMAGE_EXTS,
     RATING_RANK,
+    attach_per_image_prompts,
     build_tree,
     clean_character_prompts,
     clean_text,
     inspect_image_task,
     make_staging_directory,
+    per_image_prompt_issues,
     run_parallel,
     serial_title,
+    set_prompt_note,
     sha256_file,
     validate_asset,
     write_asset_bundle_from_paths,
@@ -788,10 +791,7 @@ def entry_from_group(group: dict[str, Any], asset: dict[str, Any]) -> dict[str, 
     cover = rows[0]
     notes: list[str] = []
     if group["kind"] == "set":
-        notes.append(
-            f"套图：{len(rows)} 张；每张正向提示词保存在对应图片 raw tag，"
-            "顶层正向、负面与角色框取封面。"
-        )
+        notes.append(set_prompt_note(len(rows)))
         if len(rows) != int(group["inputImageCount"]):
             notes.append(
                 f"源文件夹 {group['inputImageCount']} 张，去重/校验后保留 {len(rows)} 张。"
@@ -813,7 +813,7 @@ def entry_from_group(group: dict[str, Any], asset: dict[str, Any]) -> dict[str, 
     }
     if group["bookId"] == N45_BOOK_ID:
         entry["assetCodexId"] = N45_ASSET_ID
-    return entry
+    return attach_per_image_prompts(entry, rows)
 
 
 def build_payloads(
@@ -1092,6 +1092,7 @@ def validate_payloads(
             issues.append(f"{book_id}:{group['targetEntryId']}:negative")
         if clean_character_prompts(entry.get("characterPrompts")) != clean_character_prompts(cover.get("characterPrompts")):
             issues.append(f"{book_id}:{group['targetEntryId']}:character_prompts")
+        issues.extend(per_image_prompt_issues(entry, rows, f"{book_id}:{group['targetEntryId']}"))
         for position, (item, row) in enumerate(zip(items, rows), 1):
             checked_images += 1
             if len(rows) > 1 and clean_text(item.get("rawTag")) != clean_text(row.get("prompt")):
