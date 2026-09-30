@@ -498,7 +498,7 @@ function execDocument(result) {
   assert.match(copySource, /const message = `\$\{negative \? '已复制正向' : '已复制'\}\$\{charNote\}：\$\{e\.title\}`/);
   assert.match(copySource, /playCopySample\(node, formatted\.text, options\.sampleLabel, \{[\s\S]*flyTo:/);
   /* 入库必须排在动效之前：芯片抛不抛向中转站取决于这次到底存没存进去 */
-  assert.match(copySource, /const relaySnapshot = options\.entry \? prepareCopiedEntry\(options\.entry\) : null;[\s\S]*await writeClipboardText/);
+  assert.match(copySource, /const relaySnapshot = [^;]*prepareCopiedEntry\(options\.entry\)[^;]*;[\s\S]*await writeClipboardText/);
   assert.match(copySource, /const accessSnapshot = relaySnapshot[\s\S]*options\.accessEntry \? prepareCopiedEntry\(options\.accessEntry\)[\s\S]*options\.accessSnapshot[\s\S]*snapshotLocked\(accessSnapshot\)/);
   /* ⚠ 只校验**顺序**，不钉死写法：这条断言原先把整行代码抄了一遍，于是 commitRelay
      改成 async 这样一次纯重构就让它变红，而真把两者顺序调换却未必红。
@@ -531,8 +531,8 @@ function execDocument(result) {
     readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8'),
   ]);
   assert.match(copySource, /return copyText\(entryPromptText\(e\), message, node/);
-  // 灯箱的「复制正向」保持只给正面段（那里角色词是分块展示的，语义不含糊）
-  assert.match(lightboxSource, /copyText\(e\.tags, `已复制正向：\$\{e\.title\}`/);
+  // 灯箱的「复制正向」保持只给正面段（那里角色词是分块展示的，语义不含糊）；套图非封面图给该图自己的正向
+  assert.match(lightboxSource, /copyText\(positive, `已复制正向\$\{perImage \? `（\$\{imageLabel\}）` : ''\}：\$\{e\.title\}`/);
   assert.match(copySource, /（含 \$\{charCount\} 组角色词）/);
   // 卡片和灯箱的「全部」都要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」
   assert.match(masonrySource, /allBtn\.hidden = !e\.negative && !charPrompts\.length/);

@@ -99,6 +99,7 @@ const {
   flyIn,
   getLightboxStepTarget,
   isLightboxKeydownBlocked,
+  lightboxImagePositive,
   lightboxNavigationContext,
   lightboxOriginalAction,
   lightboxOriginalCopy,
@@ -657,6 +658,29 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(deepNext.index, 0);
   assert.equal(deepNext.crossEntry, false);
   assert.equal(getLightboxStepTarget(1, { entry: { id: 'single', image: 'one.jpg' }, images: [{ path: 'one.jpg' }], index: 0 }), null);
+}
+
+// 套图非封面图的 rawTag 与封面不同才换正向；封面、只差换行空白、没有 rawTag 的都显示顶层 tags。
+{
+  const set = {
+    id: 'set', tags: 'artist, 1girl, sitting',
+    images: [
+      { path: 'set-1.jpg', rawTag: 'artist, 1girl, sitting' },
+      { path: 'set-2.jpg', rawTag: 'artist, 1girl, standing' },
+      { path: 'set-3.jpg', rawTag: 'artist,\n1girl,  sitting' },
+      { path: 'set-4.jpg' },
+    ],
+  };
+  const images = entryImages(set);
+  assert.deepEqual(lightboxImagePositive(set, images, 0), { text: set.tags, perImage: false });
+  assert.deepEqual(lightboxImagePositive(set, images, 1), { text: 'artist, 1girl, standing', perImage: true });
+  assert.deepEqual(lightboxImagePositive(set, images, 2), { text: set.tags, perImage: false }, '只差空白排版不算逐图');
+  assert.deepEqual(lightboxImagePositive(set, images, 3), { text: set.tags, perImage: false });
+  const edited = { ...set, tags: 'artist, 1girl, sitting, smile' };
+  assert.equal(lightboxImagePositive(edited, entryImages(edited), 0).text, edited.tags, '封面始终显示编辑后的顶层 tags');
+  assert.equal(lightboxImagePositive(edited, entryImages(edited), 2).text, edited.tags, '与封面 rawTag 相同的图跟随顶层 tags');
+  const coverless = { id: 'bare', tags: 'artist', images: [{ path: 'a.jpg' }, { path: 'b.jpg', rawTag: 'artist, night' }] };
+  assert.deepEqual(lightboxImagePositive(coverless, entryImages(coverless), 1), { text: 'artist, night', perImage: true });
 }
 
 // 物理 original 与缩略 fallback 分开；提示是否承诺可读参数还要看来源 hasOriginal。
