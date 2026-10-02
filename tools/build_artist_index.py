@@ -84,12 +84,34 @@ def entry_rating(entry: dict) -> str:
     return str(entry.get("rating") or entry.get("level") or "").strip().lower()
 
 
+def directory_order(tree) -> dict[tuple, int]:
+    """目录树深度优先的先后序号，和站内目录栏从上到下一致。"""
+    order: dict[tuple, int] = {}
+
+    def walk(nodes, prefix):
+        for node in nodes if isinstance(nodes, list) else []:
+            name = node.get("name") if isinstance(node, dict) else None
+            if not name:
+                continue
+            path = prefix + (str(name),)
+            order.setdefault(path, len(order))
+            walk(node.get("children"), path)
+
+    walk(tree, ())
+    return order
+
+
 def build_samples(book_id: str):
     data = read_json(DATA / f"{book_id}.json")
     paths: dict[tuple, int] = {}
     firsts: dict[str, dict] = {}
     counts: Counter = Counter()
-    for entry in data.get("entries", []):
+    # 同一画师有多张时按目录栏顺序取第一张（单画师词典在画风组词典前面），同目录内按词条顺序；
+    # 不在目录树里的路径排最后。JSON 数组顺序不一定等于目录顺序（后导入的书常追加在末尾）。
+    rank = directory_order(data.get("tree"))
+    entries = data.get("entries", [])
+    ordered = sorted(range(len(entries)), key=lambda i: (rank.get(tuple(entries[i].get("path") or []), len(rank)), i))
+    for entry in (entries[i] for i in ordered):
         if entry_rating(entry) not in SAFE_RATINGS or not entry.get("image"):
             continue
         names = prompt_artists(entry.get("tags") or "")

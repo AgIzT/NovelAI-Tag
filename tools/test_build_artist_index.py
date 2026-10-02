@@ -26,6 +26,15 @@ class ArtistKeyTest(unittest.TestCase):
             ["b", "a"],
         )
 
+    def test_directory_order_follows_tree_not_entry_array(self):
+        tree = [
+            {"name": "单画师词典", "children": [{"name": "雨燕", "children": []}, {"name": "wwuumm", "children": []}]},
+            {"name": "画风组词典", "children": [{"name": "梦神", "children": []}]},
+        ]
+        order = bai.directory_order(tree)
+        self.assertLess(order[("单画师词典", "雨燕")], order[("单画师词典", "wwuumm")])
+        self.assertLess(order[("单画师词典", "wwuumm")], order[("画风组词典", "梦神")])
+
     def test_codex_model_from_title(self):
         self.assertEqual(bai.codex_model({"title": "NovelAI v4.5社区精选图包"}), "n45")
         self.assertEqual(bai.codex_model({"title": "所长N5常规NovelAI个人法典"}), "n5")
