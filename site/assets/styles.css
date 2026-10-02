@@ -2107,6 +2107,63 @@ a.lightbox-credit:hover{text-decoration:underline}
 .character-prompt-negative{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
 .character-prompt-negative .section-label{color:var(--new)}
 .character-prompt-negative .section-head button{background:var(--new);color:#fff}
+/* 画师串拆解：五列缩略图，倍率与版本角标叠在图上；点开的样张盖在大图位置 */
+.artist-strip-count{margin-left:3px;font-weight:600;opacity:.75}
+.section-head .artist-version{--seg-count:2;flex:none;gap:2px;padding:2px;border-radius:10px}
+.section-head .artist-version::before{left:2px;top:2px;bottom:2px;width:calc((100% - 6px) / 2);border-radius:8px;translate:calc(var(--seg-index) * (100% + 2px)) 0}
+.section-head .artist-version>button{
+  min-height:24px;padding:2px 9px;border-radius:8px;background:transparent;box-shadow:none;
+  color:var(--muted);font:800 11px/1.3 var(--font-ui);
+}
+.section-head .artist-version>button[aria-checked="true"]{color:var(--on-accent)}
+.section-head .artist-version>button:hover{filter:none;transform:none;box-shadow:none}
+.artist-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 6px}
+.artist-tile{
+  display:flex;flex-direction:column;gap:3px;min-width:0;padding:0;border:0;background:none;
+  color:var(--text);text-align:center;cursor:pointer;
+}
+.artist-tile-img{
+  position:relative;display:block;aspect-ratio:3/4;overflow:hidden;
+  border:1px solid var(--line);border-radius:9px;background:var(--tagbg);
+  transition:border-color .12s,box-shadow .12s;
+}
+.artist-tile-img img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 18%}
+.artist-tile:hover .artist-tile-img{border-color:var(--accent)}
+.artist-tile[aria-pressed="true"] .artist-tile-img{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.artist-tile-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font:11px/1.25 var(--font-prompt)}
+.artist-tile[aria-pressed="true"] .artist-tile-name{color:var(--accent)}
+.artist-tile-weight,.artist-tile-ver{position:absolute;padding:1px 5px;border-radius:999px;font:800 10px/1.4 var(--font-ui)}
+.artist-tile-weight{left:3px;top:3px;background:rgba(10,12,20,.66);color:#fff}
+.artist-tile-weight.is-down{background:rgba(10,12,20,.45);color:rgba(255,255,255,.82)}
+.artist-tile-ver{right:3px;bottom:3px;background:var(--accent);color:var(--on-accent)}
+.artist-tile-more{
+  align-self:start;align-items:center;justify-content:center;aspect-ratio:3/4;
+  border:1px dashed var(--line);border-radius:9px;background:var(--tagbg);color:var(--muted);font:800 13px/1 var(--font-ui);
+}
+.artist-tile-more:hover{border-color:var(--accent);color:var(--accent)}
+.artist-strip-missing{margin-top:8px;color:var(--muted);font-size:11px;line-height:1.5;word-break:break-word}
+.artist-peek{
+  position:absolute;inset:0;z-index:4;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  cursor:zoom-out;animation:artist-peek-in .18s ease-out;
+}
+.artist-peek img{display:block;min-height:0;max-width:100%;max-height:calc(100% - 58px);border-radius:14px;box-shadow:0 24px 70px rgba(10,15,35,.42)}
+.artist-peek-bar{
+  display:flex;align-items:center;gap:8px;max-width:100%;padding:6px 6px 6px 14px;cursor:default;
+  border:1px solid var(--line);border-radius:999px;background:var(--glass);box-shadow:var(--shadow);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+}
+.artist-peek-text{display:grid;min-width:0}
+.artist-peek-text b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:700 13px/1.3 var(--font-prompt)}
+.artist-peek-text span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font-size:11px}
+.artist-peek-bar button{
+  flex:none;border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);
+  padding:6px 12px;font-size:12px;font-weight:800;
+}
+.artist-peek-bar #artistPeekOpen{border-color:transparent;background:var(--accent);color:var(--on-accent)}
+.lightbox.artist-peeking #lightboxImg,.lightbox.artist-peeking .lightbox-original-status{visibility:hidden}
+@keyframes artist-peek-in{from{opacity:0;scale:.985}}
+@media (prefers-reduced-motion:reduce){.artist-peek{animation:none}}
+.motion-off .artist-peek{animation:none}
 .lightbox-thumbs{
   position:absolute;left:50%;bottom:18px;translate:-50% 0;z-index:3;cursor:default;
   display:flex;gap:7px;max-width:72vw;overflow-x:auto;padding:7px;

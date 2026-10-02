@@ -1083,6 +1083,17 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <div class="lightbox-stage" id="lightboxStage">
     <img id="lightboxImg" alt="例图">
     <div id="lightboxOriginalStatus" class="lightbox-original-status" role="status" aria-live="polite" hidden></div>
+    <figure id="artistPeek" class="artist-peek" hidden>
+      <img id="artistPeekImg" alt="">
+      <figcaption class="artist-peek-bar">
+        <span class="artist-peek-text">
+          <b id="artistPeekName"></b>
+          <span id="artistPeekSource"></span>
+        </span>
+        <button class="ui-press" id="artistPeekOpen" type="button">打开词条</button>
+        <button class="ui-press" id="artistPeekClose" type="button">回到原图</button>
+      </figcaption>
+    </figure>
   </div>
   <div id="lightboxThumbs" class="lightbox-thumbs" hidden></div>
   <button id="lightboxFold" class="lb-fold ui-press" type="button" title="收起 / 展开信息栏" aria-label="收起或展开信息栏">
@@ -1112,6 +1123,17 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <button class="ui-press" id="copyPositive" type="button">复制正向</button>
         </div>
         <pre id="lightboxTags"></pre>
+      </div>
+      <div id="artistStripBlock" class="lightbox-section" hidden>
+        <div class="section-head">
+          <div class="section-label">画师 <span id="artistStripCount" class="artist-strip-count"></span></div>
+          <div id="artistVersion" class="seg-tabs artist-version" role="radiogroup" aria-label="样张版本" hidden>
+            <button type="button" role="radio" data-version="n45" aria-checked="false">v4.5</button>
+            <button type="button" role="radio" data-version="n5" aria-checked="false">v5</button>
+          </div>
+        </div>
+        <div id="artistStrip" class="artist-strip"></div>
+        <div id="artistStripMissing" class="artist-strip-missing" hidden></div>
       </div>
       <div id="characterPromptsBlock" class="lightbox-section" hidden>
         <div class="section-label">角色提示词</div>

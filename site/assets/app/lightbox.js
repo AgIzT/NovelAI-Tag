@@ -41,6 +41,7 @@ import {
   setTagZhEnabled,
   toggleTagZhDetail,
 } from './tag-zh.js';
+import { bindArtistStripControls, closeArtistPeek, renderArtistStrip, resetArtistStrip } from './artist-strip.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -356,6 +357,7 @@ export function closeLightbox(options = {}) {
     flushDeferredFavoritesViewRefresh();
     return;
   }
+  resetArtistStrip();
   const historyMode = options.historyMode || 'back';
   if (historyMode === 'back' && goBackFrom('detail')) {
     clearTimeout(lbRecentTimer);
@@ -1051,6 +1053,7 @@ export function renderLightbox() {
   bindPromptSelection($('#lightboxTags'), positive, { entry: e, channel: 'positive', label: labelFor(prompts.ownTags) });
   bindPromptSelection($('#lightboxNegative'), negative, { entry: e, channel: 'negative', label: labelFor(prompts.ownNegative) });
   syncTagZhForEntry(e, seq);
+  renderArtistStrip(e, positive, lightboxEntrySourceId(e));
 
   $('#copyPositive').hidden = !hasPositive;
   $('#copyPositive').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
@@ -1266,6 +1269,7 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
     if (String(window.getSelection?.() || '').trim()) return;   // 在拖选文字，不弹说明
     toggleTagZhDetail(box);
   });
+  bindArtistStripControls();
   $('#lightboxPrev').onclick = ev => { ev.stopPropagation(); stepLightbox(-1); };
   $('#lightboxNext').onclick = ev => { ev.stopPropagation(); stepLightbox(1); };
   let lightboxTouch = null;
@@ -1332,7 +1336,7 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   window.addEventListener('keydown', ev => {
     if ($('#lightbox').hidden) return;
     if (isLightboxKeydownBlocked(ev)) return;
-    if (ev.key === 'Escape') { ev.preventDefault(); closeLightbox(); }
+    if (ev.key === 'Escape') { ev.preventDefault(); if (!closeArtistPeek()) closeLightbox(); }
     if (ev.key === 'ArrowLeft') { ev.preventDefault(); stepLightbox(-1); }
     if (ev.key === 'ArrowRight') { ev.preventDefault(); stepLightbox(1); }
   });

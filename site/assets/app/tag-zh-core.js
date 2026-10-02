@@ -26,9 +26,9 @@ function countChar(text, ch) {
   return n;
 }
 
-/* 一段 tag 原文 → 查表键：剥掉 NAI 的 {} [] 与 1.2:: 权重、SD 的 (tag:1.2)，
-   小写、下划线当空格、压空白。空、无英文字母、画师前缀和超长的一律返回空串（不查）。 */
-export function tagZhKey(piece) {
+/* 剥掉 NAI 的 {} [] 与 1.2:: 权重、SD 的 (tag:1.2)，小写、下划线当空格、压空白；画师前缀原样保留。
+   与 tools/build_tag_zh.py 的 bare_tag 逐条一致。 */
+export function bareTag(piece) {
   // 括号前不管几个反斜杠都算一次转义（\\( 多是 JSON 转义套了两层）
   let text = String(piece ?? '').replace(/\\+\(/g, '\u0001').replace(/\\+\)/g, '\u0002');
   for (let i = 0; i < 12; i += 1) {
@@ -49,7 +49,12 @@ export function tagZhKey(piece) {
     if (text === before) break;
   }
   text = text.replace(/\u0001/g, '(').replace(/\u0002/g, ')');
-  const key = text.replace(/_/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  return text.replace(/_/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/* 一段 tag 原文 → 查表键。空、无英文字母、画师前缀和超长的一律返回空串（不查）。 */
+export function tagZhKey(piece) {
+  const key = bareTag(piece);
   if (!key || !LATIN.test(key) || key.startsWith('artist:') || [...key].length > MAX_KEY_LENGTH) return '';
   return key;
 }

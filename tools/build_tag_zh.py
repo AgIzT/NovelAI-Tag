@@ -75,8 +75,8 @@ LATIN = re.compile(r"[a-z]", re.IGNORECASE)
 SPACES = re.compile(r"\s+")
 
 
-def tag_key(piece: str) -> str:
-    """一段 tag 原文 → 查表键；不值得查的（空、无英文字母、画师前缀、超长）返回空串。"""
+def bare_tag(piece: str) -> str:
+    """剥掉权重与括号语法后的 tag：小写、下划线当空格、压空白；画师前缀原样保留。"""
     # 括号前不管几个反斜杠都算一次转义（\\( 多是 JSON 转义套了两层）
     text = re.sub(r"\\+\)", "\x02", re.sub(r"\\+\(", "\x01", str(piece or "")))
     for _ in range(12):
@@ -101,7 +101,12 @@ def tag_key(piece: str) -> str:
         if text == before:
             break
     text = text.replace("\x01", "(").replace("\x02", ")")
-    key = SPACES.sub(" ", text.replace("_", " ")).strip().lower()
+    return SPACES.sub(" ", text.replace("_", " ")).strip().lower()
+
+
+def tag_key(piece: str) -> str:
+    """一段 tag 原文 → 查表键；不值得查的（空、无英文字母、画师前缀、超长）返回空串。"""
+    key = bare_tag(piece)
     if not key or not LATIN.search(key) or key.startswith("artist:") or len(key) > MAX_KEY_LENGTH:
         return ""
     return key

@@ -1,0 +1,20 @@
+{
+  "说明": "画师名归一的防漂移夹具：tools/build_artist_index.py 的 artist_key 与 site/assets/app/artist-core.js 的 artistKey 必须对每一行给出同一个名字。改规则时两边一起改，再补夹具。",
+  "cases": [
+    ["artist:ciloranko", "ciloranko"],
+    ["Artist: Tsunako", "tsunako"],
+    ["artist:ask_(askzy)", "ask (askzy)"],
+    ["artist:sho \\(sho lwlw\\)", "sho (sho lwlw)"],
+    ["[[artist:null (nyanpyoun)]]", "null (nyanpyoun)"],
+    ["{{artist:wagashi_(dagashiya)}}", "wagashi (dagashiya)"],
+    ["0.4::artist:baocaizi", "baocaizi"],
+    ["artist:mika pikazo::", "mika pikazo"],
+    ["2.0::artist:wagashi_(dagashiya)::", "wagashi (dagashiya)"],
+    ["artist:yonketa ::", "yonketa"],
+    ["(artist:kani fish:1.2)", "kani fish"],
+    ["artist:382", "382"],
+    ["year 2025", ""],
+    ["smile", ""],
+    ["artist collaboration", ""]
+  ]
+}
