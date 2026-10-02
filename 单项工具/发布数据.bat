@@ -63,6 +63,10 @@ echo == Building tag Chinese glossary shards ==
 call %PY% "tools\build_tag_zh.py"
 if errorlevel 1 exit /b 1
 
+echo == Building artist sample index ==
+call %PY% "tools\build_artist_index.py"
+if errorlevel 1 exit /b 1
+
 echo == Publishing immutable JSON release to Cloudflare R2 ==
 call %PY% "tools\publish_data_r2.py" --publish
 if errorlevel 1 exit /b 1
