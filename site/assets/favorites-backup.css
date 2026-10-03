@@ -214,16 +214,6 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 .favorites-replace-card p{margin:8px 0 0;color:var(--muted);font-size:12.5px;line-height:1.65;overflow-wrap:anywhere}
 .favorites-replace-actions{display:flex;justify-content:center;gap:9px;margin-top:18px}
 
-/* 主站“浏览与收藏”面板入口。 */
-.favorites-backup-entry{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  margin-top:9px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);
-}
-.favorites-backup-entry-copy{min-width:0}
-.favorites-backup-entry b{display:block;color:var(--text);font-size:13px}
-.favorites-backup-entry small{display:block;margin-top:3px;color:var(--muted);font-size:11.5px;line-height:1.45}
-.favorites-backup-entry button{flex:none}
-
 /* 全部收藏结果栏入口：场景内一级操作；普通法典隐藏，移动端单独占一行。 */
 /* 场景内一级操作：形制仍是 .bar-btn，只把底色抬成 accent 淡底以示强调。 */
 .favorites-view-backup-btn{
@@ -286,8 +276,6 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 @media(max-width:390px){
   .favorites-migration-banner-actions{align-items:stretch;flex-direction:column}
   .favorites-migration-banner-actions button{width:100%}
-  .favorites-backup-entry{align-items:stretch;flex-direction:column}
-  .favorites-backup-entry button{width:100%}
   label.favorites-backup-file{grid-template-columns:34px minmax(0,1fr);column-gap:9px;padding-inline:10px}
   label.favorites-backup-file>span{width:34px;height:34px}
   .favorites-import-summary>div.favorites-backup-file{align-items:flex-start;flex-direction:column;gap:2px}

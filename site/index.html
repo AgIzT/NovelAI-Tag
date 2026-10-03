@@ -270,7 +270,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           </button>
           <button id="historyBtn" class="more-item" type="button" role="menuitem">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
-            <span><b>浏览与收藏</b><small>浏览记录 · 收藏备份</small></span>
+            <span><b>浏览记录</b><small>继续上次浏览 · 最近浏览</small></span>
           </button>
         </div>
         <div class="more-group more-group-compact" role="group" aria-label="偏好">
@@ -744,23 +744,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </div>
 
 <div id="historyPanel" class="settings-mask" hidden>
-  <div class="settings-panel history-panel" role="dialog" aria-modal="true" aria-label="浏览与收藏">
+  <div class="settings-panel history-panel" role="dialog" aria-modal="true" aria-label="浏览记录">
     <button id="historyClose" class="settings-close" type="button" aria-label="关闭">×</button>
-    <h2 class="settings-title">浏览与收藏</h2>
-    <p class="settings-note">收藏可导出 JSON 备份并在其他设备恢复；浏览记录仍只保存在当前浏览器。</p>
+    <h2 class="settings-title">浏览记录</h2>
+    <p class="settings-note">浏览记录只保存在当前浏览器。</p>
     <div class="history-resume">
       <div>
         <b>继续上次浏览</b>
         <small id="resumeDesc">暂无可恢复的位置</small>
       </div>
       <button class="ui-press" id="resumeBrowse" type="button">继续</button>
-    </div>
-    <div class="favorites-backup-entry">
-      <div class="favorites-backup-entry-copy">
-        <b>备份与恢复收藏</b>
-        <small>用 JSON 文件搬运法典图鉴与共创广场收藏。</small>
-      </div>
-      <button class="panel-action is-sm" type="button" data-favorites-backup-open>管理备份</button>
     </div>
     <div class="history-head">
       <span>最近浏览</span>
