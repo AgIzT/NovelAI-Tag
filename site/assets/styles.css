@@ -2120,6 +2120,11 @@ a.lightbox-credit:hover{text-decoration:underline}
 }
 .section-head .artist-version>button[aria-checked="true"]{color:var(--on-accent)}
 .section-head .artist-version>button:hover{filter:none;transform:none;box-shadow:none}
+.section-head .artist-lab-link{
+  flex:none;display:inline-flex;align-items:center;min-height:28px;padding:3px 10px;border:1px solid color-mix(in srgb,var(--accent) 46%,var(--line));
+  border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:800;text-decoration:none;white-space:nowrap;
+}
+.section-head .artist-lab-link:hover{background:var(--accent);color:var(--on-accent)}
 .artist-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 6px}
 .artist-tile{
   display:flex;flex-direction:column;gap:3px;min-width:0;padding:0;border:0;background:none;

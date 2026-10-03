@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>画风实验台 · 法典图鉴</title>
+<meta name="description" content="从 NovelAI 画师词典里抽画师、调权重，拼成画风串">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#6f5cf2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap"></noscript>
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/ui-kit.css">
+<link rel="stylesheet" href="assets/lab.css">
+<link rel="modulepreload" href="assets/data-source.js">
+<link rel="modulepreload" href="assets/app/artist-core.js">
+<link rel="modulepreload" href="assets/app/tag-zh-core.js">
+<link rel="modulepreload" href="assets/lab/lab-core.js">
+<link rel="modulepreload" href="assets/app/media.js">
+<link rel="modulepreload" href="assets/app/state.js">
+<link rel="modulepreload" href="assets/app/nai-sd.js">
+<link rel="modulepreload" href="assets/app/sd-mode.js">
+<link rel="modulepreload" href="assets/app/clipboard.js">
+<link rel="modulepreload" href="assets/app/feedback.js">
+<link rel="modulepreload" href="assets/app/utils.js">
+<script defer src="assets/beta-banner.js"></script>
+</head>
+<body>
+<script>/* 主题早应用：和主站使用同一 localStorage 键 */
+(()=>{try{
+  const c=document.body.classList,ls=k=>localStorage.getItem(k);
+  let m=ls('fadian-dark-mode');
+  if(m!=='auto'&&m!=='light'&&m!=='dark'){const o=ls('fadian-dark');m=o==='1'?'dark':o==='0'?'light':'auto';}
+  if(m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)){c.add('dark');document.documentElement.style.colorScheme='dark';}
+  const t=ls('fadian-theme');
+  if(t==='teal'||t==='sakura'||t==='amber'||t==='indigo'||t==='ink')c.add('theme-'+t);
+  const f=ls('fadian-font');
+  if(f==='classic'||f==='terminal')c.add('font-'+f);
+}catch(e){}})();</script>
+
+<header class="lab-top">
+  <a class="lab-back ui-press" href="/" aria-label="返回法典图鉴">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+    <span>法典图鉴</span>
+  </a>
+  <h1 class="lab-title">画风实验台</h1>
+  <div id="labVersion" class="seg-tabs lab-version" role="radiogroup" aria-label="模型版本">
+    <button type="button" role="radio" data-version="n45" aria-checked="false">v4.5</button>
+    <button type="button" role="radio" data-version="n5" aria-checked="false">v5</button>
+  </div>
+</header>
+
+<main class="lab-main">
+  <div id="labStatus" class="lab-status" role="status">加载中…</div>
+
+  <section id="labBoardSection" class="lab-panel" hidden>
+    <div id="labBoard" class="lab-board"></div>
+    <div class="lab-tools">
+      <button id="labReroll" class="lab-btn is-primary ui-press" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+        换一批
+      </button>
+      <button id="labUndo" class="lab-btn ui-press" type="button" disabled>上一批</button>
+      <button id="labAdd" class="lab-btn ui-press" type="button">加一位</button>
+      <form id="labPickForm" class="lab-pick" autocomplete="off">
+        <input id="labPickInput" class="panel-input" type="text" list="labArtistList" placeholder="输入画师名" aria-label="指定画师" spellcheck="false">
+        <datalist id="labArtistList"></datalist>
+        <button class="lab-btn ui-press" type="submit">加入</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="labOutputSection" class="lab-panel" hidden>
+    <div class="lab-section-head">
+      <h2>画风串</h2>
+      <button id="labCopyLink" class="lab-btn ui-press" type="button">复制链接</button>
+      <button id="labCopy" class="lab-btn is-primary ui-press" type="button">复制</button>
+    </div>
+    <textarea id="labOutput" class="lab-output" readonly rows="3" aria-label="画风串"></textarea>
+  </section>
+
+  <section id="labWorksSection" class="lab-panel" hidden>
+    <div class="lab-section-head">
+      <h2>一起出现过 <span id="labWorksCount" class="lab-count"></span></h2>
+    </div>
+    <div id="labWorks" class="lab-works"></div>
+    <p id="labWorksEmpty" class="lab-empty" hidden>这几位还没在同一条画风串里出现过</p>
+    <button id="labWorksMore" class="lab-btn lab-more ui-press" type="button" hidden></button>
+  </section>
+</main>
+
+<div id="labPreview" class="lab-preview" hidden>
+  <figure class="lab-preview-card">
+    <img id="labPreviewImg" alt="">
+    <figcaption class="lab-preview-bar">
+      <span class="lab-preview-text">
+        <b id="labPreviewName"></b>
+        <span id="labPreviewSource"></span>
+      </span>
+      <a id="labPreviewOpen" class="lab-btn is-primary ui-press" href="/">打开词条</a>
+      <button id="labPreviewClose" class="lab-btn ui-press" type="button">关闭</button>
+    </figcaption>
+  </figure>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script type="module" src="assets/lab.js"></script>
+</body>
+</html>

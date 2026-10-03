@@ -36,7 +36,7 @@
 | `tag-zh-core.js` | tag 中文对照纯计算：`bareTag`（剥权重与括号的公共底层，画师名归一也用它）、`tagZhKey`、`splitPromptPieces`（含 NAI 数字权重组）、`normalizeTagZhShard`、`lookupTagZh`、`danbooruWikiUrl` | — | — | 零 DOM；查表键与 `tools/build_tag_zh.py` 的 `tag_key` 共用夹具 `tools/fixtures/tag_zh_keys.json`，改一侧必须同步另一侧 |
 | `tag-zh.js` | 中文对照偏好（默认开，`fadian-tag-zh`）、`core` + 分书分片按需加载、对照排版渲染与点 tag 说明行 | 偏好值与监听者、分片缓存与在途 Promise | `../data-source.js`、`search.js`、`tag-zh-core.js` | 译名只进展示层，中文小字不可选中；对照表不可用（旧 release 无 `tag_zh/`）时调用方按原文显示并隐藏开关 |
 | `artist-core.js` | 画师串拆解纯计算：`artistKey`、`promptArtists`（按出现顺序去重并算倍率）、`formatArtistWeight`、`normalizeArtistIndex`、`resolveArtistTiles` | — | `tag-zh-core.js` | 零 DOM；画师名归一与 `tools/build_artist_index.py` 的 `artist_key` 共用夹具 `tools/fixtures/artist_keys.json`，改一侧必须同步另一侧 |
-| `artist-strip.js` | 灯箱「画师」一栏：`renderArtistStrip`、`closeArtistPeek`、`resetArtistStrip`、`bindArtistStripControls`；样张缩略图、版本切换、展开收起，点开的样张盖在大图位置并可跳到画师词条 | 索引与在途 Promise、渲染序号、本次灯箱手动选的版本、展开状态、当前词条与打开的样张 | `../data-source.js`、`utils.js`、`data.js`、`media.js`、`history.js`、`artist-core.js` | 索引 `artist_index.json` 首次遇到带画师的词条才下载，旧 release 没有它时整栏隐藏；跳词条复用 `openRecentEntry`（push 历史）；样张层不改 `#lightboxImg` 的加载链，只靠 `.artist-peeking` 遮住 |
+| `artist-strip.js` | 灯箱「画师」一栏：`renderArtistStrip`、`closeArtistPeek`、`resetArtistStrip`、`bindArtistStripControls`；样张缩略图、版本切换、展开收起，点开的样张盖在大图位置并可跳到画师词条 | 索引与在途 Promise、渲染序号、本次灯箱手动选的版本、展开状态、当前词条与打开的样张 | `../data-source.js`、`utils.js`、`data.js`、`media.js`、`history.js`、`artist-core.js`、`../lab/lab-core.js` | 栏头「在实验台打开」把整串画师与倍率编成实验台网址（全部锁住）；索引 `artist_index.json` 首次遇到带画师的词条才下载，旧 release 没有它时整栏隐藏；跳词条复用 `openRecentEntry`（push 历史）；样张层不改 `#lightboxImg` 的加载链，只靠 `.artist-peeking` 遮住 |
 | `sd-mode.js` | SD 模式的 localStorage 读写契约 | — | — | 共创广场通过同一存储契约同步，不导入主站 `state` |
 | `local-ownership.js` | 读取、记录和枚举本地拥有的反馈 / 投稿记录 | — | — | 有界且会过期的本地标记；不充当服务端权限证明 |
 | `clipboard.js` | `writeClipboardText`；统一返回 Clipboard API、旧式复制或手动复制结果 | — | — | 无 UI 的能力层；失败后的面板由调用方交给 `clipboard-fallback.js` |
@@ -108,6 +108,13 @@
 | `tag-relay-motion.js` | 中转站局部 FLIP 重排、入场 / 移除过渡与动画中断 | 列表快照、退出残影与动画句柄 | `ui-motion.js`、`utils.js` | 只管理中转站列表节点；快速重绘、收栏、隐藏页和 reduced-motion 会同步清理 |
 | `tag-relay-compose.js` | 方案管理、草稿保存、成品记录、备份接线、输出与权限刷新 | 每方案草稿 / revision / 保存状态、编辑器、输出选项 | `copy.js`、`feedback.js`、`state.js`、`tag-zh.js`、`tag-relay-editor.js`、`tag-relay-snapshot.js`、`tag-relay-text.js`、`tag-relay-v4.js`、`tag-relay-store.js`、`tag-relay-action.js`、`tag-relay-backup.js`、`select-menu.js` | 输入 debounce，失焦 / 收栏 / 操作前 await flush；跨页冲突保留本页输入，可另存；复制重验权限，缺来源快照历史拒绝展示 / 恢复 |
 | `tag-relay.js` | 中转站接线、素材仓库、收藏来源与入口计数 | 绑定标记、素材根、来源模式、收藏缓存 / 加载状态 | `access.js`、`data.js`、`fav-codex.js`、`favorites-backup.js`、`feedback.js`、`media.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-rail.js`、`tag-relay-compose.js`、`tag-relay-motion.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`ui-motion.js` | 初始化 store、rail、action、compose，并把 `renderWarehouse` / `renderCompose` 注入外壳；素材默认按实际两行收起，隐藏行 inert，宽度 / 字体变化后重测；不改写主站共享法典状态 |
+
+## 画风实验台（独立页面 `lab.html`）
+
+| 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
+| --- | --- | --- | --- | --- |
+| `../lab.js` | 页面入口：加载画师样张索引与画风串表，渲染牌组、画风串输出、「一起出现过」与大图预览，处理锁定 / 换 / 移除 / 倍率 / 加人 / 用这串 | 牌组、版本、近期抽过的画师、上一批栈、按版本缓存的统计 | `../data-source.js`、`utils.js`、`state.js`、`media.js`、`artist-core.js`、`nai-sd.js`、`sd-mode.js`、`clipboard.js`、`feedback.js`、`../lab/lab-core.js` | 牌组是唯一状态：每次变动写回网址（可分享）并存 `fadian-lab-board`，不带参数打开时接着用；只读 `state.media` 拼图片地址，不加载主站其它状态；输出跟随主站 SD 模式偏好 |
+| `../lab/lab-core.js` | 纯计算：`normalizeArtistStrings`、`buildArtistStats`（热度与搭档）、`drawArtist` / `rerollSlots`（热度加权 + 锁住时按比例抽搭档）、`matchStrings`、`composeArtistString`、`encodeBoard` / `decodeBoard` | — | `artist-core.js` | 零 DOM；画师写法不同时比对统一换成样张索引里的名字，牌组与输出保留原写法；画风串表由 `tools/build_artist_index.py` 生成 |
 
 ## 本地编辑器
 

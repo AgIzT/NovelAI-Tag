@@ -56,10 +56,11 @@ export function formatArtistWeight(weight) {
   return `×${Number(weight.toFixed(2))}`;
 }
 
-function normalizeSample(record, version, paths) {
+function normalizeSample(record, version, paths, name) {
   if (!Array.isArray(record) || typeof record[0] !== 'string' || !record[0]) return null;
   const [entryId, image, assetRev, pathIndex, assetCodexId, count] = record;
   return {
+    name,
     version,
     entryId,
     image: image || `${entryId}.jpg`,
@@ -85,7 +86,7 @@ export function normalizeArtistIndex(value) {
     const loose = new Map();
     if (book && info?.samples && typeof info.samples === 'object') {
       for (const [name, record] of Object.entries(info.samples)) {
-        const sample = normalizeSample(record, version, paths);
+        const sample = normalizeSample(record, version, paths, name);
         if (!sample) continue;
         map.set(name, sample);
         if (!loose.has(compactArtistKey(name))) loose.set(compactArtistKey(name), sample);

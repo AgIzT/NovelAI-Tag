@@ -10,6 +10,7 @@ import {
   promptArtists,
   resolveArtistTiles,
 } from './artist-core.js';
+import { encodeBoard } from '../lab/lab-core.js';
 
 /* ---------------- 画师串拆解（灯箱「画师」一栏） ----------------
    把正向提示词里的 artist:xxx 逐个对到画师词典的单画师样张，排成缩略图。
@@ -94,6 +95,15 @@ function paintArtistStrip() {
   if (!tiles.length) return;
 
   $('#artistStripCount').textContent = `${current.artists.length} 位`;
+  // 整串带去画风实验台：画师、倍率原样，全部锁住，换哪位由用户自己挑
+  const labLink = $('#artistLabLink');
+  if (labLink) {
+    const params = new URLSearchParams({
+      v: version,
+      a: encodeBoard(current.artists.map(artist => ({ name: artist.name, weight: artist.weight, locked: true }))),
+    });
+    labLink.href = `/lab.html?${params}`;
+  }
   const switcher = $('#artistVersion');
   switcher.hidden = !bothVersions;
   const buttons = [...switcher.querySelectorAll('button[data-version]')];

@@ -1,0 +1,174 @@
+/* 画风实验台：独立页面，配色与字体都走 tokens.css，按钮基件走 ui-kit.css。 */
+*{box-sizing:border-box}
+html,body{margin:0}
+html{scrollbar-gutter:stable}
+[hidden]{display:none!important}
+body{
+  min-height:100vh;
+  background:
+    radial-gradient(circle at 18% -8%,color-mix(in srgb,var(--accent-soft) 64%,transparent),transparent 34rem),
+    linear-gradient(180deg,var(--bg),color-mix(in srgb,var(--bg) 84%,var(--panel)));
+  color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,textarea{font:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+::selection{background:var(--accent-soft);color:var(--accent)}
+
+/* ---------- 顶栏 ---------- */
+.lab-top{
+  position:sticky;top:12px;z-index:20;display:flex;align-items:center;gap:12px;
+  max-width:1160px;width:calc(100% - 28px);height:54px;margin:12px auto 0;padding:0 10px 0 8px;
+  border:1px solid var(--line);border-radius:999px;background:var(--glass);box-shadow:var(--shadow);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+}
+.lab-back{
+  display:inline-flex;align-items:center;gap:4px;height:38px;padding:0 12px 0 8px;border-radius:999px;
+  color:var(--muted);text-decoration:none;font-weight:700;font-size:13px;
+}
+.lab-back:hover{color:var(--accent);background:var(--tagbg)}
+.lab-back svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.lab-title{margin:0;margin-right:auto;font-family:var(--font-display);font-size:18px;font-weight:850;letter-spacing:.5px;white-space:nowrap}
+.lab-version{--seg-count:2;flex:none;width:136px;padding:3px;border-radius:12px}
+.lab-version::before{left:3px;top:3px;bottom:3px;width:calc((100% - 10px) / 2);border-radius:9px;translate:calc(var(--seg-index) * (100% + 4px)) 0}
+.lab-version>button{min-height:30px;font-size:12px}
+
+/* ---------- 版面 ---------- */
+.lab-main{max-width:1160px;width:calc(100% - 28px);margin:18px auto 64px;display:grid;gap:16px}
+.lab-status{padding:48px 0;text-align:center;color:var(--muted)}
+.lab-panel{
+  padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--glass);box-shadow:var(--shadow);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+}
+.lab-section-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.lab-section-head h2{margin:0;margin-right:auto;font-size:15px;font-weight:800}
+.lab-count{margin-left:4px;color:var(--muted);font-size:13px;font-weight:600}
+.lab-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:6px 14px;
+  border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);
+  font-size:13px;font-weight:800;text-decoration:none;white-space:nowrap;
+  transition:background .15s,border-color .15s,color .15s,scale .14s ease;
+}
+.lab-btn:hover:not(:disabled){background:var(--tagbg-hover);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.lab-btn:disabled{opacity:.5}
+.lab-btn.is-primary{border-color:transparent;background:var(--accent);color:var(--on-accent);box-shadow:0 6px 16px var(--accent-glow)}
+.lab-btn.is-primary:hover:not(:disabled){background:var(--accent);filter:brightness(1.06)}
+.lab-btn.is-small{min-height:30px;padding:4px 11px;font-size:12px}
+.lab-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- 牌组 ---------- */
+.lab-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.lab-card{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
+.lab-card-img{
+  position:relative;display:block;width:100%;aspect-ratio:3/4;padding:0;overflow:hidden;
+  border:1px solid var(--line);border-radius:14px;background:var(--tagbg);cursor:zoom-in;
+  transition:border-color .15s,box-shadow .15s;
+}
+.lab-card-img:disabled{cursor:default}
+.lab-card-img img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 18%}
+.lab-card.is-locked .lab-card-img{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.lab-card-missing{display:grid;place-items:center;height:100%;color:var(--muted);font-size:12px}
+.lab-card-ver{
+  position:absolute;left:6px;bottom:6px;padding:2px 7px;border-radius:999px;
+  background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:800;
+}
+.lab-card-icons{position:absolute;top:6px;left:6px;right:6px;display:flex;gap:4px;pointer-events:none}
+.lab-icon{
+  display:grid;place-items:center;width:30px;height:30px;padding:0;pointer-events:auto;
+  border:0;border-radius:999px;background:rgba(10,12,20,.55);color:#fff;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);transition:background .15s,scale .14s ease;
+}
+.lab-icon:hover{background:rgba(10,12,20,.75)}
+.lab-icon svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.lab-icon.is-remove{margin-left:auto}
+.lab-icon.is-lock[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.lab-card-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:600 12px/1.3 var(--font-prompt);text-align:center}
+.lab-card.is-locked .lab-card-name{color:var(--accent)}
+.lab-weight{display:flex;align-items:center;justify-content:center;gap:2px}
+.lab-weight button{
+  width:30px;height:28px;padding:0;border:1px solid var(--line);border-radius:999px;
+  background:var(--tagbg);color:var(--text);font-size:15px;font-weight:700;line-height:1;
+}
+.lab-weight button:hover{border-color:var(--accent);color:var(--accent)}
+.lab-weight-value{min-width:44px;text-align:center;font:600 12px/1 var(--font-prompt);color:var(--muted)}
+.lab-weight-value.is-changed{color:var(--accent)}
+
+.lab-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px}
+.lab-pick{display:flex;gap:6px;margin-left:auto;min-width:0;flex:0 1 320px}
+.lab-pick .panel-input{min-width:0;flex:1;height:36px;padding:6px 12px;border-radius:999px}
+
+/* ---------- 输出 ---------- */
+.lab-output{
+  width:100%;resize:vertical;min-height:72px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;
+  background:var(--tagbg);color:var(--text);font:12px/1.6 var(--font-prompt);
+}
+
+/* ---------- 一起出现过 ---------- */
+.lab-works{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.lab-work{display:flex;gap:10px;min-width:0;padding:8px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+.lab-work-img{flex:none;display:block;width:76px;aspect-ratio:3/4;overflow:hidden;border-radius:10px;background:var(--tagbg)}
+.lab-work-img img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 20%}
+.lab-work-body{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.lab-work-hit{font:600 12px/1.45 var(--font-prompt);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.lab-work-meta{color:var(--muted);font-size:11px}
+.lab-work-body .lab-btn{margin-top:auto}
+.lab-empty{margin:4px 0 0;color:var(--muted);font-size:13px}
+.lab-more{margin-top:12px}
+
+/* ---------- 大图预览 ---------- */
+.lab-preview{
+  position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:16px;
+  background:var(--overlay,rgba(10,12,20,.6));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:zoom-out;
+}
+.lab-preview-card{margin:0;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:100%;max-height:100%}
+.lab-preview-card img{display:block;max-width:min(560px,100%);max-height:calc(100vh - 110px);border-radius:16px;box-shadow:0 24px 70px rgba(10,15,35,.42)}
+.lab-preview-bar{
+  display:flex;align-items:center;gap:8px;max-width:100%;padding:6px 6px 6px 14px;cursor:default;
+  border:1px solid var(--line);border-radius:999px;background:var(--popover-glass,var(--glass));box-shadow:var(--shadow);
+}
+.lab-preview-text{display:grid;min-width:0}
+.lab-preview-text b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:700 13px/1.3 var(--font-prompt)}
+.lab-preview-text span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font-size:11px}
+
+/* ---------- toast（与主站同款） ---------- */
+.toast{
+  position:fixed;left:50%;bottom:40px;transform:translateX(-50%) translateY(20px);
+  box-sizing:border-box;width:max-content;max-width:min(360px,calc(100vw - 24px));text-align:center;
+  background:var(--accent);color:var(--on-accent);padding:10px 20px;border-radius:999px;font-weight:600;font-size:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .34s cubic-bezier(.34,1.56,.64,1);z-index:1400;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast-message{display:block;min-width:0;overflow-wrap:anywhere}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width:640px){
+  .lab-top{height:50px;gap:6px}
+  .lab-back span{display:none}
+  .lab-title{font-size:16px}
+  .lab-version{width:118px}
+  .lab-main{width:calc(100% - 20px);margin-top:12px;gap:12px}
+  .lab-panel{padding:12px;border-radius:16px}
+  .lab-board{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  .lab-icon{width:28px;height:28px}
+  .lab-weight button{width:28px}
+  .lab-weight-value{min-width:34px}
+  .lab-tools{
+    position:sticky;bottom:10px;z-index:10;margin:12px -4px 0;padding:8px;border:1px solid var(--line);border-radius:18px;
+    background:var(--popover-glass,var(--glass));box-shadow:var(--shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  }
+  .lab-pick{flex:1 1 100%;margin-left:0;order:9}
+  .lab-works{grid-template-columns:1fr}
+}
+@media (max-width:420px){
+  .lab-board{gap:8px}
+  .lab-card-icons{top:4px;left:4px;right:4px;gap:3px}
+  .lab-icon{width:24px;height:24px}
+  .lab-icon svg{width:13px;height:13px}
+  .lab-card-name{font-size:11px}
+  .lab-weight button{width:24px;height:24px;font-size:13px}
+  .lab-weight-value{min-width:30px;font-size:11px}
+}
+@media (prefers-reduced-motion:reduce){.toast,.lab-btn,.lab-icon{transition:none}}
