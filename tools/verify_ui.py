@@ -34,6 +34,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "http://localhost:8766/"
 
+# 关掉最近浏览打开的灯箱后：当前列表记录与卡片是否在视口内（卡片只有序号，按标题找）。
+RECENT_CARD_VISIBLE_JS = """
+(() => {
+  const title = __TITLE__;
+  const rect = [...document.querySelectorAll('.card')]
+    .find(card => card.querySelector('.card-title')?.textContent === title)?.getBoundingClientRect();
+  return {
+    codex: history.state?.route?.codex || '',
+    path: JSON.stringify(history.state?.route?.path || []),
+    entry: history.state?.route?.entry || '',
+    cardVisible: Boolean(rect && rect.bottom > 0 && rect.top < innerHeight),
+  };
+})()
+"""
+
 
 class CheckFailed(RuntimeError):
     pass
@@ -2069,8 +2084,26 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if not data["title"]:
             raise CheckFailed("Recent entry did not open a titled lightbox")
         cdp.eval("document.querySelector('#lightboxClose')?.click()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "recent lightbox closed", timeout=6)
+
+        # 跨法典打开最近记录：关灯箱停在原书那张卡片上，再退一步才回到来处。
+        navigate(cdp, base + "?codex=qianteng")
+        wait_for(cdp, "document.querySelectorAll('.card').length >= 1 && history.state?.route?.codex === 'qianteng'", "recent cross-codex origin", timeout=10)
+        cdp.eval("document.querySelector('#moreBtn').click(); document.querySelector('#historyBtn').click();")
+        wait_for(cdp, "!document.querySelector('#historyPanel')?.hidden && !!document.querySelector('.recent-item')", "recent cross-codex item", timeout=6)
+        cdp.eval("document.querySelector('.recent-item').click()")
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.transition === 'detail' && history.state?.route?.codex === 'suozhang'", "recent cross-codex lightbox", timeout=10)
+        settle(cdp, 350)
+        cdp.eval("document.querySelector('#lightboxClose')?.click()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.route && !history.state.route.entry", "recent cross-codex close", timeout=6)
+        settle(cdp, 500)
+        landed = cdp.eval(RECENT_CARD_VISIBLE_JS.replace("__TITLE__", json.dumps(data["title"], ensure_ascii=False)))
+        if landed["codex"] != "suozhang" or not landed["cardVisible"]:
+            raise CheckFailed(f"Closing a cross-codex recent entry did not land on its card: {landed}")
+        cdp.eval("history.back()")
+        wait_for(cdp, "history.state?.route?.codex === 'qianteng' && document.querySelectorAll('.card').length >= 1", "recent cross-codex second back", timeout=10)
         check_no_errors(cdp)
-        return {**data, "copyFeedback": copy_feedback}
+        return {**data, "copyFeedback": copy_feedback, "crossCodexLanded": landed}
 
     def codex_switch():
         clear_errors(cdp)
@@ -2740,9 +2773,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if cdp.eval("history.length") != reload_layer_length:
             raise CheckFailed("Collapsing the discarded settings layer changed physical history depth")
 
-        # A recent-entry detail may switch list context (query cleared, path
-        # changed) in a single record; back must restore the previous context
-        # instead of only closing the lightbox.
+        # A recent entry first records the target list (query cleared, path
+        # changed), then the detail above it: the first back only closes the
+        # lightbox on that list, the second restores the previous context.
         cdp.eval("document.querySelector('#mobileSearchBtn')?.click()")
         wait_for(cdp, "document.body.classList.contains('search-mode')", "recent-entry search layer")
         cdp.eval("""
@@ -2759,8 +2792,14 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "document.querySelectorAll('#recentList .recent-item').length >= 1", "recent entries panel")
         cdp.eval("document.querySelector('#recentList .recent-item')?.click()")
         wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.transition === 'detail' && history.state?.route?.q === ''", "recent entry detail record")
+        recent_detail = cdp.eval("({title: document.querySelector('#lightboxTitle')?.textContent || '', path: JSON.stringify(history.state?.route?.path || [])})")
         cdp.eval("history.back()")
-        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.route?.q === 'hair' && document.querySelector('#search')?.value === 'hair'", "recent entry back restores context")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open') && !history.state?.route?.entry && history.state?.route?.q === '' && document.querySelector('#search')?.value === ''", "recent entry back lands on target list")
+        landed = cdp.eval(RECENT_CARD_VISIBLE_JS.replace("__TITLE__", json.dumps(recent_detail["title"], ensure_ascii=False)))
+        if landed["path"] != recent_detail["path"] or not landed["cardVisible"]:
+            raise CheckFailed(f"Closing a recent entry did not land on its card: {landed}")
+        cdp.eval("history.back()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open') && history.state?.route?.q === 'hair' && document.querySelector('#search')?.value === 'hair'", "recent entry second back restores context")
         check_no_errors(cdp)
         return {
             "initialLength": initial["length"],

@@ -1000,7 +1000,7 @@ export function bindUI() {
     renderHistoryPanel();
   };
   document.addEventListener('openRecentEntry', async ev => {
-    await openRecentEntry(ev.detail, { historyMode: 'push', consumeLayer: true });
+    await openRecentEntry(ev.detail, { historyMode: 'push', consumeLayer: true, landOnCard: true });
   });
   const settingsBtn = $('#settingsBtn');
   if (settingsBtn) settingsBtn.onclick = () => openFromMore(settingsMask, settingsBtn);

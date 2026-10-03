@@ -499,16 +499,24 @@ export async function openRecentEntry(item, options = {}) {
     showNsfwLockedHint();
     return;
   }
-  const urlState = { codex: item.codexId, path: item.path || [], q: '', entry: item.entryId };
+  /* landOnCard：先记一条「目标目录、定位到卡片」，再在其上记详情。关灯箱停在这张卡片，
+     再退一步才回原处。不传时目录切换与详情合成一条（画师栏跳词条：关掉回到来时的灯箱）。 */
+  const landOnCard = Boolean(options.landOnCard);
+  const urlState = { codex: item.codexId, path: item.path || [], q: '', entry: landOnCard ? '' : item.entryId };
   const finalHistory = {
     historyMode: options.historyMode || 'push',
-    transition: 'detail',
+    transition: landOnCard ? 'route' : 'detail',
     consumeLayer: Boolean(options.consumeLayer),
   };
+  const openDetail = delay => window.setTimeout(() => historyActions.openEntryDeepLink(
+    item.entryId,
+    landOnCard ? { historyMode: 'push' } : undefined,
+  ), delay);
   if (!state.codex || state.codex.id !== targetId || state.siteSearchView) {
     state.onlyFav = false;
     applyBrowseControls({ onlyFav: false });
     await historyActions.loadCodex(targetId, { urlState, ...finalHistory });
+    if (landOnCard && state.codex?.id === targetId && !state.favoritesView && !state.siteSearchView) openDetail(180);
   } else {
     state.query = '';
     state.searchFilters = [];
@@ -522,7 +530,7 @@ export async function openRecentEntry(item, options = {}) {
     updateSearchClear();
     historyActions.renderTree();
     historyActions.applyFilter({ resetScroll: true });
-    syncUrlState({ ...finalHistory, entry: item.entryId });
-    window.setTimeout(() => historyActions.openEntryDeepLink(item.entryId), 120);
+    syncUrlState({ ...finalHistory, entry: urlState.entry });
+    openDetail(120);
   }
 }

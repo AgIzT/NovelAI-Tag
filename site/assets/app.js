@@ -781,7 +781,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
   const targetId = targetLocked || targetUnknown ? fallbackId : (requestedId || fallbackId);
   if (!targetId) return;
   const targetEntry = String(route.entry || '');
-  /* 快速路径仅限“详情覆盖在同一列表之上”的返回：最近浏览/恢复上次浏览推的
+  /* 快速路径仅限“详情覆盖在同一列表之上”的返回：画师栏跳词条/恢复上次浏览推的
      detail 记录可能同时切换法典、目录或清空搜索，列表上下文不一致时必须走
      下面的完整恢复，否则底层列表会停留在错误状态。 */
   const closingOwnDetail = Boolean(

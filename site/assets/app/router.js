@@ -256,7 +256,7 @@ function decodeLegacyPathParam(value) {
     .filter(Boolean);
 }
 
-export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
+export function openEntryDeepLink(entryId, { imageIndex = 0, historyMode = 'none' } = {}) {
   if (!state.codex || !entryId) return false;
   const rawId = String(entryId);
   const aliases = Array.isArray(state.codex.aliases)
@@ -304,11 +304,16 @@ export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
     syncUrlState({ entry: '' });
     return false;
   }
+  /* push：调用方刚记下一条列表记录、要在其上开详情（最近浏览）。记录里的目录过期、
+     卡片不在当前列表时也改到词条所在目录，并就地改写那条列表记录，关灯箱才落在卡片上。 */
+  const landing = historyMode === 'push';
   if (!hasActiveSearchRoute({ q: state.query, searchFilters: state.searchFilterValues })
-      && !state.activePath.length && entry.path?.length) {
+      && entry.path?.length
+      && (!state.activePath.length || (landing && !state.list.some(item => item.id === entry.id)))) {
     state.activePath = entry.path;
     routerActions.renderTree();
     routerActions.applyFilter({ resetScroll: true });
+    if (landing) syncUrlState({ historyMode: 'replace', entry: '', saveBrowse: false });
   }
   const index = state.list.findIndex(e => e.id === entry.id);
   const placement = index >= 0 ? state.placements[index] : null;
@@ -322,7 +327,7 @@ export function openEntryDeepLink(entryId, { imageIndex = 0 } = {}) {
   // 点击卡片与刷新 / 前进恢复共用详情能力，不把无图词条退回列表。
   routerActions.openLightbox(entry, imageIndex, img || null, {
     allowEmpty: true,
-    historyMode: 'none',
+    historyMode,
     recordRecent: !isRestoringHistory(),
   });
   return entry.id;
