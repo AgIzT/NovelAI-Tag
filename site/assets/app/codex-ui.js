@@ -177,6 +177,7 @@ const codexUiActions = {
   loadUpdates: async () => [],
   openUpdateBatch: async () => {},
   isContentBlocked: () => false,
+  bookPreviews: () => [],
 };
 
 export function setCodexUiActions(actions = {}) {
@@ -302,7 +303,31 @@ export function setupCodexPicker() {
         const t = buildTypes().find(item => item.id === el.dataset.type);
         if (t) el.outerHTML = recentHTML(t);
       });
+      menu.querySelectorAll('.vol-grid[data-layout="strips"] .vbook[data-id]').forEach(addPreviewStrip);
     }, () => { updateBatches = []; });
+  };
+
+  /* 4 本卷「样张条」：封面位换成封面 + 书内几张竖图并排（构建时挑好，codexes.json 写 previews 可单独指定）。
+     未解锁的书保持糊掉的单张封面；带 nsfw 标记的样图只给已解锁访客看；索引里没有就保持单张封面。 */
+  const addPreviewStrip = card => {
+    if (card.classList.contains('locked') || card.querySelector('.vb-strip')) return;
+    const c = state.codexes.find(item => item.id === card.dataset.id);
+    if (!c) return;
+    const previews = (codexUiActions.bookPreviews(c.id) || [])
+      .filter(item => (!item.nsfw || state.allowNsfw) && !codexUiActions.isContentBlocked({ id: item.id, _srcCodexId: c.id }));
+    if (!previews.length) return;
+    const framing = c.coverFraming && typeof c.coverFraming === 'object' ? c.coverFraming : null;
+    const cover = codexCoverUrl(c);
+    const shots = [
+      ...(cover ? [{ url: cover, position: framing ? `${framing.x ?? 50}% ${framing.y ?? 50}%` : '' }] : []),
+      ...previews.map(item => ({ url: thumbUrl({ image: item.image, assetRev: item.assetRev, assetCodexId: item.assetCodexId }, c) })),
+    ].slice(0, 4);
+    const strip = document.createElement('span');
+    strip.className = 'vb-strip';
+    strip.setAttribute('aria-hidden', 'true');
+    strip.innerHTML = shots.map((shot, s) =>
+      `<img src="${esc(shot.url)}" alt="" loading="lazy" decoding="async" style="--s:${s}${shot.position ? `;object-position:${shot.position}` : ''}">`).join('');
+    card.querySelector('.ci-cover')?.appendChild(strip);
   };
 
   /* 卷头「最近新增」：这一类里访客看得到的最近一次更新（维护者给某本书那一批标了 pickerHidden 的不算）。
@@ -600,10 +625,22 @@ export function setupCodexPicker() {
       const grid = document.createElement('div');
       grid.className = 'vol-grid';
       const count = typeCount(t);
-      // 卷内一律等大：≤3 本一行，4 本 2×2，5 本起 3 列（行多了网格内部滚动）
-      grid.style.setProperty('--cols', count <= 3 ? Math.max(1, count) : count === 4 ? 2 : 3);
+      /* 卷内一律等大，排法按本数换，目的都是让竖构图的封面别被横着裁成一条：
+         ≤3 本一行高卡；4 本 2×2「样张条」——封面位换成封面 + 书内几张竖图并排；
+         5 本起两列「书架」——竖版封面在左、文字在右，法典的封面画成精装书（行多了网格内部滚动）。 */
+      const layout = count <= 3 ? 'row' : count === 4 ? 'strips' : 'shelf';
+      grid.dataset.layout = layout;
+      grid.style.setProperty('--cols', count <= 3 ? Math.max(1, count) : 2);
       fillItems(grid, t, 'vbook');
       indexChildren(grid);
+      if (layout === 'strips') grid.querySelectorAll('.vbook[data-id]').forEach(addPreviewStrip);
+      if (layout === 'shelf') {
+        // 封面只有 80 宽，条数与圆环挪进文字栏
+        grid.querySelectorAll('.vbook').forEach(card => {
+          const stat = card.querySelector('.ci-cover .vb-stat');
+          if (stat) card.querySelector('.ci-main').appendChild(stat);
+        });
+      }
       body.replaceChildren(head, ...(t.soon ? [makeSoonBanner(t)] : []), grid);
     };
     const setActive = (id, { fromSpine = null } = {}) => {

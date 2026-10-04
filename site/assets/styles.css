@@ -512,6 +512,27 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .vb-stat .ci-n i{display:inline;margin:0;font-size:10px;letter-spacing:0}
 .vb-stat .ci-ring{width:16px;height:16px}
 .vb-stat .ci-ring i{inset:3px}
+/* 4 本卷「样张条」：封面位从单张横裁换成几张竖图并排（封面在最左），竖构图的人物不再被切成一条；依次浮入 */
+.vb-strip{position:absolute;inset:0;z-index:0;display:flex;gap:2px;background:var(--card)}
+.ci-cover .vb-strip img{position:static;inset:auto;flex:1;min-width:0;width:auto;height:100%;object-fit:cover;object-position:50% 20%;opacity:1;
+  animation:strip-in .4s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 80ms + var(--s,0) * 50ms)}
+@keyframes strip-in{from{opacity:0;translate:0 6px}}
+/* 5 本起「书架」：两列，竖版封面在左、文字在右，条数与圆环挪进文字栏 */
+.vol-grid[data-layout="shelf"]{grid-auto-rows:minmax(96px,1fr)}
+.vol-grid[data-layout="shelf"] .vbook{flex-direction:row;gap:11px;padding:6px 8px 6px 6px}
+.vol-grid[data-layout="shelf"] .vbook .ci-cover{flex:none;width:80px;min-height:0}
+.vol-grid[data-layout="shelf"] .vbook .ci-main{justify-content:center;gap:4px;padding:0}
+.vol-grid[data-layout="shelf"] .ci-main .vb-stat{position:static;align-self:flex-start;gap:6px;padding:0;background:none;box-shadow:none;
+  backdrop-filter:none;-webkit-backdrop-filter:none}
+.vol-grid[data-layout="shelf"] .ci-main .vb-stat .ci-n b{font-size:14px}
+/* 法典的书架：封面画成立着的精装书——左侧书脊阴影、右下错开的书页边，悬停封面翻开一点 */
+.cat-codex .vol-grid[data-layout="shelf"] .ci-cover{border-radius:3px 7px 7px 3px;
+  box-shadow:1px 1px 0 var(--card),2.5px 2.5px 0 var(--line),3.5px 3.5px 0 var(--card),5px 5px 0 var(--line),0 7px 14px -6px rgba(28,32,58,.35);
+  transform-origin:0 50%;transition:transform .3s cubic-bezier(.22,1,.36,1)}
+.cat-codex .vol-grid[data-layout="shelf"] .ci-cover::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(90deg,rgba(0,0,0,.36) 0,rgba(0,0,0,.08) 7px,rgba(255,255,255,.24) 8px,rgba(255,255,255,0) 15px)}
+.cat-codex .vol-grid[data-layout="shelf"] .vbook:not(.locked):hover .ci-cover,
+.cat-codex .vol-grid[data-layout="shelf"] .vbook:not(.locked):focus-visible .ci-cover{transform:perspective(500px) rotateY(-14deg)}
 
 /* ── 手机线路图：每类一条竖向线路，书是线上的站 ──
    打开时线路牌从左滑入、线段逐段自上而下画出、站点依次浮入；当前站的光环呼吸两次后停住。 */
@@ -604,8 +625,9 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   .codex-btn,.codex-arrow,.codex-type,.codex-menu{transition:none}
   .codex-btn:active,.codex-type:active,.codex-item:active,.n5-launch-book:active,.codex-door:active{scale:1}
   .codex-door,.codex-item,.ci-cover img,.n5-launch-book,.n5-launch-notice,
-  .codex-vol,.codex-vol::before,.vol-spine,.vs-name,.vs-thumb,.vc-card,.stn .ci-cover{transition:none}
-  .codex-vol,.vol-head,.vc-card,.vr-cap,.vr-dist,.vr-bar::after,.codex-item.vbook,.metro-badge,.codex-item.stn,.codex-item.stn::before,
+  .codex-vol,.codex-vol::before,.vol-spine,.vs-name,.vs-thumb,.vc-card,.stn .ci-cover,.cat-codex .vol-grid[data-layout="shelf"] .ci-cover{transition:none}
+  .cat-codex .vol-grid[data-layout="shelf"] .vbook:hover .ci-cover{transform:none}
+  .codex-vol,.vol-head,.vc-card,.vr-cap,.vr-dist,.vr-bar::after,.ci-cover .vb-strip img,.codex-item.vbook,.metro-badge,.codex-item.stn,.codex-item.stn::before,
   .stn-fresh,.codex-item.stn.active .ci-cover{animation:none}
   .codex-door:hover,.codex-door:focus-visible,
   .codex-item:hover,.codex-item:focus-visible{transform:none;translate:none}

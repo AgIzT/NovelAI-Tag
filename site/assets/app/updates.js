@@ -16,6 +16,7 @@ const MAX_READ_KEYS = 200;
 const MAX_BATCHES = 20;
 
 let batches = [];
+let previews = {};
 let loaded = false;
 let loadingPromise = null;
 
@@ -33,6 +34,7 @@ export async function loadUpdates() {
   loadingPromise = fetchDataJson('updates.json', { cache: 'no-store' })
     .then(data => {
       batches = normalizeUpdates(data);
+      previews = normalizePreviews(data?.previews);
       loaded = true;
       seedFirstRun();
       return batches;
@@ -49,6 +51,11 @@ export async function loadUpdates() {
 
 export function updatesLoaded() {
   return loaded;
+}
+
+/* 法典选择器 4 本卷「样张条」：这本书在封面旁并排的几张样图（构建时挑好，随更新索引一起发布） */
+export function bookPreviews(codexId) {
+  return previews[codexId] || [];
 }
 
 /* 顶栏气泡与红点的唯一数字来源：只统计未读的「书×批次」。 */
@@ -257,6 +264,26 @@ function normalizeUpdates(data) {
     .filter(batch => batch.id && batch.date && batch.books.length)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .slice(0, MAX_BATCHES);
+}
+
+function normalizeSample(sample) {
+  return {
+    id: String(sample?.id || ''),
+    image: String(sample?.image || '').trim(),
+    assetRev: String(sample?.assetRev || ''),
+    assetCodexId: String(sample?.assetCodexId || ''),
+    nsfw: sample?.nsfw === true,
+  };
+}
+
+function normalizePreviews(map) {
+  const out = {};
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return out;
+  for (const [codexId, list] of Object.entries(map)) {
+    const items = (Array.isArray(list) ? list : []).map(normalizeSample).filter(sample => sample.image).slice(0, 3);
+    if (items.length) out[String(codexId)] = items;
+  }
+  return out;
 }
 
 /* 「新增分布」：[[目录名, 条数], …] */

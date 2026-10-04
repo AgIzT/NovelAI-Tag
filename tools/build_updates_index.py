@@ -34,6 +34,8 @@ SCHEMA = 1
 DATE_ID = re.compile(r"^(\d{4})\.(\d{1,2})\.(\d{1,2})$")
 # 法典选择器卷头「最近新增」扇用的样图：每本书每个批次最多几张。
 SAMPLES_PER_BOOK = 4
+# 法典选择器 4 本卷「样张条」：封面之外再并排几张书内样图。
+PREVIEWS_PER_BOOK = 3
 # 对齐前端 access.js 的 isNsfwRating。
 NSFW_RATINGS = {"restricted", "r18", "r18g", "nsfw"}
 
@@ -155,6 +157,45 @@ def pick_samples(meta: dict, entries: list[dict], pinned: list[str] = ()) -> tup
     return [sample_of(pool[int(index * step + step / 2)]) for index in range(count)], notes
 
 
+def pick_previews(meta: dict, entries: list[dict]) -> tuple[list[dict], list[str]]:
+    """法典选择器 4 本卷「样张条」：封面旁边并排的几张书内样图。
+
+    codexes.json 里这本书写了 previews（图片文件名）就照它、顺序照写的；否则在封面之外
+    按书里的顺序均匀取几张。整本 NSFW 的书取图都带 nsfw 标记（前端只给已解锁访客看），
+    其余书只取能公开的词条；R18G 一律不收。"""
+    notes: list[str] = []
+    # 外部源的书图片按对方站的相对路径解析，本地词条文件里的图名对不上，不出预览
+    if str(meta.get("dataUrl") or "").startswith(("http://", "https://")) or meta.get("assetPathMode") == "relative":
+        return [], notes
+    nsfw_book = bool(meta.get("nsfw"))
+    cover = str(meta.get("cover") or "")
+    imaged = [entry for entry in entries if isinstance(entry, dict) and entry.get("image")]
+    pinned = meta.get("previews")
+    if isinstance(pinned, list) and pinned:
+        by_image = {str(entry["image"]): entry for entry in imaged}
+        chosen, missing = [], []
+        for name in (str(item) for item in pinned if item):
+            entry = by_image.get(name)
+            if entry is None or entry_rating(entry) == "r18g":
+                missing.append(name)
+            else:
+                chosen.append(entry)
+        if missing:
+            notes.append(f"指定预览图不在这本书、没图或属 R18G：{'、'.join(missing)}")
+        if chosen:
+            return [sample_of(entry, nsfw_book or not is_safe_entry(entry)) for entry in chosen[:PREVIEWS_PER_BOOK]], notes
+        notes.append("指定预览图一张都用不上，改按默认规则挑")
+    if nsfw_book:
+        pool = [entry for entry in imaged if entry_rating(entry) != "r18g" and str(entry["image"]) != cover]
+    else:
+        pool = [entry for entry in imaged if is_safe_entry(entry) and str(entry["image"]) != cover]
+    if not pool:
+        return [], notes
+    count = min(PREVIEWS_PER_BOOK, len(pool))
+    step = len(pool) / count
+    return [sample_of(pool[int(index * step + step / 2)], nsfw_book) for index in range(count)], notes
+
+
 def dir_distribution(entries: list[dict], limit: int = 3) -> list[list]:
     """这一批新增落在哪几个目录、各多少条（取前几名）。整批都在同一个一级目录下时往下看一级，
     最多看到第三级——图包常是「来源 › 整理批次 › …」，只报一级等于没说。"""
@@ -191,6 +232,7 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         raise SystemExit("codexes.json 不是数组，先修数据再重建更新索引")
 
     grouped: dict[str, dict] = {}
+    previews: dict[str, list[dict]] = {}
     for meta in codexes:
         if not isinstance(meta, dict):
             continue
@@ -198,14 +240,18 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         if not codex_id:
             continue
         definitions = update_filter_definitions(meta)
-        if not definitions:
-            continue
 
         book = read_json(data_dir / f"{codex_id}.json")
         entries = book.get("entries") if isinstance(book, dict) else None
         if not isinstance(entries, list):
-            notes.append(f"{codex_id}：读不到词条（外部源或缺文件），该书批次跳过")
+            if definitions:
+                notes.append(f"{codex_id}：读不到词条（外部源或缺文件），该书批次跳过")
             continue
+
+        book_previews, preview_notes = pick_previews(meta, entries)
+        notes.extend(f"{codex_id} 预览图：{note}" for note in preview_notes)
+        if book_previews:
+            previews[codex_id] = book_previews
 
         for definition in definitions:
             when = batch_date(definition["id"])
@@ -252,6 +298,8 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         "schema": SCHEMA,
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "batches": batches,
+        # 法典选择器 4 本卷「样张条」用的书内样图，按书 id 索引；与更新批次无关，只是借这份索引一起发布
+        "previews": previews,
     }
     return payload, notes
 

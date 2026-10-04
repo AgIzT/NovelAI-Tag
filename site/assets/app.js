@@ -24,7 +24,7 @@ import { encodePathCode, pathFromCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
-import { setUpdatesActions, loadUpdates, markBatchBookRead } from './app/updates.js';
+import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
@@ -1000,6 +1000,7 @@ setUpdatesActions({ openBatch: openUpdateBatch });
 /* 法典选择器卷头的「最近新增」走同一条跳转，并和顶栏一样把这一批记为已读 */
 setCodexUiActions({
   loadUpdates,
+  bookPreviews,
   isContentBlocked,
   openUpdateBatch: options => {
     markBatchBookRead(options.batchId, options.codexId);
