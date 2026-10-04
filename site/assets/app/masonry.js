@@ -701,6 +701,11 @@ const ENTRY_WAVES = {
     lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
     imageBlur: 4, imageDur: 260, base: 0, step: 18, cap: 90, imageOffset: 0,
   },
+  /* 换书落地：按「列 + 行」对角错峰，首排焦点图的显影比滚动波重一档（编排在 codex-switch.js） */
+  switch: {
+    lift: 8, dur: 260, ease: 'cubic-bezier(.16,1,.3,1)',
+    imageBlur: 6, imageDur: 360, base: 0, step: 30, cap: 130, imageOffset: 30,
+  },
 };
 
 /* 大图的滤镜预算按「列」而不是按固定张数分配：移动端一张图已经占掉大半屏，
@@ -712,8 +717,9 @@ function introFocusCount() {
 
 export function maybeAnimateCardEntry(node, placement) {
   if (prefersReducedMotion() || relayoutAnimating || !state.codex) return;
-  // 急滑门控：滚得比阈值快时直接落终态。快速掠过的卡还去演一遍显影，只会糊成一片拖影
-  if (isFlinging()) return;
+  /* 急滑门控：滚得比阈值快时直接落终态。快速掠过的卡还去演一遍显影，只会糊成一片拖影。
+     换书落地时不看它：接力那一下 scrollTo(0) 会被采样成「瞬移」，整批首屏卡就丢了进场。 */
+  if (!switchHold && isFlinging()) return;
   const key = `${state.codex.id}:${placement.entry.id}`;
   if (!forceEntryAnim && state.seenAnimated.has(key)) return;
   state.seenAnimated.add(key);
@@ -723,10 +729,14 @@ export function maybeAnimateCardEntry(node, placement) {
      所以这里只摆好起始态（抬起 + 透明，图片显影另行暂停），等 intro:reveal 掀幕那一刻再统一放行——
      不然开场结束掀开幕布，卡片早就自己演完了，只剩终态。 */
   const introHold = html.classList.contains('intro-run') && !html.classList.contains('intro-reveal');
-  const wave = introHold || html.classList.contains('intro-reveal')
-    ? ENTRY_WAVES.intro
-    : ENTRY_WAVES.scroll;
-  const stagger = placement.col * wave.step + (placement.index % Math.max(1, state.colN)) * 10;
+  const wave = switchHold
+    ? ENTRY_WAVES.switch
+    : introHold || html.classList.contains('intro-reveal')
+      ? ENTRY_WAVES.intro
+      : ENTRY_WAVES.scroll;
+  const stagger = switchHold
+    ? (placement.col + Math.floor(placement.index / Math.max(1, state.colN))) * wave.step
+    : placement.col * wave.step + (placement.index % Math.max(1, state.colN)) * 10;
   const delay = wave.base + Math.min(wave.cap, stagger);
   const imageDelay = Math.max(0, delay + (wave.imageOffset || 0));
   const imageBlur = wave === ENTRY_WAVES.intro && window.matchMedia('(max-width: 600px)').matches
@@ -752,6 +762,13 @@ export function maybeAnimateCardEntry(node, placement) {
       node.classList.add('intro-focus');
       image?.classList.add('card-img-diffusion');
     }
+  } else if (switchHold) {
+    /* 换书落地沿用开场的滤镜预算：只有首排焦点图显影，其余卡片只走壳的位移 + 透明度。
+       焦点图要在编排器等图的窗口里 load + decode 完才会挂 switch-image-ready，迟到的直接普通渐显。 */
+    if (hasEntryImage(placement.entry) && imageRankOf(placement) < introFocusCount()) {
+      node.classList.add('switch-focus');
+      image?.classList.add('card-img-diffusion');
+    }
   } else if (hasEntryImage(placement.entry) && image?.classList.contains('is-loaded')) {
     /* 缓冲区预载命中时才做滚动显影；图片尚未回来就让既有 load settle 接管，
        避免动画迟到开跑后又被固定 cleanup 时刻截断。 */
@@ -762,7 +779,50 @@ export function maybeAnimateCardEntry(node, placement) {
     introHeld.add(node);
     return;
   }
+  if (switchHold) {
+    switchHeld.add(node);
+    return;
+  }
   releaseCardEntry(node, cleanupMsFor(wave, delay));
+}
+
+function imageRankOf(placement) {
+  return state.placements.slice(0, placement.index).filter(candidate => hasEntryImage(candidate.entry)).length;
+}
+
+/* 换书落地的 hold-and-release，与开场的 introHeld 同一套写法：新书首屏卡片在数据到位时就建好、摆在起始态，
+   等编排器（codex-switch.js）等完首排图再一起放行。兜底定时器保证任何分支都不会把首屏留成空白。 */
+let switchHold = false;
+let switchHoldTimer = 0;
+const switchHeld = new Set();
+const SWITCH_HOLD_LIMIT_MS = 2500;
+
+export function holdSwitchEntries() {
+  settleSwitchEntries();
+  switchHold = true;
+  switchHoldTimer = window.setTimeout(releaseSwitchEntries, SWITCH_HOLD_LIMIT_MS);
+}
+
+export function releaseSwitchEntries() {
+  clearTimeout(switchHoldTimer);
+  switchHoldTimer = 0;
+  switchHold = false;
+  const wave = ENTRY_WAVES.switch;
+  const cleanup = cleanupMsFor(wave, wave.base + wave.cap);
+  for (const node of switchHeld) releaseCardEntry(node, cleanup);
+  switchHeld.clear();
+}
+
+export function settleSwitchEntries() {
+  clearTimeout(switchHoldTimer);
+  switchHoldTimer = 0;
+  switchHold = false;
+  for (const node of switchHeld) settleCardEntry(node, { immediate: true });
+  switchHeld.clear();
+}
+
+export function switchFocusImages() {
+  return [...document.querySelectorAll('.masonry .card.switch-focus .card-img-diffusion')];
 }
 
 /* 清理要等到卡片壳与图片显影都跑完；intro 图片现在比壳晚 30ms，不能再只按壳的结束点算。 */
@@ -785,11 +845,11 @@ function settleCardEntry(node, { immediate = false } = {}) {
      从当前半透明值补播一小段淡入。先用 inline transition:none 结算一帧，再恢复基础规则。 */
   const previousTransition = node.style.transition;
   if (immediate) node.style.transition = 'none';
-  node.classList.remove('card-enter', 'is-entered', 'intro-focus');
+  node.classList.remove('card-enter', 'is-entered', 'intro-focus', 'switch-focus');
   for (const prop of ['--entry-delay', '--entry-image-delay', '--entry-dur', '--entry-image-blur', '--entry-image-dur', '--entry-ease']) {
     node.style.removeProperty(prop);
   }
-  node.querySelector('.card-img')?.classList.remove('card-img-diffusion', 'intro-image-ready');
+  node.querySelector('.card-img')?.classList.remove('card-img-diffusion', 'intro-image-ready', 'switch-image-ready');
   node.style.setProperty('--entry-offset', '0px');
   introHeld.delete(node);
   if (immediate) {
