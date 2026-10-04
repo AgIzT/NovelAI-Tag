@@ -322,7 +322,8 @@ export function setupCodexPicker() {
     const stat = `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>${ring}`;
     const main =
       `<span class="ci-main">` +
-      `<span class="ci-head"><span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
+      // 书名一行排不下时省略；悬停给出书的全名
+      `<span class="ci-head"><span class="ci-name" title="${esc(c.title || codexPickerTitle(c))}">${esc(codexPickerTitle(c))}</span>` +
       (active ? '<span class="ci-now">当前</span>' : '') +
       (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
