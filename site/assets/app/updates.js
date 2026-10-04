@@ -243,6 +243,8 @@ function normalizeUpdates(data) {
           dirs: normalizeDirs(book?.dirs),
           safeDirs: normalizeDirs(book?.safeDirs),
           pickerHidden: book?.pickerHidden === true,
+          // 旧版索引没有样图 / 分布 / 可见条数：选择器据此退回封面，不拿总数冒充可见条数
+          hasPreview: Array.isArray(book?.dirs),
         }))
         .filter(book => book.codexId && book.count > 0);
       return {

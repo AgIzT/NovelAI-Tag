@@ -329,7 +329,8 @@ export function setupCodexPicker() {
   };
   const recentHTML = t => {
     if (!updateBatches) return `<span class="vol-recent is-pending" data-type="${esc(t.id)}" aria-hidden="true"></span>`;
-    const recent = recentForType(t);
+    // 旧版索引（线上数据还没用新脚本重建时）没有样图、分布和可见条数，整块退回封面
+    const recent = updateBatches.some(batch => batch.books.some(book => book.hasPreview)) ? recentForType(t) : null;
     if (!recent) return t.real.length ? `<span class="vol-collage" aria-hidden="true">${t.real.slice(0, 4).map(c => miniCover(c, 'vc-card')).join('')}</span>` : '';
     const { batch, books } = recent;
     const lead = books[0];
