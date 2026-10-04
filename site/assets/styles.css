@@ -185,7 +185,8 @@ body.dark .more-menu{border-color:rgba(255,255,255,.12)}
 body.dark .codex-btn{background:rgba(255,255,255,.06);border-color:transparent}
 body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
 .codex-menu{
-  position:absolute;left:0;top:calc(100% + 8px);z-index:40;width:min(660px,calc(100vw - 28px));max-width:660px;
+  /* 四卷要 800 宽：窄桌面上 codex-ui.js 的 placeMenu 会用 left 把它收回视口内 */
+  position:absolute;left:0;top:calc(100% + 8px);z-index:40;width:min(800px,calc(100vw - 28px));max-width:800px;
   /* 实心面板：玻璃拟态与 V5 版面的排版语言冲突，顺带省掉一层合成 */
   background:var(--panel);
   border:1px solid var(--popover-line);border-radius:14px;box-shadow:var(--popover-shadow);
@@ -196,9 +197,9 @@ body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
 @starting-style{
   .codex-menu:not([hidden]){opacity:0;translate:0 -7px}
 }
-/* minmax(0,1fr)：书卡里有不可压缩的条数/圆环，纯 1fr 轨道会被撑出面板 */
-.codex-menu.cascade{display:grid;grid-template-columns:172px minmax(0,1fr);gap:9px}
-.codex-menu.grouped{display:flex;flex-direction:column;gap:6px;max-height:min(72vh,460px);overflow:auto}
+.codex-menu.volumes{display:flex;flex-direction:column;gap:9px}
+/* 线路图只在 ≤600px 出现，高度交给窄屏段的 calc(100vh − 顶栏)，比旧分组列表的 460 封顶多用出一屏 */
+.codex-menu.metro{display:flex;flex-direction:column;gap:2px;overflow:auto;overscroll-behavior:contain}
 body.dark .codex-menu{border-color:rgba(255,255,255,.12)}
 /* ── V5 限时上线版面 ────────────────────────────────────────────────────────
    上线窗口内启用；?n5Launch=preview 强制预览，?n5Launch=off 关闭（类名 n5-* 是内部代号，
@@ -228,9 +229,9 @@ body.dark .n5-launch-panel,body.dark .n5-launch-notice{
 
 /* 选择器顶部满幅版面：负 margin 吃掉菜单的 9px padding，上两角贴合菜单内圆角（14-1） */
 .n5-launch-panel{
-  /* flex:none 是给窄屏的 .codex-menu.grouped 用的：那是个会滚动的 flex 列，
-     不写就会被当成可压缩项压扁成一条（PC 的 grid 布局下这条无副作用）。 */
-  grid-column:1/-1;flex:none;position:relative;isolation:isolate;overflow:hidden;
+  /* flex:none：菜单两套布局都是 flex 列，窄屏的 .codex-menu.metro 还会滚动，
+     不写就会被当成可压缩项压扁成一条。 */
+  flex:none;position:relative;isolation:isolate;overflow:hidden;
   margin:-9px -9px 0;padding:20px 24px 12px;border-radius:13px 13px 0 0;
   border-bottom:1px solid var(--n5-line);
   display:grid;grid-template-columns:minmax(0,196px) minmax(0,1fr);gap:0 28px;
@@ -259,17 +260,8 @@ body.dark .n5-launch-panel,body.dark .n5-launch-notice{
 .n5b-n{flex:none;font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
 .n5b-n i{margin-left:3px;font-size:11px;font-weight:400;font-style:normal;color:var(--n5-dim)}
 .n5-stamp-foot{display:none}
-/* 上线窗口内的列表限高。361 ＝ 顶栏落点 65 + 版面与内外边距 284 + 12px 余量，全是实测值；
-   512 的上限 ＝ 当年最长一类（画风串 5 本）需要的 511px；2026-08-31 拆出「构图」后最长一类降到 4 本，余量更大。
-   ⚠ 别改回纯 vh 比例：比例挡不住 700px 高的笔记本，也白白浪费高屏的空间。
-   常见的 766px 视口下这里算出 420px，正好让 4 本一类（408px）站满不滚动——
-   之前是死值 360，两类书只超出 48px 却要常驻一根滚动条。 */
-body.n5-launch-active .codex-list{
-  max-height:min(calc(100vh - 361px),512px);
-  /* 行距顺带收 1px、上下内距收 1px：只在上线窗口内生效，凑出的这几像素正好让
-     4 本一类整段落地不滚动，窗口一过自动还原。 */
-  gap:6px;padding:2px 4px;
-}
+/* 上线窗口内顶部多了 V5 版面（约 170px），四卷整体让出这一截高度。 */
+body.n5-launch-active .codex-vols{height:clamp(300px,calc(100vh - 420px),440px)}
 
 /* 首次公告推送：右下角悬浮，进场仍是原来的淡入上移 */
 .n5-launch-notice{
@@ -298,23 +290,18 @@ body.dark .n5-launch-notice{box-shadow:0 10px 34px rgba(0,0,0,.55)}
 .n5-notice-close:hover{background:var(--n5-wash);color:var(--n5-ink)}
 .n5-launch-notice .n5-stamp{margin-top:20px;text-align:right}
 
-/* ── 书卡：一行一本平放的书。封面给画风、右下角给规模，配图率降级成小圆环 ── */
+/* ── 书卡：四卷里的等大书卡（.vbook）与线路图上的站（.stn）共用这一套 ci-* 零件 ──
+   封面给画风；配图率是小圆环；状态签顺序与锁态契约见 decisions/法典选择器书卡改版.md。 */
 .codex-item{
-  position:relative;display:flex;align-items:center;gap:12px;width:100%;text-align:left;
-  border:1px solid var(--line);background:var(--card);color:var(--text);
-  border-radius:13px;padding:8px;font-size:13px;cursor:pointer;box-shadow:var(--shadow);
-  transition:transform .16s,box-shadow .16s,border-color .16s,background .16s,scale .14s ease;
+  position:relative;text-align:left;border:1px solid var(--line);background:var(--card);color:var(--text);
+  font-size:13px;cursor:pointer;
+  transition:translate .16s,box-shadow .16s,border-color .16s,background .16s,scale .14s ease;
 }
-.codex-item:hover,.codex-item:focus-visible{transform:translateY(-1px);box-shadow:var(--shadow-hover);border-color:var(--accent);outline:none}
-.codex-item.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-glow)}
-.codex-item.locked,.codex-item.soon{background:var(--tagbg);box-shadow:none;cursor:not-allowed}
-.codex-item.locked:hover,.codex-item.locked:focus-visible,
-.codex-item.soon:hover,.codex-item.soon:focus-visible{transform:none;box-shadow:none;border-color:var(--line)}
 /* 新书不再靠底色发光突出（渐变已废）：一枚纯黑 V5 药丸就够，书卡本体保持静态 */
 .ci-n5-chip{flex:none;border-radius:999px;padding:2px 8px;background:#1d1d1f;color:#fff;
   font-size:10px;font-weight:900;letter-spacing:.02em;line-height:1.5}
 body.dark .ci-n5-chip{background:#f5f5f7;color:#1d1d1f}
-.ci-cover{position:relative;flex:none;width:116px;aspect-ratio:3/2;border-radius:8px;overflow:hidden;background:var(--tagbg)}
+.ci-cover{position:relative;flex:none;overflow:hidden;background:var(--tagbg)}
 .ci-ph{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent-soft),var(--tagbg));color:var(--accent)}
 .ci-ph svg{width:26px;height:26px;opacity:.45}
 .ci-cover img{
@@ -322,23 +309,20 @@ body.dark .ci-n5-chip{background:#f5f5f7;color:#1d1d1f}
   opacity:0;transition:opacity .28s,transform .4s cubic-bezier(.2,.7,.3,1);
 }
 .ci-cover img.is-loaded{opacity:1}
-.codex-item:hover .ci-cover img{transform:scale(1.05)}
 /* 未解锁：封面糊掉 + 压一层锁，比灰条更明确 */
 .ci-veil{position:absolute;inset:0;display:none;place-items:center;background:rgba(18,20,32,.34);color:#fff}
 .ci-veil svg{width:19px;height:19px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5))}
 .codex-item.locked .ci-veil{display:grid}
 .codex-item.locked .ci-cover img{filter:blur(11px) saturate(.4) brightness(.78);transform:scale(1.2)}
-.ci-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.ci-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .ci-head{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%}
 .ci-name{font-size:14px;font-weight:800;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .codex-item.active .ci-name{color:var(--accent)}
 .codex-item.locked .ci-name,.codex-item.soon .ci-name{color:var(--muted)}
 .ci-now{flex:none;font-size:10px;font-weight:900;color:var(--on-accent);background:var(--accent);border-radius:999px;padding:1.5px 7px}
 .ci-sub{font-size:11px;color:var(--muted);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* 小标区可压缩且裁切，条数与圆环永远不会被挤出卡片 */
-.ci-foot{display:flex;align-items:center;gap:6px;min-width:0}
-.ci-tags{flex:1;min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden}
-/* 条数=规模，是选书第一判据：大字压在右侧，「条」缩成下面一行小字 */
+/* 小标区可压缩且裁切：原图与 NSFW 永远排在最前，被裁掉的只会是后面的来源 / 日期签 */
+.ci-tags{min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden}
 .ci-n{flex:none;text-align:right;line-height:1.1}
 .ci-n b{font-size:16px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--text)}
 .ci-n i{display:block;font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.1em;color:var(--muted);margin-top:2px}
@@ -376,32 +360,168 @@ body.dark .ci-chip.has-orig{background:rgba(255,255,255,.1)}
 .codex-item.locked .ci-chip.nsfw{display:none}
 .codex-item.locked .ci-chip.lock{display:inline-flex}
 .codex-item.locked .ci-chip.orig{opacity:.6}
-/* ── 类型级联（PC）左类型轨 ── */
-.codex-rail{position:relative;isolation:isolate;display:flex;flex-direction:column;gap:3px;border-right:1px solid var(--line);padding-right:8px}
-body.dark .codex-rail{border-color:rgba(255,255,255,.08)}
-.codex-type-indicator{position:absolute;inset:0 8px auto 0;z-index:-1;border-radius:10px;background:var(--accent-soft);pointer-events:none}
-.codex-type{
-  position:relative;display:flex;align-items:center;gap:9px;border:none;background:transparent;color:var(--text);
-  border-radius:10px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;
-  transition:background .16s,color .16s,scale .14s ease;
+/* ── 分类辅助色 ──
+   由当前皮肤的强调色转色相得到：明度跟强调色走、色度封顶 .16，六套皮肤各自协调，素墨自然退成灰阶；
+   不支持相对色语法的浏览器整块回落到强调色。只给分类的标识面用（色条、书脊底色、线路），
+   书本身的「当前 / 更新」状态仍然只走强调色。 */
+.codex-vol,.metro-line{--cat:var(--accent)}
+@supports (color: oklch(from red l c h)){
+  .cat-string{--cat:oklch(from var(--accent) l min(c, .16) calc(h + 80))}
+  .cat-composition{--cat:oklch(from var(--accent) l min(c, .16) calc(h + 150))}
+  .cat-pack{--cat:oklch(from var(--accent) l min(c, .16) calc(h - 85))}
 }
-.codex-type:hover{background:var(--tagbg)}
-.codex-type.active{background:transparent;color:var(--accent)}
-.codex-type .ct-ico,.codex-type .ct-n{transition:color .16s}
-.codex-type .ct-ico{flex:none;width:17px;height:17px;display:flex;color:var(--muted)}
-.codex-type.active .ct-ico{color:var(--accent)}
-.codex-type .ct-ico svg{width:17px;height:17px}
-.codex-type .ct-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
-.codex-type .ct-n{flex:none;font-size:11px;font-weight:800;color:var(--muted)}
-.codex-type.active .ct-n{color:var(--accent)}
-.codex-rail-foot{margin-top:auto;padding:12px 6px 2px;font-size:10.5px;line-height:1.65;color:var(--muted)}
-.codex-rail-foot b{color:var(--text);font-weight:800}
-/* padding 给 hover 抬升与描边留出余量，否则会被滚动容器切边 */
-.codex-list{
-  min-height:236px;max-height:min(70vh,438px);overflow:auto;display:flex;flex-direction:column;gap:7px;padding:3px 4px;
-  /* 全站其余滚动容器都是这套细条，唯独这里一直是系统默认——Windows 上那根占 15px 宽、
-     把书卡挤窄一截，还特别显眼。 */
-  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+.codex-vol,.metro-line{
+  --cat-soft:color-mix(in srgb,var(--cat) 11%,var(--card));
+  --cat-mid:color-mix(in srgb,var(--cat) 26%,var(--card));
+}
+
+/* ── PC 四卷：每类一卷并排，打开的那卷占满，其余收成书脊 ──
+   动效全部是无过冲曲线：面板打开时书脊依次上浮、卷内依次浮入；换卷靠 flex-grow 过渡。 */
+.codex-vols{
+  --spine:76px;--vol-gap:8px;--vol-delay:110ms;
+  display:flex;gap:var(--vol-gap);height:clamp(360px,calc(100vh - 230px),488px);
+}
+.codex-vols.is-switching{--vol-delay:150ms}
+.codex-vol{
+  position:relative;flex:0 0 var(--spine);min-width:0;border-radius:14px;overflow:hidden;background:var(--cat-soft);
+  transition:flex-grow .42s cubic-bezier(.27,0,.51,1),background .3s;
+  animation:vol-rise .36s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--i,0) * 40ms);
+}
+.codex-vol::before{content:"";position:absolute;inset:0 0 auto;z-index:2;height:4px;background:var(--cat);transition:height .2s}
+.codex-vol:not(.is-open):hover::before{height:7px}
+.codex-vol.is-open{flex-grow:1;background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
+body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.vol-spine{
+  position:absolute;inset:0;width:var(--spine);display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:18px 0 14px;border:0;border-radius:inherit;background:transparent;color:var(--text);cursor:pointer;
+  transition:opacity .22s,background .2s,scale .14s ease;
+}
+.vol-spine:hover,.vol-spine:focus-visible{background:color-mix(in srgb,var(--cat) 9%,transparent)}
+.vol-spine:focus-visible{outline:2px solid var(--cat);outline-offset:-3px}
+.codex-vol.is-open .vol-spine{opacity:0;pointer-events:none}
+.vs-no{font-size:10px;font-weight:800;letter-spacing:.14em;color:var(--cat)}
+.vs-ico{display:flex;width:22px;height:22px;color:var(--cat)}
+.vs-ico svg{width:22px;height:22px}
+.vs-name{writing-mode:vertical-rl;font-family:var(--font-display);font-size:30px;font-weight:900;letter-spacing:.24em;line-height:1;transition:color .2s}
+.vol-spine:hover .vs-name,.vol-spine:focus-visible .vs-name{color:var(--cat)}
+.vs-n{font-size:11px;font-weight:700;color:var(--muted)}
+.vs-n b{margin-right:1px;font-size:14px;font-weight:800;color:var(--text)}
+.vs-thumbs{margin-top:auto;display:flex;flex-direction:column;align-items:center}
+.vs-thumb{position:relative;width:42px;height:42px;border-radius:50%;overflow:hidden;background:var(--cat-mid);
+  box-shadow:0 0 0 2.5px var(--cat-soft);transition:margin .26s cubic-bezier(.22,1,.36,1)}
+.vs-thumb + .vs-thumb{margin-top:-14px}
+.vol-spine:hover .vs-thumb + .vs-thumb,.vol-spine:focus-visible .vs-thumb + .vs-thumb{margin-top:-3px}
+.vs-thumb img,.vc-card img{display:block;width:100%;height:100%;object-fit:cover}
+.vs-thumb.locked img,.vc-card.locked img{filter:blur(6px) saturate(.45) brightness(.8);transform:scale(1.25)}
+/* 卷体按「打开后的最终宽度」排版，flex-grow 过渡途中不重排：宽 = 菜单内宽 − 其余几卷的书脊 */
+.vol-body{
+  position:absolute;top:0;bottom:0;left:0;
+  width:calc(min(800px,100vw - 28px) - 20px - (var(--n,4) - 1) * (var(--spine) + var(--vol-gap)));
+  display:flex;flex-direction:column;gap:12px;padding:18px 14px 12px;
+}
+.vol-head{display:flex;align-items:flex-end;gap:16px;min-height:92px;padding:0 4px;
+  animation:vol-rise .34s cubic-bezier(.22,1,.36,1) backwards;animation-delay:var(--vol-delay)}
+.vh-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.vh-no{font-size:10.5px;font-weight:800;letter-spacing:.18em;color:var(--cat)}
+.vh-name{display:flex;align-items:center;gap:10px}
+.vh-name svg{flex:none;width:26px;height:26px;color:var(--cat)}
+.vh-name b{font-family:var(--font-display);font-size:34px;font-weight:900;letter-spacing:.12em;line-height:1.1}
+.vh-sub{font-size:12px;color:var(--muted)}
+.vh-stats{font-size:11.5px;color:var(--muted)}
+.vh-stats b{color:var(--text);font-weight:800}
+/* 卷头拼贴：前四本封面从叠放展开成扇形，悬停再张开一点 */
+.vol-collage{position:relative;flex:none;width:150px;height:96px}
+.vc-card{position:absolute;bottom:0;left:44px;width:62px;height:84px;border-radius:8px;overflow:hidden;background:var(--cat-mid);
+  box-shadow:0 0 0 2px var(--card),0 6px 14px rgba(28,32,58,.18);transform-origin:50% 100%;
+  translate:var(--x) 0;rotate:var(--r);
+  transition:translate .3s cubic-bezier(.22,1,.36,1),rotate .3s cubic-bezier(.22,1,.36,1);
+  animation:vol-fan .5s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 60ms)}
+.vc-card:nth-child(1){--x:-44px;--r:-10deg}
+.vc-card:nth-child(2){--x:-14px;--r:-3deg;z-index:1}
+.vc-card:nth-child(3){--x:16px;--r:4deg;z-index:2}
+.vc-card:nth-child(4){--x:44px;--r:11deg;z-index:3}
+.vol-collage:hover .vc-card{translate:calc(var(--x) * 1.3) -4px;rotate:calc(var(--r) * 1.5)}
+/* 卷内等大书卡：列数由 JS 按本数给（--cols），行多了网格内部滚动；内边距给悬停抬升留余量 */
+.vol-grid{
+  flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));grid-auto-rows:minmax(150px,1fr);
+  gap:8px;margin:-3px;padding:3px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.codex-item.vbook{
+  display:flex;flex-direction:column;gap:7px;min-width:0;min-height:0;padding:6px 6px 8px;border-radius:12px;box-shadow:var(--shadow);
+  animation:vol-rise .34s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 50ms + var(--i,0) * 35ms);
+}
+.codex-item.vbook:hover,.codex-item.vbook:focus-visible{translate:0 -2px;box-shadow:var(--shadow-hover);border-color:var(--accent);outline:none}
+.codex-item.vbook:hover .ci-cover img{transform:scale(1.05)}
+.codex-item.vbook.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-glow)}
+.codex-item.vbook.locked,.codex-item.vbook.soon{background:var(--tagbg);box-shadow:none;cursor:not-allowed}
+.codex-item.vbook.locked:hover,.codex-item.vbook.locked:focus-visible,
+.codex-item.vbook.soon:hover,.codex-item.vbook.soon:focus-visible{translate:none;box-shadow:none;border-color:var(--line)}
+.vbook .ci-cover{flex:1;min-height:56px;border-radius:8px}
+.vbook .ci-main{flex:none;gap:3px;padding:0 3px}
+.vbook .ci-name{font-size:13.5px;line-height:1.3;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* 条数与配图率压在封面右下角的玻璃小签上，书名和状态签各占一整行 */
+.vb-stat{position:absolute;right:6px;bottom:6px;z-index:1;display:flex;align-items:center;gap:6px;padding:3px 4px 3px 9px;border-radius:999px;
+  background:var(--glass);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 1px 4px rgba(0,0,0,.14)}
+.vb-stat .ci-n{display:flex;align-items:baseline;gap:2px;line-height:1}
+.vb-stat .ci-n b{font-size:13px}
+.vb-stat .ci-n i{display:inline;margin:0;font-size:10px;letter-spacing:0}
+.vb-stat .ci-ring{width:16px;height:16px}
+.vb-stat .ci-ring i{inset:3px}
+
+/* ── 手机线路图：每类一条竖向线路，书是线上的站 ──
+   打开时线路牌从左滑入、线段逐段自上而下画出、站点依次浮入；当前站的光环呼吸两次后停住。 */
+.metro-line{position:relative;padding:2px 0 6px}
+.metro-badge{display:flex;align-items:center;gap:8px;min-width:0;margin:6px 6px 4px;
+  animation:metro-slide .34s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--i,0) * 24ms)}
+.mb-pill{flex:none;display:inline-flex;align-items:center;gap:6px;padding:5px 11px 5px 9px;border-radius:10px;background:var(--cat);color:var(--on-accent)}
+.mb-pill svg{display:block;width:16px;height:16px}
+.mb-pill b{font-family:var(--font-display);font-size:15px;font-weight:900;letter-spacing:.12em;line-height:1.2}
+.mb-n{font-size:10.5px;font-weight:800;opacity:.85}
+.mb-sub{min-width:0;font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.metro-track{position:relative;display:flex;flex-direction:column;gap:2px}
+.codex-item.stn{
+  display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:12px;
+  width:100%;height:70px;padding:0 10px 0 12px;border:0;border-radius:12px;background:transparent;
+  animation:metro-pop .32s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--i,0) * 24ms + 50ms);
+}
+/* 站与站之间的线段：从本站圆心画到下一站圆心（站高固定 70，间距 2） */
+.codex-item.stn::before{
+  content:"";position:absolute;left:31px;top:50%;width:6px;height:calc(100% + 2px);border-radius:3px;background:var(--cat);
+  transform-origin:50% 0;animation:metro-draw .28s cubic-bezier(.27,0,.51,1) backwards;animation-delay:calc(var(--i,0) * 24ms + 110ms);
+}
+.codex-item.stn:last-child::before{display:none}
+.stn .ci-cover{z-index:1;width:44px;height:44px;border-radius:50%;
+  box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--cat);transition:scale .2s cubic-bezier(.22,1,.36,1),box-shadow .2s}
+.stn .ci-ph svg{width:18px;height:18px}
+.stn .ci-veil svg{width:15px;height:15px}
+.stn .ci-main{gap:2px}
+.stn-stat{display:flex;align-items:center;gap:7px}
+.stn-stat .ci-n b{font-size:14px}
+.codex-item.stn:hover,.codex-item.stn:focus-visible{background:color-mix(in srgb,var(--cat) 8%,transparent);outline:none}
+.codex-item.stn:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
+.codex-item.stn:active .ci-cover{scale:1.08}
+.codex-item.stn.active{background:var(--accent-soft)}
+.codex-item.stn.active .ci-cover{
+  box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--accent),0 0 0 10px var(--accent-glow);
+  animation:stn-halo 1.4s ease-in-out 2 backwards;animation-delay:calc(var(--i,0) * 24ms + 420ms);
+}
+.codex-item.stn.locked{cursor:not-allowed}
+.codex-item.stn.locked:hover{background:transparent}
+.codex-item.stn.locked .ci-cover{box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--line)}
+.stn-fresh{position:absolute;left:48px;top:calc(50% - 24px);z-index:2;width:10px;height:10px;border-radius:50%;
+  background:var(--new);box-shadow:0 0 0 2px var(--panel);
+  animation:stn-ping .5s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--i,0) * 24ms + 360ms)}
+.metro-line.soon .metro-track{opacity:.75}
+
+@keyframes vol-rise{from{opacity:0;translate:0 10px}}
+@keyframes vol-fan{from{opacity:0;translate:0 8px;rotate:0deg}}
+@keyframes metro-slide{from{opacity:0;translate:-12px 0}}
+@keyframes metro-pop{from{opacity:0;translate:-8px 0}}
+@keyframes metro-draw{from{scale:1 0}}
+@keyframes stn-ping{from{scale:0;opacity:0}}
+@keyframes stn-halo{
+  0%,100%{box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--accent),0 0 0 10px var(--accent-glow)}
+  50%{box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--accent),0 0 0 17px transparent}
 }
 /* ── 占位类型（画风 / 构图 / 图包）── */
 .codex-soon-tag{flex:none;font-size:9px;font-weight:900;letter-spacing:.04em;color:#b0823a;background:rgba(202,154,62,.16);border-radius:999px;padding:1px 6px}
@@ -412,13 +532,6 @@ body.dark .ci-soon-chip{color:#e3b463;border-color:rgba(227,180,99,.3)}
 .codex-soon-banner{display:flex;gap:7px;align-items:flex-start;font-size:11px;color:var(--muted);background:var(--tagbg);border-radius:10px;padding:8px 11px;margin-bottom:4px;line-height:1.5}
 .codex-soon-banner b{color:var(--text)}
 .codex-soon-banner svg{flex:none;width:15px;height:15px;margin-top:1px;color:#b0823a}
-/* ── 移动端分组下拉（方案 A）小标题 ── */
-.codex-group-head{display:flex;align-items:center;gap:8px;padding:9px 8px 4px;font-size:11px;font-weight:800;color:var(--muted)}
-.codex-group-head .cg-ico{flex:none;width:18px;height:18px;color:var(--accent)}
-.codex-group-head .cg-ico svg{width:18px;height:18px}
-.codex-group-head .cg-name{color:var(--text);font-size:13px}
-.codex-group-head .cg-sub{font-weight:500;font-size:10px}
-.codex-group-head .codex-soon-tag{margin-left:auto}
 /* 社区投稿门：置底、跨栏、虚线卡+加号，明确区分于策展书行 */
 .codex-door-wrap{grid-column:1/-1;margin-top:4px;padding-top:9px;border-top:1px solid var(--line)}
 body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
@@ -436,12 +549,16 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .codex-item:active,.n5-launch-book:active,.codex-door:active{scale:.985}
 .codex-item.is-selecting{border-color:var(--accent);background:var(--accent-soft)}
 @media (prefers-reduced-motion:reduce){
-  .codex-btn,.codex-arrow,.codex-type,.codex-type .ct-ico,.codex-type .ct-n,.codex-menu{transition:none}
+  .codex-btn,.codex-arrow,.codex-type,.codex-menu{transition:none}
   .codex-btn:active,.codex-type:active,.codex-item:active,.n5-launch-book:active,.codex-door:active{scale:1}
-  .codex-door,.codex-item,.ci-cover img,.n5-launch-book,.n5-launch-notice{transition:none}
+  .codex-door,.codex-item,.ci-cover img,.n5-launch-book,.n5-launch-notice,
+  .codex-vol,.codex-vol::before,.vol-spine,.vs-name,.vs-thumb,.vc-card,.stn .ci-cover{transition:none}
+  .codex-vol,.vol-head,.vc-card,.codex-item.vbook,.metro-badge,.codex-item.stn,.codex-item.stn::before,
+  .stn-fresh,.codex-item.stn.active .ci-cover{animation:none}
   .codex-door:hover,.codex-door:focus-visible,
-  .codex-item:hover,.codex-item:focus-visible,
+  .codex-item:hover,.codex-item:focus-visible{transform:none;translate:none}
   .codex-item:hover .ci-cover img{transform:none}
+  .vol-collage:hover .vc-card{translate:var(--x) 0;rotate:var(--r)}
   .ci-cover img{opacity:1}
 }
 
@@ -1313,6 +1430,9 @@ body.density-compact .copy-hint{display:none}
   transition:opacity .25s,transform .25s,visibility .25s,color .12s,border-color .12s,background .12s,scale .14s ease;
 }
 .float-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+/* 法典选择器打开时让出右下角：面板挂在顶栏的层叠上下文里压不过这组按钮，
+   而手机线路图与窄桌面的四卷都会延伸到这个角落 */
+body:has(#codexMenu:not([hidden])) .float-btn{opacity:0;visibility:hidden;pointer-events:none}
 .float-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .random-btn{opacity:1;visibility:visible;transform:none}
 .float-actions.has-backtop .random-btn{transform:translateY(-52px)}
@@ -2310,12 +2430,10 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .codex-btn span{flex:1}
   .codex-menu{
     position:fixed;left:12px;right:12px;top:calc(var(--topbar-h) + 6px);width:auto;max-width:none;
-    grid-template-columns:1fr;max-height:calc(100vh - var(--topbar-h) - 20px);overflow:auto;
+    max-height:calc(100vh - var(--topbar-h) - 20px);overflow:auto;
   }
-  /* 手机端天然单列，书卡照用；封面略收窄给书名让位 */
-  .ci-cover{width:96px}
-  .ci-name{font-size:13.5px}
-  .codex-item{gap:10px}
+  /* 线路图是会滚动的 flex 列：子项不写 flex:none 会被当成可压缩项压扁、互相盖住（V5 版面踩过同一个坑） */
+  .codex-menu.metro > *{flex:none}
   /* 原图与 NSFW 是固定前两级状态；窄屏只舍弃额外的外部来源签。 */
   .ci-chip.ext{display:none}
   .main{padding:8px 0 80px}

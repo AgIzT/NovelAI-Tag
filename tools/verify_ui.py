@@ -2195,7 +2195,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if data["atlas"] != "3" or "收藏：3 条" not in data["result"]:
             raise CheckFailed(f"Historical favorite owners did not render all three cards: {data!r}")
         # 迁移归属由稳定 id 钉住；书名来自现行索引，避免正常更名把回归夹具变陈旧。
-        codex_titles = {item["id"]: item["title"] for item in load_codex_list()}
+        # 收藏分组与前端 fav-codex.js 同口径：有「选择器短标题」就用短标题。
+        codex_titles = {item["id"]: item.get("selectorTitle") or item["title"] for item in load_codex_list()}
         if len(data["cards"]) != len(expected_keys) or {card["key"] for card in data["cards"]} != expected_keys:
             raise CheckFailed(f"Migrated favorite cards did not retain their canonical identities: {data['cards']!r}")
         for card in data["cards"]:

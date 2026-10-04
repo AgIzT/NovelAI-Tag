@@ -47,11 +47,21 @@ const CODEX_TYPES = [
   ] },
 ];
 
+/* 电脑端每类是一卷：书脊与卷头都写「卷一 / 卷二…」 */
+const VOLUME_NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+const volumeLabel = index => `卷${VOLUME_NUMERALS[index] || index + 1}`;
+const RECENT_UPDATE_MS = 7 * 24 * 3600 * 1000;
+
 const codexType = c => (c && c.type) || 'codex';
 const codexPickerTitle = c => c?.selectorTitle || c?.title || '';
 const realCodexesOfType = typeId => state.codexes.filter(c => codexType(c) === typeId);
 const typeIconOf = c => (CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_TYPES[0]).icon;
 const codexImagedPct = c => (c?.entryCount ? Math.round(Number(c.imagedCount || 0) / Number(c.entryCount) * 100) : 0);
+/* 线路图站点的红点：最新一期更新在 7 天内 */
+const isRecentlyUpdated = c => {
+  const latest = updateFilterDefinitions(c).find(filter => filter.latest);
+  return Boolean(latest && Number.isFinite(latest.time) && Date.now() - latest.time < RECENT_UPDATE_MS);
+};
 /* 外部数据源：书与图都托管在别人站上（只用来打「外部源」小标） */
 const isExternalCodex = c => /^https?:/i.test(String(c?.dataUrl || ''));
 /* NovelAI 官方标记，由官方图描成的单色矢量：深底那版的锚点与手柄本就是从笔尖里挖掉的，
@@ -174,22 +184,25 @@ export function invalidateAccessViewMemo() {
   accessViewMemo = null;
 }
 
-/* 自绘法典选择器：PC = 类型级联双栏（左类型轨 + 右列表）；移动端 = 分组下拉（各类型小标题 + 条目堆叠）。
-   原生 #codexSelect 仅做值同步。 */
+/* 自绘法典选择器：PC = 四卷（每类一卷并排，打开的那卷占满，其余收成书脊）；
+   移动端 = 线路图（每类一条竖向线路，书是线上的站，全部展开）。
+   两套布局都沿用 `.codex-type[data-type]` / `.codex-item[data-id]` 与 `.locked/.active`，
+   verify_ui 与 updateCodexPickerState 靠这几个钩子。原生 #codexSelect 仅做值同步。 */
 export function setupCodexPicker() {
   const sel = $('#codexSelect');
   const btn = $('#codexBtn');
   const menu = $('#codexMenu');
   if (!btn || !menu) return;
 
-  let activeType = null;  // 级联模式下当前选中的类型
-  let syncTypeIndicator = () => {};
+  let activeType = null;  // 四卷里当前打开的那一卷
   let dismissN5LaunchNotice = () => {};
   const n5Launch = n5LaunchMode();
   const n5LaunchActive = n5Launch.active && state.codexes.some(isN5LaunchCodex);
   document.body.classList.toggle('n5-launch-active', n5LaunchActive);
 
-  const focusableItems = () => [...menu.querySelectorAll('.n5-launch-book, .codex-type, .codex-item, .codex-door')];
+  /* 已打开那卷的书脊被卷体盖住、tabindex=-1，方向键要跳过它 */
+  const focusableItems = () => [...menu.querySelectorAll('.n5-launch-book, .codex-type, .codex-item, .codex-door')]
+    .filter(el => el.tabIndex >= 0 && el.getClientRects().length);
   const focusItem = index => {
     const list = focusableItems();
     if (!list.length) return;
@@ -198,16 +211,23 @@ export function setupCodexPicker() {
   const focusPreferredItem = ({ preventScroll = n5LaunchActive } = {}) => {
     if (menu.hidden) return;
     const target = (n5LaunchActive && menu.querySelector('.n5-launch-panel')) ||
-      menu.querySelector('.codex-item.active') || menu.querySelector('.codex-type.active') || focusableItems()[0];
+      menu.querySelector('.codex-item.active') || focusableItems()[0];
     target?.focus({ preventScroll });
   };
   const mobileLayout = window.matchMedia('(max-width: 600px)');
   const isMobile = () => mobileLayout.matches;
+  /* 四卷比按钮宽得多：窄桌面上「按钮左沿 + 菜单宽」会超出视口，往左收回来。手机端走 fixed，不处理。 */
+  const placeMenu = () => {
+    menu.style.left = '';
+    if (menu.hidden || isMobile()) return;
+    const overflow = menu.getBoundingClientRect().right - (document.documentElement.clientWidth - 14);
+    if (overflow > 0) menu.style.left = `${-Math.ceil(overflow)}px`;
+  };
   const openDirect = ({ focus = false } = {}) => {
     renderMenu();
     menu.inert = false;
     menu.hidden = false;
-    syncTypeIndicator();
+    placeMenu();
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
     if (focus) requestAnimationFrame(() => focusPreferredItem());
@@ -215,7 +235,6 @@ export function setupCodexPicker() {
   const closeDirect = ({ focusButton = false } = {}) => {
     menu.inert = true;
     menu.hidden = true;
-    menu.querySelectorAll('.codex-list, .codex-type-indicator').forEach(cancelUiMotion);
     btn.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
     if (focusButton) btn.focus({ preventScroll: true });
@@ -263,11 +282,11 @@ export function setupCodexPicker() {
   }).filter(t => !document.body.classList.contains('local-edition') || t.real.length > 0);
 
   /* 封面槽：占位块永远在底下垫着，图加载成功才淡入盖上去；图挂了/没配封面都自然露出占位，不会有破图 */
-  const coverSlot = (iconKey, url = '', c = null) =>
+  const coverSlot = (iconKey, url = '', c = null, extra = '') =>
     `<span class="ci-cover">` +
     `<span class="ci-ph">${TYPE_ICONS[iconKey]}</span>` +
     (url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async"${codexCoverStyle(c)}>` : '') +
-    `<span class="ci-veil">${LOCK_ICON}</span>` +
+    `<span class="ci-veil">${LOCK_ICON}</span>` + extra +
     `</span>`;
 
   const bindCoverReveal = item => {
@@ -278,7 +297,9 @@ export function setupCodexPicker() {
     else img.onload = reveal;   // 失败时保持透明，露出下面的占位块
   };
 
-  const makeRealItem = c => {
+  /* 一本书一个按钮：variant = 'vbook'（四卷里的等大书卡）| 'stn'（线路图上的站）。
+     两种都是 .codex-item[data-id]，状态签与锁态同一套：含原图 / NSFW 两枚都进 DOM，靠 .locked 二选一。 */
+  const makeRealItem = (c, variant) => {
     const locked = isCodexLocked(c);
     const active = pickerActiveCodexId() === c.id;
     const n5Featured = n5LaunchActive && isN5LaunchCodex(c);
@@ -289,7 +310,7 @@ export function setupCodexPicker() {
     const version = c.version === '外部源' ? '' : c.version;
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = `codex-item${locked ? ' locked' : ''}${active ? ' active' : ''}${n5Featured ? ' n5-highlight' : ''}`;
+    item.className = `codex-item ${variant}${locked ? ' locked' : ''}${active ? ' active' : ''}`;
     item.dataset.id = c.id;
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
     /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
@@ -297,33 +318,36 @@ export function setupCodexPicker() {
       `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
-    item.innerHTML =
-      coverSlot(typeIconOf(c), cover, c) +
+    const ring = `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>`;
+    const stat = `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>${ring}`;
+    const main =
       `<span class="ci-main">` +
       `<span class="ci-head"><span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
       (active ? '<span class="ci-now">当前</span>' : '') +
       (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
-      `<span class="ci-foot"><span class="ci-tags">${renderCodexChips(c)}</span>` +
-      `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>` +
-      `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>` +
-      `</span></span>`;
+      `<span class="ci-tags">${renderCodexChips(c)}</span>` +
+      `</span>`;
+    item.innerHTML = variant === 'stn'
+      ? coverSlot(typeIconOf(c), cover, c) + main + `<span class="stn-stat">${stat}</span>` +
+        (isRecentlyUpdated(c) ? '<span class="stn-fresh" aria-hidden="true"></span>' : '')
+      : coverSlot(typeIconOf(c), cover, c, `<span class="vb-stat">${stat}</span>`) + main;
     bindCoverReveal(item);
     item.onclick = () => chooseCodex(c, item);
     return item;
   };
 
-  const makeSoonItem = (t, ph) => {
+  const makeSoonItem = (t, ph, variant) => {
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = 'codex-item soon';
+    item.className = `codex-item ${variant} soon`;
     item.dataset.soon = t.id;
     item.innerHTML =
       coverSlot(t.icon) +
       `<span class="ci-main">` +
       `<span class="ci-head"><span class="ci-name">${esc(ph.title)}</span></span>` +
       `<span class="ci-sub">${esc(ph.meta || '')}</span>` +
-      `<span class="ci-foot"><span class="ci-tags"><span class="ci-soon-chip">占位册</span></span></span>` +
+      `<span class="ci-tags"><span class="ci-soon-chip">占位册</span></span>` +
       `</span>`;
     item.onclick = () => toast(`「${t.name}」即将上线`, '');
     return item;
@@ -401,28 +425,34 @@ export function setupCodexPicker() {
     return wrap;
   };
 
-  const fillItems = (container, t) => {
+  const fillItems = (container, t, variant) => {
     if (t.soon) {
-      (t.placeholders || []).forEach(ph => container.appendChild(makeSoonItem(t, ph)));
+      (t.placeholders || []).forEach(ph => container.appendChild(makeSoonItem(t, ph, variant)));
     } else {
-      t.real.forEach(c => container.appendChild(makeRealItem(c)));
+      t.real.forEach(c => container.appendChild(makeRealItem(c, variant)));
     }
   };
 
-  /* 类型轨底部的合计：把左栏那块空白用成有用的信息，顺带说明圆环是什么 */
-  const makeRailFoot = () => {
-    const books = state.codexes.length;
-    const entries = state.codexes.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
-    const foot = document.createElement('div');
-    foot.className = 'codex-rail-foot';
-    foot.innerHTML = `共 <b>${books}</b> 本 · <b>${entries.toLocaleString()}</b> 条词条<br>右侧圆环＝配图率`;
-    return foot;
+  /* 入场动效按序号错开：--i 交给 CSS 算 animation-delay */
+  const indexChildren = (container, start = 0) => {
+    [...container.children].forEach((el, i) => el.style.setProperty('--i', start + i));
+    return start + container.children.length;
+  };
+  const typeCount = t => (t.soon ? (t.placeholders || []).length : t.real.length);
+  const typeEntries = t => t.real.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+  /* 书脊小封面与卷头拼贴共用；data-lock-id 让 updateCodexPickerState 就地切换锁态 */
+  const miniCover = (c, cls) => {
+    const url = codexCoverUrl(c);
+    return `<span class="${cls}${isCodexLocked(c) ? ' locked' : ''}" data-lock-id="${esc(c.id)}">` +
+      (url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async"${codexCoverStyle(c)}>` : '') +
+      `</span>`;
   };
 
-  /* PC：级联双栏 */
-  const renderCascade = types => {
-    menu.classList.add('cascade');
-    menu.classList.remove('grouped');
+  /* PC：四卷。每类一卷并排，打开的那卷靠 flex-grow 过渡撑开，其余收成书脊。
+     卷体只给打开的那卷渲染、换卷时同步替换——`.codex-item[data-id]` 永远只列这一卷（verify_ui 依赖）。 */
+  const renderVolumes = types => {
+    menu.classList.add('volumes');
+    menu.classList.remove('metro');
     menu.innerHTML = '';
     // 本地版允许从零法典启动；此时选择器只需要下面的“法典管理”门。
     if (!types.length) return;
@@ -430,97 +460,104 @@ export function setupCodexPicker() {
       const preferred = codexType(pickerActiveCodex());
       activeType = types.some(t => t.id === preferred) ? preferred : types[0].id;
     }
-    const rail = document.createElement('div');
-    rail.className = 'codex-rail';
-    const indicator = document.createElement('span');
-    indicator.className = 'codex-type-indicator';
-    indicator.setAttribute('aria-hidden', 'true');
-    indicator.hidden = true;
-    rail.appendChild(indicator);
-    syncTypeIndicator = ({ animate = false } = {}) => {
-      const selected = rail.querySelector('.codex-type.active');
-      if (menu.hidden || !selected) return;
-      const previous = { translate: getComputedStyle(indicator).translate, height: getComputedStyle(indicator).height };
-      const next = { translate: `0 ${selected.offsetTop}px`, height: `${selected.offsetHeight}px` };
-      const wasVisible = !indicator.hidden;
-      cancelUiMotion(indicator);
-      Object.assign(indicator.style, next);
-      indicator.hidden = false;
-      if (animate && wasVisible) animateUi(indicator, [previous, next]);
+    const vols = document.createElement('div');
+    vols.className = 'codex-vols';
+    vols.style.setProperty('--n', types.length);
+    const volumes = types.map((t, index) => {
+      const section = document.createElement('section');
+      section.className = `codex-vol cat-${t.id}`;
+      section.style.setProperty('--i', index);
+      const spine = document.createElement('button');
+      spine.type = 'button';
+      spine.className = 'codex-type vol-spine';
+      spine.dataset.type = t.id;
+      spine.title = t.sub;
+      spine.setAttribute('aria-controls', `codexVol-${t.id}`);
+      spine.setAttribute('aria-label', `${volumeLabel(index)} ${t.name}，${typeCount(t)} 本`);
+      spine.innerHTML =
+        `<span class="vs-no">${volumeLabel(index)}</span>` +
+        `<span class="vs-ico">${TYPE_ICONS[t.icon]}</span>` +
+        `<span class="vs-name">${esc(t.name)}</span>` +
+        `<span class="vs-n">${t.soon ? '<span class="codex-soon-tag">占位</span>' : `<b>${t.real.length}</b>本`}</span>` +
+        `<span class="vs-thumbs" aria-hidden="true">${t.real.slice(0, 3).map(c => miniCover(c, 'vs-thumb')).join('')}</span>`;
+      spine.onclick = () => setActive(t.id, { fromSpine: spine });
+      const body = document.createElement('div');
+      body.className = 'vol-body';
+      body.id = `codexVol-${t.id}`;
+      section.append(spine, body);
+      vols.appendChild(section);
+      return { t, index, section, spine, body };
+    });
+    const fillVolume = ({ t, index, body }) => {
+      const head = document.createElement('header');
+      head.className = 'vol-head';
+      head.innerHTML =
+        `<span class="vh-text"><span class="vh-no">${volumeLabel(index)}</span>` +
+        `<span class="vh-name">${TYPE_ICONS[t.icon]}<b>${esc(t.name)}</b></span>` +
+        `<span class="vh-sub">${esc(t.sub)}</span>` +
+        (t.soon ? '' : `<span class="vh-stats"><b>${t.real.length}</b> 本 · <b>${typeEntries(t).toLocaleString()}</b> 条词条 · 圆环＝配图率</span>`) +
+        `</span>` +
+        (t.real.length ? `<span class="vol-collage" aria-hidden="true">${t.real.slice(0, 4).map(c => miniCover(c, 'vc-card')).join('')}</span>` : '');
+      const grid = document.createElement('div');
+      grid.className = 'vol-grid';
+      const count = typeCount(t);
+      // 卷内一律等大：≤3 本一行，4 本 2×2，5 本起 3 列（行多了网格内部滚动）
+      grid.style.setProperty('--cols', count <= 3 ? Math.max(1, count) : count === 4 ? 2 : 3);
+      fillItems(grid, t, 'vbook');
+      indexChildren(grid);
+      body.replaceChildren(head, ...(t.soon ? [makeSoonBanner(t)] : []), grid);
     };
-    const listWrap = document.createElement('div');
-    listWrap.className = 'codex-list';
-    let renderedType = null;
-    const setActive = id => {
-      if (renderedType === id) return;
-      const animate = renderedType !== null && !menu.hidden;
-      const previousHeight = animate ? listWrap.getBoundingClientRect().height : 0;
-      cancelUiMotion(listWrap);
-      renderedType = activeType = id;
-      rail.querySelectorAll('.codex-type').forEach(el => {
-        const active = el.dataset.type === id;
-        el.classList.toggle('active', active);
-        el.setAttribute('aria-pressed', active ? 'true' : 'false');
+    const setActive = (id, { fromSpine = null } = {}) => {
+      activeType = id;
+      // 首次打开时卷内跟着书脊入场；换卷时等宽度过渡走一段再浮入
+      vols.classList.toggle('is-switching', Boolean(fromSpine));
+      volumes.forEach(v => {
+        const open = v.t.id === id;
+        v.section.classList.toggle('is-open', open);
+        v.spine.classList.toggle('active', open);
+        v.spine.setAttribute('aria-expanded', open ? 'true' : 'false');
+        v.spine.tabIndex = open ? -1 : 0;
+        v.body.inert = !open;
+        if (open) fillVolume(v);
+        else v.body.replaceChildren();
       });
-      listWrap.innerHTML = '';
-      const t = types.find(x => x.id === id);
-      if (t.soon) listWrap.appendChild(makeSoonBanner(t));
-      fillItems(listWrap, t);
-      listWrap.scrollTop = 0;
-      syncTypeIndicator({ animate });
-      if (animate) {
-        const height = listWrap.getBoundingClientRect().height;
-        animateUi(listWrap, [
-          { height: `${previousHeight}px`, opacity: .5, translate: '0 5px' },
-          { height: `${height}px`, opacity: 1, translate: '0 0' },
-        ]);
+      // 键盘换卷：被按的书脊随即藏到卷体后面，焦点交给新卷的第一本
+      if (fromSpine && document.activeElement === fromSpine) {
+        menu.querySelector('.codex-vol.is-open .codex-item')?.focus({ preventScroll: true });
       }
     };
-    types.forEach(t => {
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'codex-type';
-      el.dataset.type = t.id;
-      el.setAttribute('aria-pressed', 'false');
-      const count = t.soon ? (t.placeholders || []).length : t.real.length;
-      el.title = t.sub;
-      el.innerHTML =
-        `<span class="ct-ico">${TYPE_ICONS[t.icon]}</span>` +
-        `<span class="ct-name">${esc(t.name)}${t.soon ? '<span class="codex-soon-tag">占位</span>' : ''}</span>` +
-        `<span class="ct-n">${count}</span>`;
-      el.onclick = () => setActive(t.id);
-      rail.appendChild(el);
-    });
-    rail.appendChild(makeRailFoot());
-    menu.appendChild(rail);
-    menu.appendChild(listWrap);
+    menu.appendChild(vols);
     setActive(activeType);
   };
 
-  /* 移动端：分组下拉（方案 A） */
-  const renderGrouped = types => {
-    menu.classList.add('grouped');
-    menu.classList.remove('cascade');
+  /* 手机：线路图。每类一条竖向线路，线路牌 + 一站一本，全部展开随面板滚动；
+     手机上没有「选类型」这一步，所以不渲染 .codex-type。 */
+  const renderMetro = types => {
+    menu.classList.add('metro');
+    menu.classList.remove('volumes');
     menu.innerHTML = '';
-    types.forEach(t => {
-      const head = document.createElement('div');
-      head.className = 'codex-group-head';
-      head.innerHTML =
-        `<span class="cg-ico">${TYPE_ICONS[t.icon]}</span>` +
-        `<span class="cg-name">${esc(t.name)}</span>` +
-        `<span class="cg-sub">${esc(t.sub)}</span>` +
-        (t.soon ? '<span class="codex-soon-tag">占位</span>' : '');
-      menu.appendChild(head);
-      if (t.soon) menu.appendChild(makeSoonBanner(t));
-      fillItems(menu, t);
+    let order = 0;
+    types.forEach((t, index) => {
+      const line = document.createElement('section');
+      line.className = `metro-line cat-${t.id}${t.soon ? ' soon' : ''}`;
+      line.style.setProperty('--li', index);
+      line.innerHTML =
+        `<div class="metro-badge" style="--i:${order}"><span class="mb-pill">${TYPE_ICONS[t.icon]}` +
+        `<b>${esc(t.name)}</b><span class="mb-n">${t.soon ? '占位' : `${t.real.length} 本`}</span></span>` +
+        `<span class="mb-sub">${esc(t.sub)}</span></div>`;
+      if (t.soon) line.appendChild(makeSoonBanner(t));
+      const track = document.createElement('div');
+      track.className = 'metro-track';
+      fillItems(track, t, 'stn');
+      order = indexChildren(track, order + 1);
+      line.appendChild(track);
+      menu.appendChild(line);
     });
   };
 
   const renderMenu = () => {
-    menu.querySelectorAll('.codex-list, .codex-type-indicator').forEach(cancelUiMotion);
-    syncTypeIndicator = () => {};
-    if (isMobile()) renderGrouped(buildTypes());
-    else renderCascade(buildTypes());
+    if (isMobile()) renderMetro(buildTypes());
+    else renderVolumes(buildTypes());
     const launchPanel = makeN5LaunchPanel();
     if (launchPanel) menu.prepend(launchPanel);
     menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
@@ -653,7 +690,7 @@ export function setupCodexPicker() {
       focused?.classList.contains('codex-item') ? '.codex-item' :
       focused?.classList.contains('codex-door') ? '.codex-door' : '.codex-type';
     renderMenu();
-    syncTypeIndicator();
+    placeMenu();
     if (isMobile() && !getManagedHistoryEntry()?.layers.some(layer => layer.id === 'codex-menu')) {
       openHistoryLayer('codex-menu', { mode: topHistoryLayerId() === 'banner-about' ? 'replace' : 'push' });
     }
@@ -663,6 +700,9 @@ export function setupCodexPicker() {
       if (target) target.focus({ preventScroll: true });
       else focusPreferredItem({ preventScroll: true });
     }
+  });
+  window.addEventListener('resize', () => {
+    if (!menu.hidden) placeMenu();
   });
   setupN5LaunchNotice();
 }
@@ -682,6 +722,10 @@ export function updateCodexPickerState() {
     else it.removeAttribute('aria-current');
     if (locked) it.title = NSFW_LOCKED_MESSAGE;
     else it.removeAttribute('title');
+  });
+  // 书脊小封面与卷头拼贴只跟锁态走
+  document.querySelectorAll('#codexMenu [data-lock-id]').forEach(el => {
+    el.classList.toggle('locked', isCodexLocked(state.codexes.find(item => item.id === el.dataset.lockId)));
   });
 }
 
