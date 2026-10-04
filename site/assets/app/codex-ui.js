@@ -174,6 +174,9 @@ const codexUiActions = {
   syncUrlState: () => {},
   openLightbox: () => {},
   updateVirtualCards: () => {},
+  loadUpdates: async () => [],
+  openUpdateBatch: async () => {},
+  isContentBlocked: () => false,
 };
 
 export function setCodexUiActions(actions = {}) {
@@ -196,12 +199,13 @@ export function setupCodexPicker() {
 
   let activeType = null;  // 四卷里当前打开的那一卷
   let dismissN5LaunchNotice = () => {};
+  let updateBatches = null;  // updates.json 的批次；卷头「最近新增」读它，载入前为 null
   const n5Launch = n5LaunchMode();
   const n5LaunchActive = n5Launch.active && state.codexes.some(isN5LaunchCodex);
   document.body.classList.toggle('n5-launch-active', n5LaunchActive);
 
   /* 已打开那卷的书脊被卷体盖住、tabindex=-1，方向键要跳过它 */
-  const focusableItems = () => [...menu.querySelectorAll('.n5-launch-book, .codex-type, .codex-item, .codex-door')]
+  const focusableItems = () => [...menu.querySelectorAll('.n5-launch-book, .codex-type, .vr-cap, .codex-item, .codex-door')]
     .filter(el => el.tabIndex >= 0 && el.getClientRects().length);
   const focusItem = index => {
     const list = focusableItems();
@@ -228,6 +232,7 @@ export function setupCodexPicker() {
     menu.inert = false;
     menu.hidden = false;
     placeMenu();
+    ensureUpdates();
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
     if (focus) requestAnimationFrame(() => focusPreferredItem());
@@ -273,6 +278,99 @@ export function setupCodexPicker() {
     close({ focusButton: true, historyMode: 'none' });
     sel.value = c.id;
     codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer });
+  };
+
+  /* 卷头「最近新增」的点击：进那本书并落到那一批，和顶栏「最近更新」的行点击同一条路 */
+  const chooseBatch = (codexId, batchId) => {
+    const c = state.codexes.find(item => item.id === codexId);
+    if (!c || !batchId) return;
+    if (isCodexLocked(c)) { showNsfwLockedHint(); return; }
+    dismissN5LaunchNotice();
+    const consumeLayer = topHistoryLayerId() === 'codex-menu';
+    close({ focusButton: true, historyMode: 'none' });
+    sel.value = c.id;
+    void codexUiActions.openUpdateBatch({ codexId: c.id, batchId, consumeLayer });
+  };
+
+  /* 更新索引顶栏开站时就在载，这里只是复用同一个 Promise；载好时菜单若开着，把占位换成「最近新增」 */
+  const ensureUpdates = () => {
+    if (updateBatches) return;
+    Promise.resolve(codexUiActions.loadUpdates()).then(list => {
+      updateBatches = Array.isArray(list) ? list : [];
+      if (menu.hidden) return;
+      menu.querySelectorAll('.vol-recent.is-pending').forEach(el => {
+        const t = buildTypes().find(item => item.id === el.dataset.type);
+        if (t) el.outerHTML = recentHTML(t);
+      });
+    }, () => { updateBatches = []; });
+  };
+
+  /* 卷头「最近新增」：这一类里访客看得到的最近一次更新（维护者给某本书那一批标了 pickerHidden 的不算）。
+     条数按访客能看到的算（未解锁 NSFW 用 safeCount）。样图来自 updates.json 的 samples：默认只挑能公开的，
+     维护者指定的成人档样图带 nsfw 标记、只给已解锁的访客看。没有能看的图时改画「新增分布」——这一批落在
+     哪几个目录、各多少条；连目录都数不出才用「待配图」卡顶上；索引里没有这一类的更新时退回前几本的封面。 */
+  const visibleUpdateCount = book => (state.allowNsfw ? book.count : book.safeCount);
+  const recentForType = t => {
+    const open = new Map(t.real.filter(c => !isCodexLocked(c)).map(c => [c.id, c]));
+    for (const batch of updateBatches || []) {
+      const books = batch.books
+        .filter(book => !book.pickerHidden && open.has(book.codexId) && visibleUpdateCount(book) > 0)
+        .map(book => ({ ...book, meta: open.get(book.codexId), shown: visibleUpdateCount(book) }))
+        .sort((a, b) => b.shown - a.shown);
+      if (books.length) return { batch, books };
+    }
+    return null;
+  };
+  const mergeDirs = books => {
+    const totals = new Map();
+    books.forEach(book => (state.allowNsfw ? book.dirs : book.safeDirs)
+      .forEach(([name, count]) => totals.set(name, (totals.get(name) || 0) + count)));
+    return [...totals].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  };
+  const recentHTML = t => {
+    if (!updateBatches) return `<span class="vol-recent is-pending" data-type="${esc(t.id)}" aria-hidden="true"></span>`;
+    const recent = recentForType(t);
+    if (!recent) return t.real.length ? `<span class="vol-collage" aria-hidden="true">${t.real.slice(0, 4).map(c => miniCover(c, 'vc-card')).join('')}</span>` : '';
+    const { batch, books } = recent;
+    const lead = books[0];
+    const total = books.reduce((sum, book) => sum + book.shown, 0);
+    const [, month, day] = String(batch.date).split('-').map(Number);
+    const when = `${month}.${day}`;
+    const what = books.length > 1 ? `${codexPickerTitle(lead.meta)} 等 ${books.length} 本` : codexPickerTitle(lead.meta);
+    const target = codexId => `data-recent-codex="${esc(codexId)}" data-recent-batch="${esc(batch.id)}"`;
+    const samples = books
+      .flatMap(book => book.samples.map(sample => ({ ...sample, book })))
+      .filter(sample => (!sample.nsfw || state.allowNsfw) &&
+        !codexUiActions.isContentBlocked({ id: sample.id, _srcCodexId: sample.book.codexId }))
+      .slice(0, 4);
+    const dirs = samples.length ? [] : mergeDirs(books);
+    let visual;
+    if (samples.length) {
+      visual = `<span class="vol-collage vr-fan" style="--k:${samples.length}">` + samples.map((sample, j) =>
+        `<button type="button" class="vc-card vr-card" style="--j:${j}" tabindex="-1" ${target(sample.book.codexId)} ` +
+        `aria-label="${esc(codexPickerTitle(sample.book.meta))} ${when} 新增">` +
+        `<img src="${esc(thumbUrl({ image: sample.image, assetRev: sample.assetRev, assetCodexId: sample.assetCodexId }, sample.book.meta))}" alt="" loading="lazy" decoding="async"></button>`).join('') +
+        `</span>`;
+    } else if (dirs.length) {
+      const top = dirs[0][1];
+      visual = `<button type="button" class="vr-dist" tabindex="-1" ${target(lead.codexId)} aria-label="${esc(what)} ${when} 新增分布">` +
+        `<span class="vr-dist-k">新增分布</span>` +
+        dirs.map(([name, count], i) =>
+          `<span class="vr-row" style="--i:${i};--w:${Math.max(6, Math.round(count / top * 100))}%">` +
+          `<span class="vr-name">${esc(name)}</span><b>${count.toLocaleString()}</b><span class="vr-bar"></span></span>`).join('') +
+        `</button>`;
+    } else {
+      visual = `<span class="vol-collage vr-fan" style="--k:3">` +
+        `<span class="vc-card vr-blank" style="--j:0"></span><span class="vc-card vr-blank" style="--j:1"></span>` +
+        `<button type="button" class="vc-card vr-card vr-num" style="--j:2" tabindex="-1" ${target(lead.codexId)} aria-label="${esc(what)} ${when} 新增">` +
+        `${TYPE_ICONS.image}<i>待配图</i></button></span>`;
+    }
+    return `<span class="vol-recent">` +
+      `<button type="button" class="vr-cap" ${target(lead.codexId)}>` +
+      `<span class="vr-k">最近新增</span><b>+${total.toLocaleString()}<i>条</i></b>` +
+      `<span class="vr-sub">${when} · ${esc(codexPickerTitle(lead.meta))}` +
+      (books.length > 1 ? ` <span class="vr-more">等 ${books.length} 本</span>` : '') + `</span></button>` +
+      visual + `</span>`;
   };
 
   /* 类型清单：每类带真实法典 real[] 与是否占位 soon */
@@ -496,9 +594,8 @@ export function setupCodexPicker() {
         `<span class="vh-text"><span class="vh-no">${volumeLabel(index)}</span>` +
         `<span class="vh-name">${TYPE_ICONS[t.icon]}<b>${esc(t.name)}</b></span>` +
         `<span class="vh-sub">${esc(t.sub)}</span>` +
-        (t.soon ? '' : `<span class="vh-stats"><b>${t.real.length}</b> 本 · <b>${typeEntries(t).toLocaleString()}</b> 条词条 · 圆环＝配图率</span>`) +
-        `</span>` +
-        (t.real.length ? `<span class="vol-collage" aria-hidden="true">${t.real.slice(0, 4).map(c => miniCover(c, 'vc-card')).join('')}</span>` : '');
+        (t.soon ? '' : `<span class="vh-stats"><span><b>${t.real.length}</b> 本 · <b>${typeEntries(t).toLocaleString()}</b> 条词条</span> · <span>圆环＝配图率</span></span>`) +
+        `</span>` + recentHTML(t);
       const grid = document.createElement('div');
       grid.className = 'vol-grid';
       const count = typeCount(t);
@@ -527,6 +624,10 @@ export function setupCodexPicker() {
         menu.querySelector('.codex-vol.is-open .codex-item')?.focus({ preventScroll: true });
       }
     };
+    vols.addEventListener('click', ev => {
+      const recent = ev.target.closest('[data-recent-batch]');
+      if (recent) chooseBatch(recent.dataset.recentCodex, recent.dataset.recentBatch);
+    });
     menu.appendChild(vols);
     setActive(activeType);
   };
@@ -705,6 +806,7 @@ export function setupCodexPicker() {
   window.addEventListener('resize', () => {
     if (!menu.hidden) placeMenu();
   });
+  ensureUpdates();
   setupN5LaunchNotice();
 }
 

@@ -228,6 +228,21 @@ function normalizeUpdates(data) {
           label: String(book?.label || '').trim(),
           latest: book?.latest === true,
           count: Number(book?.count) || 0,
+          // 选择器「最近新增」用：未解锁访客可见的条数与几张样图；旧索引没有就按总数、不出图
+          safeCount: Number.isFinite(Number(book?.safeCount)) ? Number(book.safeCount) : Number(book?.count) || 0,
+          samples: (Array.isArray(book?.samples) ? book.samples : [])
+            .map(sample => ({
+              id: String(sample?.id || ''),
+              image: String(sample?.image || '').trim(),
+              assetRev: String(sample?.assetRev || ''),
+              assetCodexId: String(sample?.assetCodexId || ''),
+              nsfw: sample?.nsfw === true,
+            }))
+            .filter(sample => sample.image)
+            .slice(0, 4),
+          dirs: normalizeDirs(book?.dirs),
+          safeDirs: normalizeDirs(book?.safeDirs),
+          pickerHidden: book?.pickerHidden === true,
         }))
         .filter(book => book.codexId && book.count > 0);
       return {
@@ -240,6 +255,14 @@ function normalizeUpdates(data) {
     .filter(batch => batch.id && batch.date && batch.books.length)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .slice(0, MAX_BATCHES);
+}
+
+/* 「新增分布」：[[目录名, 条数], …] */
+function normalizeDirs(list) {
+  return (Array.isArray(list) ? list : [])
+    .map(item => [String(item?.[0] || '').trim(), Number(item?.[1]) || 0])
+    .filter(([name, count]) => name && count > 0)
+    .slice(0, 3);
 }
 
 function formatBatchDate(iso) {

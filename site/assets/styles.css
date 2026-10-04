@@ -429,6 +429,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .vh-sub{font-size:12px;color:var(--muted)}
 .vh-stats{font-size:11.5px;color:var(--muted)}
 .vh-stats b{color:var(--text);font-weight:800}
+.vh-stats > span{white-space:nowrap}
 /* 卷头拼贴：前四本封面从叠放展开成扇形，悬停再张开一点 */
 .vol-collage{position:relative;flex:none;width:150px;height:96px}
 .vc-card{position:absolute;bottom:0;left:44px;width:62px;height:84px;border-radius:8px;overflow:hidden;background:var(--cat-mid);
@@ -441,6 +442,48 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .vc-card:nth-child(3){--x:16px;--r:4deg;z-index:2}
 .vc-card:nth-child(4){--x:44px;--r:11deg;z-index:3}
 .vol-collage:hover .vc-card{translate:calc(var(--x) * 1.3) -4px;rotate:calc(var(--r) * 1.5)}
+/* 卷头「最近新增」：左边一行说明（多少条、哪天、哪本），右边扇着这一批里的样图；点字或点图都进那一批。
+   卷体窄到放不下时只留说明（容器查询看卷头自身宽度，不看视口）。 */
+.vol-head{container:vol-head / inline-size}
+.vol-recent{flex:none;display:flex;align-items:flex-end;gap:14px}
+.vol-recent.is-pending{width:150px;height:96px}
+.vr-cap{display:flex;flex-direction:column;align-items:flex-end;gap:1px;max-width:156px;padding:4px 2px;border:0;border-radius:8px;
+  background:transparent;color:var(--text);text-align:right;cursor:pointer;
+  animation:vol-rise .34s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 40ms)}
+.vr-k{font-size:10.5px;font-weight:800;letter-spacing:.14em;color:var(--cat)}
+.vr-cap b{font-size:22px;font-weight:800;line-height:1.1;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.vr-cap b i{margin-left:2px;font-style:normal;font-size:11px;font-weight:700;letter-spacing:0;color:var(--muted)}
+.vr-sub{max-width:156px;font-size:11px;line-height:1.35;color:var(--muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;transition:color .16s}
+.vr-cap:hover .vr-sub,.vr-cap:focus-visible .vr-sub{color:var(--cat)}
+.vr-more{white-space:nowrap}
+.vr-cap:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vr-fan .vc-card.vr-card,.vr-fan .vc-card.vr-blank{
+  --x:calc((var(--j) - (var(--k) - 1) / 2) * 30px);--r:calc((var(--j) - (var(--k) - 1) / 2) * 7deg);z-index:var(--j);
+}
+.vr-card{padding:0;border:0;cursor:pointer}
+.vr-fan .vr-card:hover{translate:calc(var(--x) * 1.3) -12px;rotate:0deg;z-index:9}
+.vr-blank{background:var(--cat-mid)}
+/* 这一批还没配图：顶上那张写条数，下面两张素卡垫着，扇形照旧 */
+.vr-num{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:var(--card);color:var(--cat);
+  box-shadow:0 0 0 2px var(--card),0 6px 14px rgba(28,32,58,.18),inset 0 0 0 1px var(--line)}
+.vr-num svg{width:24px;height:24px}
+.vr-num i{font-style:normal;font-size:9.5px;font-weight:700;color:var(--muted)}
+/* 这一批没有能看的图：改画「新增分布」——落在哪几个目录、各多少条，条长按最多那一项折算，入场时依次长出来 */
+.vr-dist{flex:none;width:170px;display:flex;flex-direction:column;gap:5px;padding:7px 10px 8px;border:1px solid var(--line);border-radius:10px;
+  background:var(--card);color:var(--text);text-align:left;cursor:pointer;box-shadow:0 6px 14px -6px rgba(28,32,58,.18);
+  transition:border-color .16s,translate .16s;
+  animation:vol-rise .34s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 60ms)}
+.vr-dist:hover{border-color:var(--cat);translate:0 -2px}
+.vr-dist:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vr-dist-k{font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--muted)}
+.vr-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;row-gap:3px;align-items:baseline}
+.vr-name{font-size:11.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vr-row b{font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--muted)}
+.vr-bar{position:relative;grid-column:1/-1;height:4px;border-radius:2px;background:var(--cat-soft);overflow:hidden}
+.vr-bar::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--w);border-radius:2px;background:var(--cat);transform-origin:0 50%;
+  animation:vr-grow .5s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 140ms + var(--i,0) * 60ms)}
+@keyframes vr-grow{from{scale:0 1}}
+@container vol-head (max-width:440px){.vr-fan,.vr-dist{display:none}}
 /* 卷内等大书卡：列数由 JS 按本数给（--cols），行多了网格内部滚动；内边距给悬停抬升留余量 */
 .vol-grid{
   flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));grid-auto-rows:minmax(150px,1fr);
@@ -562,7 +605,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   .codex-btn:active,.codex-type:active,.codex-item:active,.n5-launch-book:active,.codex-door:active{scale:1}
   .codex-door,.codex-item,.ci-cover img,.n5-launch-book,.n5-launch-notice,
   .codex-vol,.codex-vol::before,.vol-spine,.vs-name,.vs-thumb,.vc-card,.stn .ci-cover{transition:none}
-  .codex-vol,.vol-head,.vc-card,.codex-item.vbook,.metro-badge,.codex-item.stn,.codex-item.stn::before,
+  .codex-vol,.vol-head,.vc-card,.vr-cap,.vr-dist,.vr-bar::after,.codex-item.vbook,.metro-badge,.codex-item.stn,.codex-item.stn::before,
   .stn-fresh,.codex-item.stn.active .ci-cover{animation:none}
   .codex-door:hover,.codex-door:focus-visible,
   .codex-item:hover,.codex-item:focus-visible{transform:none;translate:none}
