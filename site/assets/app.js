@@ -427,7 +427,7 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   setLoading('');
   const loading = fetchCodex(meta);
   const sw = beginCodexSwitch({
-    origin: options.origin,
+    origin: $('#codexBanner')?.classList.contains('banner-book') ? options.origin : null,
     isCurrent,
     snapshotIdentity: snapshotCodexIdentity,
     arrive: ({ awaitingCover }) => {

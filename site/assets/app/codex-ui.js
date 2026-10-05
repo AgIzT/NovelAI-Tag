@@ -1662,7 +1662,50 @@ export function openRandomEntry(entry) {
 }
 
 /* ---------------- 法典横幅 / 分类轨道 ---------------- */
-const bannerImagedPct = c => (c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0);
+const bannerImagedPct = c => (c.entryCount ? Math.min(100, Math.floor((Number(c.imagedCount || 0) / c.entryCount) * 100)) : 0);
+
+const bannerShortAuthor = author => {
+  const names = String(author || '').split(/\s*\/\s*/).filter(Boolean);
+  return names.length > 2 ? `${names[0]} 等 ${names.length} 人` : names.join(' / ');
+};
+const comparableBannerTitle = title => String(title || '').normalize('NFKC').toLowerCase()
+  .replace(/novelai|\s|[·：:]/g, '');
+
+/* 样张复用选择器的更新索引；迟到的索引只补这一次渲染的节点，不覆盖后来换上的书。
+   图区预留同样的几何，即使旧 release 没有 previews，封面接力的终点也不会移动。 */
+function fillBannerPreviews(banner, c) {
+  const samples = banner.querySelector('.banner-samples');
+  if (!samples || isExternalCodex(c) || c.assetPathMode === 'relative') return;
+  const fill = () => {
+    if (!samples.isConnected || banner.dataset.identity !== c.id) return;
+    const cover = codexCoverUrl(c);
+    const seen = new Set(cover ? [cover] : []);
+    const previews = (codexUiActions.bookPreviews(c.id) || []).filter(item => {
+      if (!item.image || (item.nsfw && !state.allowNsfw)
+        || codexUiActions.isContentBlocked({ id: item.id, _srcCodexId: c.id })) return false;
+      const url = thumbUrl(item, c);
+      if (!url || seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    }).slice(0, 3);
+    samples.innerHTML = previews.map((item, i) =>
+      `<span class="banner-sample" style="--s:${i + 1}"><img src="${esc(thumbUrl(item, c))}" alt="" decoding="async"></span>`).join('');
+    samples.querySelectorAll('img').forEach(revealBannerImage);
+  };
+  fill();
+  if (!samples.childElementCount) {
+    Promise.resolve().then(() => codexUiActions.loadUpdates()).then(fill, () => {});
+  }
+}
+
+function revealBannerImage(img) {
+  const reveal = () => img.classList.add('is-loaded');
+  if (img.complete && img.naturalWidth) reveal();
+  else {
+    img.onload = reveal;
+    img.onerror = () => { img.closest('.banner-sample')?.classList.add('is-unavailable'); };
+  }
+}
 
 /* 横幅主体：封面、书名、作者 · 版本、原图签、作者主页、配图进度。这些都只读 codexes.json 也有的字段，
    所以换书接力时可以先用 meta 画好（pending：封面不播二段浮现、进度行留给计步与落地揭开）。 */
@@ -1674,15 +1717,30 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   const home = virtualView ? null : authorHomepage(c);
-  banner.innerHTML =
-    `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
-    `<div class="banner-info">` +
-    `<div class="banner-title">${esc(c.title)}</div>` +
-    `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}` +
-    `${home ? renderAuthorHomepage(home) : ''}</div>` +
-    `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
-    `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>` +
-    `</div>`;
+  const coverHtml = `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>`;
+  const progressHtml = `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track" aria-hidden="true"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
+    `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
+  banner.classList.toggle('banner-book', !virtualView);
+  if (virtualView) {
+    banner.removeAttribute('data-type');
+    banner.innerHTML = coverHtml + `<div class="banner-info">` +
+      `<div class="banner-title">${esc(c.title)}</div>` +
+      `<div class="banner-meta"><span>${esc(metaText)}</span></div>${progressHtml}</div>`;
+  } else {
+    const typeIndex = Math.max(0, CODEX_TYPES.findIndex(type => type.id === codexType(c)));
+    const title = codexPickerTitle(state.codexes.find(item => item.id === c.id) || c);
+    const subtitle = comparableBannerTitle(title) === comparableBannerTitle(c.title) ? '' : c.title;
+    banner.dataset.type = CODEX_TYPES[typeIndex].id;
+    banner.innerHTML = `<div class="banner-info">` +
+      `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${CODEX_TYPES[typeIndex].name}</span></div>` +
+      `<div class="banner-title" title="${esc(c.title)}">${esc(title)}</div>` +
+      `${subtitle ? `<div class="banner-subtitle">${esc(subtitle)}</div>` : ''}` +
+      `<div class="banner-rule" aria-hidden="true"></div>` +
+      `<div class="banner-meta"><span class="banner-author" title="${esc(c.author || '')}"><small>作者</small>${esc(bannerShortAuthor(c.author) || '未标注')}</span>` +
+      `${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
+      `${progressHtml}${originalPill}${home ? renderAuthorHomepage(home) : ''}</div></div>` +
+      `<div class="banner-visuals" aria-hidden="true">${coverHtml}<div class="banner-samples"></div></div>`;
+  }
   banner.dataset.identity = virtualView ? '' : c.id;
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */
   const coverImg = banner.querySelector('.banner-cover img');
@@ -1691,6 +1749,7 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     if (coverImg.complete && coverImg.naturalWidth) reveal();
     else { coverImg.onload = reveal; coverImg.onerror = reveal; }
   }
+  if (!virtualView) fillBannerPreviews(banner, c);
 }
 
 /* 换书接力：数据还没到就先把横幅换成新书（app/codex-switch.js 回顶那一刻调）。
@@ -1841,14 +1900,15 @@ function renderAuthorHomepage(home) {
 
 function positionBannerPop(pop, banner) {
   const r = banner.getBoundingClientRect();
+  const anchor = banner.classList.contains('banner-book') ? banner.querySelector('.banner-about-btn')?.getBoundingClientRect() : null;
   const isMobile = window.matchMedia('(max-width: 600px)').matches;
   const gap = isMobile ? 8 : 12;
   const topOffset = isMobile ? 40 : 46;
   const width = Math.min(280, Math.max(0, r.width - gap * 2));
-  const left = Math.min(window.innerWidth - gap - width, Math.max(gap, r.right - gap - width));
+  const left = Math.min(window.innerWidth - gap - width, Math.max(gap, (anchor?.right ?? r.right - gap) - width));
   pop.style.width = `${Math.round(width)}px`;
   pop.style.left = `${Math.round(left)}px`;
-  pop.style.top = `${Math.round(Math.max(gap, r.top + topOffset))}px`;
+  pop.style.top = `${Math.round(Math.max(gap, anchor ? anchor.bottom + 8 : r.top + topOffset))}px`;
 }
 
 function positionOpenBannerPop() {
@@ -1953,7 +2013,7 @@ export function renderBannerAbout(c, banner) {
     }
   };
 
-  banner.appendChild(btn);
+  (banner.classList.contains('banner-book') ? banner.querySelector('.banner-info') : banner).appendChild(btn);
   document.body.appendChild(pop);
 }
 

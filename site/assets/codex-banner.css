@@ -1,0 +1,115 @@
+/* 法典卷首：书名与信息在左，封面与样张在右；虚拟视图沿用原横幅。
+   图区几何按容器宽度固定，缺样张时也不挪动封面，换书接力才有稳定终点。 */
+.codex-banner.banner-book{
+  --book-accent:var(--accent);
+  container:book-banner / inline-size;
+  height:168px;min-height:168px;gap:30px;padding:6px 0 18px;margin-bottom:6px;
+  background:none;border:0;border-radius:0;box-shadow:none;
+}
+@supports (color:oklch(from red l c h)){
+  .banner-book[data-type="string"]{--book-accent:oklch(from var(--accent) l min(c,.16) calc(h + 80))}
+  .banner-book[data-type="composition"]{--book-accent:oklch(from var(--accent) l min(c,.16) calc(h + 150))}
+  .banner-book[data-type="pack"]{--book-accent:oklch(from var(--accent) l min(c,.16) calc(h - 85))}
+}
+.banner-book .banner-info{position:relative;min-width:0}
+.banner-eyebrow{display:flex;align-items:baseline;gap:12px;margin-bottom:9px;font-size:11px;line-height:1.2;letter-spacing:.16em;color:var(--muted)}
+.banner-eyebrow b{font-weight:900;color:var(--book-accent)}
+.banner-book .banner-title{padding-right:34px;font:700 clamp(28px,3.8cqw,42px)/1.14 var(--font-display);letter-spacing:-.005em}
+.banner-subtitle{margin-top:5px;font-size:12px;line-height:1.4;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner-rule{height:1px;margin:15px 0 10px;background:var(--text);opacity:.75}
+.banner-book .banner-meta{margin:0;gap:8px 16px;font-size:12px;line-height:1.5;color:var(--text)}
+.banner-book .banner-meta>span:first-child{flex:none;max-width:22ch;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner-book .banner-meta small{margin-right:7px;font-size:10px;letter-spacing:.12em;color:var(--muted)}
+.banner-version{white-space:nowrap}
+.banner-book .banner-progress{flex:none;gap:7px;margin:0;min-height:18px}
+.banner-book .bp-track{flex:none;width:48px;height:2px;border-radius:0;background:var(--line)}
+.banner-book .bp-fill{border-radius:0;background:var(--book-accent)}
+.banner-book .bp-text{font-size:12px;color:var(--text)}
+.banner-book .banner-about-btn{right:0;top:0}
+.banner-visuals{
+  --cover-h:140px;--cover-w:105px;--sample-h:132px;--sample-w:99px;
+  position:relative;display:flex;align-items:center;gap:6px;flex:none;width:420px;height:140px;
+}
+.banner-book .banner-cover{position:relative;z-index:4;width:var(--cover-w);height:var(--cover-h);border-radius:8px;box-shadow:0 0 0 1px var(--line)}
+.banner-samples{display:flex;align-items:center;gap:6px}
+.banner-sample{
+  position:relative;z-index:calc(4 - var(--s));display:block;flex:none;width:var(--sample-w);height:var(--sample-h);
+  border-radius:8px;overflow:hidden;background:var(--tagbg);box-shadow:0 0 0 1px var(--line);
+  --spread:calc(-1 * (var(--s) * (var(--sample-w) + 6px) + 6px));
+  animation:bookSampleIn .42s cubic-bezier(.22,1,.36,1) calc(var(--s) * 40ms) backwards;
+}
+.banner-sample img{display:block;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .25s ease}
+.banner-sample img.is-loaded{opacity:1}
+.banner-sample.is-unavailable{visibility:hidden}
+@keyframes bookSampleIn{from{translate:var(--spread) 0;opacity:0}}
+.banner-cover.awaiting-cover+.banner-samples .banner-sample,
+html.intro-arm:not(.intro-reveal) .banner-sample{animation-play-state:paused}
+
+/* 样张数量跟正文区域走：侧栏展开 / 收起时也能保住书名的空间。 */
+@container book-banner (max-width:1000px){
+  .banner-visuals{width:315px}
+  .banner-sample:nth-child(n+3){display:none}
+}
+@container book-banner (max-width:800px){
+  .banner-visuals{width:210px}
+  .banner-sample:nth-child(n+2){display:none}
+  .banner-book .banner-meta{column-gap:12px}
+}
+@container book-banner (max-width:640px){
+  .banner-visuals{--cover-h:112px;--cover-w:84px;--sample-h:104px;--sample-w:78px;width:168px}
+  .banner-book .banner-title{font-size:30px}
+  .banner-book .bp-track{display:none}
+}
+@container book-banner (max-width:520px){
+  .banner-visuals{--cover-h:96px;--cover-w:72px;width:72px}
+  .banner-samples{display:none}
+  .banner-book .banner-title{font-size:28px}
+  .banner-version{display:none}
+}
+@media (min-width:601px){.layout:has(.banner-book) .sb-head{display:none}}
+
+/* 冷启动骨架与成品同高，正文不会在数据到达后被顶下去。 */
+.main.skeleton-visible .banner-book:empty::before{order:2;width:105px;height:140px;border-radius:8px}
+.main.skeleton-visible .banner-book:empty::after{
+  order:1;height:108px;border-radius:0;
+  background:
+    linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 0/18% 10px no-repeat,
+    linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 26px/62% 38px no-repeat,
+    linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 88px/72% 10px no-repeat;
+}
+@media (max-width:600px){
+  .codex-banner.banner-book{height:112px;min-height:112px;padding:2px 0 12px;gap:14px;margin-bottom:2px}
+  .banner-book .banner-info{order:1}
+  .banner-eyebrow{gap:10px;margin-bottom:6px;font-size:9.5px}
+  .banner-book .banner-title{font-size:23px;padding-right:0}
+  .banner-subtitle,.banner-version,.banner-book .banner-meta small{display:none}
+  .banner-rule{margin:9px 0 7px}
+  .banner-book .banner-meta{gap:5px 10px;flex-wrap:wrap;overflow:visible;font-size:11.5px}
+  .banner-book .banner-meta>span:first-child{max-width:12ch}
+  .banner-book .banner-progress{gap:0;min-height:17px}
+  .banner-book .bp-track{display:none}
+  .banner-book .bp-text{font-size:11.5px}
+  .banner-book .banner-about-btn{width:26px;height:26px;top:-10px}
+  .banner-visuals{order:0;--cover-h:64px;--cover-w:48px;--sample-h:64px;--sample-w:48px;width:64px;height:64px}
+  .banner-samples{position:absolute;left:0;top:0;display:block;width:48px;height:64px}
+  .banner-sample{position:absolute;inset:0;translate:calc(var(--s) * 7px) 0;scale:calc(1 - var(--s) * .08);transform-origin:right center;animation-name:bookStackIn}
+  .banner-sample:nth-child(-n+2){display:block}
+  .banner-sample:nth-child(n+3){display:none}
+  @keyframes bookStackIn{from{translate:0 0;opacity:0}}
+  .main.skeleton-visible .banner-book:empty::before{order:0;width:48px;height:64px}
+  .main.skeleton-visible .banner-book:empty::after{
+    height:76px;
+    background:
+      linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 0/25% 9px no-repeat,
+      linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 22px/70% 23px no-repeat,
+      linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 64px/80% 10px no-repeat;
+  }
+}
+@media (max-width:360px){
+  .banner-book .banner-title{font-size:21px}
+  .banner-book .banner-meta{column-gap:7px}
+  .banner-book .banner-meta>span:first-child{max-width:8ch}
+}
+@media (prefers-reduced-motion:reduce){.banner-sample{animation:none}.banner-sample img{transition:none}}
+html.motion-off .banner-sample{animation:none}
+html.motion-off .banner-sample img{transition:none}
