@@ -138,14 +138,18 @@ export function codexCoverUrl(c) {
 /* 封面构图只接受有界数值；独立 scale 与原有 hover transform 叠加。
    未配置时不输出 style 属性，继续使用各表面的默认构图。 */
 export function codexCoverStyle(c) {
+  const framing = coverFraming(c);
+  if (!framing) return '';
+  const { x, y, scale } = framing;
+  return ` style="object-position:${x}% ${y}%;transform-origin:${x}% ${y}%;scale:${scale}"`;
+}
+
+function coverFraming(c) {
   const framing = c?.coverFraming;
-  if (!framing || typeof framing !== 'object' || Array.isArray(framing)) return '';
+  if (!framing || typeof framing !== 'object' || Array.isArray(framing)) return null;
   const bounded = (value, min, max, fallback) =>
     typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
-  const x = bounded(framing.x, 0, 100, 50);
-  const y = bounded(framing.y, 0, 100, 50);
-  const scale = bounded(framing.scale, 1, 2, 1);
-  return ` style="object-position:${x}% ${y}%;transform-origin:${x}% ${y}%;scale:${scale}"`;
+  return { x: bounded(framing.x, 0, 100, 50), y: bounded(framing.y, 0, 100, 50), scale: bounded(framing.scale, 1, 2, 1) };
 }
 
 /* 详情横幅与法典选择器必须服从同一份 cover 元数据；只有未配置封面时，
@@ -229,6 +233,8 @@ export function setupCodexPicker() {
     if (overflow > 0) menu.style.left = `${-Math.ceil(overflow)}px`;
   };
   const openDirect = ({ focus = false } = {}) => {
+    // 上一次换书留下的「按下」淡化，只属于那一次关闭
+    menu.classList.remove('is-choosing');
     renderMenu();
     menu.inert = false;
     menu.hidden = false;
@@ -265,10 +271,26 @@ export function setupCodexPicker() {
   };
   closePickerRef = close;   // 供外部模块（本地编辑模式）正确收起选择器，含移动端托管历史层
 
+  /* 换书接力的起点：按下那本书的封面图和它露出来的那一格（frame）。四本卷的样张条以条里第一张（就是封面）
+     为准、只露它自己那一窄条；没配封面、图还没载好时不飞，横幅照常原地换。
+     framing 是新书横幅封面的构图，替身落定时要和横幅取景一致。 */
+  const switchOrigin = (c, source) => {
+    if (!source || !c?.cover) return null;
+    const strip = source.querySelector('.vb-strip img');
+    const img = strip || source.querySelector('.ci-cover > img') || source.querySelector('.n5b-cover img');
+    if (!img || !img.complete || !img.naturalWidth) return null;
+    if (img.matches('.ci-cover > img') && !img.classList.contains('is-loaded')) return null;
+    const frame = strip || img.closest('.ci-cover, .n5b-cover');
+    if (!frame) return null;
+    const framing = coverFraming(c);
+    return { img, frame, framing: framing && { x: framing.x / 100, y: framing.y / 100, scale: framing.scale } };
+  };
+
   const chooseCodex = (c, source) => {
     if (!c) return;
     if (isCodexLocked(c)) { showNsfwLockedHint(); return; }
     dismissN5LaunchNotice();
+    menu.querySelectorAll('.is-selecting').forEach(el => el.classList.remove('is-selecting'));
     source?.classList.add('is-selecting');
     const changed = state.favoritesView || state.siteSearchView || sel.value !== c.id;
     if (!changed) {
@@ -276,9 +298,12 @@ export function setupCodexPicker() {
       return;
     }
     const consumeLayer = topHistoryLayerId() === 'codex-menu';
+    // 起点要在菜单开始退场前量：关菜单只是挂上退场过渡，同一帧里位置还准
+    const origin = switchOrigin(c, source);
+    menu.classList.add('is-choosing');
     close({ focusButton: true, historyMode: 'none' });
     sel.value = c.id;
-    codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer });
+    codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer, origin });
   };
 
   /* 卷头「最近新增」的点击：进那本书并落到那一批，和顶栏「最近更新」的行点击同一条路 */
@@ -1637,36 +1662,63 @@ export function openRandomEntry(entry) {
 }
 
 /* ---------------- 法典横幅 / 分类轨道 ---------------- */
-export function renderCodexHeader() {
-  const c = state.codex;
-  const banner = $('#codexBanner');
-  if (!banner) return;
-  closeBannerAbout();
-  document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
+const bannerImagedPct = c => (c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0);
+
+/* 横幅主体：封面、书名、作者 · 版本、原图签、作者主页、配图进度。这些都只读 codexes.json 也有的字段，
+   所以换书接力时可以先用 meta 画好（pending：封面不播二段浮现、进度行留给计步与落地揭开）。 */
+function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const cover = codexBannerCoverEntry(c);
-  const pct = c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0;
   const metaText = [c.author, c.version].filter(Boolean).join(' · ');
-  const virtualView = state.favoritesView || state.siteSearchView;
   const exampleLabel = codexExampleLabel(c);
   const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   const home = virtualView ? null : authorHomepage(c);
   banner.innerHTML =
-    `<div class="banner-cover">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
+    `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
     `<div class="banner-info">` +
     `<div class="banner-title">${esc(c.title)}</div>` +
     `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}` +
     `${home ? renderAuthorHomepage(home) : ''}</div>` +
-    `<div class="banner-progress"><div class="bp-track"><div class="bp-fill" style="width:${pct}%"></div></div>` +
-    `<span class="bp-text">${c.imagedCount} / ${c.entryCount} 已配图</span></div>` +
+    `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
+    `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>` +
     `</div>`;
+  banner.dataset.identity = virtualView ? '' : c.id;
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */
   const coverImg = banner.querySelector('.banner-cover img');
   if (coverImg) {
     const reveal = () => coverImg.classList.add('is-loaded');
     if (coverImg.complete && coverImg.naturalWidth) reveal();
     else { coverImg.onload = reveal; coverImg.onerror = reveal; }
+  }
+}
+
+/* 换书接力：数据还没到就先把横幅换成新书（app/codex-switch.js 回顶那一刻调）。
+   awaitingCover：封面替身还在飞，横幅自己的封面先藏着，落定时再露出来。 */
+export function renderBannerIdentity(c, { awaitingCover = false } = {}) {
+  const banner = $('#codexBanner');
+  if (!banner) return;
+  closeBannerAbout();
+  document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
+  fillBanner(banner, c, { pending: true });
+  if (awaitingCover) banner.querySelector('.banner-cover')?.classList.add('awaiting-cover');
+}
+
+export function renderCodexHeader({ keepIdentity = false } = {}) {
+  const c = state.codex;
+  const banner = $('#codexBanner');
+  if (!banner) return;
+  closeBannerAbout();
+  document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
+  const virtualView = state.favoritesView || state.siteSearchView;
+  if (keepIdentity && !virtualView && banner.dataset.identity === c.id) {
+    /* 接力时已用 meta 画好：重建会让封面 / 文字的二段浮现在落地时再播一遍。
+       只补数据才有的「关于」气泡；进度条按数据校准宽度，揭开与计数由编排器落地时做。 */
+    banner.querySelector('.banner-about-btn')?.remove();
+    const fill = banner.querySelector('.bp-fill');
+    if (fill) fill.style.width = `${bannerImagedPct(c)}%`;
+  } else {
+    fillBanner(banner, c, { virtualView });
   }
   if (!virtualView) renderBannerAbout(c, banner);
   renderCategoryRail();
