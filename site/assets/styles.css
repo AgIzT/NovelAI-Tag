@@ -2739,27 +2739,18 @@ html.vt-codex::view-transition-old(codex-banner),
 html.vt-codex::view-transition-new(codex-banner){animation-duration:.3s}
 
 /* ---------- 换书接力：封面接力 + 显影落地（编排与时长在 app/codex-switch.js） ----------
-   一次同文档 View Transition：书卡封面与横幅封面同名 codex-cover，由浏览器从旧位置补间到新位置；
-   顶栏、横幅不单独成组（理由同上）。根层新旧两张快照**等长**交叉淡化——旧 .16s / 新 .3s 不等长时
-   plus-lighter 叠不满 1，中间那几帧整页发白。 */
-html.vt-switch .topbar,html.vt-switch .codex-banner{view-transition-name:none}
-html.vt-switch::view-transition-old(root),
-html.vt-switch::view-transition-new(root){animation-duration:.3s}
-html.vt-switch::view-transition-group(codex-cover){animation-duration:.44s;animation-timing-function:cubic-bezier(.22,1,.36,1)}
-/* 书卡 / 站点封面与横幅封面宽高比不同：两张快照铺满补间框再裁切，不拉伸；圆角从起点（站点是正圆）过渡到横幅 */
-html.vt-switch::view-transition-image-pair(codex-cover){
-  overflow:hidden;border-radius:var(--vt-r1,10px);
-  animation:vtCoverRadius .44s cubic-bezier(.22,1,.36,1) both;
-}
-html.vt-switch::view-transition-old(codex-cover),
-html.vt-switch::view-transition-new(codex-cover){height:100%;object-fit:cover}
-@keyframes vtCoverRadius{from{border-radius:var(--vt-r0,10px)}}
-/* 接力画好的横幅封面就是飞行终点，不再播二段浮现；类留在节点上，摘类会让基础动画重播 */
+   ⚠ 这一段刻意不用 View Transition：它要等新画面整页画好才开播，点下去会先顿一下。飞行与淡入淡出
+   只动 transform / opacity，交给合成线程，主线程渲染整本书时也不掉帧。 */
+/* 封面替身：外层裁出窗口、里层反向缩放保持图不变形，两层的补间关键帧都由 codex-switch.js 逐帧算 */
+.cover-flight{position:fixed;z-index:1000;overflow:hidden;pointer-events:none;transform-origin:0 0;will-change:transform}
+.cover-flight img{position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;will-change:transform}
+/* 接力画好的横幅封面就是飞行终点，不再播二段浮现；类留在节点上，摘类会让基础动画重播。
+   替身还在飞时横幅自己的封面先藏着，落定那一刻露出来（同一张图、同一取景，替身随即淡掉） */
 .banner-cover.no-enter{animation:none}
+.banner-cover.awaiting-cover img{visibility:hidden}
 /* 「按下」：同卷其它书、书脊、卷头、投稿门淡下去，只留按下的那本 */
 .codex-menu.is-choosing :is(.codex-item,.n5-launch-book):not(.is-selecting),
 .codex-menu.is-choosing :is(.codex-type,.vol-head,.codex-door-wrap,.codex-soon-banner){opacity:.32;transition:opacity .04s ease}
-.codex-menu.instant-close{transition:none}
 /* 加噪：旧内容淡成潜影、撒颗粒（开场同款纹理），等数据期间不可点。⚠ 红线同开场：不做全屏 blur/filter。
    新书卡片落地前带着 .card-enter 起始态，不吃这里的 opacity。 */
 html.codex-switching .masonry>.card:not(.card-enter){opacity:.2;transition:opacity .2s ease}
@@ -2767,6 +2758,7 @@ html.codex-switching .masonry>.card:not(.card-enter){opacity:.2;transition:opaci
    放行（is-entered）时从这一档浮到 1，焦点图则从暂停在首帧的模糊里显影 */
 html:is(.codex-switching,.codex-developing) .masonry>.card.card-enter:not(.is-entered){opacity:.2}
 html.codex-switching :is(.tree,.chip-rail,.result-bar){opacity:.3;pointer-events:none}
+html.codex-switching .tree{transition:opacity .2s ease}
 html.codex-switching .masonry{pointer-events:none}
 html.codex-developing .tree{transition:opacity .3s ease}
 html.codex-switching .masonry::after,html.codex-developing .masonry::after{
@@ -2774,6 +2766,8 @@ html.codex-switching .masonry::after,html.codex-developing .masonry::after{
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.9'/%3E%3C/svg%3E");
   background-size:120px 120px;opacity:.16;transition:opacity .42s ease;
 }
+/* 颗粒跟着旧内容一起淡进来，而不是点下去那一帧整片冒出来 */
+@starting-style{html.codex-switching .masonry::after{opacity:0}}
 html.codex-switching body.dark .masonry::after{opacity:.14}
 html.codex-developing .masonry::after{opacity:0}
 /* 落地：首排焦点图只在等图窗口里 decode 完才显影（同开场 intro-focus），迟到的图直接普通渐显 */

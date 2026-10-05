@@ -1,21 +1,27 @@
 /* 换法典过渡：封面接力 + 显影落地。
 
-   一次同文档 View Transition 把「按下的那本书」接力进横幅：封面从书卡飞进横幅封面位，横幅、侧栏标题与
-   顶栏按钮当场换成新书——身份只用 codexes.json 的 meta，不等数据；旧内容淡成潜影、撒一层颗粒（加噪）。
-   数据到了才落地：新书首屏卡片先摆好起始态，等首排焦点图 load + decode，再一起显影、对角浮入，
-   颗粒退场，进度条揭开并从 0 数到配图数（开场同款）。
+   点下的那一帧就起飞：按下那本书的封面换成一个替身，从书卡飞进横幅封面位；旧内容同时淡成潜影、撒一层颗粒
+   （加噪），菜单照常退场。JUMP_MS 后旧内容基本淡尽，页面回顶，横幅、侧栏标题与顶栏按钮换成新书——身份只用
+   codexes.json 的 meta，不等数据。数据到了才落地：新书首屏卡片先停在潜影，等首排焦点图 load + decode，
+   再一起显影、对角浮入，颗粒退场，进度条揭开并从 0 数到配图数（开场同款）。
    慢的时候（点击后 SAMPLE_SHOW_MS 数据还没到）进度行计步 step N/28，按时间渐近、封顶 27——
    跟开场同一条规矩：数据没到绝不谎报采样完成，28 这一格留给落地。
 
+   ⚠ 不用 View Transition：它要等新画面整页画好才开播，渲染整本书（大书约 80ms）的这段时间旧画面是冻住的，
+   点下去会先顿一下（2026-10-05 维护者试用反馈）；补间框的宽高动画还跑在主线程，取数据、解析、渲染的长任务
+   都会让它卡。现在飞行与淡入淡出只动 transform / opacity，交给合成线程，主线程再忙也不掉帧；
+   回顶、换身份、渲染这些主线程上的变化都落在旧内容已经淡成潜影之后。
+
    红线同开场：不做全屏 blur/filter，模糊只给首排焦点图（预算见 masonry.js introFocusCount）。
-   减少动效、motion=off、不支持 View Transition 时不走这里，由 app.js loadCodex 的原路处理。 */
+   减少动效、motion=off 时不走这里，由 app.js loadCodex 的原路处理。 */
 
 import { $, prefersReducedMotion } from './utils.js';
+import { animateUi } from './ui-motion.js';
 import { holdSwitchEntries, releaseSwitchEntries, settleSwitchEntries, switchFocusImages } from './masonry.js';
 
-/* 「按下」这一拍：书卡高亮、同卷其它书淡下去，再起飞。数据秒到时过渡回调里还要同步渲染整本书
-   （大书约 80ms，渲染完浏览器才拍新画面），这一拍再拉长就成了「点了没反应」。 */
-const PRESS_MS = 40;
+const FLIGHT_MS = 480;           // 封面从书卡飞到横幅
+const JUMP_MS = 150;             // 旧内容淡到潜影（.2s）后再回顶、换身份；早了会看见页面跳
+const LANDING_FADE_MS = 140;     // 替身落定后淡出，底下就是同一张图、同一取景的横幅封面
 const SAMPLE_SHOW_MS = 260;      // 过了这么久数据还没到才计步；秒到的切换不出现计步
 const STEP_TOTAL = 28;
 const STEP_TICK_MS = 90;
@@ -27,10 +33,9 @@ const PROGRESS_MS = 520;
 const DEVELOP_TAIL_MS = 760;     // 颗粒退场、卡片波、进度计数都跑完再摘类
 
 let current = null;   // 正在进行的那次换书；被新的一次顶掉时由它自己收手
-let vtToken = 0;
 
 export function canAnimateSwitch() {
-  return typeof document.startViewTransition === 'function'
+  return typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function'
     && !prefersReducedMotion()
     && !document.documentElement.classList.contains('motion-off');
 }
@@ -40,9 +45,10 @@ export function cancelCodexSwitch() {
   current?.abort();
 }
 
-/** 换书第一段：按下 → 起飞。commit 在过渡回调里同步执行（关菜单、横幅换身份、回顶）。
+/** 换书：点下这一帧起飞、开始加噪；JUMP_MS 后由 arrive 回顶并把横幅换成新书。
+ *  origin 是按下那本书的封面（codex-ui.js chooseCodex 给），没有就不飞。
  *  返回控制器：land(render, codex) 在数据到了时调；abort() 在失败或被原路接管时撤掉加噪。 */
-export function beginCodexSwitch({ origin = null, commit, isCurrent }) {
+export function beginCodexSwitch({ origin = null, arrive, isCurrent }) {
   current?.cancel();
   const html = document.documentElement;
   const ctl = {
@@ -52,6 +58,7 @@ export function beginCodexSwitch({ origin = null, commit, isCurrent }) {
     dataIn: false,
     progressRaf: 0,
     timers: new Set(),
+    flight: null,
   };
   let resolveReady = () => {};
   ctl.ready = new Promise(resolve => { resolveReady = resolve; });
@@ -64,6 +71,7 @@ export function beginCodexSwitch({ origin = null, commit, isCurrent }) {
     for (const id of ctl.timers) window.clearTimeout(id);
     ctl.timers.clear();
     cancelAnimationFrame(ctl.progressRaf);
+    ctl.flight?.abandon();
     resolveReady();
   };
   ctl.abort = () => {
@@ -74,9 +82,9 @@ export function beginCodexSwitch({ origin = null, commit, isCurrent }) {
   };
   ctl.land = async (render, codex) => {
     await ctl.ready;
-    /* 封面正飞在半路时别同步渲染：补间框的宽高动画跑在主线程，整本书的渲染长任务会让它顿一下。
-       数据赶在新画面拍下之前到（秒到）就直接渲染进新画面；飞行中途才到的等落地再渲染。 */
-    if (ctl.flying) await ctl.flight;
+    /* 数据赶在回顶之前就到了（秒到）：先让回顶、新横幅这一帧画出来，下一帧再渲染整本书。
+       同一个任务里做的话，大书约 80ms 的渲染会把回顶这一帧也拖后，封面已经飞到了、横幅却还没出现。 */
+    if (performance.now() - ctl.arrivedAt < 50) await afterPaint();
     if (!ctl.alive || !isCurrent()) return;
     ctl.dataIn = true;
     const text = $('#codexBanner .bp-text');
@@ -94,66 +102,159 @@ export function beginCodexSwitch({ origin = null, commit, isCurrent }) {
   };
   current = ctl;
 
+  ctl.flight = origin ? launchCoverFlight(origin) : null;
+  html.classList.remove('codex-developing');
+  html.classList.add('codex-switching');
   ctl.later(() => {
     if (!ctl.alive || !isCurrent()) { resolveReady(); return; }
-    const transition = startTransition(origin, () => {
-      commit();
-      html.classList.remove('codex-developing');
-      html.classList.add('codex-switching');
-      ctl.later(() => startSampling(ctl), Math.max(0, SAMPLE_SHOW_MS - (performance.now() - ctl.startedAt)));
-    });
-    ctl.flight = transition.finished.catch(() => {});
-    transition.ready.then(() => { ctl.flying = true; }, () => {});
-    ctl.flight.then(() => { ctl.flying = false; });
-    transition.updateCallbackDone.then(resolveReady, resolveReady);
-  }, origin ? PRESS_MS : 0);
+    // 横幅原本被滚出视口（看到一半才换书）时，回顶这一下让它浮现，而不是凭空冒出来
+    const banner = $('#codexBanner');
+    const before = banner?.getBoundingClientRect();
+    arrive({ awaitingCover: Boolean(ctl.flight) });
+    if (banner && before?.height && before.bottom <= 64) {
+      animateUi(banner, [{ opacity: 0, translate: '0 10px' }, { opacity: 1, translate: '0 0' }], { duration: 300 });
+    }
+    ctl.arrivedAt = performance.now();
+    resolveReady();
+  }, JUMP_MS);
+  ctl.later(() => startSampling(ctl), SAMPLE_SHOW_MS);
+  ctl.flight?.finished.then(() => { if (ctl.alive) ctl.flight.land(); });
   return ctl;
 }
 
-/* 封面接力：书卡封面与横幅封面同名 codex-cover，由浏览器从旧位置补间到新位置；
-   菜单和旧页面跟着根层交叉淡化溶掉。两边的名字都只活到这次过渡结束，避免下次过渡撞名中止。
-   返回值与 ViewTransition 同形（ready / finished / updateCallbackDone），起不了过渡时三者都立即兑现。 */
-function startTransition(origin, commit) {
-  const html = document.documentElement;
-  const token = ++vtToken;
-  const source = origin?.el?.isConnected ? origin.el : null;
-  let target = null;
-  const clearNames = () => {
-    if (source) source.style.viewTransitionName = '';
-    if (target) target.style.viewTransitionName = '';
-  };
-  if (source) {
-    source.style.viewTransitionName = 'codex-cover';
-    html.style.setProperty('--vt-r0', origin.radius || '10px');
-  }
-  html.classList.add('vt-switch');
-  let transition;
-  try {
-    transition = document.startViewTransition(() => {
-      if (source) source.style.viewTransitionName = '';
-      commit();
-      if (!source) return;
-      target = document.querySelector('#codexBanner .banner-cover img');
-      if (!target) return;
-      target.style.viewTransitionName = 'codex-cover';
-      html.style.setProperty('--vt-r1', getComputedStyle(target.parentElement).borderRadius || '10px');
+/* 封面替身：外层框按横幅封面位定尺寸，用 translate + scale 补间窗口的位置与大小；里层图按反向缩放保持不变形，
+   在两端取景（object-fit: cover + object-position + 封面构图缩放，含书卡悬停放大）之间线性过渡——
+   两端都盖满窗口，中间也一定盖满。两层只动 transform、交给合成线程；圆角按缩放反算，跑在主线程，
+   主线程忙时只是圆角慢一拍。终点按「回顶后」的横幅封面位算：横幅几何全法典恒定，回顶前就能量。 */
+function launchCoverFlight({ img, frame, framing }) {
+  const target = $('#codexBanner .banner-cover');
+  if (!img?.isConnected || !frame?.isConnected || !target) return null;
+  const from = frame.getBoundingClientRect();
+  const box = target.getBoundingClientRect();
+  const natW = img.naturalWidth;
+  const natH = img.naturalHeight;
+  if (!from.width || !from.height || !box.width || !box.height || !natW || !natH) return null;
+  const pic = new Image();
+  pic.alt = '';
+  pic.src = img.currentSrc || img.src;
+  // 替身第一帧就得有图：藏起原图那一下要是替身还空着，就会闪一下
+  if (!pic.complete || !pic.naturalWidth) return null;
+
+  const to = { left: box.left, top: box.top + window.scrollY, width: box.width, height: box.height };
+  const shown = img.getBoundingClientRect();
+  const k = shown.width / (img.offsetWidth || shown.width);
+  const startFit = coverFit(img.offsetWidth || shown.width, img.offsetHeight || shown.height, natW, natH, objectPosition(img));
+  const start = { x: shown.left + startFit.x * k, y: shown.top + startFit.y * k, s: startFit.s * k };
+  const fx = framing?.x ?? 0.5;
+  const fy = framing?.y ?? 0.5;
+  const zoom = framing?.scale ?? 1;
+  const endFit = coverFit(to.width, to.height, natW, natH, { x: fx, y: fy });
+  const ox = to.width * fx;
+  const oy = to.height * fy;
+  const end = { x: to.left + ox + (endFit.x - ox) * zoom, y: to.top + oy + (endFit.y - oy) * zoom, s: endFit.s * zoom };
+  const r0 = radiusPx(frame, from);
+  const r1 = radiusPx(target, box);
+
+  const ease = cubicBezier(0.22, 1, 0.36, 1);
+  const steps = Math.max(12, Math.round(FLIGHT_MS / 16));
+  const outer = [];
+  const inner = [];
+  const round = [];
+  for (let i = 0; i <= steps; i++) {
+    const offset = i / steps;
+    const p = ease(offset);
+    const x = lerp(from.left, to.left, p);
+    const y = lerp(from.top, to.top, p);
+    const sx = lerp(from.width, to.width, p) / to.width;
+    const sy = lerp(from.height, to.height, p) / to.height;
+    const s = lerp(start.s, end.s, p);
+    const r = lerp(r0, r1, p);
+    outer.push({ offset, transform: `translate(${x - to.left}px,${y - to.top}px) scale(${sx},${sy})` });
+    inner.push({
+      offset,
+      transform: `translate(${(lerp(start.x, end.x, p) - x) / sx}px,${(lerp(start.y, end.y, p) - y) / sy}px) scale(${s / sx},${s / sy})`,
     });
-  } catch {
-    clearNames();
-    html.classList.remove('vt-switch');
-    commit();
-    const settled = Promise.resolve();
-    return { ready: settled, finished: settled, updateCallbackDone: settled };
+    round.push({ offset, borderRadius: `${r / sx}px / ${r / sy}px` });
   }
-  const done = () => {
-    clearNames();
-    if (token !== vtToken) return;
-    html.classList.remove('vt-switch');
-    html.style.removeProperty('--vt-r0');
-    html.style.removeProperty('--vt-r1');
+
+  const shell = document.createElement('div');
+  shell.className = 'cover-flight';
+  shell.setAttribute('aria-hidden', 'true');
+  shell.style.cssText = `left:${to.left}px;top:${to.top}px;width:${to.width}px;height:${to.height}px`;
+  pic.style.cssText = `width:${natW}px;height:${natH}px`;
+  shell.appendChild(pic);
+  document.body.appendChild(shell);
+  img.style.visibility = 'hidden';
+  const timing = { duration: FLIGHT_MS, easing: 'linear', fill: 'forwards' };
+  const travel = shell.animate(outer, timing);
+  pic.animate(inner, timing);
+  shell.animate(round, timing);
+
+  let gone = false;
+  const fadeOut = () => {
+    if (gone) return;
+    gone = true;
+    const remove = () => shell.remove();
+    shell.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LANDING_FADE_MS, easing: 'ease', fill: 'forwards' })
+      .finished.then(remove, remove);
   };
-  transition.finished.then(done, done);
-  return transition;
+  const reveal = () => $('#codexBanner .banner-cover.awaiting-cover')?.classList.remove('awaiting-cover');
+  return {
+    finished: travel.finished.catch(() => {}),
+    // 落定：先让横幅自己的封面露出来（就在替身正下方），再淡掉替身
+    land() { reveal(); fadeOut(); },
+    abandon() { reveal(); fadeOut(); },
+  };
+}
+
+// object-fit: cover 在 boxW × boxH 里的取景：缩放比与图左上角的偏移（object-position 按比例）
+function coverFit(boxW, boxH, natW, natH, pos) {
+  const s = Math.max(boxW / natW, boxH / natH);
+  return { s, x: (boxW - natW * s) * pos.x, y: (boxH - natH * s) * pos.y };
+}
+
+function objectPosition(el) {
+  const [px, py] = String(getComputedStyle(el).objectPosition || '').split(/\s+/);
+  const ratio = value => (value && value.endsWith('%') ? parseFloat(value) / 100 : 0.5);
+  return { x: ratio(px), y: ratio(py ?? px) };
+}
+
+function radiusPx(el, rect) {
+  const value = String(getComputedStyle(el).borderTopLeftRadius || '0');
+  const n = parseFloat(value) || 0;
+  return value.trim().endsWith('%') ? Math.min(rect.width, rect.height) * n / 100 : n;
+}
+
+const lerp = (a, b, p) => a + (b - a) * p;
+
+/* 等下一帧画完：rAF 里再排一个宏任务，落在这一帧出图之后；后台标签 rAF 停摆时 50ms 兜底 */
+function afterPaint() {
+  return new Promise(resolve => {
+    const fallback = window.setTimeout(resolve, 50);
+    requestAnimationFrame(() => window.setTimeout(() => { window.clearTimeout(fallback); resolve(); }, 0));
+  });
+}
+
+/* 关键帧要逐帧算两端取景，曲线只能自己求值：同站内 cubic-bezier(.22,1,.36,1)，牛顿法反解 x→t */
+function cubicBezier(x1, y1, x2, y2) {
+  const ax = 3 * x1 - 3 * x2 + 1;
+  const bx = 3 * x2 - 6 * x1;
+  const cx = 3 * x1;
+  const ay = 3 * y1 - 3 * y2 + 1;
+  const by = 3 * y2 - 6 * y1;
+  const cy = 3 * y1;
+  return x => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const err = ((ax * t + bx) * t + cx) * t - x;
+      const slope = (3 * ax * t + 2 * bx) * t + cx;
+      if (Math.abs(err) < 1e-6 || !slope) break;
+      t = Math.min(1, Math.max(0, t - err / slope));
+    }
+    return ((ay * t + by) * t + cy) * t;
+  };
 }
 
 function startSampling(ctl) {
@@ -241,7 +342,7 @@ async function waitForImages(images, limit) {
   ]);
   window.clearTimeout(timer);
   for (const img of ready) img.classList.add('switch-image-ready');
-  /* 带滤镜的第一帧别落在放行那一刻：给浏览器两帧在卡片仍近乎透明时建层；rAF 停摆时 80ms 兜底 */
+  /* 带滤镜的第一帧别落在放行那一刻：给浏览器两帧在卡片仍是潜影时建层；rAF 停摆时 80ms 兜底 */
   if (!ready.size) return;
   await new Promise(resolve => {
     let settled = false;

@@ -383,12 +383,10 @@ function showCodexIdentity(c) {
 
 export async function loadCodex(id, options = {}) {
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
-  if (id === FAVORITES_CODEX_ID || id === SITE_SEARCH_CODEX_ID) options.closePicker?.();
   if (id === FAVORITES_CODEX_ID) return openFavoritesView(options);
   if (id === SITE_SEARCH_CODEX_ID) return openSiteSearchView(options);
   const meta = findCodexMeta(id) || { id };
   if (isCodexLocked(meta)) {
-    options.closePicker?.();
     showNsfwLockedHint();
     const fallback = firstUnlockedCodex();
     if (fallback && fallback.id !== meta.id) {
@@ -402,7 +400,6 @@ export async function loadCodex(id, options = {}) {
   if (state.codex && options.transition !== 'none' && canAnimateSwitch()) {
     return switchCodexAnimated(meta, seq, options, parentScrollY);
   }
-  options.closePicker?.();
   cancelCodexSwitch();
   showSkeleton(seq);
   setLoading('');
@@ -423,7 +420,7 @@ export async function loadCodex(id, options = {}) {
   }
 }
 
-/* 换书接力：封面飞进横幅、身份当场换 → 旧内容加噪等数据 → 显影落地；编排与时长在 app/codex-switch.js。
+/* 换书接力：点下即起飞、旧内容加噪 → 回顶换身份 → 数据到了显影落地；编排与时长在 app/codex-switch.js。
    与原路的区别：不先清空瀑布流、不出骨架屏、不再固定空等菜单退场，取数据与过渡同时起跑。 */
 async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   const isCurrent = () => seq === codexLoadSeq;
@@ -432,11 +429,10 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   const sw = beginCodexSwitch({
     origin: options.origin,
     isCurrent,
-    commit: () => {
-      options.closePicker?.({ instant: true });
+    arrive: ({ awaitingCover }) => {
       // 回顶这一下属于过渡，别被记成旧书的浏览位置
       suppressBrowseStateSave(1500);
-      renderBannerIdentity(meta);
+      renderBannerIdentity(meta, { awaitingCover });
       showCodexIdentity(meta);
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     },
