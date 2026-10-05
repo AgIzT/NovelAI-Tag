@@ -429,6 +429,7 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   const sw = beginCodexSwitch({
     origin: options.origin,
     isCurrent,
+    snapshotIdentity: snapshotCodexIdentity,
     arrive: ({ awaitingCover }) => {
       // 回顶这一下属于过渡，别被记成旧书的浏览位置
       suppressBrowseStateSave(1500);
@@ -440,21 +441,37 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   try {
     const codex = await loading;
     if (!isCurrent()) return;
-    await sw.land(() => renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), keepIdentity: true }), codex);
+    await sw.land(() => {
+      /* 等数据时从「随机」等入口打开的旧书灯箱，落地前收起：灯箱里的收藏按当前法典记键，
+         留着它会在新书落地后把旧书词条记到新书名下（PR #37 审查） */
+      if (state.lightbox?.entry) closeLightbox({ historyMode: 'replace', immediate: true });
+      renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), keepIdentity: true });
+    }, codex);
   } catch (ex) {
     if (!isCurrent()) return;
     console.error(ex);
-    sw.abort();
-    // 新书没拿到：横幅、标题、按钮与选择器高亮都退回仍在显示的那本
-    if (state.codex && !virtualView()) {
-      renderCodexHeader();
-      showCodexIdentity(state.codex);
-      const codexSelect = $('#codexSelect');
-      if (codexSelect) codexSelect.value = state.codex.id;
-      updateCodexPickerState();
-    }
+    sw.abort();   // 横幅、标题、按钮退回仍在显示的那本（snapshotCodexIdentity）
     setLoading('加载失败，请刷新页面重试');
   }
+}
+
+/* 换身份之前记下屏幕上的那本，返回退回函数：换书没落地就被撤销（加载失败、收藏墙 / 全站搜索接管）时，
+   横幅按实际状态重画，侧栏标题与顶栏按钮退回原字样，隐藏的原生选择框也对回去——
+   不然再点同一本会被当成「没换书」只关菜单。 */
+function snapshotCodexIdentity() {
+  const title = $('#codexTitle')?.textContent ?? '';
+  const meta = $('#codexMeta')?.textContent ?? '';
+  const button = $('#codexBtnText')?.textContent ?? '';
+  return () => {
+    if (state.codex && !state.favoritesView) renderCodexHeader();
+    $('#codexTitle').textContent = title;
+    $('#codexMeta').textContent = meta;
+    const codexBtnText = $('#codexBtnText');
+    if (codexBtnText) codexBtnText.textContent = button;
+    const codexSelect = $('#codexSelect');
+    if (codexSelect && state.codex && !virtualView()) codexSelect.value = state.codex.id;
+    updateCodexPickerState();
+  };
 }
 
 export async function openFavoritesView(options = {}) {

@@ -33,6 +33,17 @@ const PROGRESS_MS = 520;
 const DEVELOP_TAIL_MS = 760;     // 颗粒退场、卡片波、进度计数都跑完再摘类
 
 let current = null;   // 正在进行的那次换书；被新的一次顶掉时由它自己收手
+/* 已提前换上、但数据还没落地的新书身份：存的是换上之前那一刻的还原函数。连着换几本时只留第一次的，
+   撤销（失败、被收藏墙 / 全站搜索 / 原路接管）时用它退回真正还在显示的那本。 */
+let pendingRestore = null;
+
+/* 等数据这段时间页面上还是旧书的内容：鼠标靠 CSS 的 pointer-events 挡住，键盘、读屏和「随机」要靠 inert——
+   否则能 Tab 进旧卡片、在旧书灯箱里点收藏，落地后收藏键会记到新书名下（PR #37 审查）。 */
+const STALE_REGIONS = '#masonry, #tree, #chipRail, .result-bar, #randomBtn';
+
+function setStale(on) {
+  document.querySelectorAll(STALE_REGIONS).forEach(el => { el.inert = on; });
+}
 
 export function canAnimateSwitch() {
   return typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function'
@@ -47,8 +58,9 @@ export function cancelCodexSwitch() {
 
 /** 换书：点下这一帧起飞、开始加噪；JUMP_MS 后由 arrive 回顶并把横幅换成新书。
  *  origin 是按下那本书的封面（codex-ui.js chooseCodex 给），没有就不飞。
- *  返回控制器：land(render, codex) 在数据到了时调；abort() 在失败或被原路接管时撤掉加噪。 */
-export function beginCodexSwitch({ origin = null, arrive, isCurrent }) {
+ *  snapshotIdentity 在换身份之前调，返回把横幅、标题、按钮退回当前所示那本的函数。
+ *  返回控制器：land(render, codex) 在数据到了时调；abort() 在失败或被原路接管时撤掉加噪并退回身份。 */
+export function beginCodexSwitch({ origin = null, arrive, snapshotIdentity, isCurrent }) {
   current?.cancel();
   const html = document.documentElement;
   const ctl = {
@@ -77,8 +89,12 @@ export function beginCodexSwitch({ origin = null, arrive, isCurrent }) {
   ctl.abort = () => {
     ctl.cancel();
     settleSwitchEntries();
+    setStale(false);
     html.classList.remove('codex-switching', 'codex-developing');
     if (current === ctl) current = null;
+    const restore = pendingRestore;
+    pendingRestore = null;
+    restore?.();
   };
   ctl.land = async (render, codex) => {
     await ctl.ready;
@@ -96,6 +112,8 @@ export function beginCodexSwitch({ origin = null, arrive, isCurrent }) {
       ctl.abort();
       throw error;
     }
+    // 新书已经真正渲染上去，身份不再是「提前换的」
+    pendingRestore = null;
     await waitForImages(switchFocusImages(), ctl.sampled ? SLOW_IMAGE_WAIT_MS : FAST_IMAGE_WAIT_MS);
     // 等图期间被新的一次换书顶掉：那一次的 hold 会把这批卡落终态，这里什么都不做
     if (ctl.alive) develop(ctl, codex);
@@ -105,11 +123,13 @@ export function beginCodexSwitch({ origin = null, arrive, isCurrent }) {
   ctl.flight = origin ? launchCoverFlight(origin) : null;
   html.classList.remove('codex-developing');
   html.classList.add('codex-switching');
+  setStale(true);
   ctl.later(() => {
     if (!ctl.alive || !isCurrent()) { resolveReady(); return; }
     // 横幅原本被滚出视口（看到一半才换书）时，回顶这一下让它浮现，而不是凭空冒出来
     const banner = $('#codexBanner');
     const before = banner?.getBoundingClientRect();
+    pendingRestore ??= snapshotIdentity?.() || null;
     arrive({ awaitingCover: Boolean(ctl.flight) });
     if (banner && before?.height && before.bottom <= 64) {
       animateUi(banner, [{ opacity: 0, translate: '0 10px' }, { opacity: 1, translate: '0 0' }], { duration: 300 });
@@ -277,6 +297,7 @@ function develop(ctl, codex) {
   const html = document.documentElement;
   html.classList.remove('codex-switching');
   html.classList.add('codex-developing');
+  setStale(false);
   releaseSwitchEntries();
   playProgress(ctl, codex);
   ctl.later(() => {
