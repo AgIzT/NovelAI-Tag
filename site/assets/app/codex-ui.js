@@ -1845,7 +1845,7 @@ function authorHomepage(c) {
 function renderAuthorHomepage(home) {
   const bili = home.platform === 'bilibili';
   const title = `在新标签页打开 ${home.name} 的${bili ? ' B 站' : ''}主页`;
-  return `<a class="banner-home${bili ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener" title="${esc(title)}">` +
+  return `<a class="banner-home${bili ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener" title="${esc(title)}" aria-label="${esc(title)}">` +
     `${bili ? BILIBILI_ICON : EXT_ICON}<span>${bili ? '前往作者B站主页' : '前往作者主页'}</span>${ARROW_ICON}</a>`;
 }
 

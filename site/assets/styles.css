@@ -957,6 +957,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 /* ---------- 法典横幅 / 分类轨道 ---------- */
 .codex-banner{
   position:relative;
+  container:codex-banner / inline-size;
   display:flex;align-items:center;gap:14px;background:var(--panel);
   border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
   padding:12px 16px;margin-bottom:12px;
@@ -1018,7 +1019,8 @@ body.dark .bp-chip.is-bilibili:hover{color:#ff8db0}
 .banner-title{font-size:26px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .banner-author{margin-top:5px;font-size:13px;line-height:1.5;color:color-mix(in srgb,var(--text) 82%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 右下角是配图数，这一行给它留出位置 */
-.banner-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:auto;max-width:calc(100% - 110px)}
+.banner-meta{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;font-size:12px;color:var(--muted);margin-top:auto;max-width:calc(100% - 110px)}
+.banner-meta>span:first-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .banner-version{white-space:nowrap;color:var(--text)}
 .banner-version small{margin-right:6px;font-size:11px;color:var(--muted)}
 .data-pill{
@@ -1062,6 +1064,17 @@ body.dark .data-pill.has-orig{background:rgba(255,255,255,.1)}
 .banner-home.is-bilibili:hover{background:rgba(251,114,153,.2);border-color:#fb7299}
 body.dark .banner-home.is-bilibili{color:#ff8db0;background:rgba(251,114,153,.14);border-color:rgba(251,114,153,.3)}
 body.dark .banner-home.is-bilibili:hover{background:rgba(251,114,153,.24);border-color:#fb7299}
+/* 按横幅可用宽度收紧信息行：侧栏展开的窄桌面也需给计数留出独立一行，封面落点保持恒定。 */
+@container codex-banner (max-width:535px){
+  .banner-info:has(.banner-eyebrow) .banner-meta{gap:5px;margin-top:0;max-width:none}
+  .banner-info:has(.banner-eyebrow) .banner-version{display:none}
+  .banner-info:has(.banner-eyebrow) .banner-meta .data-pill{padding:0 6px;font-size:10px;line-height:1.5}
+  .banner-info:has(.banner-eyebrow) .banner-home{padding:0 6px 0 4px;font-size:10px;line-height:1.5}
+}
+/* 小横幅把主页收成图标，作者仍有可读空间；链接名称和提示保留完整含义。 */
+@container codex-banner (max-width:400px){
+  .banner-home span,.banner-home svg:last-child{display:none}
+}
 .chip-rail{
   display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px;
   scrollbar-width:none;
@@ -2578,7 +2591,6 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .codex-banner{padding:8px 10px;gap:9px;margin-bottom:8px;border-radius:14px;min-height:86px}
   /* meta 锁单行：作者名长短不一时也不换行，保证全法典横幅同高 */
   .banner-meta{flex-wrap:nowrap;overflow:hidden}
-  .banner-meta>span:first-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .banner-meta .data-pill{flex:none}
   .main.skeleton-visible .codex-banner:empty::before{width:48px;height:64px;border-radius:9px}
   .main.skeleton-visible .codex-banner:empty::after{
