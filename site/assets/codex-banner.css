@@ -72,15 +72,15 @@
 .bi-history-bar{flex:1;height:3px;min-width:5px;background:linear-gradient(90deg,color-mix(in srgb,var(--book-accent) 55%,transparent) var(--amount),transparent var(--amount))}
 .bi-history-row[aria-pressed="true"] .bi-history-dot{background:var(--book-accent)}
 
-/* 封面取色：窄书签错峰舒展，数字只表达顺序，不给色号增加阅读负担。 */
+/* 封面取色：平行书签错峰滑出，上下保留等宽缝隙，以小幅高低错落增加层次。 */
 .bi-bookmarks{position:relative;left:10px;width:calc(100% - 24px);height:100%;padding:4px 0 0 13px}
-.bi-bookmark{position:absolute;left:calc(18px + var(--bookmark) * 49px);top:5px;width:43px;height:118px;background:var(--swatch);rotate:var(--angle);border:1px solid #0002;border-radius:2px 2px 0 0;clip-path:polygon(0 0,100% 0,100% 100%,50% 89%,0 100%);transform-origin:5% 50%;animation:bookBookmarkIn .72s cubic-bezier(.16,1,.3,1) calc(.06s + var(--bookmark) * 55ms) backwards}
+.bi-bookmark{position:absolute;left:calc(18px + var(--bookmark) * 49px);top:calc(5px + var(--bookmark) * 3px);width:43px;height:118px;background:var(--swatch);rotate:0deg;border:1px solid #0002;border-radius:2px 2px 0 0;clip-path:polygon(0 0,100% 0,100% 100%,50% 89%,0 100%);transform-origin:left center;animation:bookBookmarkIn .72s cubic-bezier(.16,1,.3,1) calc(.06s + var(--bookmark) * 55ms) backwards}
 .bi-bookmark i{position:absolute;top:8px;left:8px;display:grid;place-items:center;width:17px;height:17px;background:#fff9;border-radius:50%;color:#292624;font:500 8px/1 var(--font-ui);font-style:normal}
 .bi-palette-label{position:absolute;left:28px;bottom:0;font-size:9px;letter-spacing:.15em;color:var(--muted);animation:bookLeafLineIn .4s ease .32s backwards}
 @keyframes bookLeafIn{from{opacity:0;translate:-95px 0;rotate:-4deg;scale:.62 1}}
 @keyframes bookLeafLineIn{from{opacity:0;translate:-12px 0}}
 @keyframes bookLeafTapeIn{from{opacity:0;scale:.2 1}}
-@keyframes bookBookmarkIn{from{opacity:0;translate:calc(-16px - var(--bookmark) * 49px) 0;rotate:-12deg;scale:.9 1}}
+@keyframes bookBookmarkIn{from{opacity:0;translate:calc(-16px - var(--bookmark) * 49px) 0;scale:.9 1}}
 .banner-cover.awaiting-cover+.banner-insert *,
 html.intro-arm:not(.intro-reveal) .banner-insert *{animation-play-state:paused}
 .banner-cover.awaiting-cover+.banner-insert,
@@ -100,7 +100,7 @@ html.intro-arm:not(.intro-reveal) .banner-insert{visibility:hidden}
   .bi-tab{position:absolute;right:10px;top:22px;display:block;padding:8px 6px;border:0;background:none;color:var(--muted);font:600 11px/1.7 var(--font-display);letter-spacing:.2em;writing-mode:vertical-rl;cursor:pointer}
   .bi-sheet::after{content:"";position:absolute;left:22px;bottom:18px;width:24px;height:1px;background:var(--line);box-shadow:0 -5px var(--line),0 -10px var(--line)}
   .bi-bookmarks{left:0;padding:0}
-  .bi-bookmark{left:calc(var(--bookmark) * 22px);width:22px;height:108px}
+  .bi-bookmark{left:calc(var(--bookmark) * 22px);width:18px;height:108px}
   .bi-bookmark i{display:none}
   .bi-palette-label{left:12px;font-size:8px;letter-spacing:0}
   .banner-book .banner-meta{column-gap:12px}
@@ -110,7 +110,7 @@ html.intro-arm:not(.intro-reveal) .banner-insert{visibility:hidden}
   .banner-book .banner-title{font-size:28px}
   .banner-book .banner-title.is-long-title{font-size:24px}
   .bi-tab{right:8px;top:12px}
-  .bi-bookmark{left:calc(var(--bookmark) * 16px);width:17px;height:96px}
+  .bi-bookmark{left:calc(var(--bookmark) * 16px);width:13px;height:88px}
   .banner-book .bp-track{display:none}
 }
 @container book-banner (max-width:520px){
@@ -118,7 +118,7 @@ html.intro-arm:not(.intro-reveal) .banner-insert{visibility:hidden}
   .banner-book .banner-title{font-size:26px}
   .bi-sheet::before,.bi-sheet::after{display:none}
   .bi-tab{top:13px;right:0;padding:7px 4px;font-size:9px;line-height:1.3}
-  .bi-bookmark{left:calc(var(--bookmark) * 4px);width:10px;height:83px;rotate:0deg}
+  .bi-bookmark{left:calc(var(--bookmark) * 4px);top:5px;width:10px;height:83px}
   .bi-palette-label{display:none}
   .banner-version{display:none}
 }
@@ -153,7 +153,7 @@ html.intro-arm:not(.intro-reveal) .banner-insert{visibility:hidden}
   .bi-content{display:none}
   .bi-tab{right:0;top:8px;display:block;padding:7px 5px;font-size:9px;line-height:1.3;letter-spacing:.12em}
   .bi-bookmarks{left:0;width:100%}
-  .bi-bookmark{left:calc(45px + var(--bookmark) * 5px);top:0;width:8px;height:60px;rotate:0deg;animation-name:bookPocketBookmarkIn}
+  .bi-bookmark{left:calc(45px + var(--bookmark) * 5px);top:0;width:8px;height:60px;animation-name:bookPocketBookmarkIn}
   .bi-bookmark i,.bi-palette-label{display:none}
   @keyframes bookPocketIn{from{opacity:0;translate:-16px 0;rotate:-5deg;scale:.85 1}}
   @keyframes bookPocketBookmarkIn{from{opacity:0;translate:calc(-10px - var(--bookmark) * 5px) 0}}

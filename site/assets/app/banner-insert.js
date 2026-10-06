@@ -76,7 +76,7 @@ const templates = {
     </button>`).join('')}</div>
     <span class="bi-foot">最近三期 · 点击筛选</span>
   </div>${foldedTab('更新', 'history', `筛选${history[0].label}`)}</div>`,
-  palette: ({ colors }) => `<div class="bi-bookmarks" role="img" aria-label="封面配色书签">${colors.map((color, i) => `<span class="bi-bookmark" style="--bookmark:${i};--swatch:${color};--angle:${[-8, -1, 6, 13][i]}deg"><i aria-hidden="true">${rowNo(i)}</i></span>`).join('')}<span class="bi-palette-label">封面配色</span></div>`,
+  palette: ({ colors }) => `<div class="bi-bookmarks" role="img" aria-label="封面配色书签">${colors.map((color, i) => `<span class="bi-bookmark" style="--bookmark:${i};--swatch:${color}"><i aria-hidden="true">${rowNo(i)}</i></span>`).join('')}<span class="bi-palette-label">封面配色</span></div>`,
   index: ({ groups }) => {
     const ranked = groups.map((group, i) => ({ ...group, i })).sort((a, b) => b.count - a.count).slice(0, 3);
     return `<nav class="bi-sheet bi-index" aria-label="卷内目录"><div class="bi-content">
