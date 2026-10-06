@@ -2389,12 +2389,14 @@ a.lightbox-credit:hover{text-decoration:underline}
 @keyframes artist-peek-in{from{opacity:0;scale:.985}}
 @media (prefers-reduced-motion:reduce){.artist-peek{animation:none}}
 .motion-off .artist-peek{animation:none}
+/* 按图片区（左 18px、右 --lb-right）居中并限宽，张数多时也不压到信息栏；收起信息栏时跟着图片区一起展开。 */
 .lightbox-thumbs{
-  position:absolute;left:50%;bottom:18px;translate:-50% 0;z-index:3;cursor:default;
-  display:flex;gap:7px;max-width:72vw;overflow-x:auto;padding:7px;
+  position:absolute;left:calc(50% + (18px - var(--lb-right)) / 2);bottom:18px;translate:-50% 0;z-index:3;cursor:default;
+  display:flex;gap:7px;max-width:calc(100% - 18px - var(--lb-right));overflow-x:auto;padding:7px;
   background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
   scrollbar-width:none;
+  transition:left .3s cubic-bezier(.22,1,.36,1),max-width .3s cubic-bezier(.22,1,.36,1);
 }
 .lightbox-thumbs::-webkit-scrollbar{display:none}
 .lightbox-thumb{
@@ -2666,7 +2668,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-section{margin-top:10px}
   .lightbox-section pre{max-height:128px;font-size:12px}
   .lightbox-section pre.tag-zh-on{max-height:230px}
-  .lightbox-thumbs{bottom:calc(45vh + 22px);bottom:calc(45dvh + 22px);max-width:94vw;transition:bottom .3s cubic-bezier(.22,1,.36,1)}
+  .lightbox-thumbs{left:50%;bottom:calc(45vh + 22px);bottom:calc(45dvh + 22px);max-width:94vw;transition:bottom .3s cubic-bezier(.22,1,.36,1)}
   .lightbox.folded .lightbox-thumbs{bottom:80px}
   .lb-fold{
     top:auto;left:50%;right:auto;bottom:calc(45vh - 13px);bottom:calc(45dvh - 13px);
@@ -2680,7 +2682,15 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-prev{left:10px}
   .lightbox-next{right:10px}
   .lightbox.folded .lightbox-next{right:10px}
-  .lightbox-nav{width:40px;height:40px}
+  /* 翻页按钮按图片区上下居中，四态与上面 .lightbox-stage 的 bottom 一一对应；
+     按整屏 50% 会落到图片底边、盖住缩略条首尾。 */
+  .lightbox-nav{
+    width:40px;height:40px;top:calc(50% - 22.5vh - 5px);top:calc(50% - 22.5dvh - 5px);
+    transition:border-color .12s,color .12s,top .3s cubic-bezier(.22,1,.36,1),scale .14s ease;
+  }
+  .lightbox.has-thumbs .lightbox-nav{top:calc(50% - 22.5vh - 43px);top:calc(50% - 22.5dvh - 43px)}
+  .lightbox.folded .lightbox-nav{top:calc(50% - 32px)}
+  .lightbox.folded.has-thumbs .lightbox-nav{top:calc(50% - 71px)}
   .lightbox-nav[data-nav-label]::after{display:none}
   .lightbox-original-status{left:58px;bottom:8px}
 }
