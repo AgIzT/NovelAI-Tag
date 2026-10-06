@@ -22,7 +22,7 @@ import { openReportDialog } from './report.js';
 import { isContentBlocked } from './content-blocking.js';
 import { hideCard, promptBlockedEntry } from './content-blocking-ui.js';
 import { goBackFrom } from './browser-history.js';
-import { bindBackdropDismiss, isGlobalShortcutBlocked } from './modal.js';
+import { bindBackdropDismiss, isGlobalShortcutBlocked, trapFocus } from './modal.js';
 import {
   flushDeferredFavoritesViewRefresh,
   isFav,
@@ -1335,6 +1335,12 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   });
   window.addEventListener('keydown', ev => {
     if ($('#lightbox').hidden) return;
+    /* 挂在 window 上而非灯箱本身：点过图片后焦点落在 body，Tab 也要拉回灯箱。
+       上面另有弹层（反馈、屏蔽确认等）时由那一层自己圈焦点。 */
+    if (ev.key === 'Tab') {
+      if (!isGlobalShortcutBlocked(ev, $('#lightbox'))) trapFocus(ev, $('#lightbox'));
+      return;
+    }
     if (isLightboxKeydownBlocked(ev)) return;
     if (ev.key === 'Escape') { ev.preventDefault(); if (!closeArtistPeek()) closeLightbox(); }
     if (ev.key === 'ArrowLeft') { ev.preventDefault(); stepLightbox(-1); }
