@@ -30,7 +30,7 @@
 | `translate_tag_zh.py` | 给中文对照跑 AI 长尾补译，只翻「人工表和词库都没有」的键，断点续跑；渠道配置在 Git 忽略的 `tools/data/tag_zh/ai_config.json`（含密钥，不写日志、不写报告）；命中敏感词组合的键本地先过滤、不送外部接口（渠道对这类组合会整批拒答，送了既白花调用又连累同批）；词表在 Git 忽略的 `tools/data/tag_zh/过滤词.json`，脚本不带内置词表，**文件缺失直接退出**。**跑批节奏与译名取舍由维护者安排，脚本按需调用即可，不需要代为判断收录范围。**模型应答了却给不出译名的键记进负缓存 `tools/data/tag_zh/无译名.csv`，下轮自动跳过、不重复花钱重问（`--retry-empty` 可强制重问，换模型时才用）。跑完必须再跑 `build_tag_zh.py` 才会进分片；双击入口 `单项工具/补译中文对照.bat`（总控台第 15 项）先 dry-run、要输 YES 才发请求、跑完自动重建分片 | **会调用外部 AI 接口并产生费用**；追加写 `tools/data/tag_zh/AI译名.csv` 与负缓存 `无译名.csv`，覆盖写 `output/tag-zh/` 的跑批日志 / 报告 / 失败清单；`--dry-run` 只统计 |
 | `build_artist_index.py` | **现役（2026-10-02 上线）**：生成灯箱「画师」一栏的样张索引 `site/data/artist_index.json`——v4.5 / v5 两本画师词典里「整条 tags 只有一个 artist:」的常规词条，按画师名对到样张图，另按书名推出各书默认版本。画师名归一与前端 `artist-core.js` 共用夹具 `fixtures/artist_keys.json`，改一侧必须同步另一侧；发布数据链在中文对照之后自动跑一次，没有单独的双击入口 | 只写 `site/data/artist_index.json`（内容不变时字节不变）与 `output/artist-index/构建报告.md`（覆盖率与「还没有单画师样张」名单） |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
-| `test_banner_insert.mjs` | 卷首滑出物的候选资格、会话稳定、存储故障、借用资源 / 多图封面与版本匹配回归 | 只读，内存存储夹具 |
+| `test_banner_insert.mjs` | 卷首滑出物的候选资格、会话稳定、存储故障、书目封面继承、借用资源 / 多图封面与版本匹配回归 | 只读，内存存储夹具 |
 | `test_cover_palette.py` | 封面取色的确定性、资源身份、分级标记、缺图 / 外部源 / 越界路径与单色退化回归 | 只写系统临时合成夹具，不读写用户图片 |
 | `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；WebP 在站内与原图路由显式使用 `image/webp`；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
 | `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |

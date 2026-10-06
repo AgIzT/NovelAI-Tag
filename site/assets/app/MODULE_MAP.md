@@ -53,7 +53,7 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `data.js` | 引导数据、法典加载、规范化（`normalizeImageList` 只在数据真有时保留逐图 `negative` / `characterPrompts`）、目录树、更新筛选和数据状态提示 | — | `state.js`、`utils.js`、`media.js`、`feedback.js`、`../data-source.js` | 下载中的 Promise 先写入 `state.codexCache`，并发调用共享；失败时只清理对应 Promise 以允许重试；`updateFilterDefinitions` 按批次 id（`YYYY.M.D`）日期倒序返回并带 `time`，不吃 `codexes.json` 里数组的书写顺序 |
+| `data.js` | 引导数据、法典加载、规范化（`normalizeImageList` 只在数据真有时保留逐图 `negative` / `characterPrompts`）、目录树、更新筛选和数据状态提示 | — | `state.js`、`utils.js`、`media.js`、`feedback.js`、`../data-source.js` | 下载中的 Promise 先写入 `state.codexCache`，并发调用共享；失败时只清理对应 Promise 以允许重试；加载后的封面、资源归属及修订号优先继承书目配置，未配置时保留正文值；`updateFilterDefinitions` 按批次 id（`YYYY.M.D`）日期倒序返回并带 `time`，不吃 `codexes.json` 里数组的书写顺序 |
 | `search.js` | `q + f` 查询解析 / 序列化、字段筛选、稳定相关性排序、短语高亮、显式拆词与缓存失效 | 默认文本、字段值、筛选 needle 与目录短码的每词条 `WeakMap` 缓存 | `state.js`、`media.js`、`favorites.js`、`path-code.js` | 空格属于短语、逗号分 AND 条件；共享英文边界与下划线归一，保留字段/角色换行边界；默认召回严格限于标题、标签和角色正向提示词，非法语法 fail-closed；编辑后调用 `invalidateSearchableText` |
 | `search-directories.js` | 构建目录选项、相关目录排序与缓存失效 | 按 entries 身份、来源模式、法典身份和权限态缓存目录表 | `state.js`、`access.js`、`path-code.js`、`search.js` | 复用短语匹配边界，只生成权限过滤后的真实来源目录；最终同级顺序取真实 tree，最多展示 5 项但保留完整 `totalCount` |
 | `search-ui.js` | 中文筛选构造器 / popover、chip、错误 / 零结果状态与相关目录渲染 | 注入动作及委托点击所需的筛选 / 目录引用及条件标签动效 | `ui-motion.js` | 不拥有搜索或历史状态；注入添加 / 删除 / 清空筛选、示例、打开目录和状态动作 |
