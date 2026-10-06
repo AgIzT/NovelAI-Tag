@@ -17,6 +17,7 @@ const MAX_BATCHES = 20;
 
 let batches = [];
 let previews = {};
+let palettes = {};
 let loaded = false;
 let loadingPromise = null;
 
@@ -35,6 +36,7 @@ export async function loadUpdates() {
     .then(data => {
       batches = normalizeUpdates(data);
       previews = normalizePreviews(data?.previews);
+      palettes = normalizePalettes(data?.palettes);
       loaded = true;
       seedFirstRun();
       return batches;
@@ -56,6 +58,11 @@ export function updatesLoaded() {
 /* 法典选择器 4 本卷「样张条」：这本书在封面旁并排的几张样图（构建时挑好，随更新索引一起发布） */
 export function bookPreviews(codexId) {
   return previews[codexId] || [];
+}
+
+/* 构建时从本地封面缩略图取色，避免线上跨源图片的 canvas 读像素限制。 */
+export function bookPalette(codexId) {
+  return palettes[codexId] || null;
 }
 
 /* 顶栏气泡与红点的唯一数字来源：只统计未读的「书×批次」。 */
@@ -282,6 +289,18 @@ function normalizePreviews(map) {
   for (const [codexId, list] of Object.entries(map)) {
     const items = (Array.isArray(list) ? list : []).map(normalizeSample).filter(sample => sample.image).slice(0, 3);
     if (items.length) out[String(codexId)] = items;
+  }
+  return out;
+}
+
+function normalizePalettes(map) {
+  const out = {};
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return out;
+  for (const [codexId, value] of Object.entries(map)) {
+    const sample = normalizeSample(value);
+    const colors = (Array.isArray(value?.colors) ? value.colors : [])
+      .filter(color => typeof color === 'string' && /^#[\da-f]{6}$/i.test(color)).slice(0, 4);
+    if (sample.image && colors.length >= 3) out[codexId] = { ...sample, colors };
   }
   return out;
 }

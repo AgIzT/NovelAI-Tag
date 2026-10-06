@@ -1,9 +1,9 @@
-/* 法典卷首：书名与信息在左，封面与样张在右；虚拟视图沿用原横幅。
-   图区几何按容器宽度固定，缺样张时也不挪动封面，换书接力才有稳定终点。 */
+/* 法典卷首：全称与信息在左，封面与滑出物在右；虚拟视图沿用原横幅。
+   图区几何按容器宽度固定，候选不同也不挪动封面，换书接力才有稳定终点。 */
 .codex-banner.banner-book{
   --book-accent:var(--accent);
   container:book-banner / inline-size;
-  height:168px;min-height:168px;gap:30px;padding:6px 0 18px;margin-bottom:6px;
+  height:184px;min-height:184px;gap:30px;padding:6px 0 18px;margin-bottom:6px;
   background:none;border:0;border-radius:0;box-shadow:none;
 }
 @supports (color:oklch(from red l c h)){
@@ -14,8 +14,8 @@
 .banner-book .banner-info{position:relative;min-width:0}
 .banner-eyebrow{display:flex;align-items:baseline;gap:12px;margin-bottom:9px;font-size:11px;line-height:1.2;letter-spacing:.16em;color:var(--muted)}
 .banner-eyebrow b{font-weight:900;color:var(--book-accent)}
-.banner-book .banner-title{padding-right:34px;font:700 clamp(28px,3.8cqw,42px)/1.14 var(--font-display);letter-spacing:-.005em}
-.banner-subtitle{margin-top:5px;font-size:12px;line-height:1.4;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner-book .banner-title{padding-right:34px;font:700 clamp(26px,3.5cqw,38px)/1.16 var(--font-display);letter-spacing:-.005em;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;text-wrap:pretty}
+.banner-book .banner-title.is-long-title{font-size:clamp(24px,3cqw,30px)}
 .banner-rule{height:1px;margin:15px 0 10px;background:var(--text);opacity:.75}
 .banner-book .banner-meta{margin:0;gap:8px 16px;font-size:12px;line-height:1.5;color:var(--text)}
 .banner-book .banner-meta>span:first-child{flex:none;max-width:22ch;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -27,43 +27,99 @@
 .banner-book .bp-text{font-size:12px;color:var(--text)}
 .banner-book .banner-about-btn{right:0;top:0}
 .banner-visuals{
-  --cover-h:140px;--cover-w:105px;--sample-h:132px;--sample-w:99px;
+  --cover-h:140px;--cover-w:105px;
   position:relative;display:flex;align-items:center;gap:6px;flex:none;width:420px;height:140px;
 }
 .banner-book .banner-cover{position:relative;z-index:4;width:var(--cover-w);height:var(--cover-h);border-radius:8px;box-shadow:0 0 0 1px var(--line)}
-.banner-samples{display:flex;align-items:center;gap:6px}
-.banner-sample{
-  position:relative;z-index:calc(4 - var(--s));display:block;flex:none;width:var(--sample-w);height:var(--sample-h);
-  border-radius:8px;overflow:hidden;background:var(--tagbg);box-shadow:0 0 0 1px var(--line);
-  --spread:calc(-1 * (var(--s) * (var(--sample-w) + 6px) + 6px));
-  animation:bookSampleIn .42s cubic-bezier(.22,1,.36,1) calc(var(--s) * 40ms) backwards;
+.banner-insert{position:absolute;left:calc(var(--cover-w) - 6px);top:0;width:calc(100% - var(--cover-w) + 6px);height:var(--cover-h)}
+.bi-sheet{
+  --page:color-mix(in srgb,var(--panel) 96%,var(--book-accent));
+  position:relative;width:100%;height:100%;padding:10px 15px 9px 22px;rotate:-.7deg;transform-origin:left center;
+  border:1px solid var(--line);border-left:0;border-radius:0 3px 3px 0;
+  background:linear-gradient(90deg,#00000007,transparent 22px),var(--page);color:var(--text);
+  box-shadow:0 2px 8px #00000008;animation:bookLeafIn .72s cubic-bezier(.16,1,.3,1) .04s backwards;
 }
-.banner-sample img{display:block;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .25s ease}
-.banner-sample img.is-loaded{opacity:1}
-.banner-sample.is-unavailable{visibility:hidden}
-@keyframes bookSampleIn{from{translate:var(--spread) 0;opacity:0}}
-.banner-cover.awaiting-cover+.banner-samples .banner-sample,
-html.intro-arm:not(.intro-reveal) .banner-sample{animation-play-state:paused}
+.bi-sheet::before{content:"";position:absolute;top:0;bottom:0;left:13px;width:1px;background:var(--line);opacity:.65}
+.bi-content{display:flex;flex-direction:column;height:100%;min-width:0}
+.bi-heading{display:flex;align-items:baseline;justify-content:space-between;flex:none;padding-bottom:5px;color:var(--muted);font:600 12px/1.2 var(--font-display);letter-spacing:.1em}
+.bi-heading>span{font:500 8px/1.2 var(--font-ui);letter-spacing:.15em;opacity:.65}
+.bi-row{display:flex;align-items:center;gap:8px;width:100%;height:25px;min-width:0;padding:0;border:0;border-radius:0;background:none;color:var(--text);text-align:left;font:500 12px/1.2 var(--font-ui);cursor:pointer;animation:bookLeafLineIn .46s cubic-bezier(.2,1,.3,1) calc(.16s + var(--row) * 65ms) backwards}
+.bi-name{min-width:0;max-width:68%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bi-no,.bi-count{font-size:9px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.bi-dots{flex:1;height:1px;min-width:6px;background:repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 4px)}
+.bi-index-rows,.bi-history-rows{display:flex;flex:1;flex-direction:column;justify-content:center;min-height:0}
+.bi-row:hover .bi-name,.bi-row.is-active .bi-name,.bi-row[aria-pressed="true"] .bi-name{color:var(--book-accent)}
+.bi-tape{position:relative;display:flex;gap:2px;flex:none;height:7px;width:100%;margin:5px 0 4px;animation:bookLeafTapeIn .55s cubic-bezier(.2,1,.3,1) .28s backwards;transform-origin:left center}
+.bi-tape i{min-width:1px;background:color-mix(in srgb,var(--ink) 62%,var(--page))}
+.bi-tape::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 4px,var(--page) 4px 5px);pointer-events:none}
+.bi-foot{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:9px;line-height:1.3;letter-spacing:.05em}
+.bi-link{width:max-content;max-width:100%;padding:0;border:0;background:none;color:var(--muted);font:inherit;cursor:pointer}
+.bi-link:hover{color:var(--book-accent)}
+.bi-row:focus-visible,.bi-link:focus-visible,.bi-tab:focus-visible{outline:2px solid var(--book-accent);outline-offset:3px}
+.bi-tab{display:none}
 
-/* 样张数量跟正文区域走：侧栏展开 / 收起时也能保住书名的空间。 */
+/* 题注保留一个短句与入口，完整 prompt、参数沿用词条详情。 */
+.bi-caption{background:linear-gradient(90deg,#00000006,transparent 22px),color-mix(in srgb,var(--panel) 58%,var(--bg));box-shadow:none}
+.bi-caption-title{margin-top:4px;font:600 19px/1.2 var(--font-display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bi-caption-source{margin-top:4px;font-size:10px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.bi-caption-prompt{margin:9px 0 7px;font-size:11px;line-height:1.5;font-family:var(--font-ui);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere;color:var(--muted)}
+.bi-caption .bi-link{margin-top:auto;font-size:10px;line-height:1.3}
+.bi-history-dot{width:5px;height:5px;flex:none;border:1px solid var(--book-accent);border-radius:50%;position:relative}
+.bi-history-row:first-child .bi-history-dot{background:var(--book-accent)}
+.bi-history-row:not(:last-child) .bi-history-dot::after{content:"";position:absolute;top:5px;left:1px;height:20px;width:1px;background:var(--line)}
+.bi-history-row .bi-name{flex:none;max-width:50%;font-size:11px}
+.bi-history-row b{font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--muted);min-width:4ch;text-align:right}
+.bi-history-bar{flex:1;height:3px;min-width:5px;background:linear-gradient(90deg,color-mix(in srgb,var(--book-accent) 55%,transparent) var(--amount),transparent var(--amount))}
+.bi-history-row[aria-pressed="true"] .bi-history-dot{background:var(--book-accent)}
+
+/* 封面取色：窄书签错峰舒展，数字只表达顺序，不给色号增加阅读负担。 */
+.bi-bookmarks{position:relative;left:10px;width:calc(100% - 24px);height:100%;padding:4px 0 0 13px}
+.bi-bookmark{position:absolute;left:calc(18px + var(--bookmark) * 49px);top:5px;width:43px;height:118px;background:var(--swatch);rotate:var(--angle);border:1px solid #0002;border-radius:2px 2px 0 0;clip-path:polygon(0 0,100% 0,100% 100%,50% 89%,0 100%);transform-origin:5% 50%;animation:bookBookmarkIn .72s cubic-bezier(.16,1,.3,1) calc(.06s + var(--bookmark) * 55ms) backwards}
+.bi-bookmark i{position:absolute;top:8px;left:8px;display:grid;place-items:center;width:17px;height:17px;background:#fff9;border-radius:50%;color:#292624;font:500 8px/1 var(--font-ui);font-style:normal}
+.bi-palette-label{position:absolute;left:28px;bottom:0;font-size:9px;letter-spacing:.15em;color:var(--muted);animation:bookLeafLineIn .4s ease .32s backwards}
+@keyframes bookLeafIn{from{opacity:0;translate:-95px 0;rotate:-4deg;scale:.62 1}}
+@keyframes bookLeafLineIn{from{opacity:0;translate:-12px 0}}
+@keyframes bookLeafTapeIn{from{opacity:0;scale:.2 1}}
+@keyframes bookBookmarkIn{from{opacity:0;translate:calc(-16px - var(--bookmark) * 49px) 0;rotate:-12deg;scale:.9 1}}
+.banner-cover.awaiting-cover+.banner-insert *,
+html.intro-arm:not(.intro-reveal) .banner-insert *{animation-play-state:paused}
+.banner-cover.awaiting-cover+.banner-insert,
+html.intro-arm:not(.intro-reveal) .banner-insert{visibility:hidden}
+
+/* 窄屏折成页签，入口仍可点，封面几何不随候选改变。 */
 @container book-banner (max-width:1000px){
   .banner-visuals{width:315px}
-  .banner-sample:nth-child(n+3){display:none}
+  .bi-row{font-size:11px;gap:6px}
+  .bi-name{max-width:60%}
+  .bi-bookmark{left:calc(8px + var(--bookmark) * 40px);width:35px}
 }
 @container book-banner (max-width:800px){
   .banner-visuals{width:210px}
-  .banner-sample:nth-child(n+2){display:none}
+  .bi-sheet{padding:0}
+  .bi-content{display:none}
+  .bi-tab{position:absolute;right:10px;top:22px;display:block;padding:8px 6px;border:0;background:none;color:var(--muted);font:600 11px/1.7 var(--font-display);letter-spacing:.2em;writing-mode:vertical-rl;cursor:pointer}
+  .bi-sheet::after{content:"";position:absolute;left:22px;bottom:18px;width:24px;height:1px;background:var(--line);box-shadow:0 -5px var(--line),0 -10px var(--line)}
+  .bi-bookmarks{left:0;padding:0}
+  .bi-bookmark{left:calc(var(--bookmark) * 22px);width:22px;height:108px}
+  .bi-bookmark i{display:none}
+  .bi-palette-label{left:12px;font-size:8px;letter-spacing:0}
   .banner-book .banner-meta{column-gap:12px}
 }
 @container book-banner (max-width:640px){
-  .banner-visuals{--cover-h:112px;--cover-w:84px;--sample-h:104px;--sample-w:78px;width:168px}
-  .banner-book .banner-title{font-size:30px}
+  .banner-visuals{--cover-h:112px;--cover-w:84px;width:168px;height:112px}
+  .banner-book .banner-title{font-size:28px}
+  .banner-book .banner-title.is-long-title{font-size:24px}
+  .bi-tab{right:8px;top:12px}
+  .bi-bookmark{left:calc(var(--bookmark) * 16px);width:17px;height:96px}
   .banner-book .bp-track{display:none}
 }
 @container book-banner (max-width:520px){
-  .banner-visuals{--cover-h:96px;--cover-w:72px;width:72px}
-  .banner-samples{display:none}
-  .banner-book .banner-title{font-size:28px}
+  .banner-visuals{--cover-h:96px;--cover-w:72px;width:90px;height:96px}
+  .banner-book .banner-title{font-size:26px}
+  .bi-sheet::before,.bi-sheet::after{display:none}
+  .bi-tab{top:13px;right:0;padding:7px 4px;font-size:9px;line-height:1.3}
+  .bi-bookmark{left:calc(var(--bookmark) * 4px);width:10px;height:83px;rotate:0deg}
+  .bi-palette-label{display:none}
   .banner-version{display:none}
 }
 @media (min-width:601px){.layout:has(.banner-book) .sb-head{display:none}}
@@ -78,11 +134,11 @@ html.intro-arm:not(.intro-reveal) .banner-sample{animation-play-state:paused}
     linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 88px/72% 10px no-repeat;
 }
 @media (max-width:600px){
-  .codex-banner.banner-book{height:112px;min-height:112px;padding:2px 0 12px;gap:14px;margin-bottom:2px}
+  .codex-banner.banner-book{height:136px;min-height:136px;padding:2px 0 12px;gap:12px;margin-bottom:2px}
   .banner-book .banner-info{order:1}
   .banner-eyebrow{gap:10px;margin-bottom:6px;font-size:9.5px}
-  .banner-book .banner-title{font-size:23px;padding-right:0}
-  .banner-subtitle,.banner-version,.banner-book .banner-meta small{display:none}
+  .banner-book .banner-title,.banner-book .banner-title.is-long-title{font-size:21px;padding-right:0;line-height:1.22}
+  .banner-version,.banner-book .banner-meta small{display:none}
   .banner-rule{margin:9px 0 7px}
   .banner-book .banner-meta{gap:5px 10px;flex-wrap:wrap;overflow:visible;font-size:11.5px}
   .banner-book .banner-meta>span:first-child{max-width:12ch}
@@ -90,12 +146,17 @@ html.intro-arm:not(.intro-reveal) .banner-sample{animation-play-state:paused}
   .banner-book .bp-track{display:none}
   .banner-book .bp-text{font-size:11.5px}
   .banner-book .banner-about-btn{width:26px;height:26px;top:-10px}
-  .banner-visuals{order:0;--cover-h:64px;--cover-w:48px;--sample-h:64px;--sample-w:48px;width:64px;height:64px}
-  .banner-samples{position:absolute;left:0;top:0;display:block;width:48px;height:64px}
-  .banner-sample{position:absolute;inset:0;translate:calc(var(--s) * 7px) 0;scale:calc(1 - var(--s) * .08);transform-origin:right center;animation-name:bookStackIn}
-  .banner-sample:nth-child(-n+2){display:block}
-  .banner-sample:nth-child(n+3){display:none}
-  @keyframes bookStackIn{from{translate:0 0;opacity:0}}
+  .banner-visuals{order:0;--cover-h:64px;--cover-w:48px;width:72px;height:64px}
+  .banner-insert{left:0;width:72px;top:1px;height:62px}
+  .bi-sheet{rotate:-2deg;animation-name:bookPocketIn}
+  .bi-sheet::before,.bi-sheet::after{display:none}
+  .bi-content{display:none}
+  .bi-tab{right:0;top:8px;display:block;padding:7px 5px;font-size:9px;line-height:1.3;letter-spacing:.12em}
+  .bi-bookmarks{left:0;width:100%}
+  .bi-bookmark{left:calc(45px + var(--bookmark) * 5px);top:0;width:8px;height:60px;rotate:0deg;animation-name:bookPocketBookmarkIn}
+  .bi-bookmark i,.bi-palette-label{display:none}
+  @keyframes bookPocketIn{from{opacity:0;translate:-16px 0;rotate:-5deg;scale:.85 1}}
+  @keyframes bookPocketBookmarkIn{from{opacity:0;translate:calc(-10px - var(--bookmark) * 5px) 0}}
   .main.skeleton-visible .banner-book:empty::before{order:0;width:48px;height:64px}
   .main.skeleton-visible .banner-book:empty::after{
     height:76px;
@@ -106,10 +167,9 @@ html.intro-arm:not(.intro-reveal) .banner-sample{animation-play-state:paused}
   }
 }
 @media (max-width:360px){
-  .banner-book .banner-title{font-size:21px}
+  .banner-book .banner-title,.banner-book .banner-title.is-long-title{font-size:19px}
   .banner-book .banner-meta{column-gap:7px}
   .banner-book .banner-meta>span:first-child{max-width:8ch}
 }
-@media (prefers-reduced-motion:reduce){.banner-sample{animation:none}.banner-sample img{transition:none}}
-html.motion-off .banner-sample{animation:none}
-html.motion-off .banner-sample img{transition:none}
+@media (prefers-reduced-motion:reduce){.banner-insert *{animation:none!important;transition:none!important}}
+html.motion-off .banner-insert *{animation:none!important;transition:none!important}

@@ -9,7 +9,8 @@ updateBatches / isNew 对上，按批次日期跨书聚合成一条倒序时间�
 entryMatchesUpdateFilter 逐条对齐——两边算出的条数必须一致，否则页签里的数字
 会和进书后的「NEW x.xx更新」筛选对不上。改动其中一侧时必须同步另一侧。
 
-只读 site/data/*.json，只写 site/data/updates.json；不碰图片、不碰 R2。
+另从本地封面缩略图提取 3–4 个代表色，供卷首配色书签读取。
+只读 site/data/*.json 与 site/images/ 封面，只写 site/data/updates.json；不改图片、不碰 R2。
 """
 
 from __future__ import annotations
@@ -21,6 +22,11 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None  # 无图片运行库时保留更新索引，只省略可选的配色。
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -196,6 +202,59 @@ def pick_previews(meta: dict, entries: list[dict]) -> tuple[list[dict], list[str
     return [sample_of(pool[int(index * step + step / 2)], nsfw_book) for index in range(count)], notes
 
 
+def cover_palette(meta: dict, entries: list[dict], images_dir: Path) -> dict | None:
+    """只取当前封面的颜色；带资源身份，旧索引不能给新封面套上旧配色。"""
+    name = str(meta.get("cover") or "")
+    source = str(meta.get("coverCodexId") or meta.get("id") or "")
+    if not Image or not name or meta.get("assetPathMode") == "relative" or str(meta.get("dataUrl") or "").startswith(("http://", "https://")):
+        return None
+    try:
+        image_root = images_dir.resolve()
+        image_path = (image_root / source / name).resolve()
+    except (OSError, ValueError):
+        return None
+    if not image_path.is_relative_to(image_root):
+        return None
+    entry = next((item for item in entries if isinstance(item, dict)
+                  and str(item.get("assetCodexId") or meta.get("id")) == source
+                  and (item.get("image") == name or any(image.get("path") == name for image in (item.get("images") or []) if isinstance(image, dict)))), None)
+    if entry and entry_rating(entry) == "r18g":
+        return None
+    try:
+        with Image.open(image_path) as image:
+            raw = image.convert("RGBA").resize((64, 64)).tobytes()
+            pixels = [tuple(raw[index:index + 3]) for index in range(0, len(raw), 4) if raw[index + 3] >= 128]
+        if not pixels:
+            return None
+        sample = Image.new("RGB", (len(pixels), 1))
+        sample.putdata(pixels)
+        quantized = sample.quantize(colors=12)
+        table = quantized.getpalette()
+        ranked = sorted(quantized.getcolors(), reverse=True)
+        pool = [(count, tuple(table[index * 3:index * 3 + 3])) for count, index in ranked]
+        chosen = [pool[0][1]]
+        # 面积与色差共同决定后续代表色，不把四个近白色算作四枚书签。
+        for _ in range(3):
+            candidates = [(min(sum((a - b) ** 2 for a, b in zip(rgb, old)) for old in chosen), count, rgb)
+                          for count, rgb in pool if rgb not in chosen]
+            candidates = [item for item in candidates if item[0] >= 34 ** 2]
+            if not candidates:
+                break
+            chosen.append(max(candidates, key=lambda item: item[0] ** .5 * item[1] ** .35)[2])
+        if len(chosen) < 3:
+            return None
+        chosen.sort(key=lambda rgb: .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2])
+        palette = {"image": name, "assetCodexId": source, "assetRev": str(meta.get("coverRev") or ""),
+                   "colors": ["#%02x%02x%02x" % rgb for rgb in chosen]}
+        if entry:
+            palette["id"] = str(entry.get("id") or "")
+        if meta.get("nsfw") or (entry and not is_safe_entry(entry)):
+            palette["nsfw"] = True
+        return palette
+    except (OSError, ValueError):
+        return None  # 缺失 / 损坏封面不影响更新批次与其它滑出物。
+
+
 def dir_distribution(entries: list[dict], limit: int = 3) -> list[list]:
     """这一批新增落在哪几个目录、各多少条（取前几名）。整批都在同一个一级目录下时往下看一级，
     最多看到第三级——图包常是「来源 › 整理批次 › …」，只报一级等于没说。"""
@@ -233,6 +292,9 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
 
     grouped: dict[str, dict] = {}
     previews: dict[str, list[dict]] = {}
+    palettes: dict[str, dict] = {}
+    if Image is None:
+        notes.append("未安装 Pillow，封面配色省略；更新批次与预览图照常生成")
     for meta in codexes:
         if not isinstance(meta, dict):
             continue
@@ -252,6 +314,9 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         notes.extend(f"{codex_id} 预览图：{note}" for note in preview_notes)
         if book_previews:
             previews[codex_id] = book_previews
+        palette = cover_palette(meta, entries, data_dir.parent / "images")
+        if palette:
+            palettes[codex_id] = palette
 
         for definition in definitions:
             when = batch_date(definition["id"])
@@ -300,6 +365,7 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         "batches": batches,
         # 法典选择器 4 本卷「样张条」用的书内样图，按书 id 索引；与更新批次无关，只是借这份索引一起发布
         "previews": previews,
+        "palettes": palettes,
     }
     return payload, notes
 
@@ -326,6 +392,7 @@ def main() -> int:
         books = "、".join(f"{book['codexId']} +{book['count']}" for book in batch["books"])
         lines.append(f"  {batch['date']}  共 {batch['count']} 条  {books}")
     lines.extend(f"  ! {note}" for note in notes)
+    lines.append(f"封面配色 {len(payload['palettes'])} 本")
 
     if args.dry_run:
         lines.append(f"[dry-run] 未写入 {output}")

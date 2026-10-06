@@ -7,6 +7,7 @@ import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
 import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { renderBannerInsert, syncBannerInsertState } from './banner-insert.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -182,6 +183,7 @@ const codexUiActions = {
   openUpdateBatch: async () => {},
   isContentBlocked: () => false,
   bookPreviews: () => [],
+  bookPalette: () => null,
 };
 
 export function setCodexUiActions(actions = {}) {
@@ -1668,43 +1670,28 @@ const bannerShortAuthor = author => {
   const names = String(author || '').split(/\s*\/\s*/).filter(Boolean);
   return names.length > 2 ? `${names[0]} 等 ${names.length} 人` : names.join(' / ');
 };
-const comparableBannerTitle = title => String(title || '').normalize('NFKC').toLowerCase()
-  .replace(/novelai|\s|[·：:]/g, '');
-
-/* 样张复用选择器的更新索引；迟到的索引只补这一次渲染的节点，不覆盖后来换上的书。
-   图区预留同样的几何，即使旧 release 没有 previews，封面接力的终点也不会移动。 */
-function fillBannerPreviews(banner, c) {
-  const samples = banner.querySelector('.banner-samples');
-  if (!samples || isExternalCodex(c) || c.assetPathMode === 'relative') return;
-  const fill = () => {
-    if (!samples.isConnected || banner.dataset.identity !== c.id) return;
-    const cover = codexCoverUrl(c);
-    const seen = new Set(cover ? [cover] : []);
-    const previews = (codexUiActions.bookPreviews(c.id) || []).filter(item => {
-      if (!item.image || (item.nsfw && !state.allowNsfw)
-        || codexUiActions.isContentBlocked({ id: item.id, _srcCodexId: c.id })) return false;
-      const url = thumbUrl(item, c);
-      if (!url || seen.has(url)) return false;
-      seen.add(url);
-      return true;
-    }).slice(0, 3);
-    samples.innerHTML = previews.map((item, i) =>
-      `<span class="banner-sample" style="--s:${i + 1}"><img src="${esc(thumbUrl(item, c))}" alt="" decoding="async"></span>`).join('');
-    samples.querySelectorAll('img').forEach(revealBannerImage);
-  };
-  fill();
-  if (!samples.childElementCount) {
-    Promise.resolve().then(() => codexUiActions.loadUpdates()).then(fill, () => {});
-  }
-}
-
-function revealBannerImage(img) {
-  const reveal = () => img.classList.add('is-loaded');
-  if (img.complete && img.naturalWidth) reveal();
-  else {
-    img.onload = reveal;
-    img.onerror = () => { img.closest('.banner-sample')?.classList.add('is-unavailable'); };
-  }
+function fillBannerInsert(banner, c) {
+  renderBannerInsert(banner, c, {
+    loadUpdates: codexUiActions.loadUpdates,
+    bookPalette: codexUiActions.bookPalette,
+    isContentBlocked: codexUiActions.isContentBlocked,
+    groups: () => [...document.querySelectorAll('#chipRail .rail-chip')]
+      .filter(chip => chip.dataset.path && chip.getAttribute('aria-disabled') !== 'true')
+      .map(chip => {
+        const path = chip.dataset.path.split('\u0001');
+        return { path, name: path.at(-1), count: Number(chip.querySelector('.rc-n')?.textContent) || 0,
+          color: chip.querySelector('.rc-dot')?.style.background || 'var(--book-accent)' };
+      }).filter(group => group.count > 0),
+    selectPath: selectPathByPath,
+    selectUpdate: id => setUpdateFilter(id, { toggle: true }),
+    openCaption: (entry, index) => codexUiActions.openLightbox(entry, index, banner.querySelector('.banner-cover img')),
+    openDirectory: () => {
+      if ($('#sidebar')?.classList.contains('closed')) $('#menuBtn')?.click();
+      const row = $('#tree .tree-row.active') || $('#tree .tree-row');
+      row?.scrollIntoView({ block: 'nearest' });
+      row?.focus({ preventScroll: true });
+    },
+  });
 }
 
 /* 横幅主体：封面、书名、作者 · 版本、原图签、作者主页、配图进度。这些都只读 codexes.json 也有的字段，
@@ -1728,18 +1715,15 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
       `<div class="banner-meta"><span>${esc(metaText)}</span></div>${progressHtml}</div>`;
   } else {
     const typeIndex = Math.max(0, CODEX_TYPES.findIndex(type => type.id === codexType(c)));
-    const title = codexPickerTitle(state.codexes.find(item => item.id === c.id) || c);
-    const subtitle = comparableBannerTitle(title) === comparableBannerTitle(c.title) ? '' : c.title;
     banner.dataset.type = CODEX_TYPES[typeIndex].id;
     banner.innerHTML = `<div class="banner-info">` +
       `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${CODEX_TYPES[typeIndex].name}</span></div>` +
-      `<div class="banner-title" title="${esc(c.title)}">${esc(title)}</div>` +
-      `${subtitle ? `<div class="banner-subtitle">${esc(subtitle)}</div>` : ''}` +
+      `<div class="banner-title${String(c.title || '').length > 20 ? ' is-long-title' : ''}">${esc(c.title)}</div>` +
       `<div class="banner-rule" aria-hidden="true"></div>` +
       `<div class="banner-meta"><span class="banner-author" title="${esc(c.author || '')}"><small>作者</small>${esc(bannerShortAuthor(c.author) || '未标注')}</span>` +
       `${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
       `${progressHtml}${originalPill}${home ? renderAuthorHomepage(home) : ''}</div></div>` +
-      `<div class="banner-visuals" aria-hidden="true">${coverHtml}<div class="banner-samples"></div></div>`;
+      `<div class="banner-visuals">${coverHtml}<div class="banner-insert"></div></div>`;
   }
   banner.dataset.identity = virtualView ? '' : c.id;
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */
@@ -1749,7 +1733,6 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     if (coverImg.complete && coverImg.naturalWidth) reveal();
     else { coverImg.onload = reveal; coverImg.onerror = reveal; }
   }
-  if (!virtualView) fillBannerPreviews(banner, c);
 }
 
 /* 换书接力：数据还没到就先把横幅换成新书（app/codex-switch.js 回顶那一刻调）。
@@ -1781,6 +1764,7 @@ export function renderCodexHeader({ keepIdentity = false } = {}) {
   }
   if (!virtualView) renderBannerAbout(c, banner);
   renderCategoryRail();
+  if (!virtualView) fillBannerInsert(banner, c);
   /* 结果栏只在换书时一次性淡入（renderCodexHeader 只在 loadCodex/换书渲染时调）；搜索/筛选/就地刷新的高频更新保持瞬时 */
   const resultBar = document.querySelector('.result-bar');
   if (resultBar) {
@@ -1823,6 +1807,7 @@ export function renderCategoryRail({ animate = true } = {}) {
 }
 
 export function updateRailActive() {
+  syncBannerInsertState();
   const rail = $('#chipRail');
   if (!rail) return;
   const head = (hasActiveSearch() && !state.siteSearchView) ? null : (state.activePath[0] || '');

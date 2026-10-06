@@ -25,7 +25,7 @@ import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, ren
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
-import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from './app/updates.js';
+import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews, bookPalette } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
@@ -1078,6 +1078,7 @@ setUpdatesActions({ openBatch: openUpdateBatch });
 setCodexUiActions({
   loadUpdates,
   bookPreviews,
+  bookPalette,
   isContentBlocked,
   openUpdateBatch: options => {
     markBatchBookRead(options.batchId, options.codexId);
