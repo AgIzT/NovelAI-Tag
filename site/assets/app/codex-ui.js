@@ -1664,25 +1664,35 @@ export function openRandomEntry(entry) {
 /* ---------------- 法典横幅 / 分类轨道 ---------------- */
 const bannerImagedPct = c => (c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0);
 
-/* 横幅主体：封面、书名、作者 · 版本、原图签、作者主页、配图进度。这些都只读 codexes.json 也有的字段，
-   所以换书接力时可以先用 meta 画好（pending：封面不播二段浮现、进度行留给计步与落地揭开）。 */
+/* 横幅主体：封面；字栏自上而下是卷号眉标、书名、作者（单独一行）、版本 · 原图签 · 作者主页；
+   配图进度沉到卡片底边一条细线、条数在右下角（样式见 styles.css「法典横幅」）。这些都只读 codexes.json 也有的字段，
+   所以换书接力时可以先用 meta 画好（pending：封面不播二段浮现、进度行留给计步与落地揭开）。
+   收藏墙 / 全站搜索这类虚拟视图没有卷别，保留「书名 + 作者 · 版本」两行。 */
 function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const cover = codexBannerCoverEntry(c);
-  const metaText = [c.author, c.version].filter(Boolean).join(' · ');
   const exampleLabel = codexExampleLabel(c);
   const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   const home = virtualView ? null : authorHomepage(c);
+  // 卷号与分类色同选择器四卷：cat-* 类取 styles.css 里那套由强调色转色相的分类辅助色
+  const typeIndex = Math.max(0, CODEX_TYPES.findIndex(t => t.id === codexType(c)));
+  banner.classList.remove(...CODEX_TYPES.map(t => `cat-${t.id}`));
+  if (!virtualView) banner.classList.add(`cat-${CODEX_TYPES[typeIndex].id}`);
+  const head = virtualView
+    ? `<div class="banner-title">${esc(c.title)}</div>` +
+      `<div class="banner-meta"><span>${esc([c.author, c.version].filter(Boolean).join(' · '))}</span></div>`
+    : `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
+      `<div class="banner-title">${esc(c.title)}</div>` +
+      (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}</div>` : '') +
+      `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
+      `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
     `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
-    `<div class="banner-info">` +
-    `<div class="banner-title">${esc(c.title)}</div>` +
-    `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}` +
-    `${home ? renderAuthorHomepage(home) : ''}</div>` +
+    `<div class="banner-info">${head}</div>` +
+    // 进度行直接挂在横幅下（不进 .banner-info）：字栏入场动画带位移，会临时成为绝对定位的参照，沉底的进度线会跟着跳
     `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
-    `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>` +
-    `</div>`;
+    `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
   banner.dataset.identity = virtualView ? '' : c.id;
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */
   const coverImg = banner.querySelector('.banner-cover img');
@@ -1835,7 +1845,7 @@ function authorHomepage(c) {
 function renderAuthorHomepage(home) {
   const bili = home.platform === 'bilibili';
   const title = `在新标签页打开 ${home.name} 的${bili ? ' B 站' : ''}主页`;
-  return `<a class="banner-home${bili ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener" title="${esc(title)}">` +
+  return `<a class="banner-home${bili ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener" title="${esc(title)}" aria-label="${esc(title)}">` +
     `${bili ? BILIBILI_ICON : EXT_ICON}<span>${bili ? '前往作者B站主页' : '前往作者主页'}</span>${ARROW_ICON}</a>`;
 }
 
