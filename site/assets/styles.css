@@ -2652,11 +2652,13 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .resume-prompt-main{flex:1}
   .brand{display:none}
   .lightbox{--lb-right:10px}
-  .lightbox-stage{left:10px;top:10px;right:10px;bottom:calc(45vh + 20px);bottom:calc(45dvh + 20px);touch-action:pan-y}
+  .lightbox-stage{left:10px;top:10px;right:10px;bottom:calc(45vh + 20px);bottom:calc(45dvh + 20px);touch-action:pan-y pinch-zoom}
   .lightbox.has-thumbs .lightbox-stage{bottom:calc(45vh + 96px);bottom:calc(45dvh + 96px)}
   .lightbox.folded .lightbox-stage{bottom:74px}
   .lightbox.folded.has-thumbs .lightbox-stage{bottom:152px}
-  #lightboxImg{max-height:100%;touch-action:pan-y}
+  /* 横滑归脚本翻页，双指留给浏览器放大；放大后（page-zoomed）放开横向拖动，翻页由脚本暂停。 */
+  #lightboxImg{max-height:100%;touch-action:pan-y pinch-zoom}
+  .lightbox.page-zoomed .lightbox-stage,.lightbox.page-zoomed #lightboxImg{touch-action:auto}
   .lightbox-info{
     left:10px;right:10px;top:auto;bottom:10px;width:auto;height:45vh;height:45dvh;
     padding:24px 14px 14px;border-radius:20px 20px 16px 16px;

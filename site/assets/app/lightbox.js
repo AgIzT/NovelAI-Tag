@@ -324,6 +324,7 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   lb.classList.remove('flying');
   lb.classList.toggle('folded', localStorage.getItem('fadian-lbinfo') === 'folded');
   lb.classList.toggle('has-thumbs', images.length > 1);
+  lb.classList.toggle('page-zoomed', isPageZoomed());
   lb.hidden = false;
   try {
     renderLightbox();
@@ -1233,6 +1234,11 @@ export function renderLightbox() {
 }
 
 
+/* 手机上双指放大后整页处于缩放态：单指拖动留给浏览器平移看图，不当翻页手势。 */
+function isPageZoomed() {
+  return (window.visualViewport?.scale || 1) > 1.01;
+}
+
 export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-width:600px)') } = {}) {
   let suppressLightboxClick = false;
   bindBackdropDismiss($('#lightbox'), () => {
@@ -1275,8 +1281,11 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   let lightboxTouch = null;
   let lightboxPointer = null;
   let lastLightboxSwipeAt = 0;
+  window.visualViewport?.addEventListener('resize', () => {
+    $('#lightbox').classList.toggle('page-zoomed', isPageZoomed());
+  });
   const canStartLightboxSwipe = target =>
-    !target.closest('.lightbox-info,.lightbox-thumbs,.lb-circle,.lb-fold');
+    !isPageZoomed() && !target.closest('.lightbox-info,.lightbox-thumbs,.lb-circle,.lb-fold');
   const commitLightboxSwipe = (dx, dy, elapsed) => {
     if (elapsed > 800 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.2) return false;
     const direction = dx < 0 ? 1 : -1;
@@ -1287,7 +1296,9 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
     return true;
   };
   $('#lightbox').addEventListener('touchstart', ev => {
-    if ($('#lightbox').hidden || ev.touches.length !== 1) return;
+    if ($('#lightbox').hidden) return;
+    // 第二根手指落下就是捏合：放弃这次滑动，否则松手时可能被当成翻页。
+    if (ev.touches.length !== 1) { lightboxTouch = null; return; }
     if (!canStartLightboxSwipe(ev.target)) return;
     const t = ev.touches[0];
     lightboxTouch = { x: t.clientX, y: t.clientY, at: Date.now() };
@@ -1311,6 +1322,7 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   $('#lightbox').addEventListener('touchcancel', () => { lightboxTouch = null; }, { passive: true });
   $('#lightbox').addEventListener('pointerdown', ev => {
     if ($('#lightbox').hidden || ev.button !== 0) return;
+    if (lightboxPointer && ev.pointerId !== lightboxPointer.id) { lightboxPointer = null; return; }
     if (!mobileQuery.matches && ev.pointerType !== 'touch') return;
     if (!canStartLightboxSwipe(ev.target)) return;
     lightboxPointer = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, at: Date.now() };
