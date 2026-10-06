@@ -71,7 +71,8 @@ MAX_KEY_LENGTH = 300
 SEPARATOR = re.compile(r"(\r\n|\r|\n|,|，)")
 WEIGHT_PREFIX = re.compile(r"^-?\d+(?:\.\d+)?::")
 SD_WEIGHT_SUFFIX = re.compile(r":\s*-?\d+(?:\.\d+)?$")
-LATIN = re.compile(r"[a-z]", re.IGNORECASE)
+# 需要翻译的文字：英文字母、韩文、日文假名。纯中文片段不用翻，查表键给空串。
+NEEDS_ZH = re.compile(r"[a-z가-힣ᄀ-ᇿ㄰-㆏぀-ヿ]", re.IGNORECASE)
 SPACES = re.compile(r"\s+")
 
 
@@ -105,9 +106,9 @@ def bare_tag(piece: str) -> str:
 
 
 def tag_key(piece: str) -> str:
-    """一段 tag 原文 → 查表键；不值得查的（空、无英文字母、画师前缀、超长）返回空串。"""
+    """一段 tag 原文 → 查表键；不值得查的（空、纯中文、画师前缀、超长）返回空串。"""
     key = bare_tag(piece)
-    if not key or not LATIN.search(key) or key.startswith("artist:") or len(key) > MAX_KEY_LENGTH:
+    if not key or not NEEDS_ZH.search(key) or key.startswith("artist:") or len(key) > MAX_KEY_LENGTH:
         return ""
     return key
 
