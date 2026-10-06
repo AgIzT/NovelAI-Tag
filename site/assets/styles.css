@@ -961,6 +961,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
   padding:12px 16px;margin-bottom:12px;
   min-height:138px;   /* 地板 = 自然高度（封面 112 + 上下内边距与描边）：占位与成品都贴到地板，两态像素级同高不跳动 */
+  overflow:hidden;    /* 配图进度沉在底边，靠卡片圆角裁齐两端 */
 }
 .codex-banner:empty{display:none}
 .banner-about-btn{
@@ -1007,11 +1008,19 @@ body.dark .bp-chip.is-bilibili:hover{color:#ff8db0}
 /* 封面竖版 3:4：封面几乎都是竖图 / 方图，横条会把人物裁得只剩一截。宽度沿用原来的 84px，书名位置不动 */
 .banner-cover{width:84px;height:112px;border-radius:10px;overflow:hidden;background:var(--tagbg);flex:none}
 .banner-cover img{width:100%;height:100%;object-fit:cover;display:block}
-.banner-info{flex:1;min-width:0}
-/* 法典名 = 每本法典唯一的"页面标题"：展示宋体放到 20px 才真正出声（17px 时与正文黑体无别）。
-   只加字号不改几何——外盒 min-height 是骨架屏与成品共用的抗 CLS 地板，随封面高度一起改。 */
-.banner-title{font-size:20px;font-weight:800;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.banner-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:2px}
+/* 字栏撑满封面高度：卷号眉标、书名、作者依次往下，版本 · 原图签那一行落到封面下沿；右边给「关于」按钮让位 */
+.banner-info{flex:1;min-width:0;align-self:stretch;display:flex;flex-direction:column;padding-right:40px}
+/* 卷号与分类色同选择器四卷（cat-* 类由 fillBanner 挂在横幅上；法典卷没有转色相，就是强调色） */
+.banner-eyebrow{display:flex;align-items:baseline;gap:.8em;margin:2px 0 7px;font:900 11px/1 var(--font-ui);letter-spacing:.2em;color:var(--cat,var(--accent))}
+.banner-eyebrow span{font-weight:400;letter-spacing:.16em;color:var(--muted)}
+/* 法典名 = 每本法典唯一的"页面标题"；字体沿用展示字体（Outfit + 思源宋体），竖版封面撑高卡片后放到 26px。
+   外盒 min-height 是骨架屏与成品共用的抗 CLS 地板，随封面高度一起改。 */
+.banner-title{font-size:26px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner-author{margin-top:5px;font-size:13px;line-height:1.5;color:color-mix(in srgb,var(--text) 82%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 右下角是配图数，这一行给它留出位置 */
+.banner-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:auto;max-width:calc(100% - 110px)}
+.banner-version{white-space:nowrap;color:var(--text)}
+.banner-version small{margin-right:6px;font-size:11px;color:var(--muted)}
 .data-pill{
   display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);
   background:var(--tagbg);color:var(--muted);border-radius:999px;padding:2px 8px;
@@ -1028,10 +1037,15 @@ body.dark .data-pill.warn{color:#f0c46f;background:rgba(222,156,45,.18)}
 .data-pill.has-orig{color:var(--text);background:rgba(29,29,31,.07);border-color:transparent}
 .data-pill.no-orig{color:var(--muted);background:transparent;border-color:var(--line)}
 body.dark .data-pill.has-orig{background:rgba(255,255,255,.1)}
-.banner-progress{display:flex;align-items:center;gap:10px;margin-top:8px}
-.bp-track{flex:1;height:6px;border-radius:999px;background:var(--tagbg);overflow:hidden;max-width:420px}
-.bp-fill{height:100%;border-radius:999px;background:var(--accent)}
-.bp-text{font-size:12px;color:var(--muted);white-space:nowrap}
+/* 配图进度沉底：卡片最底边一条 3px 细线，条数在右下角，与「版本 · 原图签」那一行同高 */
+.banner-progress{position:absolute;left:0;right:0;bottom:0;display:flex}
+.bp-track{flex:1;height:3px;background:var(--tagbg);overflow:hidden}
+/* 渐变只在强调色两侧各偏一点色相（−10° → +16°），明度微调；六套皮肤都贴着各自的主题色走（偏 22° 时紫色主题左端已读成蓝色） */
+.bp-fill{height:100%;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 62%,#fff),var(--accent))}
+@supports (color: oklch(from red l c h)){
+  .bp-fill{background:linear-gradient(90deg,oklch(from var(--accent) calc(l + .06) c calc(h - 10)),var(--accent) 55%,oklch(from var(--accent) calc(l - .03) c calc(h + 16)))}
+}
+.bp-text{position:absolute;right:16px;bottom:12px;font-size:12px;line-height:1.5;color:var(--muted);white-space:nowrap}
 /* 作者主页：跟在原图签后面，尺寸与 .data-pill 同级，只用颜色区分；B 站主页用 B 站粉，其它主页走主题色 */
 .banner-home{
   display:inline-flex;align-items:center;gap:3px;flex:none;white-space:nowrap;text-decoration:none;
@@ -2575,11 +2589,19 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
       linear-gradient(90deg,var(--tagbg),var(--tagbg-hover),var(--tagbg)) 0 36px/58% 6px no-repeat;
   }
   .banner-cover{width:48px;height:64px;border-radius:9px}
-  .banner-title{font-size:16.5px}
-  .banner-meta{gap:5px;font-size:11px}
-  .banner-progress{gap:7px;margin-top:5px}
-  .bp-track{height:6px}
-  .bp-text{font-size:11px}
+  .banner-info{padding-right:30px}
+  .banner-title{font-size:17px}
+  .banner-meta{gap:5px;font-size:11px;max-width:none}
+  /* 书名卡三行：卷号眉标 / 书名 / 作者与原图签同一行（版本收起）；底下一截留给右下角的配图数 */
+  .banner-info:has(.banner-eyebrow){display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto auto 1fr;column-gap:8px}
+  .banner-eyebrow{grid-column:1/-1;margin:0 0 4px;font-size:9px}
+  .banner-info:has(.banner-eyebrow) .banner-title{grid-column:1/-1}
+  .banner-author{grid-column:1;grid-row:3;margin-top:2px;font-size:11px}
+  .banner-info:has(.banner-eyebrow) .banner-meta{grid-column:2;grid-row:3;margin-top:2px;align-self:center}
+  /* 原图签缩一号，和作者行同高，不往下坠到右下角的配图数上 */
+  .banner-info:has(.banner-eyebrow) .banner-meta .data-pill{padding:0 6px;font-size:10px;line-height:1.5}
+  .banner-version{display:none}
+  .bp-text{right:10px;bottom:8px;font-size:10.5px}
   .banner-about-btn{right:8px;top:8px;width:26px;height:26px}
   .banner-home{gap:2px;padding:1px 6px 1px 4px}
   .banner-pop{width:min(280px,calc(100vw - 16px))}
@@ -2837,6 +2859,8 @@ html.intro-arm:not(.intro-reveal) .codex-banner,
 html.intro-arm:not(.intro-reveal) .codex-banner::after,
 html.intro-arm:not(.intro-reveal) .sb-head,
 html.intro-arm:not(.intro-reveal) .banner-title,
+html.intro-arm:not(.intro-reveal) .banner-eyebrow,
+html.intro-arm:not(.intro-reveal) .banner-author,
 html.intro-arm:not(.intro-reveal) .banner-meta,
 html.intro-arm:not(.intro-reveal) .banner-about-btn,
 html.intro-arm:not(.intro-reveal) .banner-cover img,
@@ -2891,6 +2915,8 @@ html.intro-run .codex-banner::after{animation:introSweep .34s linear .14s backwa
 html.intro-run .codex-banner{animation:introBannerIn .52s cubic-bezier(.22,1,.36,1) backwards}
 html.intro-run .sb-head{animation:introBannerIn .46s cubic-bezier(.22,1,.36,1) .1s backwards}
 html.intro-run .banner-title{animation:introTitleResolve .32s cubic-bezier(.22,1,.36,1) .05s backwards}
+html.intro-run .banner-eyebrow,
+html.intro-run .banner-author,
 html.intro-run .banner-meta,
 html.intro-run .banner-about-btn{animation:introBannerIn .36s ease .14s backwards}
 @keyframes introBannerIn{from{opacity:0;translate:0 16px}}
@@ -3000,7 +3026,7 @@ html.motion-off{scroll-behavior:auto!important}
   .banner-cover,.banner-info,.banner-about-btn,.banner-cover img,
   .tree.tree-entering .tree-row>span,
   .rail-chip,.card-img,.card-img-diffusion,.tree-spy,
-  .brand,.sb-head,.banner-title,.banner-meta,.card.card-enter,
+  .brand,.sb-head,.banner-title,.banner-eyebrow,.banner-author,.banner-meta,.card.card-enter,
   .topbar::after,.codex-banner::after,.intro-noise,.copy-sample-noise,.copy-seed-chip,
   .feedback-public-state.is-loading i,.feedback-progress-intro button[aria-busy="true"] span{
     animation:none!important;
