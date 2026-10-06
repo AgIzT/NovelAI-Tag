@@ -539,7 +539,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   dom.delete('#blockingResultBtn'); dom.delete('#blockingSettingsSummary'); dom.delete('#empty');
 }
 
-// 邻图仍同时预热缩略图和原图；缓存失败可重试，且超过 300 项会淘汰最旧 URL。
+// 桌面邻图同时预热缩略图和原图，触屏只预热缩略图；缓存失败可重试，且超过 300 项会淘汰最旧 URL。
 {
   const images = [];
   globalThis.Image = class {
@@ -576,9 +576,26 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
       { path: 'thumb-2.jpg', original: 'original-2.png' },
     ],
   };
+  const touchMatchMedia = window.matchMedia;
+  window.matchMedia = () => ({ matches: false });
   const beforeNeighbors = images.length;
   preloadLightboxNeighbors();
-  assert.equal(images.length, beforeNeighbors + 4, '前后邻图应各保留缩略图+原图预热');
+  assert.equal(images.length, beforeNeighbors + 4, '桌面前后邻图应各保留缩略图+原图预热');
+  window.matchMedia = touchMatchMedia;
+
+  state.lightbox = {
+    entry: { id: 'touch-entry', assetRev: 'r3' },
+    index: 0,
+    images: [
+      { path: 'touch-thumb-0.jpg', original: 'touch-original-0.png' },
+      { path: 'touch-thumb-1.jpg', original: 'touch-original-1.png' },
+      { path: 'touch-thumb-2.jpg', original: 'touch-original-2.png' },
+    ],
+  };
+  const beforeTouchNeighbors = images.length;
+  preloadLightboxNeighbors();
+  assert.equal(images.length, beforeTouchNeighbors + 2, '触屏邻图只预热缩略图，原图等翻到那张再加载');
+  assert.ok(images.slice(beforeTouchNeighbors).every(image => image.src.includes('touch-thumb-')));
 
   state.codex = {
     id: 'thumb-book', hasOriginal: false,

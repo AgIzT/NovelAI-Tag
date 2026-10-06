@@ -490,6 +490,12 @@ export function preloadImage(url) {
   }
 }
 
+/* 原图常见 1–2MB。触屏设备多半走流量、开了省流量也一样：邻图只预热缩略图，
+   原图等真翻到那张再加载（当前这张照旧在缩略图之后换上原图）。 */
+function shouldWarmNeighborOriginals() {
+  return !isTouchPrimaryInput() && !globalThis.navigator?.connection?.saveData;
+}
+
 export function preloadLightboxNeighbors(navigation = null) {
   const lb = state.lightbox;
   const e = lb.entry;
@@ -497,11 +503,12 @@ export function preloadLightboxNeighbors(navigation = null) {
   const targets = [-1, 1]
     .map(delta => getLightboxStepTarget(delta, lb, state.list, navigation))
     .filter(Boolean);
+  const warmOriginals = shouldWarmNeighborOriginals();
   const seen = new Set();
   for (const target of targets) {
     const item = target.images[target.index];
     const thumb = imageItemUrl('image', target.entry, item);
-    const original = lightboxItemHasOriginal(target.entry, item)
+    const original = warmOriginals && lightboxItemHasOriginal(target.entry, item)
       ? imageItemUrl('original', target.entry, item)
       : '';
     for (const url of [thumb, original]) {
