@@ -199,9 +199,13 @@ export function clearFlyClones() {
   document.querySelectorAll('.lb-fly').forEach(n => n.remove());
 }
 
-export function removeFlyCloneAfterPaint(clone) {
+export function removeFlyCloneAfterPaint(clone, onRemove = null) {
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => clone.remove());
+    requestAnimationFrame(() => {
+      if (!clone.isConnected) return;
+      clone.remove();
+      onRemove?.();
+    });
   });
 }
 
@@ -279,8 +283,8 @@ export function flyIn(sourceEl) {
   const finish = () => {
     if (finished) return;
     finished = true;
-    lb.classList.remove('flying');
-    removeFlyCloneAfterPaint(clone);
+    // 克隆移除与主图显现同帧完成，交接时只绘制一份阴影。
+    removeFlyCloneAfterPaint(clone, () => lb.classList.remove('flying'));
   };
   clone.addEventListener('transitionend', finish, { once: true });
   window.setTimeout(finish, 480);
