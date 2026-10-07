@@ -317,6 +317,8 @@ body.dark .ci-n5-chip{background:#f5f5f7;color:#1d1d1f}
 .ci-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .ci-head{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%}
 .ci-name{font-size:14px;font-weight:800;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 画风类用完整书名，窄桌面与小手机排不下时换行。 */
+.cat-string .ci-name{white-space:normal}
 .codex-item.active .ci-name{color:var(--accent)}
 .codex-item.locked .ci-name,.codex-item.soon .ci-name{color:var(--muted)}
 .ci-now{flex:none;font-size:10px;font-weight:900;color:var(--on-accent);background:var(--accent);border-radius:999px;padding:1.5px 7px}
@@ -554,7 +556,8 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
   width:100%;height:70px;padding:0 10px 0 12px;border:0;border-radius:12px;background:transparent;
   animation:metro-pop .32s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--i,0) * 24ms + 50ms);
 }
-/* 站与站之间的线段：从本站圆心画到下一站圆心（站高固定 70，间距 2） */
+.cat-string .codex-item.stn{height:auto;min-height:70px;padding-block:7px}
+/* 站与站之间的线段：从本站圆心画向下一站（站高默认 70，间距 2） */
 .codex-item.stn::before{
   content:"";position:absolute;left:31px;top:50%;width:6px;height:calc(100% + 2px);border-radius:3px;background:var(--cat);
   transform-origin:50% 0;animation:metro-draw .28s cubic-bezier(.27,0,.51,1) backwards;animation-delay:calc(var(--i,0) * 24ms + 110ms);
