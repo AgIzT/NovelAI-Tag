@@ -142,15 +142,21 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 }catch(e){}})();
 </script>
 <!-- 开场幕：必须是静态标签、且排在 body 最前，才能在第一帧就盖住页面（JS 建节点会先闪一下真实 UI）。
-     .intro-veil 是纯色幕 + 采样控制台，数据就绪后淡出；.intro-noise 活得更久，
-     要一直盖到封面/卡片显影完（对应原方案 noise 的 0→.14→.05→0 三段）。 -->
+     .intro-veil 是纯色幕，数据就绪后淡出；.intro-noise 活得更久，要一直盖到封面/卡片显影完。
+     牌堆也写死在这里：模块还没加载完的那段时间，画面上就已经是一叠卡背，而不是一片底色。
+     切牌、名字行和开幕发牌由 assets/app/intro.js 驱动。 -->
 <div id="introStage" class="intro-stage" aria-hidden="true">
   <div class="intro-veil"></div>
   <i class="intro-noise"></i>
-  <div id="introConsole" class="intro-console">
-    <div id="introPrompt" class="intro-prompt"></div>
-    <div id="introStep" class="intro-step">step 0/28</div>
+  <div id="introDeck" class="intro-deck">
+    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
+    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
+    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
+    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
+    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
+    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
   </div>
+  <div id="introToday" class="intro-today" hidden><span>今日画师</span><b>artist:<i id="introTodayName"></i></b></div>
 </div>
 <div id="scrollProgress" class="scroll-progress" aria-hidden="true"></div>
 <header class="topbar">
@@ -1155,6 +1161,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div class="card-img-wrap" hidden>
       <img class="card-img" loading="lazy" alt="">
       <div class="card-badges">
+        <span class="badge-featured" hidden>今日画师</span>
         <span class="badge-char" hidden>角色词</span>
         <span class="badge-count" hidden><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 4.25A2.25 2.25 0 014.25 2h6.5A2.25 2.25 0 0113 4.25V5.5H9.25A3.75 3.75 0 005.5 9.25V13H4.25A2.25 2.25 0 012 10.75z"/><path d="M9.25 7A2.25 2.25 0 007 9.25v6.5A2.25 2.25 0 009.25 18h6.5A2.25 2.25 0 0018 15.75v-6.5A2.25 2.25 0 0015.75 7z"/></svg><span class="badge-count-n">1</span></span>
       </div>

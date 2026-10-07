@@ -8,6 +8,7 @@ import { copyText, combinedPrompt, combinedPromptLabel, entryPromptText } from '
 import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { isFeaturedEntry } from './featured.js';
 
 const masonryActions = {
   openLightbox: () => {},
@@ -564,6 +565,7 @@ export function makeCard(placement) {
     hiddenMatchChip.title = hiddenMatch.excerpt;
   }
   if (e.isNew) node.querySelector('.badge-new').hidden = false;
+  if (isFeaturedEntry(e, state.codex)) node.querySelector('.badge-featured').hidden = false;
 
   const hasImage = hasEntryImage(e);
   const hasNegative = !!(e.negative && String(e.negative).trim());
@@ -840,7 +842,7 @@ function releaseCardEntry(node, cleanupMs) {
   window.setTimeout(() => settleCardEntry(node), cleanupMs);
 }
 
-function settleCardEntry(node, { immediate = false } = {}) {
+export function settleCardEntry(node, { immediate = false } = {}) {
   /* skip/late-settle 要真落终态：直接摘 card-enter 时会重新命中 .card 的 opacity .16s，
      从当前半透明值补播一小段淡入。先用 inline transition:none 结算一帧，再恢复基础规则。 */
   const previousTransition = node.style.transition;
