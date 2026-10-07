@@ -35,6 +35,7 @@ export const DARK_MODES = [
 export const RECENT_STORAGE_KEY = 'fadian-recent';
 export const LAST_BROWSE_STORAGE_KEY = 'fadian-last-browse';
 export const RECENT_ENTRY_LIMIT = 18;
+export const CARD_ZOOM_STORAGE_KEY = 'fadian-card-zoom';
 export const SEARCH_SCOPE_STORAGE_KEY = 'fadian-search-scope';
 export const DEFAULT_SEARCH_SCOPE = 'site';
 export const DENSITY_PRESETS = {
@@ -161,6 +162,7 @@ export const state = {
   allowNsfw: false,
   allowR18g: false,  // R18G/重口内容默认完全隐藏，需多重确认开启
   sdMode: false,      // 复制时把 NAI 权重转成 Stable Diffusion 格式
+  cardZoom: false,    // 电脑端点有图的卡片也开大图（手机、图包本来就是）
   density: DEFAULT_DENSITY,
   favs: new Set(),    // V2 store 的派生键集合，键为 codexId:entryId
   loadedImages: new Set(),

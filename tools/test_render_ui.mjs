@@ -1594,6 +1594,13 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(stylesSource, /\.toast\{[\s\S]*max-width:min\(360px,calc\(100vw - 24px\)\)/);
   assert.match(stylesSource, /\.toast\.has-action\{[\s\S]*min-height:44px[\s\S]*padding:4px 6px 4px 14px/);
   assert.match(stylesSource, /\.toast\.has-action \.toast-message\{[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/);
+  // 「点击卡片放大」：电脑端开关，排在界面风格下面、手机隐藏；只管有图的卡，点击时现读设置。
+  assert.match(indexSource, /id="themeControl"[\s\S]*?<\/div>\s*<\/div>\s*<div class="set-row card-zoom-set-row">[\s\S]*?id="cardZoomToggle"/);
+  assert.match(stylesSource, /@media \(max-width:600px\)\{[\s\S]*?\.card-zoom-set-row\{display:none\}/);
+  assert.match(masonrySource, /function cardOpensImage\(e\) \{\s*return hasEntryImage\(e\) && \(state\.cardZoom \|\| isPackEntry\(e\)\);/);
+  assert.match(masonrySource, /node\.onclick = \(\) => \{\s*if \(cardClickOpensDetail\(e\)\)/);
+  const uiZoomSource = await readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8');
+  assert.match(uiZoomSource, /cardZoomToggle\.onchange = e => applyCardZoom\(e\.target\.checked\)/);
 
   // ---- 界面基件（ui-kit.css）防漂移 ----
   const uiKitSource = await readFile(new URL('../site/assets/ui-kit.css', import.meta.url), 'utf8');

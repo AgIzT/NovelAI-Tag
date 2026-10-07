@@ -657,12 +657,7 @@ export function makeCard(placement) {
     node.classList.add('no-img');
   }
 
-  const packMode = state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
-  const copyHint = node.querySelector('.copy-hint');
-  if (copyHint && packMode) {
-    copyHint.textContent = hasImage ? '点击查看' : '暂无图片';
-    copyHint.classList.toggle('is-view', hasImage);
-  }
+  syncCopyHint(node, e);
   const openDetail = () => {
     const img = hasImage ? node.querySelector('.card-img') : null;
     masonryActions.openLightbox(e, 0, img, { allowEmpty: true });
@@ -676,7 +671,7 @@ export function makeCard(placement) {
     };
   }
   node.onclick = () => {
-    if (densityConfig().mobile || (packMode && hasImage)) {
+    if (cardClickOpensDetail(e)) {
       openDetail();
       return;
     }
@@ -684,6 +679,36 @@ export function makeCard(placement) {
   };
   masonryActions.decorateFavoriteCard(node, e);
   return node;
+}
+
+function isPackEntry(e) {
+  return state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
+}
+
+/* 点卡片：手机一律开详情；电脑上有图的图包、或开了「点击卡片放大」的有图卡开大图，其余复制。
+   无图卡没有可放大的，开关不管它（电脑灯箱空图时详情栏可能是收起的，点开只剩遮罩）。
+   点击时现读设置，切换后不用重建卡片。 */
+function cardOpensImage(e) {
+  return hasEntryImage(e) && (state.cardZoom || isPackEntry(e));
+}
+
+function cardClickOpensDetail(e) {
+  return densityConfig().mobile || cardOpensImage(e);
+}
+
+function syncCopyHint(node, e) {
+  const hint = node.querySelector('.copy-hint');
+  if (!hint) return;
+  const view = cardOpensImage(e);
+  hint.textContent = view ? '点击查看' : isPackEntry(e) ? '暂无图片' : '点击复制';
+  hint.classList.toggle('is-view', view);
+}
+
+export function refreshCopyHints() {
+  for (const [index, node] of state.nodes) {
+    const entry = state.list[index];
+    if (entry) syncCopyHint(node, entry);
+  }
 }
 
 export function updateCardPosition(node, placement) {

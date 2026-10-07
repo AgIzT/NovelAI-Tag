@@ -2728,6 +2728,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .density-row,.seg-row{align-items:stretch;flex-direction:column}
   .density-control,.seg-control{width:100%;min-width:0}
   .seg-row .theme-control{width:100%}
+  .card-zoom-set-row{display:none}   /* 手机点卡片本来就开大图 */
   .archive-hero{flex-direction:column}
   .archive-pct{width:100%;text-align:left}
   .archive-grid{grid-template-columns:1fr}
