@@ -1704,7 +1704,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(relayCss, /\.tag-relay-plan-lane\.relay-editor\{[^}]*display:flex;flex-direction:column/);
   assert.match(relayCss, /\.relay-editor-surface>\.relay-editor-mirror,\.relay-editor-surface>\.relay-editor-input\{[\s\S]*font:400 13px\/2\.6/);
   assert.match(relayCss, /is-peek[\s\S]*--relay-shelf-peek-height/);
-  assert.match(relayCss, /@media\(max-height:480px\),\(pointer:coarse\) and \(max-height:640px\)[\s\S]*min-height:56px/);
+  // 键盘高度单独兜底：整栏能滚动，素材收起时编辑面仍保留最小高度。
+  assert.match(relayCss, /@media\s*\(max-height:480px\)\s*\{\s*\.tag-relay-rail\{[^}]*overflow-y:auto/);
+  assert.match(relayCss, /@media\s*\(max-height:480px\)\s*\{(?:(?!@media)[\s\S])*?\.relay-editor-surface\{[^}]*min-height:56px/);
   assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{[^}]*min-height:88px/);
   assert.match(relayCss, /\.tag-relay-primary:disabled,\.tag-relay-secondary:disabled/);
   assert.match(relaySource, /tag-relay-chip-negative/);

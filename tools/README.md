@@ -34,7 +34,7 @@
 | `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |
 | `test_blocking_manager_motion.mjs` | 屏蔽清单节点复用、退场隔离、焦点、快速切页/关闭、跨标签更新与动效兜底回归 | 只读，内存 DOM/动画与存储夹具；真实几何仍须浏览器验证 |
-| `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；⚠ Windows 控制台跑全套会在中途报 `'gbk' codec can't encode` 并 FATAL 退出，看着像跑到一半崩了；前置 `PYTHONIOENCODING=utf-8` 再跑。`--only <用例名片段>` 可只跑单项 | 只读，写测试输出 |
+| `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；使用隔离 Chrome profile，自动接受测试页的离开确认，导航等待新文档，中转站操作核对草稿落盘；控制台输出 UTF-8。`--only <用例名片段>` 可只跑单项，`--out-dir` 支持相对路径 | 只读，写测试输出 |
 | `verify_favorites_v2.py` | 收藏夹业务集成回归：迁移、归属、撤销、故障、多标签页及性能；关闭动效，含直接模块调用与 DOM 夹具；`--base-url` 指定工作区预览 | 仅接受无凭据的 HTTP localhost / 127.0.0.1；须指向只读 `preview_server.py`，不能连接编辑或生产服务；写隔离 Chrome profile 的测试存储和 `output/favorites-v2-validation/integration/`，`--out-dir` 可指定；不操作用户浏览器数据 |
 | `verify_favorites_experience.py` | 收藏夹真实操作链：开启动效，以 CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.insertText` 点击、按键和输入，核对实际命中、焦点、快捷键、断点与菜单几何；区别于上行的业务集成夹具 | 同样只接受无凭据的 HTTP localhost / 127.0.0.1；要求 `preview_server.py` 只读预览已启动，不接管服务生命周期；写独立测试 profile、结果/截图及程序版本哈希到 `output/favorites-experience/`，可用 `--out-dir` 分隔每轮；不使用用户 profile，不替代实体软键盘/读屏器验收 |
 | `benchmark_search_v1.mjs` | 搜索 V1 与旧匹配逻辑的本地中位耗时对比；数据缺失时明确 SKIP | 只读 |
@@ -109,6 +109,7 @@
 - Python · 导入与数据：`test_apply_pack_names.py`、`test_backfill_pack_image_prompts.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang_20260925.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
+- Python · UI 测试驱动：`test_verify_ui.py`（离开确认与导航响应两种顺序、后续命令继续执行及确认失败诊断；内存协议夹具，不启动浏览器）。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Python · 画师样张索引：`test_build_artist_index.py`（画师名夹具、去重顺序、书名推版本）；Node 侧对应 `test_artist_core.mjs`（倍率、索引归一、拆解兜底与跳过自身），两边共用 `fixtures/artist_keys.json`。
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
