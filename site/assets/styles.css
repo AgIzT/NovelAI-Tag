@@ -1249,6 +1249,10 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 .card.card-retiring{opacity:0;pointer-events:none;transition:none}
 /* 列表高度立即采用新结果；末卡/尾卡只在短暂退场时允许画出新边界，结束恢复 paint containment。 */
 .masonry.has-retiring-cards{contain:layout}
+/* 重排前只在同步测量阶段试排目标尺寸，不能读到上一轮动画的中间值。 */
+.masonry.is-measuring .card,
+.masonry.is-measuring .card-img-wrap,
+.masonry.is-measuring .card-tags{transition:none!important}
 .masonry.is-relayouting .card{
   transition:
     transform .32s cubic-bezier(.22,1,.36,1),

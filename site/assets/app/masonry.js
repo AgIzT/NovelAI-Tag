@@ -280,24 +280,30 @@ export function renderList({ resetScroll = false, transition = 'none' } = {}) {
   }, maxDelay + FILTER_EXIT_MS + FILTER_EXIT_PAD_MS);
 }
 
-export function computeLayout({ previous } = {}) {
+function layoutMetrics() {
   const m = $('#masonry');
   const width = Math.max(1, m.clientWidth || $('#main').clientWidth || 1);
   const cfg = densityConfig();
   const n = colCount();
   const itemWidth = Math.max(1, Math.floor((width - cfg.gap * (n - 1)) / n));
+  return { m, cfg, n, itemWidth };
+}
+
+export function computeLayout({ previous, preserveColumns = false } = {}) {
+  const { m, cfg, n, itemWidth } = layoutMetrics();
+  const retainColumns = preserveColumns && state.colN === n && state.itemWidth === itemWidth;
   const colHeights = Array.from({ length: n }, () => 0);
   const placements = [];
 
   for (let i = 0; i < state.list.length; i++) {
     const entry = state.list[i];
-    const col = shortestIndex(colHeights);
     const measured = previous?.get(entry);
+    const col = retainColumns && measured ? measured.col : shortestIndex(colHeights);
     const badgeHeight = masonryActions.favoriteBadgeHeight(entry);
-    // 收藏夹徽章行出现/消失时旧实测高度已失效，改回估高，由测高回写再校准。
-    const retained = measured?.width === itemWidth && (measured.badgeHeight || 0) === badgeHeight ? measured : null;
-    const imageHeight = retained?.imageHeight ?? estimateImageHeight(entry, itemWidth);
     const body = estimateBodyMetrics(entry, itemWidth);
+    // 估高缓存身份同时覆盖宽度、密度、复制模式、徽章与内容失效，不能只按同宽复用。
+    const retained = measured?.width === itemWidth && measured.bodyMetrics === body ? measured : null;
+    const imageHeight = retained?.imageHeight ?? estimateImageHeight(entry, itemWidth);
     const height = retained?.height ?? Math.ceil(imageHeight + body.height);
     const left = col * (itemWidth + cfg.gap);
     const top = colHeights[col];
@@ -313,6 +319,7 @@ export function computeLayout({ previous } = {}) {
       imageHeight,
       tagsHeight: retained?.tagsHeight ?? body.tagsHeight,
       badgeHeight,
+      bodyMetrics: body,
     });
     colHeights[col] += height + cfg.gap;
   }
@@ -507,7 +514,8 @@ export function updateVirtualCards(force = false) {
       node.dataset.entryPending = '1';
       state.nodes.set(placement.index, node);
       m.appendChild(node);
-      if (!relayoutAnimating) calibrations.push({ node, placement });
+      // 新节点还没有尺寸过渡，首次测高须在这一帧完成，不能留到重排收尾。
+      calibrations.push({ node, placement });
     } else if (force) {
       updateCardPosition(node, placement);
       if (!relayoutAnimating) calibrations.push({ node, placement });
@@ -909,7 +917,7 @@ export function calibrateCardHeight(node, placement) {
   calibrateCardHeights([{ node, placement }]);
 }
 
-export function calibrateCardHeights(cards) {
+function measureCardHeights(cards) {
   const cfg = densityConfig();
   const prepared = [];
   for (const card of cards || []) {
@@ -928,7 +936,7 @@ export function calibrateCardHeights(cards) {
   }
 
   // 读阶段：第一张卡会结算上面的整批写入，随后读取不再反复弄脏布局。
-  const measurements = prepared.map(card => {
+  return prepared.map(card => {
     const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
     const naturalTagsBoxHeight = card.tags ? card.tags.getBoundingClientRect().height : 0;
     const tagsHeight = cfg.hideImageTags && hasEntryImage(card.placement.entry) ? 0 : card.tags
@@ -947,10 +955,14 @@ export function calibrateCardHeights(cards) {
       ...card,
       naturalTagsHeight,
       tagsHeight,
+      imageHeight,
       measuredHeight: Math.ceil(imageHeight + bodyHeight),
     };
   });
+}
 
+export function calibrateCardHeights(cards) {
+  const measurements = measureCardHeights(cards);
   // 写阶段 2：统一落标签高度，再一次性修正各列后续 placement。
   const heightChanges = [];
   for (const measurement of measurements) {
@@ -1134,9 +1146,14 @@ export function scheduleRelayout(animate = true) {
 }
 
 export function startRelayoutAnimation() {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const m = $('#masonry');
   if (!m) return;
+  if (prefersReducedMotion() || document.documentElement.classList.contains('motion-off')) {
+    clearTimeout(relayoutAnimTimer);
+    relayoutAnimating = false;
+    m.classList.remove('is-relayouting');
+    return;
+  }
   relayoutAnimating = true;
   m.classList.add('is-relayouting');
   // Make sure the transition class is active before the new transforms land.
@@ -1152,7 +1169,45 @@ export function startRelayoutAnimation() {
 export function relayoutVisible({ animate = false } = {}) {
   if (!state.codex) return;
   finishBlockingMotion();
+  const { m, itemWidth } = layoutMetrics();
+  const previous = new Map(state.placements.map(p => [p.entry, p]));
+  // 先读当前视觉几何；连续 resize 打断上一轮时，要从半途接着移动。
+  const cards = [...state.nodes].map(([index, node]) => {
+    const placement = state.placements[index];
+    const visual = getComputedStyle(node);
+    const wrap = node.querySelector('.card-img-wrap');
+    const tags = node.querySelector('.card-tags');
+    return {
+      node, placement, wrap, tags,
+      width: visual.width, height: visual.height, transform: visual.transform,
+      imageHeight: wrap ? getComputedStyle(wrap).height : '',
+      tagsHeight: tags ? getComputedStyle(tags).height : '',
+    };
+  });
+  // 在同一任务内试排目标宽度、批量测高、恢复起点；浏览器只画最终那次过渡。
+  m.classList.add('is-measuring');
+  try {
+    for (const card of cards) {
+      card.node.style.width = `${itemWidth}px`;
+      if (card.wrap) card.wrap.style.height = `${estimateImageHeight(card.placement.entry, itemWidth)}px`;
+    }
+    for (const measurement of measureCardHeights(cards)) {
+      const { placement, measuredHeight, tagsHeight, imageHeight } = measurement;
+      previous.set(placement.entry, {
+        ...placement, width: itemWidth, height: measuredHeight, tagsHeight, imageHeight,
+        bodyMetrics: estimateBodyMetrics(placement.entry, itemWidth),
+      });
+    }
+  } finally {
+    for (const card of cards) {
+      Object.assign(card.node.style, { width: card.width, height: card.height, transform: card.transform });
+      if (card.wrap) card.wrap.style.height = card.imageHeight;
+      if (card.tags) card.tags.style.height = card.tagsHeight;
+    }
+    void m.offsetWidth;
+    m.classList.remove('is-measuring');
+  }
   if (animate) startRelayoutAnimation();
-  computeLayout();
+  computeLayout({ previous, preserveColumns: true });
   updateVirtualCards(true);
 }
