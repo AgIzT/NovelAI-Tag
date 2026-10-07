@@ -2245,13 +2245,13 @@ body.dark .lightbox{background:rgba(7,9,15,.58)}
 .motion-off .lightbox-notice{transition:none}
 #lightboxImg{
   max-width:100%;max-height:100%;width:auto;height:auto;display:block;
-  border-radius:14px;box-shadow:0 24px 70px rgba(10,15,35,.42);
+  border-radius:14px;box-shadow:0 10px 32px rgba(10,15,35,.2);
   cursor:default;
 }
 .lightbox.flying #lightboxImg{visibility:hidden}
 .lb-fly{
   position:fixed;z-index:90;object-fit:cover;pointer-events:none;
-  box-shadow:0 24px 70px rgba(10,15,35,.42);
+  box-shadow:0 10px 32px rgba(10,15,35,.2);
   transition:left .34s cubic-bezier(.22,1,.36,1),top .34s cubic-bezier(.22,1,.36,1),
     width .34s cubic-bezier(.22,1,.36,1),height .34s cubic-bezier(.22,1,.36,1),
     border-radius .34s ease;
@@ -2296,16 +2296,17 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-credit svg{width:13px;height:13px;flex:none;stroke:currentColor;stroke-width:2;fill:none}
 .lightbox-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 8px}
 .lightbox-actions[hidden]{display:none!important}
+/* 灯箱按钮一律不带阴影：只有「复制」类填色，其余平底细边框。 */
 .lightbox-actions button,.section-head button{
   border:none;background:var(--tagbg);color:var(--text);font-weight:800;
-  border-radius:999px;padding:7px 12px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,.14);
+  border-radius:999px;padding:7px 12px;font-size:12px;
   transition:var(--ui-control-transition),filter .12s;
 }
-.lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.18)}
+.lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px)}
 #copyPositive{background:var(--accent);color:var(--on-accent)}
 #copyNegative{background:var(--new);color:#fff}
-#favoriteLightbox,#copyAll,#copyRawTag,#viewOriginal,#shareLightbox,#reportLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
-#favoriteLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover,#reportLightbox:hover{background:var(--tagbg-hover);filter:none}
+#favoriteLightbox,#copyAll,#copyRawTag,#viewOriginal,#shareLightbox,#reportLightbox,#hideLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
+#favoriteLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover,#reportLightbox:hover,#hideLightbox:not(:disabled):hover{background:var(--tagbg-hover);filter:none}
 #viewOriginal:disabled{cursor:not-allowed;opacity:.58;color:var(--muted)}
 #viewOriginal:disabled:hover{background:var(--tagbg);filter:none;transform:none;box-shadow:none}
 #favoriteLightbox{min-width:38px;color:var(--muted);font-size:0;line-height:1}
@@ -2320,6 +2321,9 @@ a.lightbox-credit:hover{text-decoration:underline}
 .section-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-bottom:6px}
 .section-label{flex:none;margin-right:auto;white-space:nowrap;font-size:12px;font-weight:700;color:var(--muted)}
 .section-head button{flex:none;margin-left:0;white-space:nowrap;padding:5px 9px;font-size:12px;line-height:1.35}
+/* 「选择 tag」不是复制动作：保持细边框平按钮，角色词区也不跟着染色。 */
+.section-head .prompt-selection-toggle{border:1px solid var(--line)}
+.section-head .prompt-selection-toggle:hover{background:var(--tagbg-hover);filter:none}
 .section-head .sd-preview-toggle{border:1px solid color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent);box-shadow:none}
 .section-head .sd-preview-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 /* tag 中文对照：开关与 SD 预览同款同位；打开后每个 tag 变成「英文 + 下方中文小字」的盒子 */
@@ -2354,11 +2358,11 @@ a.lightbox-credit:hover{text-decoration:underline}
 }
 .character-prompt .section-head{margin-bottom:6px}
 .character-prompt .section-label{color:var(--accent);font-family:var(--font-prompt)}
-.character-prompt > .section-head button{background:var(--accent);color:var(--on-accent)}
+.character-prompt > .section-head button:not(.prompt-selection-toggle){background:var(--accent);color:var(--on-accent)}
 .character-prompt pre{max-height:145px;background:var(--glass)}
 .character-prompt-negative{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
 .character-prompt-negative .section-label{color:var(--new)}
-.character-prompt-negative .section-head button{background:var(--new);color:#fff}
+.character-prompt-negative .section-head button:not(.prompt-selection-toggle){background:var(--new);color:#fff}
 /* 画师串拆解：五列缩略图，倍率与版本角标叠在图上；点开的样张盖在大图位置 */
 .artist-strip-count{margin-left:3px;font-weight:600;opacity:.75}
 .section-head .artist-version{--seg-count:2;flex:none;gap:2px;padding:2px;border-radius:10px}
@@ -2398,7 +2402,7 @@ a.lightbox-credit:hover{text-decoration:underline}
   position:absolute;inset:0;z-index:4;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
   cursor:zoom-out;animation:artist-peek-in .18s ease-out;
 }
-.artist-peek img{display:block;min-height:0;max-width:100%;max-height:calc(100% - 58px);border-radius:14px;box-shadow:0 24px 70px rgba(10,15,35,.42)}
+.artist-peek img{display:block;min-height:0;max-width:100%;max-height:calc(100% - 58px);border-radius:14px;box-shadow:0 10px 32px rgba(10,15,35,.2)}
 .artist-peek-bar{
   display:flex;align-items:center;gap:8px;max-width:100%;padding:6px 6px 6px 14px;cursor:default;
   border:1px solid var(--line);border-radius:999px;background:var(--glass);box-shadow:var(--shadow);
@@ -2482,10 +2486,6 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-info{
     left:10px;right:10px;top:auto;bottom:10px;width:auto;height:var(--lb-sheet-height);
     padding:24px 14px 14px;border-radius:20px 20px 16px 16px;
-  }
-  .lightbox-info::before{
-    content:"";position:absolute;left:50%;top:8px;width:42px;height:4px;
-    transform:translateX(-50%);border-radius:999px;background:var(--line);
   }
   .lightbox.folded .lightbox-info{transform:translateY(calc(100% + 20px))}
   .lightbox-head h2{font-size:16px}
