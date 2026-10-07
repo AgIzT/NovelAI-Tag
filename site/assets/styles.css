@@ -2183,7 +2183,8 @@ body.dark .archive-chips>a.is-bilibili{color:#ff8db0;background:rgba(251,114,153
 html.lightbox-open{overflow:hidden;overscroll-behavior:none}
 body.lightbox-open{overflow:clip;overscroll-behavior:none}
 .lightbox{
-  --lb-right:376px;
+  --lb-info-width:clamp(260px,36vw,340px);
+  --lb-right:calc(var(--lb-info-width) + 36px);
   position:fixed;inset:0;z-index:80;display:none;cursor:zoom-out;
   background:rgba(228,231,242,.52);
   backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
@@ -2256,7 +2257,7 @@ body.dark .lightbox{background:rgba(7,9,15,.58)}
     border-radius .34s ease;
 }
 .lightbox-info{
-  position:absolute;right:18px;top:18px;bottom:18px;width:340px;cursor:default;
+  position:absolute;right:18px;top:18px;bottom:18px;width:var(--lb-info-width);cursor:default;
   background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-hover);
   padding:18px;overflow-y:auto;
@@ -2467,6 +2468,59 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 .lightbox-next{right:calc(var(--lb-right) + 12px)}
 .lightbox.folded .lightbox-next{right:78px}
 
+/* 窄竖屏先给图片完整宽度；横屏保留自适应侧栏，避免上下布局压扁图片。 */
+@media (max-width:600px), (max-width:760px) and (orientation:portrait){
+  .lightbox{--lb-right:10px;--lb-sheet-height:45vh}
+  @supports (height:1dvh){.lightbox{--lb-sheet-height:45dvh}}
+  .lightbox-stage{left:10px;top:10px;right:10px;bottom:calc(var(--lb-sheet-height) + 20px);touch-action:pan-y pinch-zoom}
+  .lightbox.has-thumbs .lightbox-stage{bottom:calc(var(--lb-sheet-height) + 96px)}
+  .lightbox.folded .lightbox-stage{bottom:74px}
+  .lightbox.folded.has-thumbs .lightbox-stage{bottom:152px}
+  /* 横滑归脚本翻页，双指留给浏览器放大；放大后（page-zoomed）放开横向拖动，翻页由脚本暂停。 */
+  #lightboxImg{max-height:100%;touch-action:pan-y pinch-zoom}
+  .lightbox.page-zoomed .lightbox-stage,.lightbox.page-zoomed #lightboxImg{touch-action:auto}
+  .lightbox-info{
+    left:10px;right:10px;top:auto;bottom:10px;width:auto;height:var(--lb-sheet-height);
+    padding:24px 14px 14px;border-radius:20px 20px 16px 16px;
+  }
+  .lightbox-info::before{
+    content:"";position:absolute;left:50%;top:8px;width:42px;height:4px;
+    transform:translateX(-50%);border-radius:999px;background:var(--line);
+  }
+  .lightbox.folded .lightbox-info{transform:translateY(calc(100% + 20px))}
+  .lightbox-head h2{font-size:16px}
+  .lightbox-actions{gap:8px;margin:12px 0 8px}
+  .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
+  .lightbox-section{margin-top:10px}
+  .lightbox-section pre{max-height:128px;font-size:12px}
+  .lightbox-section pre.tag-zh-on{max-height:230px}
+  .lightbox-thumbs{left:50%;bottom:calc(var(--lb-sheet-height) + 22px);max-width:94vw;transition:bottom .3s cubic-bezier(.22,1,.36,1)}
+  .lightbox.folded .lightbox-thumbs{bottom:80px}
+  .lb-fold{
+    top:auto;left:50%;right:auto;bottom:calc(var(--lb-sheet-height) - 13px);
+    transform:translateX(-50%);width:58px;height:26px;
+    transition:bottom .3s cubic-bezier(.22,1,.36,1),color .12s,border-color .12s;
+  }
+  .lightbox.folded .lb-fold{right:auto;bottom:12px}
+  .lb-fold-panel{display:none}
+  .lb-fold-arrow{display:block;transform:rotate(90deg)}
+  .lightbox.folded .lb-fold-arrow{transform:rotate(-90deg)}
+  .lightbox-close{left:10px;top:10px;width:36px;height:36px}
+  .lightbox-prev{left:10px}
+  .lightbox-next{right:10px}
+  .lightbox.folded .lightbox-next{right:10px}
+  /* 四种状态的翻页按钮都跟随图片区居中，缩略条和信息栏共用同一高度。 */
+  .lightbox-nav{
+    width:40px;height:40px;top:calc(50% - var(--lb-sheet-height) / 2 - 5px);
+    transition:border-color .12s,color .12s,top .3s cubic-bezier(.22,1,.36,1),scale .14s ease;
+  }
+  .lightbox.has-thumbs .lightbox-nav{top:calc(50% - var(--lb-sheet-height) / 2 - 43px)}
+  .lightbox.folded .lightbox-nav{top:calc(50% - 32px)}
+  .lightbox.folded.has-thumbs .lightbox-nav{top:calc(50% - 71px)}
+  .lightbox-nav[data-nav-label]::after{display:none}
+  .lightbox-original-status{left:58px;bottom:8px}
+}
+
 .empty{
   color:var(--muted);text-align:center;padding:58px 18px;margin:8px auto 0;
   max-width:520px;
@@ -2673,55 +2727,6 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .resume-prompt.show{translate:0 0}
   .resume-prompt-main{flex:1}
   .brand{display:none}
-  .lightbox{--lb-right:10px}
-  .lightbox-stage{left:10px;top:10px;right:10px;bottom:calc(45vh + 20px);bottom:calc(45dvh + 20px);touch-action:pan-y pinch-zoom}
-  .lightbox.has-thumbs .lightbox-stage{bottom:calc(45vh + 96px);bottom:calc(45dvh + 96px)}
-  .lightbox.folded .lightbox-stage{bottom:74px}
-  .lightbox.folded.has-thumbs .lightbox-stage{bottom:152px}
-  /* 横滑归脚本翻页，双指留给浏览器放大；放大后（page-zoomed）放开横向拖动，翻页由脚本暂停。 */
-  #lightboxImg{max-height:100%;touch-action:pan-y pinch-zoom}
-  .lightbox.page-zoomed .lightbox-stage,.lightbox.page-zoomed #lightboxImg{touch-action:auto}
-  .lightbox-info{
-    left:10px;right:10px;top:auto;bottom:10px;width:auto;height:45vh;height:45dvh;
-    padding:24px 14px 14px;border-radius:20px 20px 16px 16px;
-  }
-  .lightbox-info::before{
-    content:"";position:absolute;left:50%;top:8px;width:42px;height:4px;
-    transform:translateX(-50%);border-radius:999px;background:var(--line);
-  }
-  .lightbox.folded .lightbox-info{transform:translateY(calc(100% + 20px))}
-  .lightbox-head h2{font-size:16px}
-  .lightbox-actions{gap:8px;margin:12px 0 8px}
-  .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
-  .lightbox-section{margin-top:10px}
-  .lightbox-section pre{max-height:128px;font-size:12px}
-  .lightbox-section pre.tag-zh-on{max-height:230px}
-  .lightbox-thumbs{left:50%;bottom:calc(45vh + 22px);bottom:calc(45dvh + 22px);max-width:94vw;transition:bottom .3s cubic-bezier(.22,1,.36,1)}
-  .lightbox.folded .lightbox-thumbs{bottom:80px}
-  .lb-fold{
-    top:auto;left:50%;right:auto;bottom:calc(45vh - 13px);bottom:calc(45dvh - 13px);
-    transform:translateX(-50%);width:58px;height:26px;
-    transition:bottom .3s cubic-bezier(.22,1,.36,1),color .12s,border-color .12s;
-  }
-  .lightbox.folded .lb-fold{right:auto;bottom:12px}
-  .lb-fold-panel{display:none}
-  .lb-fold-arrow{display:block;transform:rotate(90deg)}
-  .lightbox.folded .lb-fold-arrow{transform:rotate(-90deg)}
-  .lightbox-close{left:10px;top:10px;width:36px;height:36px}
-  .lightbox-prev{left:10px}
-  .lightbox-next{right:10px}
-  .lightbox.folded .lightbox-next{right:10px}
-  /* 翻页按钮按图片区上下居中，四态与上面 .lightbox-stage 的 bottom 一一对应；
-     按整屏 50% 会落到图片底边、盖住缩略条首尾。 */
-  .lightbox-nav{
-    width:40px;height:40px;top:calc(50% - 22.5vh - 5px);top:calc(50% - 22.5dvh - 5px);
-    transition:border-color .12s,color .12s,top .3s cubic-bezier(.22,1,.36,1),scale .14s ease;
-  }
-  .lightbox.has-thumbs .lightbox-nav{top:calc(50% - 22.5vh - 43px);top:calc(50% - 22.5dvh - 43px)}
-  .lightbox.folded .lightbox-nav{top:calc(50% - 32px)}
-  .lightbox.folded.has-thumbs .lightbox-nav{top:calc(50% - 71px)}
-  .lightbox-nav[data-nav-label]::after{display:none}
-  .lightbox-original-status{left:58px;bottom:8px}
 }
 @media (max-width:420px){
   .topbar{gap:4px}
