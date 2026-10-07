@@ -8,6 +8,7 @@ import { copyText, combinedPrompt, combinedPromptLabel, entryPromptText } from '
 import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { isFeaturedEntry } from './featured.js';
 
 const masonryActions = {
   openLightbox: () => {},
@@ -564,6 +565,7 @@ export function makeCard(placement) {
     hiddenMatchChip.title = hiddenMatch.excerpt;
   }
   if (e.isNew) node.querySelector('.badge-new').hidden = false;
+  if (isFeaturedEntry(e, state.codex)) node.querySelector('.badge-featured').hidden = false;
 
   const hasImage = hasEntryImage(e);
   const hasNegative = !!(e.negative && String(e.negative).trim());
