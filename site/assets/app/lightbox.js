@@ -53,6 +53,8 @@ let lbThumbImages = null;
 let lbThumbState = null;
 let lbOriginalStatusTimer = 0;
 let lbRecentTimer = 0;
+let lbNoticeTimer = 0;
+let lbOriginalState = { status: '', readable: false };
 const lbPreloadCache = new Map();
 const LB_PRELOAD_CACHE_LIMIT = 300;
 
@@ -380,6 +382,9 @@ export function closeLightbox(options = {}) {
     img.removeAttribute('src');
     state.lightbox = { entry: null, images: [], index: 0 };
     lbSourceImg = null;
+    lbOriginalState = { status: '', readable: false };
+    hideLightboxNotice({ immediate: true });
+    lb.dataset.original = '';
     setLightboxScrollLocked(false);
     flushDeferredFavoritesViewRefresh();
     if (lbFocusReturn?.isConnected) lbFocusReturn.focus({ preventScroll: true });
@@ -809,7 +814,7 @@ export function lightboxOriginalCopy(status, readable, exampleModel = '') {
     return {
       label: '原图加载中…',
       tip: readable
-        ? (model ? '原图加载中' : '原图加载中，拖入 NovelAI 请稍候')
+        ? (model ? '原图加载中' : '原图加载中，加载完可拖入 NovelAI')
         : '原图加载中，仅供查看或保存',
     };
   }
@@ -838,10 +843,62 @@ export function lightboxOriginalAction(available, sourceAllowsOriginal = availab
   };
 }
 
+/* 原图没到手时拖出去的只是缩略图，NovelAI 读不出参数，容易被当成这张图没参数。
+   能读参数的来源在加载中 / 加载失败时拦下这次拖动，返回要显示的说明；其余情况放行。 */
+export function lightboxOriginalDragHint(status, readable) {
+  if (!readable) return '';
+  if (status === 'loading') return '原图加载中，加载完再拖';
+  if (status === 'failed') return '原图加载失败，点「查看原图」在新标签页打开';
+  return '';
+}
+
+function showLightboxNotice(text) {
+  const notice = $('#lightboxNotice');
+  if (!notice) return;
+  clearTimeout(lbNoticeTimer);
+  notice.textContent = text;
+  void notice.offsetWidth;
+  notice.classList.add('is-shown');
+  lbNoticeTimer = window.setTimeout(() => hideLightboxNotice(), 2400);
+}
+
+function hideLightboxNotice({ immediate = false } = {}) {
+  const notice = $('#lightboxNotice');
+  clearTimeout(lbNoticeTimer);
+  lbNoticeTimer = 0;
+  if (!notice) return;
+  notice.classList.remove('is-shown');
+  // 等淡出结束再清空文字；清空后 :empty 收起元素，读屏也不会再读到旧说明。
+  if (immediate) notice.textContent = '';
+  else lbNoticeTimer = window.setTimeout(() => { lbNoticeTimer = 0; notice.textContent = ''; }, 200);
+}
+
+/* 原图状态贴在图片自己的左下角：图片在舞台里居中，尺寸随图和窗口变，按实测矩形摆放；
+   图还没尺寸时清掉内联位置，退回样式表里的舞台角落。 */
+function placeOriginalStatus() {
+  const statusEl = $('#lightboxOriginalStatus');
+  const img = $('#lightboxImg');
+  const stage = $('#lightboxStage');
+  if (!statusEl || !img || !stage) return;
+  const s = stage.getBoundingClientRect();
+  const i = img.getBoundingClientRect();
+  if (!i.width || !i.height || !s.width) {
+    statusEl.style.left = '';
+    statusEl.style.bottom = '';
+    return;
+  }
+  statusEl.style.left = `${Math.round(i.left - s.left + 10)}px`;
+  statusEl.style.bottom = `${Math.round(s.bottom - i.bottom + 10)}px`;
+}
+
 function applyOriginalPresentation(seq, status, readable, exampleModel) {
   if (seq !== lbSeq) return;
   clearTimeout(lbOriginalStatusTimer);
   lbOriginalStatusTimer = 0;
+  lbOriginalState = { status, readable };
+  if (status === 'ready') hideLightboxNotice();
+  // 只有能读参数的原图才换光标：加载中显示等待，就绪后显示可抓取。
+  $('#lightbox').dataset.original = readable ? status : '';
   const statusEl = $('#lightboxOriginalStatus');
   const tip = $('#lightboxTip') || document.querySelector('.lightbox-tip');
   const copy = lightboxOriginalCopy(status, readable, exampleModel);
@@ -850,6 +907,7 @@ function applyOriginalPresentation(seq, status, readable, exampleModel) {
     statusEl.dataset.state = status;
     statusEl.classList.remove('is-faded');
     statusEl.textContent = copy.label;
+    placeOriginalStatus();
   }
   if (tip) tip.textContent = copy.tip;
   if (status === 'ready' && statusEl) {
@@ -918,6 +976,9 @@ export function renderLightbox() {
   const seq = ++lbSeq;
   clearTimeout(lbOriginalStatusTimer);
   lbOriginalStatusTimer = 0;
+  lbOriginalState = { status: '', readable: false };
+  hideLightboxNotice({ immediate: true });
+  $('#lightbox').dataset.original = '';
   const img = $('#lightboxImg');
   const stage = $('#lightboxStage');
   $('#lightbox').classList.toggle('has-thumbs', lb.images.length > 1);
@@ -1283,6 +1344,20 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
     toggleTagZhDetail(box);
   });
   bindArtistStripControls();
+  // 换图、折叠信息栏、窗口缩放都会改变图片在舞台里的位置，原图状态跟着挪。
+  // 图片加载完成时同步摆一次，不等下一帧的尺寸回调。
+  $('#lightboxImg').addEventListener('load', placeOriginalStatus);
+  if ('ResizeObserver' in window) {
+    const statusObserver = new ResizeObserver(() => placeOriginalStatus());
+    statusObserver.observe($('#lightboxImg'));
+    statusObserver.observe($('#lightboxStage'));
+  }
+  $('#lightboxImg').addEventListener('dragstart', ev => {
+    const hint = lightboxOriginalDragHint(lbOriginalState.status, lbOriginalState.readable);
+    if (!hint) return;
+    ev.preventDefault();
+    showLightboxNotice(hint);
+  });
   $('#lightboxPrev').onclick = ev => { ev.stopPropagation(); stepLightbox(-1); };
   $('#lightboxNext').onclick = ev => { ev.stopPropagation(); stepLightbox(1); };
   let lightboxTouch = null;

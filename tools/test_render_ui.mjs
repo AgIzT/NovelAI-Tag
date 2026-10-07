@@ -104,6 +104,7 @@ const {
   lightboxNavigationContext,
   lightboxOriginalAction,
   lightboxOriginalCopy,
+  lightboxOriginalDragHint,
   preloadImage,
   preloadLightboxNeighbors,
   resolvedUrl,
@@ -800,10 +801,17 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(lightboxOriginalCopy('ready', false).tip, /不提供可读取的生成参数/);
   assert.equal(lightboxOriginalCopy('ready', true, 'NoobXL V').tip, '原图保留 NoobXL V 生成参数');
   assert.equal(lightboxOriginalCopy('loading', true, 'NoobXL V').tip, '原图加载中');
+  assert.equal(lightboxOriginalCopy('loading', true).tip, '原图加载中，加载完可拖入 NovelAI');
   assert.match(lightboxOriginalCopy('ready', false, 'NoobXL V').tip, /不提供可读取的生成参数/);
   assert.match(lightboxOriginalCopy('failed', true).label, /失败/);
   assert.match(lightboxOriginalCopy('thumbnail', false).label, /仅缩略图/);
   assert.equal(lightboxOriginalCopy('unavailable', false).label, '无原图');
+  // 能读参数的原图没到手时拦下拖动：加载中等一等，失败指向「查看原图」；其余放行。
+  assert.equal(lightboxOriginalDragHint('loading', true), '原图加载中，加载完再拖');
+  assert.match(lightboxOriginalDragHint('failed', true), /「查看原图」/);
+  assert.equal(lightboxOriginalDragHint('ready', true), '');
+  assert.equal(lightboxOriginalDragHint('thumbnail', true), '');
+  assert.equal(lightboxOriginalDragHint('loading', false), '', '不提供可读参数的来源不拦拖动');
   assert.deepEqual(
     lightboxOriginalAction(false, false),
     { disabled: true, label: '无原图', title: '本法典不提供原图' },

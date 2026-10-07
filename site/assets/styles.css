@@ -2200,11 +2200,12 @@ body.dark .lightbox{background:rgba(7,9,15,.58)}
   transition:right .3s cubic-bezier(.22,1,.36,1),bottom .3s cubic-bezier(.22,1,.36,1);
 }
 .lightbox.has-thumbs .lightbox-stage{bottom:96px}
+/* left/bottom 是图片还没尺寸时的退路；有尺寸后 lightbox.js 用内联位置把它贴到图片左下角。 */
 .lightbox-original-status{
-  position:absolute;z-index:3;left:12px;bottom:12px;min-height:26px;display:flex;align-items:center;
-  border:1px solid var(--line);border-radius:999px;padding:4px 10px;
+  position:absolute;z-index:3;left:12px;bottom:12px;min-height:28px;display:flex;align-items:center;gap:6px;
+  border:1px solid var(--line);border-radius:999px;padding:5px 11px;
   background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  box-shadow:var(--shadow);color:var(--muted);font-size:11px;font-weight:800;line-height:1;
+  box-shadow:var(--shadow);color:var(--muted);font-size:12px;font-weight:800;line-height:1;
   pointer-events:none;opacity:1;transition:opacity .2s ease;
 }
 .resume-prompt{position:fixed;top:72px;left:50%;z-index:45;display:flex;align-items:center;gap:7px;max-width:min(640px,calc(100vw - 32px));border:1px solid var(--line);border-radius:15px;background:var(--popover-glass);box-shadow:var(--popover-shadow);padding:7px 8px 7px 11px;opacity:0;translate:-50% -10px;pointer-events:none;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);transition:opacity .2s,translate .2s}
@@ -2220,6 +2221,27 @@ body.dark .lightbox{background:rgba(7,9,15,.58)}
 .lightbox-original-status[data-state="ready"]{color:#3d8b5d}
 .lightbox-original-status[data-state="failed"]{color:var(--new)}
 .lightbox-original-status.is-faded{opacity:0}
+.lightbox-original-status[data-state="loading"]{color:var(--accent)}
+.lightbox-original-status[data-state="loading"]::before{
+  content:"";flex:none;width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;
+  border-radius:50%;animation:feedbackSpin .8s linear infinite;
+}
+@media (prefers-reduced-motion:reduce){.lightbox-original-status::before{animation:none}}
+.motion-off .lightbox-original-status::before{animation:none}
+.lightbox[data-original="loading"] #lightboxImg{cursor:progress}
+.lightbox[data-original="ready"] #lightboxImg{cursor:grab}
+/* 原图没加载完就拖时拦下拖动，在图中央说明原因；文字由 lightbox.js 写入，清空即收起。 */
+.lightbox-notice{
+  position:absolute;z-index:3;left:50%;top:50%;translate:-50% -50%;
+  max-width:min(300px,calc(100% - 32px));padding:11px 18px;border-radius:14px;
+  border:1px solid var(--line);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:var(--shadow-hover);color:var(--text);font-size:14px;font-weight:800;line-height:1.45;text-align:center;
+  pointer-events:none;opacity:0;transition:opacity .18s ease;
+}
+.lightbox-notice:empty{display:none}
+.lightbox-notice.is-shown{opacity:1}
+@media (prefers-reduced-motion:reduce){.lightbox-notice{transition:none}}
+.motion-off .lightbox-notice{transition:none}
 #lightboxImg{
   max-width:100%;max-height:100%;width:auto;height:auto;display:block;
   border-radius:14px;box-shadow:0 24px 70px rgba(10,15,35,.42);
