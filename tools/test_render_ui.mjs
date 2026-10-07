@@ -104,6 +104,7 @@ const {
   lightboxNavigationContext,
   lightboxOriginalAction,
   lightboxOriginalCopy,
+  lightboxOriginalDragHint,
   preloadImage,
   preloadLightboxNeighbors,
   resolvedUrl,
@@ -539,7 +540,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   dom.delete('#blockingResultBtn'); dom.delete('#blockingSettingsSummary'); dom.delete('#empty');
 }
 
-// 邻图仍同时预热缩略图和原图；缓存失败可重试，且超过 300 项会淘汰最旧 URL。
+// 桌面邻图同时预热缩略图和原图，触屏只预热缩略图；缓存失败可重试，且超过 300 项会淘汰最旧 URL。
 {
   const images = [];
   globalThis.Image = class {
@@ -576,9 +577,26 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
       { path: 'thumb-2.jpg', original: 'original-2.png' },
     ],
   };
+  const touchMatchMedia = window.matchMedia;
+  window.matchMedia = () => ({ matches: false });
   const beforeNeighbors = images.length;
   preloadLightboxNeighbors();
-  assert.equal(images.length, beforeNeighbors + 4, '前后邻图应各保留缩略图+原图预热');
+  assert.equal(images.length, beforeNeighbors + 4, '桌面前后邻图应各保留缩略图+原图预热');
+  window.matchMedia = touchMatchMedia;
+
+  state.lightbox = {
+    entry: { id: 'touch-entry', assetRev: 'r3' },
+    index: 0,
+    images: [
+      { path: 'touch-thumb-0.jpg', original: 'touch-original-0.png' },
+      { path: 'touch-thumb-1.jpg', original: 'touch-original-1.png' },
+      { path: 'touch-thumb-2.jpg', original: 'touch-original-2.png' },
+    ],
+  };
+  const beforeTouchNeighbors = images.length;
+  preloadLightboxNeighbors();
+  assert.equal(images.length, beforeTouchNeighbors + 2, '触屏邻图只预热缩略图，原图等翻到那张再加载');
+  assert.ok(images.slice(beforeTouchNeighbors).every(image => image.src.includes('touch-thumb-')));
 
   state.codex = {
     id: 'thumb-book', hasOriginal: false,
@@ -783,10 +801,17 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(lightboxOriginalCopy('ready', false).tip, /不提供可读取的生成参数/);
   assert.equal(lightboxOriginalCopy('ready', true, 'NoobXL V').tip, '原图保留 NoobXL V 生成参数');
   assert.equal(lightboxOriginalCopy('loading', true, 'NoobXL V').tip, '原图加载中');
+  assert.equal(lightboxOriginalCopy('loading', true).tip, '原图加载中，加载完可拖入 NovelAI');
   assert.match(lightboxOriginalCopy('ready', false, 'NoobXL V').tip, /不提供可读取的生成参数/);
   assert.match(lightboxOriginalCopy('failed', true).label, /失败/);
   assert.match(lightboxOriginalCopy('thumbnail', false).label, /仅缩略图/);
   assert.equal(lightboxOriginalCopy('unavailable', false).label, '无原图');
+  // 能读参数的原图没到手时拦下拖动：加载中等一等，失败指向「查看原图」；其余放行。
+  assert.equal(lightboxOriginalDragHint('loading', true), '原图加载中，加载完再拖');
+  assert.match(lightboxOriginalDragHint('failed', true), /「查看原图」/);
+  assert.equal(lightboxOriginalDragHint('ready', true), '');
+  assert.equal(lightboxOriginalDragHint('thumbnail', true), '');
+  assert.equal(lightboxOriginalDragHint('loading', false), '', '不提供可读参数的来源不拦拖动');
   assert.deepEqual(
     lightboxOriginalAction(false, false),
     { disabled: true, label: '无原图', title: '本法典不提供原图' },
@@ -1679,7 +1704,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(relayCss, /\.tag-relay-plan-lane\.relay-editor\{[^}]*display:flex;flex-direction:column/);
   assert.match(relayCss, /\.relay-editor-surface>\.relay-editor-mirror,\.relay-editor-surface>\.relay-editor-input\{[\s\S]*font:400 13px\/2\.6/);
   assert.match(relayCss, /is-peek[\s\S]*--relay-shelf-peek-height/);
-  assert.match(relayCss, /@media\(max-height:480px\),\(pointer:coarse\) and \(max-height:640px\)[\s\S]*min-height:56px/);
+  // 键盘高度单独兜底：整栏能滚动，素材收起时编辑面仍保留最小高度。
+  assert.match(relayCss, /@media\s*\(max-height:480px\)\s*\{\s*\.tag-relay-rail\{[^}]*overflow-y:auto/);
+  assert.match(relayCss, /@media\s*\(max-height:480px\)\s*\{(?:(?!@media)[\s\S])*?\.relay-editor-surface\{[^}]*min-height:56px/);
   assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{[^}]*min-height:88px/);
   assert.match(relayCss, /\.tag-relay-primary:disabled,\.tag-relay-secondary:disabled/);
   assert.match(relaySource, /tag-relay-chip-negative/);
