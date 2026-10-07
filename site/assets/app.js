@@ -14,7 +14,7 @@ import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibrarySto
 import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesScope, filterFavoritesEntries, decorateFavoriteCard, refreshFavoriteBadges, folderBadges, openOrganize, invalidateOrganizeRequest, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
-import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
+import { renderList, clearMasonry, updateVirtualCards, setMasonryActions, settleCardEntry } from './app/masonry.js';
 import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
@@ -27,7 +27,7 @@ import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, sched
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
 import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
-import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured } from './app/intro.js';
+import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions } from './app/intro.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
@@ -216,7 +216,7 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
 export async function init() {
   const initSkeletonToken = 'init';
   try {
-    /* 开场脚本先起跑，不等任何网络请求：打字机与 step 计数就是数据加载期的等待画面 */
+    /* 开场脚本先起跑，不等任何网络请求：牌堆切牌就是数据加载期的等待画面 */
     startIntro();
     configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
@@ -1061,6 +1061,8 @@ setMasonryActions({
   favoriteBadgeHeight: entry => state.favoritesView && folderBadges(entry).length ? 24 : 0,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
+
+setIntroActions({ settleCardEntry });
 
 setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory });
 

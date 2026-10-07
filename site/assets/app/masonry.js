@@ -842,7 +842,7 @@ function releaseCardEntry(node, cleanupMs) {
   window.setTimeout(() => settleCardEntry(node), cleanupMs);
 }
 
-function settleCardEntry(node, { immediate = false } = {}) {
+export function settleCardEntry(node, { immediate = false } = {}) {
   /* skip/late-settle 要真落终态：直接摘 card-enter 时会重新命中 .card 的 opacity .16s，
      从当前半透明值补播一小段淡入。先用 inline transition:none 结算一帧，再恢复基础规则。 */
   const previousTransition = node.style.transition;

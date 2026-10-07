@@ -19,6 +19,12 @@
 import { $ } from './utils.js';
 import { isPlainFeaturedVisit } from './featured.js';
 
+const introActions = { settleCardEntry: () => {} };
+
+export function setIntroActions(actions) {
+  Object.assign(introActions, actions);
+}
+
 /* ⚠ 与 index.html 内联脚本共用：改名两处同改。UI 里不暴露，只给截图器 / 回归脚本关动效用
    （tools/verify_ui.py 经 Page.addScriptToEvaluateOnNewDocument 预置成 'off'） */
 export const MOTION_STORAGE_KEY = 'fadian-motion';
@@ -27,6 +33,7 @@ const MIN_SHOW_MS = 700;     // 数据秒到时也让牌堆亮个相、切一次
 const CUT_FIRST_MS = 300;
 const CUT_EVERY_MS = 540;
 const DEAL_FLY_MS = 520;
+const DEAL_FACE_AT = 0.42;
 const DEVELOP_MS = 520;      // hero 封面显影，与 CSS 的 introDevelop 必须同长
 const TAIL_MS = 180;         // 等首排图片/分类波落稳；最后一帧不靠 finish() 硬切
 const VEIL_MS = 130;         // 幕布只负责交接；不能盖住卡片最有辨识度的模糊→清晰阶段
@@ -192,14 +199,33 @@ function startShuffle() {
   timers.push(window.setTimeout(cut, CUT_FIRST_MS));
 }
 
-/* 首排 = 视口里最靠上的那一排卡，按 left 从左到右（瀑布流第一格在最左） */
+/* 首排 = 视口里最靠上的那一排卡，按 left 从左到右（瀑布流第一格在最左）。
+   取落地矩形时临时归零主内容与卡片的入场位移；同一任务内还原，不结束或重启原动画。 */
 function firstRowCards() {
-  const cards = [...document.querySelectorAll('#masonry .card')]
-    .map(card => [card, card.getBoundingClientRect()])
-    .filter(([, r]) => r.width > 0 && r.bottom > 0 && r.top < innerHeight);
-  if (!cards.length) return [];
-  const top = Math.min(...cards.map(([, r]) => r.top));
-  return cards.filter(([, r]) => r.top - top < 10).sort((a, b) => a[1].left - b[1].left);
+  const nodes = [...document.querySelectorAll('#masonry .card')];
+  const styles = [];
+  const override = (node, prop, value) => {
+    if (!node) return;
+    styles.push([node, prop, node.style.getPropertyValue(prop), node.style.getPropertyPriority(prop)]);
+    node.style.setProperty(prop, value, 'important');
+  };
+  try {
+    override($('#main'), 'translate', 'none');
+    for (const card of nodes) {
+      override(card, 'transition', 'none');
+      override(card, '--entry-offset', '0px');
+    }
+    const cards = nodes.map(card => [card, card.getBoundingClientRect()])
+      .filter(([, r]) => r.width > 0 && r.bottom > 0 && r.top < innerHeight);
+    if (!cards.length) return [];
+    const top = Math.min(...cards.map(([, r]) => r.top));
+    return cards.filter(([, r]) => r.top - top < 10).sort((a, b) => a[1].left - b[1].left);
+  } finally {
+    for (const [node, prop, value, priority] of styles.reverse()) {
+      if (value) node.style.setProperty(prop, value, priority);
+      else node.style.removeProperty(prop);
+    }
+  }
 }
 
 /* 发牌：每张首排卡克隆成替身，从牌堆顶翻面飞到真卡的位置，落地即换回真卡。返回整段时长。
@@ -255,7 +281,7 @@ function dealFirstRow() {
     const tilt = (i % 2 ? 1 : -1) * (4 + i);
     const flight = fly.animate([
       { transform: `perspective(1600px) translate(${sx}px,${sy}px) rotateY(180deg) rotate(0deg) scale(${s0})` },
-      { transform: `perspective(1600px) translate(${(sx + r.left) / 2}px,${Math.min(sy, r.top) - 46}px) rotateY(95deg) rotate(${tilt}deg) scale(${(s0 + 1) / 2})`, offset: 0.42 },
+      { transform: `perspective(1600px) translate(${(sx + r.left) / 2}px,${Math.min(sy, r.top) - 46}px) rotateY(95deg) rotate(${tilt}deg) scale(${(s0 + 1) / 2})`, offset: DEAL_FACE_AT },
       { transform: `perspective(1600px) translate(${r.left}px,${r.top}px) rotateY(0deg) rotate(0deg) scale(1)` },
     ], { duration: DEAL_FLY_MS, delay, easing: 'cubic-bezier(.3,.7,.25,1)', fill: 'both' });
 
@@ -277,25 +303,26 @@ function dealFirstRow() {
       // 翻过来那一刻图还带一点糊，落地前收清
       if (focus) {
         img.animate([{ filter: 'blur(6px) saturate(.75)' }, { filter: 'blur(2px) saturate(.92)', offset: 0.5 }, { filter: 'blur(0) saturate(1)' }],
-          { duration: 380, delay: delay + DEAL_FLY_MS * 0.42, easing: 'linear', fill: 'backwards' });
+          { duration: DEAL_FLY_MS * (1 - DEAL_FACE_AT), delay: delay + DEAL_FLY_MS * DEAL_FACE_AT, easing: 'linear', fill: 'backwards' });
       }
     }
     flight.finished.then(() => landCard(card, fly), () => {});
   });
-  fadeDeck(row.length * stagger + 40);
+  // 首排以外的余牌不能留在原地淡出；最后一张起飞时整副牌堆立即退场。
+  deck.animate([{ opacity: 1 }, { opacity: 0 }],
+    { duration: 1, delay: (row.length - 1) * stagger, easing: 'step-start', fill: 'forwards' });
   return (row.length - 1) * stagger + DEAL_FLY_MS;
 }
 
-/* 真卡和替身是同一张：先关过渡再显形，否则基础 .card 的透明度过渡会让它再淡入一次 */
+/* 交回真卡前由瀑布流统一结算壳与图片；先撤显影规则再显形，避免图片重播与两处恢复过渡相互覆盖。 */
 function revealDealt(card) {
-  const prev = card.style.transition;
-  card.style.transition = 'none';
+  introActions.settleCardEntry(card, { immediate: true });
   card.classList.remove('intro-dealt');
   void card.offsetWidth;
-  requestAnimationFrame(() => { card.style.transition = prev; });
 }
 
 function landCard(card, fly) {
+  if (!fly.isConnected) return;
   revealDealt(card);
   fly.remove();
   deal.flyers = deal.flyers.filter(item => item !== fly);
@@ -305,7 +332,10 @@ function landCard(card, fly) {
 /* 跳过、超时或收尾：在飞的替身当场收掉，真卡当场显形 */
 function settleDeal() {
   deal.shuffling = false;
-  for (const fly of deal.flyers) fly.remove();
+  for (const fly of deal.flyers) {
+    for (const anim of fly.getAnimations()) anim.cancel();
+    fly.remove();
+  }
   for (const card of deal.dealt) revealDealt(card);
   deal.flyers = [];
   deal.dealt = [];
