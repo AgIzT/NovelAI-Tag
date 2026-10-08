@@ -797,6 +797,27 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     false,
     '含原图法典仍需逐张确认物理 original',
   );
+  // 整本无原图的书可声明个别一级目录保留原图：只放行这些目录，逐图仍要有物理原图。
+  state.codexes = [...state.codexes, { id: 'section-original', hasOriginal: false, originalSections: ['秋季课堂'] }];
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: ['秋季课堂', '仙舟联盟'] }, physicalOriginal),
+    true, '声明的一级目录放行');
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: '秋季课堂/仙舟联盟' }, physicalOriginal),
+    true, '字符串路径同样按一级目录判断');
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: ['背景', '纯色'] }, physicalOriginal),
+    false, '未声明的目录仍服从整本无原图');
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: ['秋季课堂'] }, { path: 'thumb.jpg' }),
+    false, '声明的目录里没有物理原图的图仍拒绝');
+  assert.equal(entryImageCanUseOriginal({
+    _srcCodexId: 'section-original', path: ['渡鸦的构图鉴', '秋季课堂'], _srcPath: ['秋季课堂', '仙舟联盟'],
+  }, physicalOriginal), true, '收藏墙 / 全站搜索按真实目录 _srcPath 判断');
+  assert.equal(entryImageCanUseOriginal({
+    _srcCodexId: 'section-original', path: ['秋季课堂'], _srcPath: ['背景'],
+  }, physicalOriginal), false, '虚拟视图改写后的 path 不能冒充声明目录');
+  assert.equal(entrySourceAllowsOriginal({ _srcCodexId: 'without-original', path: ['秋季课堂'] }), false,
+    '没声明的书不受别的书目录名影响');
+  assert.deepEqual(normalizeCodex({ id: 'section-original', hasOriginal: false, originalSections: ['秋季课堂'] }, {
+    id: 'section-original', entries: [],
+  }).originalSections, ['秋季课堂'], '书目声明随归一化保留');
   assert.equal(lightboxOriginalCopy('ready', true).tip, '可拖入 NovelAI 读取生成参数');
   assert.match(lightboxOriginalCopy('ready', false).tip, /不提供可读取的生成参数/);
   assert.equal(lightboxOriginalCopy('ready', true, 'NoobXL V').tip, '原图保留 NoobXL V 生成参数');

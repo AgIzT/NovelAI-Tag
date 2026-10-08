@@ -7,6 +7,7 @@ import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
 import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { originalSectionsOf } from './original-capability.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -1190,7 +1191,13 @@ function buildAccessView(entries, emptyPaths) {
   return { tree: toList(root), hiddenCount };
 }
 
+/* 整本无原图、但书目声明了 originalSections 的一级目录，在目录行上标「含原图」。 */
+function treeOriginalSections() {
+  return state.codex?.hasOriginal ? [] : originalSectionsOf(state.codex);
+}
+
 export function buildNodes(nodes, parent, prefix, depth) {
+  const originalSections = depth === 0 ? treeOriginalSections() : [];
   for (const nd of nodes) {
     if (!state.allowR18g && isR18gName(nd.name)) continue;  // 隐藏 R18G/重口 分类
     const path = prefix.concat(nd.name);
@@ -1209,6 +1216,8 @@ export function buildNodes(nodes, parent, prefix, depth) {
     row.innerHTML =
       `<span class="tw-arrow">${hasKids ? '▾' : ''}</span>` +
       `<span class="tw-name">${esc(nd.name)}</span>` +
+      (originalSections.includes(nd.name)
+        ? '<span class="tw-orig" title="这一节保留原图：放大后可拖入 NovelAI 读取生成参数">含原图</span>' : '') +
       `<span class="tw-count">${nd.count}</span>`;
     if (hasKids) {
       const arrow = row.querySelector('.tw-arrow');
@@ -1668,12 +1677,19 @@ const bannerImagedPct = c => (c.entryCount ? Math.round((c.imagedCount / c.entry
    配图进度沉到卡片底边一条细线、条数在右下角（样式见 styles.css「法典横幅」）。这些都只读 codexes.json 也有的字段，
    所以换书接力时可以先用 meta 画好（pending：封面不播二段浮现、进度行留给计步与落地揭开）。
    收藏墙 / 全站搜索这类虚拟视图没有卷别，保留「书名 + 作者 · 版本」两行。 */
+function originalPillTitle(c) {
+  if (c.hasOriginal) return '本法典保留原图：放大后可拖入 NovelAI 读取生成参数';
+  const sections = originalSectionsOf(c);
+  if (sections.length) return `除「${sections.join('」「')}」外为压缩缩略图，拖入 NovelAI 读不出参数`;
+  return '本法典为压缩缩略图，拖入 NovelAI 读不出参数';
+}
+
 function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const cover = codexBannerCoverEntry(c);
   const exampleLabel = codexExampleLabel(c);
   const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
-    `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
+    `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(originalPillTitle(c))}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   const home = virtualView ? null : authorHomepage(c);
   // 卷号与分类色同选择器四卷：cat-* 类取 styles.css 里那套由强调色转色相的分类辅助色
   const typeIndex = Math.max(0, CODEX_TYPES.findIndex(t => t.id === codexType(c)));

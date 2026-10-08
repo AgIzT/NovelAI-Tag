@@ -940,6 +940,14 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .tree-item.collapsed>.tree-row .tw-arrow{transform:rotate(-90deg)}
 .tw-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tw-count{color:var(--muted);font-size:11px}
+/* 整本无原图时单节保留原图的标记：与书卡「含原图」签同一套中性填充，小一号以免抢目录名 */
+.tw-orig{
+  flex:none;border-radius:999px;padding:1px 6px;margin-right:2px;
+  background:rgba(29,29,31,.07);color:var(--text);
+  font-size:10px;font-weight:700;line-height:1.4;white-space:nowrap;
+}
+body.dark .tw-orig{background:rgba(255,255,255,.1)}
+.tree-row.active .tw-orig{color:inherit}
 .tree-children{margin-left:12px;border-left:1px solid var(--line);padding-left:4px}
 .tree-item.collapsed>.tree-children{display:none}
 .tree-children.tree-branch-moving{overflow:hidden}
