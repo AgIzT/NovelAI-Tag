@@ -1,4 +1,4 @@
-import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY } from './state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, CARD_ZOOM_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
@@ -9,7 +9,7 @@ import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter, splitSearchPhrases } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
-import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, refreshCardPrompts, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
+import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, refreshCardPrompts, refreshCopyHints, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
 import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
 import { isTagZhEnabled, onTagZhChange, setTagZhEnabled } from './tag-zh.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
@@ -557,6 +557,17 @@ export function bindUI() {
   if (sdToggle) sdToggle.onchange = e => applySdMode(e.target.checked);
   if (sdBadge) sdBadge.onclick = () => applySdMode(false);
   applySdMode(localStorage.getItem('fadian-sdmode') === '1', false);  // 初始化不做动画
+
+  /* 点击卡片放大：电脑端点卡片改开大图；手机本来就开大图，设置行在窄屏隐藏 */
+  const cardZoomToggle = $('#cardZoomToggle');
+  const applyCardZoom = on => {
+    state.cardZoom = on;
+    if (cardZoomToggle) cardZoomToggle.checked = on;
+    localStorage.setItem(CARD_ZOOM_STORAGE_KEY, on ? '1' : '0');
+    refreshCopyHints();
+  };
+  if (cardZoomToggle) cardZoomToggle.onchange = e => applyCardZoom(e.target.checked);
+  applyCardZoom(localStorage.getItem(CARD_ZOOM_STORAGE_KEY) === '1');
 
   /* tag 中文对照：设置开关与灯箱「中文对照」按钮是同一个偏好，任一处改另一处跟着变 */
   const tagZhSetting = $('#tagZhSettingToggle');

@@ -2,7 +2,8 @@
 
 把每本书 codexes.json 里的 updateFilters（批次）与该书 <id>.json 里词条的
 updateBatches / isNew 对上，按批次日期跨书聚合成一条倒序时间线，供顶栏动态气泡
-和「公告 / 更新 / 反馈」面板的更新页签读取。
+和「公告 / 更新 / 反馈」面板的更新页签读取。每本书每批另带几张样图（samples，
+只取非成人的有图词条），供法典选择器卷头的「最近新增」扇使用。
 
 判定规则与前端 site/assets/app/data.js 的 updateFilterDefinitions /
 entryMatchesUpdateFilter 逐条对齐——两边算出的条数必须一致，否则页签里的数字
@@ -31,6 +32,12 @@ SCHEMA = 1
 # 批次 id 就是版本日期串（"2026.8.31"）。排不进时间线的 id（"latest"、"外部源"…）
 # 会被跳过并在报告里点名，不静默吞掉。
 DATE_ID = re.compile(r"^(\d{4})\.(\d{1,2})\.(\d{1,2})$")
+# 法典选择器卷头「最近新增」扇用的样图：每本书每个批次最多几张。
+SAMPLES_PER_BOOK = 4
+# 法典选择器 4 本卷「样张条」：封面之外再并排几张书内样图。
+PREVIEWS_PER_BOOK = 3
+# 对齐前端 access.js 的 isNsfwRating。
+NSFW_RATINGS = {"restricted", "r18", "r18g", "nsfw"}
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -58,7 +65,16 @@ def update_filter_definitions(meta: dict) -> list[dict]:
         if not fid or not label or fid in seen:
             continue
         seen.add(fid)
-        definitions.append({"id": fid, "label": label, "latest": raw.get("latest") is True})
+        pinned = raw.get("samples")
+        definitions.append({
+            "id": fid,
+            "label": label,
+            "latest": raw.get("latest") is True,
+            # 维护者给这一批单独指定的样图（图片文件名）；没写就按默认规则挑
+            "pinned": [str(name) for name in pinned if name] if isinstance(pinned, list) else [],
+            # 这本书的这一批不进选择器「最近新增」（顶栏更新列表照常列出）
+            "pickerHidden": raw.get("pickerHidden") is True,
+        })
     if not any(item["latest"] for item in definitions) and clean_label(meta.get("newFilterLabel")):
         fid = str(meta.get("version") or "").strip() or "latest"
         if fid not in seen:
@@ -66,6 +82,8 @@ def update_filter_definitions(meta: dict) -> list[dict]:
                 "id": fid,
                 "label": clean_label(meta.get("newFilterLabel")),
                 "latest": True,
+                "pinned": [],
+                "pickerHidden": False,
             })
     return definitions
 
@@ -77,6 +95,123 @@ def entry_matches(entry: dict, definition: dict) -> bool:
     if any(str(value) == definition["id"] for value in batches):
         return True
     return definition["latest"] and entry.get("isNew") is True
+
+
+def entry_segments(entry: dict) -> list[str]:
+    path = entry.get("path")
+    return [str(segment).strip() for segment in (path if isinstance(path, list) else str(path or "").split("/")) if str(segment).strip()]
+
+
+def entry_rating(entry: dict) -> str:
+    return str(entry.get("rating") or entry.get("level") or "").strip().lower()
+
+
+def is_safe_entry(entry: dict) -> bool:
+    """成人档 rating（对齐 access.js）或目录里有名为 NSFW 的一级，都算未解锁访客看不到。"""
+    if entry_rating(entry) in NSFW_RATINGS:
+        return False
+    return not any(segment.lower() == "nsfw" for segment in entry_segments(entry))
+
+
+def sample_of(entry: dict, nsfw: bool = False) -> dict:
+    sample = {"id": str(entry.get("id") or ""), "image": str(entry["image"])}
+    for key in ("assetRev", "assetCodexId"):
+        if entry.get(key):
+            sample[key] = str(entry[key])
+    if nsfw:
+        sample["nsfw"] = True  # 前端只给已解锁 NSFW 的访客看
+    return sample
+
+
+def pick_samples(meta: dict, entries: list[dict], pinned: list[str] = ()) -> tuple[list[dict], list[str]]:
+    """给这一批新增挑几张样图。
+
+    默认规则：只取能公开的有图词条，按书里的顺序均匀取几张，同一批数据每次挑出来都一样；
+    整本 NSFW 的书一张不出。
+    这一批在 codexes.json 里写了 samples（图片文件名）就按它来、顺序照写的：维护者可以指定
+    成人档的图，这类样图带 nsfw 标记、前端只给已解锁的访客看；R18G 一律不收。
+    写的图不在这一批或没图会被跳过并报出来，一张都对不上时退回默认规则。"""
+    notes: list[str] = []
+    if pinned:
+        by_image = {str(entry["image"]): entry for entry in entries if entry.get("image")}
+        chosen, missing = [], []
+        for name in pinned:
+            entry = by_image.get(name)
+            if entry is None or entry_rating(entry) == "r18g":
+                missing.append(name)
+            else:
+                chosen.append(entry)
+        if missing:
+            notes.append(f"指定样图不在这一批、没图或属 R18G：{'、'.join(missing)}")
+        if chosen:
+            nsfw_book = bool(meta.get("nsfw"))
+            return [sample_of(entry, nsfw_book or not is_safe_entry(entry)) for entry in chosen[:SAMPLES_PER_BOOK]], notes
+        notes.append("指定样图一张都用不上，改按默认规则挑")
+    if meta.get("nsfw"):
+        return [], notes
+    pool = [entry for entry in entries if entry.get("image") and is_safe_entry(entry)]
+    if not pool:
+        return [], notes
+    count = min(SAMPLES_PER_BOOK, len(pool))
+    step = len(pool) / count
+    return [sample_of(pool[int(index * step + step / 2)]) for index in range(count)], notes
+
+
+def pick_previews(meta: dict, entries: list[dict]) -> tuple[list[dict], list[str]]:
+    """法典选择器 4 本卷「样张条」：封面旁边并排的几张书内样图。
+
+    codexes.json 里这本书写了 previews（图片文件名）就照它、顺序照写的；否则在封面之外
+    按书里的顺序均匀取几张。整本 NSFW 的书取图都带 nsfw 标记（前端只给已解锁访客看），
+    其余书只取能公开的词条；R18G 一律不收。"""
+    notes: list[str] = []
+    # 外部源的书图片按对方站的相对路径解析，本地词条文件里的图名对不上，不出预览
+    if str(meta.get("dataUrl") or "").startswith(("http://", "https://")) or meta.get("assetPathMode") == "relative":
+        return [], notes
+    nsfw_book = bool(meta.get("nsfw"))
+    cover = str(meta.get("cover") or "")
+    imaged = [entry for entry in entries if isinstance(entry, dict) and entry.get("image")]
+    pinned = meta.get("previews")
+    if isinstance(pinned, list) and pinned:
+        by_image = {str(entry["image"]): entry for entry in imaged}
+        chosen, missing = [], []
+        for name in (str(item) for item in pinned if item):
+            entry = by_image.get(name)
+            if entry is None or entry_rating(entry) == "r18g":
+                missing.append(name)
+            else:
+                chosen.append(entry)
+        if missing:
+            notes.append(f"指定预览图不在这本书、没图或属 R18G：{'、'.join(missing)}")
+        if chosen:
+            return [sample_of(entry, nsfw_book or not is_safe_entry(entry)) for entry in chosen[:PREVIEWS_PER_BOOK]], notes
+        notes.append("指定预览图一张都用不上，改按默认规则挑")
+    if nsfw_book:
+        pool = [entry for entry in imaged if entry_rating(entry) != "r18g" and str(entry["image"]) != cover]
+    else:
+        pool = [entry for entry in imaged if is_safe_entry(entry) and str(entry["image"]) != cover]
+    if not pool:
+        return [], notes
+    count = min(PREVIEWS_PER_BOOK, len(pool))
+    step = len(pool) / count
+    return [sample_of(pool[int(index * step + step / 2)], nsfw_book) for index in range(count)], notes
+
+
+def dir_distribution(entries: list[dict], limit: int = 3) -> list[list]:
+    """这一批新增落在哪几个目录、各多少条（取前几名）。整批都在同一个一级目录下时往下看一级，
+    最多看到第三级——图包常是「来源 › 整理批次 › …」，只报一级等于没说。"""
+    paths = [entry_segments(entry) for entry in entries]
+    paths = [path for path in paths if path]
+    if not paths:
+        return []
+    depth = 0
+    while depth < 2 and all(len(path) > depth + 1 for path in paths) and len({path[depth] for path in paths}) == 1:
+        depth += 1
+    counts: dict[str, int] = {}
+    for path in paths:
+        if len(path) > depth:
+            counts[path[depth]] = counts.get(path[depth], 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    return [[name, count] for name, count in ranked]
 
 
 def batch_date(batch_id: str) -> date | None:
@@ -97,6 +232,7 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         raise SystemExit("codexes.json 不是数组，先修数据再重建更新索引")
 
     grouped: dict[str, dict] = {}
+    previews: dict[str, list[dict]] = {}
     for meta in codexes:
         if not isinstance(meta, dict):
             continue
@@ -104,37 +240,54 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         if not codex_id:
             continue
         definitions = update_filter_definitions(meta)
-        if not definitions:
-            continue
 
         book = read_json(data_dir / f"{codex_id}.json")
         entries = book.get("entries") if isinstance(book, dict) else None
         if not isinstance(entries, list):
-            notes.append(f"{codex_id}：读不到词条（外部源或缺文件），该书批次跳过")
+            if definitions:
+                notes.append(f"{codex_id}：读不到词条（外部源或缺文件），该书批次跳过")
             continue
+
+        book_previews, preview_notes = pick_previews(meta, entries)
+        notes.extend(f"{codex_id} 预览图：{note}" for note in preview_notes)
+        if book_previews:
+            previews[codex_id] = book_previews
 
         for definition in definitions:
             when = batch_date(definition["id"])
             if when is None:
                 notes.append(f"{codex_id}：批次 id「{definition['id']}」不是日期，跳过")
                 continue
-            count = sum(1 for entry in entries if isinstance(entry, dict) and entry_matches(entry, definition))
+            matched = [entry for entry in entries if isinstance(entry, dict) and entry_matches(entry, definition)]
+            count = len(matched)
             if count <= 0:
                 # 与前端 codexUpdateFilters 一致：数不出词条的批次不展示。
                 continue
+            samples, sample_notes = pick_samples(meta, matched, definition["pinned"])
+            notes.extend(f"{codex_id} {definition['id']}：{note}" for note in sample_notes)
             bucket = grouped.setdefault(definition["id"], {
                 "id": definition["id"],
                 "date": when.isoformat(),
                 "books": [],
             })
-            bucket["books"].append({
+            safe = [] if meta.get("nsfw") else [entry for entry in matched if is_safe_entry(entry)]
+            record = {
                 "codexId": codex_id,
                 "title": str(meta.get("title") or "").strip(),
                 "type": str(meta.get("type") or "").strip(),
                 "label": definition["label"],
                 "latest": definition["latest"],
                 "count": count,
-            })
+                # 未解锁 NSFW 的访客能看到的条数：整本 NSFW 的书为 0，其余去掉成人档词条
+                "safeCount": len(safe),
+                "samples": samples,
+                # 这一批没图可看时，选择器改画「新增分布」：全部 / 未解锁访客各一份
+                "dirs": dir_distribution(matched),
+                "safeDirs": dir_distribution(safe),
+            }
+            if definition["pickerHidden"]:
+                record["pickerHidden"] = True
+            bucket["books"].append(record)
 
     batches = sorted(grouped.values(), key=lambda item: item["date"], reverse=True)
     for batch in batches:
@@ -145,6 +298,8 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         "schema": SCHEMA,
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "batches": batches,
+        # 法典选择器 4 本卷「样张条」用的书内样图，按书 id 索引；与更新批次无关，只是借这份索引一起发布
+        "previews": previews,
     }
     return payload, notes
 

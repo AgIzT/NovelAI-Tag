@@ -8,7 +8,8 @@ export const TAG_ZH_SOURCE_LABELS = { m: '人工校对', d: '社区词库', a: '
 const SEPARATOR = /(\r\n|\r|\n|,|，)/;
 const WEIGHT_PREFIX = /^-?\d+(?:\.\d+)?::/;
 const SD_WEIGHT_SUFFIX = /:\s*-?\d+(?:\.\d+)?$/;
-const LATIN = /[a-z]/i;
+// 需要翻译的文字：英文字母、韩文、日文假名。纯中文片段不用翻，查表键给空串。
+const NEEDS_ZH = /[a-z가-힣ᄀ-ᇿ㄰-㆏぀-ヿ]/i;
 const MAX_KEY_LENGTH = 300;
 const LOOKUP_ORDER = ['m', 'd', 'a'];
 
@@ -52,10 +53,10 @@ export function bareTag(piece) {
   return text.replace(/_/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-/* 一段 tag 原文 → 查表键。空、无英文字母、画师前缀和超长的一律返回空串（不查）。 */
+/* 一段 tag 原文 → 查表键。空、纯中文、画师前缀和超长的一律返回空串（不查）。 */
 export function tagZhKey(piece) {
   const key = bareTag(piece);
-  if (!key || !LATIN.test(key) || key.startsWith('artist:') || [...key].length > MAX_KEY_LENGTH) return '';
+  if (!key || !NEEDS_ZH.test(key) || key.startsWith('artist:') || [...key].length > MAX_KEY_LENGTH) return '';
   return key;
 }
 

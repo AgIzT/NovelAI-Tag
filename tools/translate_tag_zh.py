@@ -47,7 +47,8 @@ EMPTY_PATH = btz.SRC_DIR / "无译名.csv"
 SOURCE_LABEL = "gemini-3.8-flash-high"
 
 SYSTEM_PROMPT = (
-    "你是 NovelAI / Danbooru 提示词标签的中文译者。把每个英文标签翻成简短的中文词典释义。\n"
+    "你是 NovelAI / Danbooru 提示词标签的中文译者。把每个标签翻成简短的中文词典释义；"
+    "标签多为英文，也可能是韩文或日文的词句，一律译成简体中文。\n"
     "规则：\n"
     "1) 只给译名，不解释、不加引号、不加标点结尾；一般 2-12 个汉字，信息量贴近原文。\n"
     "2) 角色名、作品名、专有名词用通行中文译名；没有通行译名就音译。\n"
@@ -75,7 +76,15 @@ def load_filter() -> tuple:
             terms = [str(t).strip() for t in (data.get(name) or []) if str(t).strip()]
             if not terms:
                 raise SystemExit(f"{FILTER_PATH} 的 {name} 组是空的")
-            groups.append(re.compile(r"\b(?:" + "|".join(terms) + r")\b", re.IGNORECASE))
+            # 英文按整词匹配；韩文、日文的词后面常直接粘着助词，只能按包含匹配
+            words = [t for t in terms if t.isascii()]
+            others = [t for t in terms if not t.isascii()]
+            parts = []
+            if words:
+                parts.append(r"\b(?:" + "|".join(words) + r")\b")
+            if others:
+                parts.append("(?:" + "|".join(others) + ")")
+            groups.append(re.compile("|".join(parts), re.IGNORECASE))
         _FILTER = tuple(groups)
     return _FILTER
 

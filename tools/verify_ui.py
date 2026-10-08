@@ -310,11 +310,16 @@ class CDP:
         self.ws = WebSocket(ws_url)
         self.next_id = 1
         self.events: list[dict] = []
+        self.dialog_commands: set[int] = set()
 
-    def command(self, method: str, params: dict | None = None, timeout: float = 10.0):
+    def _send_command(self, method: str, params: dict | None = None) -> int:
         msg_id = self.next_id
         self.next_id += 1
         self.ws.send_text(json.dumps({"id": msg_id, "method": method, "params": params or {}}))
+        return msg_id
+
+    def command(self, method: str, params: dict | None = None, timeout: float = 10.0):
+        msg_id = self._send_command(method, params)
         end = time.time() + timeout
         while time.time() < end:
             raw = self.ws.recv_text()
@@ -323,6 +328,17 @@ class CDP:
                 if "error" in msg:
                     raise RuntimeError(f"CDP {method} failed: {msg['error']}")
                 return msg.get("result")
+            if msg.get("id") in self.dialog_commands:
+                self.dialog_commands.remove(msg["id"])
+                if "error" in msg:
+                    raise RuntimeError(f"CDP Page.handleJavaScriptDialog failed: {msg['error']}")
+                continue
+            if (msg.get("method") == "Page.javascriptDialogOpening"
+                    and msg.get("params", {}).get("type") == "beforeunload"):
+                # 只离开隔离测试页。不能递归等待确认响应：导航响应可能先到，
+                # 被内层 command 消费后，外层就会一直等不到自己的响应。
+                dialog_id = self._send_command("Page.handleJavaScriptDialog", {"accept": True})
+                self.dialog_commands.add(dialog_id)
             self.events.append(msg)
         raise TimeoutError(f"Timed out waiting for {method}")
 
@@ -422,8 +438,13 @@ def disable_motion(cdp: CDP) -> None:
 
 
 def navigate(cdp: CDP, url: str) -> None:
-    cdp.command("Page.navigate", {"url": url}, timeout=10)
-    wait_for(cdp, "document.readyState === 'complete' || document.readyState === 'interactive'", "document ready", timeout=10)
+    cdp.eval("window.__qaNavigating = true")
+    result = cdp.command("Page.navigate", {"url": url}, timeout=10)
+    if result.get("errorText"):
+        raise CheckFailed(f"Navigation failed for {url}: {result['errorText']}")
+    # Page.navigate 返回时旧文档可能仍是 complete；等新文档替换后再验页面。
+    new_document = "!window.__qaNavigating && " if result.get("loaderId") else ""
+    wait_for(cdp, new_document + "(document.readyState === 'complete' || document.readyState === 'interactive')", "document ready", timeout=10)
 
 
 def settle(cdp: CDP, ms: int = 350) -> None:
@@ -678,7 +699,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             + "); localStorage.setItem('fadian-tag-relay-rail', 'closed');"
             + " localStorage.setItem('fadian-onboarding-v1-done', '1'); true"
         )
-        cdp.command("Page.reload", {})
+        navigate(cdp, base + "?codex=suozhang")
         wait_for(
             cdp,
             "document.querySelectorAll('.card').length >= 1"
@@ -744,6 +765,17 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             ):
                 raise CheckFailed(f"{label} is oversized or outside the viewport: {data}")
             return data
+
+        def flush_relay_plan(label: str, expected_text: str) -> None:
+            saved = cdp.eval("import('./assets/app/tag-relay-compose.js').then(module => module.flushCompose())")
+            if saved is not True:
+                raise CheckFailed(f"{label} could not save the relay draft")
+            wait_for(
+                cdp,
+                "JSON.parse(localStorage.getItem('fadian-tag-relay-v4') || '{}')"
+                ".plans?.find(plan => plan.id === 'qa-plan')?.positive.text === " + js_string(expected_text),
+                label,
+            )
 
         cases = [
             ("dock", 1440, 820, False, "dock"),
@@ -989,6 +1021,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             # Undo is the editor's existing text operation, not removed chip UI.
             cdp.eval("(() => { const input = document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea'); input.focus(); document.execCommand('undo'); })()")
             wait_for(cdp, "document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea').value === " + js_string(original), f"relay {mode} native undo insertion")
+            flush_relay_plan(f"relay {mode} undo insertion persisted", original)
 
             # Keyboard selection opens the same contextual actions as a single
             # click; double-click expansion is covered by verify_relay_editor.
@@ -1005,6 +1038,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             undo = assert_relay_undo_toast(f"relay {mode} expand undo toast", "已展开")
             cdp.eval("document.querySelector('#toast .toast-action')?.click()")
             wait_for(cdp, "document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea').value === " + js_string(original), f"relay {mode} toast undo fold")
+            flush_relay_plan(f"relay {mode} undo fold persisted", original)
 
             compose = cdp.eval(r"""
 (() => {
@@ -1069,10 +1103,12 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             wait_for(cdp, "document.querySelector('#tagRelayRail')?.inert === true", f"relay {mode} close inert")
             cdp.eval("document.querySelector('#tagRelayBtn')?.click()")
             wait_for(cdp, "document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea').value.endsWith(" + js_string(tail) + ")", f"relay {mode} close preserves tail")
+            flush_relay_plan(f"relay {mode} close tail persisted", original + tail)
             cdp.eval("(() => { const input = document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea'); input.focus(); document.execCommand('undo'); })()")
             wait_for(cdp, "document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea').value === " + js_string(original), f"relay {mode} restore fixture")
             cdp.eval("document.querySelector('#tagRelayRailClose')?.click()")
             wait_for(cdp, "document.querySelector('#tagRelayRail')?.inert === true && document.querySelector('#tagRelayRail')?.getAttribute('aria-hidden') === 'true'", f"relay {mode} final close")
+            flush_relay_plan(f"relay {mode} restored fixture persisted", original)
             check_no_errors(cdp)
             details[mode] = {"shell": shell, "shelf": shelf, "compose": compose, "expandUndoToast": undo}
 
@@ -1098,6 +1134,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         short['copyReachable'] = cdp.eval("(() => {const r=document.querySelector('#relayCopyPositive').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})()")
         if not short['copyReachable']:
             raise CheckFailed(f"Relay short viewport copy button is unreachable: {short}")
+        cdp.eval("document.querySelector('#tagRelayRailClose')?.click()")
+        wait_for(cdp, "document.querySelector('#tagRelayRail')?.inert === true", "relay short viewport final close")
+        flush_relay_plan("relay short viewport draft persisted", "blue sky, forest, soft lighting")
         check_no_errors(cdp)
         cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
         return {"viewports": details, "shortViewport": short, "screenshots": shots}
@@ -2195,7 +2234,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if data["atlas"] != "3" or "收藏：3 条" not in data["result"]:
             raise CheckFailed(f"Historical favorite owners did not render all three cards: {data!r}")
         # 迁移归属由稳定 id 钉住；书名来自现行索引，避免正常更名把回归夹具变陈旧。
-        codex_titles = {item["id"]: item["title"] for item in load_codex_list()}
+        # 收藏分组与前端 fav-codex.js 同口径：有「选择器短标题」就用短标题。
+        codex_titles = {item["id"]: item.get("selectorTitle") or item["title"] for item in load_codex_list()}
         if len(data["cards"]) != len(expected_keys) or {card["key"] for card in data["cards"]} != expected_keys:
             raise CheckFailed(f"Migrated favorite cards did not retain their canonical identities: {data['cards']!r}")
         for card in data["cards"]:
@@ -3146,6 +3186,9 @@ def write_report(out_dir: Path, base_url: str, results: list[dict]) -> None:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Run headless UI regression checks for site/index.html")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Preview base URL, default http://localhost:8766/")
     parser.add_argument("--out-dir", default="", help="Output directory. Defaults to output/ui-regression/<timestamp>")
@@ -3153,7 +3196,7 @@ def main() -> int:
     parser.add_argument("--only", default="", help="Run checks whose names contain this text")
     args = parser.parse_args()
 
-    out_dir = Path(args.out_dir) if args.out_dir else ROOT / "output" / "ui-regression" / now_stamp()
+    out_dir = Path(args.out_dir).resolve() if args.out_dir else ROOT / "output" / "ui-regression" / now_stamp()
     out_dir.mkdir(parents=True, exist_ok=True)
     base_url = args.base_url.rstrip("/") + "/"
     preview_proc = None

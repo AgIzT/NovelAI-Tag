@@ -147,9 +147,14 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     const fragment = document.createDocumentFragment();
     let at = 0;
     for (const t of tokens(text)) {
-      fragment.append(text.slice(at, t.start));
+      /* 首尾零宽守卫放在 span 外：「​~tag~​」「​#词组​」折行时零宽字符会单独留在上一行行尾，
+         留在 span 里注音就挂到上一行，块和药丸还会在行尾多画一个空框。文字顺序不变，落点计数不受影响。 */
+      const lead = t.core.match(/^​*/)[0], rest = t.core.slice(lead.length);
+      const trail = rest.match(/​*$/)[0], body = rest.slice(0, rest.length - trail.length);
+      const guarded = Boolean(body);
+      fragment.append(text.slice(at, t.start) + (guarded ? lead : ''));
       const fold = folds.get(t.fold), locked = fold && isLocked(fold);
-      const span = element('span', 'relay-token', t.core);
+      const span = element('span', 'relay-token', guarded ? body : t.core);
       span.dataset.start = String(t.start);
       span.classList.toggle('is-fold', Boolean(fold));
       span.classList.toggle('is-locked', Boolean(locked));
@@ -171,6 +176,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
         note.append(label); span.append(note);
       }
       fragment.append(span);
+      if (guarded && trail) fragment.append(trail);
       at = t.end;
     }
     fragment.append(text.slice(at));
@@ -291,7 +297,16 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     }
     if (!t) return;
     const fold = here().folds.get(t.fold), locked = fold && isLocked(fold);
-    panel.append(element('span', 'relay-token-name', locked ? '内容已锁定' : fold ? `#${t.fold}` : t.name));
+    const name = element('span', 'relay-token-name', locked ? '内容已锁定' : fold ? `#${t.fold}` : t.name);
+    /* 面板头是被点中那一个的放大版：同形同色。锁定时只留文字。 */
+    if (!locked) {
+      name.classList.add('is-token');
+      name.classList.toggle('is-fold', Boolean(fold));
+      name.classList.toggle('is-off', t.off);
+      name.classList.toggle('is-up', t.mult > 1.001);
+      name.classList.toggle('is-down', t.mult < .999);
+    }
+    panel.append(name);
     const duplicate = duplicates.get(t.start);
     const note = duplicate?.kind === 'group' ? `组内 ${duplicate.count} 个 tag 会在输出时合并`
       : duplicate ? `${fold ? '整组' : '此 tag'}重复，输出时与第 ${duplicate.firstOrdinal} 项合并`
@@ -300,7 +315,10 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     if (!locked) {
       // 按十分位整数加减，按钮始终落在 0.1 刻度，避免浮点尾数累积。
       button('−', () => rewrite(t, wrapped(t, t.body, (Math.round(t.mult * 10) - 1) / 10)));
-      panel.append(element('span', 'relay-token-mult', `×${Number(t.mult.toFixed(1))}`));
+      const mult = element('span', 'relay-token-mult', `×${Number(t.mult.toFixed(1))}`);
+      mult.classList.toggle('is-up', t.mult > 1.001);
+      mult.classList.toggle('is-down', t.mult < .999);
+      panel.append(mult);
       button('+', () => rewrite(t, wrapped(t, t.body, (Math.round(t.mult * 10) + 1) / 10)));
       button('清除权重', () => rewrite(t, wrapped(t, t.body, 1))).disabled = Math.abs(t.mult - 1) < .001;
       button(t.off ? '启用' : '禁用', () => rewrite(t, t.off ? t.core.slice(2, -2) : `${OFF_OPEN}${t.core}${OFF_CLOSE}`));

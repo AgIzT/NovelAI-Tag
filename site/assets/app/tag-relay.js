@@ -147,6 +147,8 @@ function sourceItem(entry, { removable = true } = {}) {
   const dot = document.createElement('span');
   dot.className = 'tag-relay-chip-dot';
   if (!locked && entry.image) dot.style.backgroundImage = 'url("' + entry.image + '")';
+  /* 没图时显示 '#'：和编辑区块名前那个 '#' 是同一个记号。 */
+  else dot.classList.add('is-blank');
 
   const name = document.createElement('span');
   name.className = 'tag-relay-chip-name';

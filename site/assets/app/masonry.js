@@ -8,6 +8,7 @@ import { copyText, combinedPrompt, combinedPromptLabel, entryPromptText } from '
 import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { isFeaturedEntry } from './featured.js';
 
 const masonryActions = {
   openLightbox: () => {},
@@ -279,24 +280,30 @@ export function renderList({ resetScroll = false, transition = 'none' } = {}) {
   }, maxDelay + FILTER_EXIT_MS + FILTER_EXIT_PAD_MS);
 }
 
-export function computeLayout({ previous } = {}) {
+function layoutMetrics() {
   const m = $('#masonry');
   const width = Math.max(1, m.clientWidth || $('#main').clientWidth || 1);
   const cfg = densityConfig();
   const n = colCount();
   const itemWidth = Math.max(1, Math.floor((width - cfg.gap * (n - 1)) / n));
+  return { m, cfg, n, itemWidth };
+}
+
+export function computeLayout({ previous, preserveColumns = false } = {}) {
+  const { m, cfg, n, itemWidth } = layoutMetrics();
+  const retainColumns = preserveColumns && state.colN === n && state.itemWidth === itemWidth;
   const colHeights = Array.from({ length: n }, () => 0);
   const placements = [];
 
   for (let i = 0; i < state.list.length; i++) {
     const entry = state.list[i];
-    const col = shortestIndex(colHeights);
     const measured = previous?.get(entry);
+    const col = retainColumns && measured ? measured.col : shortestIndex(colHeights);
     const badgeHeight = masonryActions.favoriteBadgeHeight(entry);
-    // 收藏夹徽章行出现/消失时旧实测高度已失效，改回估高，由测高回写再校准。
-    const retained = measured?.width === itemWidth && (measured.badgeHeight || 0) === badgeHeight ? measured : null;
-    const imageHeight = retained?.imageHeight ?? estimateImageHeight(entry, itemWidth);
     const body = estimateBodyMetrics(entry, itemWidth);
+    // 估高缓存身份同时覆盖宽度、密度、复制模式、徽章与内容失效，不能只按同宽复用。
+    const retained = measured?.width === itemWidth && measured.bodyMetrics === body ? measured : null;
+    const imageHeight = retained?.imageHeight ?? estimateImageHeight(entry, itemWidth);
     const height = retained?.height ?? Math.ceil(imageHeight + body.height);
     const left = col * (itemWidth + cfg.gap);
     const top = colHeights[col];
@@ -312,6 +319,7 @@ export function computeLayout({ previous } = {}) {
       imageHeight,
       tagsHeight: retained?.tagsHeight ?? body.tagsHeight,
       badgeHeight,
+      bodyMetrics: body,
     });
     colHeights[col] += height + cfg.gap;
   }
@@ -506,7 +514,8 @@ export function updateVirtualCards(force = false) {
       node.dataset.entryPending = '1';
       state.nodes.set(placement.index, node);
       m.appendChild(node);
-      if (!relayoutAnimating) calibrations.push({ node, placement });
+      // 新节点还没有尺寸过渡，首次测高须在这一帧完成，不能留到重排收尾。
+      calibrations.push({ node, placement });
     } else if (force) {
       updateCardPosition(node, placement);
       if (!relayoutAnimating) calibrations.push({ node, placement });
@@ -564,6 +573,7 @@ export function makeCard(placement) {
     hiddenMatchChip.title = hiddenMatch.excerpt;
   }
   if (e.isNew) node.querySelector('.badge-new').hidden = false;
+  if (isFeaturedEntry(e, state.codex)) node.querySelector('.badge-featured').hidden = false;
 
   const hasImage = hasEntryImage(e);
   const hasNegative = !!(e.negative && String(e.negative).trim());
@@ -647,12 +657,7 @@ export function makeCard(placement) {
     node.classList.add('no-img');
   }
 
-  const packMode = state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
-  const copyHint = node.querySelector('.copy-hint');
-  if (copyHint && packMode) {
-    copyHint.textContent = hasImage ? '点击查看' : '暂无图片';
-    copyHint.classList.toggle('is-view', hasImage);
-  }
+  syncCopyHint(node, e);
   const openDetail = () => {
     const img = hasImage ? node.querySelector('.card-img') : null;
     masonryActions.openLightbox(e, 0, img, { allowEmpty: true });
@@ -666,7 +671,7 @@ export function makeCard(placement) {
     };
   }
   node.onclick = () => {
-    if (densityConfig().mobile || (packMode && hasImage)) {
+    if (cardClickOpensDetail(e)) {
       openDetail();
       return;
     }
@@ -674,6 +679,36 @@ export function makeCard(placement) {
   };
   masonryActions.decorateFavoriteCard(node, e);
   return node;
+}
+
+function isPackEntry(e) {
+  return state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
+}
+
+/* 点卡片：手机一律开详情；电脑上有图的图包、或开了「点击卡片放大」的有图卡开大图，其余复制。
+   无图卡没有可放大的，开关不管它（电脑灯箱空图时详情栏可能是收起的，点开只剩遮罩）。
+   点击时现读设置，切换后不用重建卡片。 */
+function cardOpensImage(e) {
+  return hasEntryImage(e) && (state.cardZoom || isPackEntry(e));
+}
+
+function cardClickOpensDetail(e) {
+  return densityConfig().mobile || cardOpensImage(e);
+}
+
+function syncCopyHint(node, e) {
+  const hint = node.querySelector('.copy-hint');
+  if (!hint) return;
+  const view = cardOpensImage(e);
+  hint.textContent = view ? '点击查看' : isPackEntry(e) ? '暂无图片' : '点击复制';
+  hint.classList.toggle('is-view', view);
+}
+
+export function refreshCopyHints() {
+  for (const [index, node] of state.nodes) {
+    const entry = state.list[index];
+    if (entry) syncCopyHint(node, entry);
+  }
 }
 
 export function updateCardPosition(node, placement) {
@@ -701,6 +736,11 @@ const ENTRY_WAVES = {
     lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
     imageBlur: 4, imageDur: 260, base: 0, step: 18, cap: 90, imageOffset: 0,
   },
+  /* 换书落地：按「列 + 行」对角错峰，首排焦点图的显影比滚动波重一档（编排在 codex-switch.js） */
+  switch: {
+    lift: 8, dur: 260, ease: 'cubic-bezier(.16,1,.3,1)',
+    imageBlur: 6, imageDur: 360, base: 0, step: 30, cap: 130, imageOffset: 30,
+  },
 };
 
 /* 大图的滤镜预算按「列」而不是按固定张数分配：移动端一张图已经占掉大半屏，
@@ -712,8 +752,9 @@ function introFocusCount() {
 
 export function maybeAnimateCardEntry(node, placement) {
   if (prefersReducedMotion() || relayoutAnimating || !state.codex) return;
-  // 急滑门控：滚得比阈值快时直接落终态。快速掠过的卡还去演一遍显影，只会糊成一片拖影
-  if (isFlinging()) return;
+  /* 急滑门控：滚得比阈值快时直接落终态。快速掠过的卡还去演一遍显影，只会糊成一片拖影。
+     换书落地时不看它：接力那一下 scrollTo(0) 会被采样成「瞬移」，整批首屏卡就丢了进场。 */
+  if (!switchHold && isFlinging()) return;
   const key = `${state.codex.id}:${placement.entry.id}`;
   if (!forceEntryAnim && state.seenAnimated.has(key)) return;
   state.seenAnimated.add(key);
@@ -723,10 +764,14 @@ export function maybeAnimateCardEntry(node, placement) {
      所以这里只摆好起始态（抬起 + 透明，图片显影另行暂停），等 intro:reveal 掀幕那一刻再统一放行——
      不然开场结束掀开幕布，卡片早就自己演完了，只剩终态。 */
   const introHold = html.classList.contains('intro-run') && !html.classList.contains('intro-reveal');
-  const wave = introHold || html.classList.contains('intro-reveal')
-    ? ENTRY_WAVES.intro
-    : ENTRY_WAVES.scroll;
-  const stagger = placement.col * wave.step + (placement.index % Math.max(1, state.colN)) * 10;
+  const wave = switchHold
+    ? ENTRY_WAVES.switch
+    : introHold || html.classList.contains('intro-reveal')
+      ? ENTRY_WAVES.intro
+      : ENTRY_WAVES.scroll;
+  const stagger = switchHold
+    ? (placement.col + Math.floor(placement.index / Math.max(1, state.colN))) * wave.step
+    : placement.col * wave.step + (placement.index % Math.max(1, state.colN)) * 10;
   const delay = wave.base + Math.min(wave.cap, stagger);
   const imageDelay = Math.max(0, delay + (wave.imageOffset || 0));
   const imageBlur = wave === ENTRY_WAVES.intro && window.matchMedia('(max-width: 600px)').matches
@@ -752,6 +797,13 @@ export function maybeAnimateCardEntry(node, placement) {
       node.classList.add('intro-focus');
       image?.classList.add('card-img-diffusion');
     }
+  } else if (switchHold) {
+    /* 换书落地沿用开场的滤镜预算：只有首排焦点图显影，其余卡片只走壳的位移 + 透明度。
+       焦点图要在编排器等图的窗口里 load + decode 完才会挂 switch-image-ready，迟到的直接普通渐显。 */
+    if (hasEntryImage(placement.entry) && imageRankOf(placement) < introFocusCount()) {
+      node.classList.add('switch-focus');
+      image?.classList.add('card-img-diffusion');
+    }
   } else if (hasEntryImage(placement.entry) && image?.classList.contains('is-loaded')) {
     /* 缓冲区预载命中时才做滚动显影；图片尚未回来就让既有 load settle 接管，
        避免动画迟到开跑后又被固定 cleanup 时刻截断。 */
@@ -762,7 +814,50 @@ export function maybeAnimateCardEntry(node, placement) {
     introHeld.add(node);
     return;
   }
+  if (switchHold) {
+    switchHeld.add(node);
+    return;
+  }
   releaseCardEntry(node, cleanupMsFor(wave, delay));
+}
+
+function imageRankOf(placement) {
+  return state.placements.slice(0, placement.index).filter(candidate => hasEntryImage(candidate.entry)).length;
+}
+
+/* 换书落地的 hold-and-release，与开场的 introHeld 同一套写法：新书首屏卡片在数据到位时就建好、摆在起始态，
+   等编排器（codex-switch.js）等完首排图再一起放行。兜底定时器保证任何分支都不会把首屏留成空白。 */
+let switchHold = false;
+let switchHoldTimer = 0;
+const switchHeld = new Set();
+const SWITCH_HOLD_LIMIT_MS = 2500;
+
+export function holdSwitchEntries() {
+  settleSwitchEntries();
+  switchHold = true;
+  switchHoldTimer = window.setTimeout(releaseSwitchEntries, SWITCH_HOLD_LIMIT_MS);
+}
+
+export function releaseSwitchEntries() {
+  clearTimeout(switchHoldTimer);
+  switchHoldTimer = 0;
+  switchHold = false;
+  const wave = ENTRY_WAVES.switch;
+  const cleanup = cleanupMsFor(wave, wave.base + wave.cap);
+  for (const node of switchHeld) releaseCardEntry(node, cleanup);
+  switchHeld.clear();
+}
+
+export function settleSwitchEntries() {
+  clearTimeout(switchHoldTimer);
+  switchHoldTimer = 0;
+  switchHold = false;
+  for (const node of switchHeld) settleCardEntry(node, { immediate: true });
+  switchHeld.clear();
+}
+
+export function switchFocusImages() {
+  return [...document.querySelectorAll('.masonry .card.switch-focus .card-img-diffusion')];
 }
 
 /* 清理要等到卡片壳与图片显影都跑完；intro 图片现在比壳晚 30ms，不能再只按壳的结束点算。 */
@@ -780,16 +875,16 @@ function releaseCardEntry(node, cleanupMs) {
   window.setTimeout(() => settleCardEntry(node), cleanupMs);
 }
 
-function settleCardEntry(node, { immediate = false } = {}) {
+export function settleCardEntry(node, { immediate = false } = {}) {
   /* skip/late-settle 要真落终态：直接摘 card-enter 时会重新命中 .card 的 opacity .16s，
      从当前半透明值补播一小段淡入。先用 inline transition:none 结算一帧，再恢复基础规则。 */
   const previousTransition = node.style.transition;
   if (immediate) node.style.transition = 'none';
-  node.classList.remove('card-enter', 'is-entered', 'intro-focus');
+  node.classList.remove('card-enter', 'is-entered', 'intro-focus', 'switch-focus');
   for (const prop of ['--entry-delay', '--entry-image-delay', '--entry-dur', '--entry-image-blur', '--entry-image-dur', '--entry-ease']) {
     node.style.removeProperty(prop);
   }
-  node.querySelector('.card-img')?.classList.remove('card-img-diffusion', 'intro-image-ready');
+  node.querySelector('.card-img')?.classList.remove('card-img-diffusion', 'intro-image-ready', 'switch-image-ready');
   node.style.setProperty('--entry-offset', '0px');
   introHeld.delete(node);
   if (immediate) {
@@ -847,7 +942,7 @@ export function calibrateCardHeight(node, placement) {
   calibrateCardHeights([{ node, placement }]);
 }
 
-export function calibrateCardHeights(cards) {
+function measureCardHeights(cards) {
   const cfg = densityConfig();
   const prepared = [];
   for (const card of cards || []) {
@@ -866,7 +961,7 @@ export function calibrateCardHeights(cards) {
   }
 
   // 读阶段：第一张卡会结算上面的整批写入，随后读取不再反复弄脏布局。
-  const measurements = prepared.map(card => {
+  return prepared.map(card => {
     const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
     const naturalTagsBoxHeight = card.tags ? card.tags.getBoundingClientRect().height : 0;
     const tagsHeight = cfg.hideImageTags && hasEntryImage(card.placement.entry) ? 0 : card.tags
@@ -885,10 +980,14 @@ export function calibrateCardHeights(cards) {
       ...card,
       naturalTagsHeight,
       tagsHeight,
+      imageHeight,
       measuredHeight: Math.ceil(imageHeight + bodyHeight),
     };
   });
+}
 
+export function calibrateCardHeights(cards) {
+  const measurements = measureCardHeights(cards);
   // 写阶段 2：统一落标签高度，再一次性修正各列后续 placement。
   const heightChanges = [];
   for (const measurement of measurements) {
@@ -1072,9 +1171,14 @@ export function scheduleRelayout(animate = true) {
 }
 
 export function startRelayoutAnimation() {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const m = $('#masonry');
   if (!m) return;
+  if (prefersReducedMotion() || document.documentElement.classList.contains('motion-off')) {
+    clearTimeout(relayoutAnimTimer);
+    relayoutAnimating = false;
+    m.classList.remove('is-relayouting');
+    return;
+  }
   relayoutAnimating = true;
   m.classList.add('is-relayouting');
   // Make sure the transition class is active before the new transforms land.
@@ -1090,7 +1194,45 @@ export function startRelayoutAnimation() {
 export function relayoutVisible({ animate = false } = {}) {
   if (!state.codex) return;
   finishBlockingMotion();
+  const { m, itemWidth } = layoutMetrics();
+  const previous = new Map(state.placements.map(p => [p.entry, p]));
+  // 先读当前视觉几何；连续 resize 打断上一轮时，要从半途接着移动。
+  const cards = [...state.nodes].map(([index, node]) => {
+    const placement = state.placements[index];
+    const visual = getComputedStyle(node);
+    const wrap = node.querySelector('.card-img-wrap');
+    const tags = node.querySelector('.card-tags');
+    return {
+      node, placement, wrap, tags,
+      width: visual.width, height: visual.height, transform: visual.transform,
+      imageHeight: wrap ? getComputedStyle(wrap).height : '',
+      tagsHeight: tags ? getComputedStyle(tags).height : '',
+    };
+  });
+  // 在同一任务内试排目标宽度、批量测高、恢复起点；浏览器只画最终那次过渡。
+  m.classList.add('is-measuring');
+  try {
+    for (const card of cards) {
+      card.node.style.width = `${itemWidth}px`;
+      if (card.wrap) card.wrap.style.height = `${estimateImageHeight(card.placement.entry, itemWidth)}px`;
+    }
+    for (const measurement of measureCardHeights(cards)) {
+      const { placement, measuredHeight, tagsHeight, imageHeight } = measurement;
+      previous.set(placement.entry, {
+        ...placement, width: itemWidth, height: measuredHeight, tagsHeight, imageHeight,
+        bodyMetrics: estimateBodyMetrics(placement.entry, itemWidth),
+      });
+    }
+  } finally {
+    for (const card of cards) {
+      Object.assign(card.node.style, { width: card.width, height: card.height, transform: card.transform });
+      if (card.wrap) card.wrap.style.height = card.imageHeight;
+      if (card.tags) card.tags.style.height = card.tagsHeight;
+    }
+    void m.offsetWidth;
+    m.classList.remove('is-measuring');
+  }
   if (animate) startRelayoutAnimation();
-  computeLayout();
+  computeLayout({ previous, preserveColumns: true });
   updateVirtualCards(true);
 }

@@ -197,7 +197,11 @@ export function normalizeCodex(data, meta = {}) {
     links: meta.links || data.links || [],
     aliases: meta.aliases || data.aliases || [],
     hasOriginal: meta.hasOriginal ?? data.hasOriginal ?? false,
+    originalSections: meta.originalSections ?? data.originalSections ?? [],
     exampleModel: String(meta.exampleModel ?? data.exampleModel ?? '').trim(),
+    cover: meta.cover ?? data.cover ?? '',
+    coverCodexId: meta.coverCodexId ?? data.coverCodexId ?? '',
+    coverRev: meta.coverRev ?? data.coverRev ?? '',
     coverFraming: meta.coverFraming ?? data.coverFraming ?? null,
   };
   codex.entries = (data.entries || []).map((entry, i) => normalizeEntry(entry, codex, i));

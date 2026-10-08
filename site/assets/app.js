@@ -14,19 +14,21 @@ import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibrarySto
 import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesScope, filterFavoritesEntries, decorateFavoriteCard, refreshFavoriteBadges, folderBadges, openOrganize, invalidateOrganizeRequest, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
-import { renderList, clearMasonry, updateVirtualCards, setMasonryActions } from './app/masonry.js';
+import { renderList, clearMasonry, updateVirtualCards, setMasonryActions, settleCardEntry } from './app/masonry.js';
 import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { encodePathCode, pathFromCode } from './app/path-code.js';
-import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
+import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
+import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
-import { setUpdatesActions } from './app/updates.js';
+import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
-import { startIntro, beginIntroReveal, markIntroDataReady, introSettled } from './app/intro.js';
+import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions } from './app/intro.js';
+import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
 import { setupTagRelay } from './app/tag-relay.js';
@@ -135,6 +137,7 @@ function renderCodexView(codex, seq, {
   applyViewUrlState,
   resolveQuery,
   resolveFilters = urlState => searchFilterValues(urlState),
+  keepIdentity = false,
 }) {
   if (seq !== codexLoadSeq) return;
   primeResourceHints({ codexes: primeCodexes });
@@ -167,7 +170,7 @@ function renderCodexView(codex, seq, {
   updateSearchClear();
   syncFavoritesView();
   renderTree();
-  if (!state.favoritesView) renderCodexHeader();
+  if (!state.favoritesView) renderCodexHeader({ keepIdentity });
   if (options.saveBrowse === false) suppressBrowseStateSave(2000);
   applyFilter({ resetScroll: true });
   syncUrlState({
@@ -213,7 +216,7 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
 export async function init() {
   const initSkeletonToken = 'init';
   try {
-    /* 开场脚本先起跑，不等任何网络请求：打字机与 step 计数就是数据加载期的等待画面 */
+    /* 开场脚本先起跑，不等任何网络请求：牌堆切牌就是数据加载期的等待画面 */
     startIntro();
     configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
@@ -273,6 +276,8 @@ export async function init() {
       } else if (wantsSiteSearch) {
         await openSiteSearchView({ urlState: state.pendingUrlState, historyMode: 'none', saveBrowse: false });
       }
+      /* 首屏真把今日画师放在第一格才让开场的名字行定住；被屏蔽、深链进别处等情况一律让它淡出 */
+      setIntroFeatured(isFeaturedEntry(state.list[0], state.codex) ? featuredArtistName(state.list[0]) : null);
       markIntroDataReady();
       initializeAtlasHistory(captureAtlasRoute(state.pendingUrlState.entry || ''));
       await introSettled();   // 开场落幕再弹引导；没播开场时立即 resolve
@@ -343,6 +348,42 @@ async function syncAtlasFavoritesFromStorage(detail = {}) {
   applyFilter({ transition: 'none' });
 }
 
+const codexMetaText = c => `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`;
+
+/* 普通法典视图的渲染参数：原路与换书接力共用 */
+const codexViewArgs = (options, parentScrollY) => ({
+  options,
+  parentScrollY,
+  enterView: c => {
+    state.favoritesView = false;
+    state.siteSearchView = false;
+    state.browseCodex = c;
+    state.searchReturnPath = [];
+    setOnlyFavControl(false);
+  },
+  selectedCodexId: c => c.id,
+  buttonCodex: c => findCodexMeta(c.id),
+  buttonFallback: c => c.title,
+  metaText: codexMetaText,
+  resolveUrlState: c => options.urlState
+    && (!options.urlState.codex || options.urlState.codex === c.id || (c.aliases || []).includes(options.urlState.codex))
+    ? options.urlState
+    : null,
+  applyViewUrlState: (urlState, c) => {
+    state.updateFilter = resolveUpdateFilter(c, requestedUpdateFilter(urlState));
+    applyUrlSearchScope(urlState);
+  },
+  resolveQuery: urlState => urlState?.q || '',
+});
+
+/* 侧栏标题与顶栏按钮：接力时用 meta 先换，加载失败时换回仍在显示的那本 */
+function showCodexIdentity(c) {
+  $('#codexTitle').textContent = c.title;
+  $('#codexMeta').textContent = codexMetaText(c);
+  const codexBtnText = $('#codexBtnText');
+  if (codexBtnText) codexBtnText.textContent = codexPickerTitle(findCodexMeta(c.id)) || c.title;
+}
+
 export async function loadCodex(id, options = {}) {
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (id === FAVORITES_CODEX_ID) return openFavoritesView(options);
@@ -359,6 +400,10 @@ export async function loadCodex(id, options = {}) {
   }
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
+  if (state.codex && options.transition !== 'none' && canAnimateSwitch()) {
+    return switchCodexAnimated(meta, seq, options, parentScrollY);
+  }
+  cancelCodexSwitch();
   showSkeleton(seq);
   setLoading('');
   clearMasonry();
@@ -366,30 +411,7 @@ export async function loadCodex(id, options = {}) {
     const codex = await fetchCodex(meta);
     if (seq !== codexLoadSeq) return;
     const wasSwitching = Boolean(state.codex);
-    const render = () => renderCodexView(codex, seq, {
-      options,
-      parentScrollY,
-      enterView: c => {
-        state.favoritesView = false;
-        state.siteSearchView = false;
-        state.browseCodex = c;
-        state.searchReturnPath = [];
-        setOnlyFavControl(false);
-      },
-      selectedCodexId: c => c.id,
-      buttonCodex: c => findCodexMeta(c.id),
-      buttonFallback: c => c.title,
-      metaText: c => `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`,
-      resolveUrlState: c => options.urlState
-        && (!options.urlState.codex || options.urlState.codex === c.id || (c.aliases || []).includes(options.urlState.codex))
-        ? options.urlState
-        : null,
-      applyViewUrlState: (urlState, c) => {
-        state.updateFilter = resolveUpdateFilter(c, requestedUpdateFilter(urlState));
-        applyUrlSearchScope(urlState);
-      },
-      resolveQuery: urlState => urlState?.q || '',
-    });
+    const render = () => renderCodexView(codex, seq, codexViewArgs(options, parentScrollY));
     await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
   } catch (ex) {
     if (seq === codexLoadSeq) {
@@ -401,8 +423,63 @@ export async function loadCodex(id, options = {}) {
   }
 }
 
+/* 换书接力：点下即起飞、旧内容加噪 → 回顶换身份 → 数据到了显影落地；编排与时长在 app/codex-switch.js。
+   与原路的区别：不先清空瀑布流、不出骨架屏、不再固定空等菜单退场，取数据与过渡同时起跑。 */
+async function switchCodexAnimated(meta, seq, options, parentScrollY) {
+  const isCurrent = () => seq === codexLoadSeq;
+  setLoading('');
+  const loading = fetchCodex(meta);
+  const sw = beginCodexSwitch({
+    origin: options.origin,
+    isCurrent,
+    snapshotIdentity: snapshotCodexIdentity,
+    arrive: ({ awaitingCover }) => {
+      // 回顶这一下属于过渡，别被记成旧书的浏览位置
+      suppressBrowseStateSave(1500);
+      renderBannerIdentity(meta, { awaitingCover });
+      showCodexIdentity(meta);
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    },
+  });
+  try {
+    const codex = await loading;
+    if (!isCurrent()) return;
+    await sw.land(() => {
+      /* 等数据时从「随机」等入口打开的旧书灯箱，落地前收起：灯箱里的收藏按当前法典记键，
+         留着它会在新书落地后把旧书词条记到新书名下（PR #37 审查） */
+      if (state.lightbox?.entry) closeLightbox({ historyMode: 'replace', immediate: true });
+      renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), keepIdentity: true });
+    }, codex);
+  } catch (ex) {
+    if (!isCurrent()) return;
+    console.error(ex);
+    sw.abort();   // 横幅、标题、按钮退回仍在显示的那本（snapshotCodexIdentity）
+    setLoading('加载失败，请刷新页面重试');
+  }
+}
+
+/* 换身份之前记下屏幕上的那本，返回退回函数：换书没落地就被撤销（加载失败、收藏墙 / 全站搜索接管）时，
+   横幅按实际状态重画，侧栏标题与顶栏按钮退回原字样，隐藏的原生选择框也对回去——
+   不然再点同一本会被当成「没换书」只关菜单。 */
+function snapshotCodexIdentity() {
+  const title = $('#codexTitle')?.textContent ?? '';
+  const meta = $('#codexMeta')?.textContent ?? '';
+  const button = $('#codexBtnText')?.textContent ?? '';
+  return () => {
+    if (state.codex && !state.favoritesView) renderCodexHeader();
+    $('#codexTitle').textContent = title;
+    $('#codexMeta').textContent = meta;
+    const codexBtnText = $('#codexBtnText');
+    if (codexBtnText) codexBtnText.textContent = button;
+    const codexSelect = $('#codexSelect');
+    if (codexSelect && state.codex && !virtualView()) codexSelect.value = state.codex.id;
+    updateCodexPickerState();
+  };
+}
+
 export async function openFavoritesView(options = {}) {
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
+  cancelCodexSwitch();
   const baseCodex = state.codex && !virtualView()
     ? state.codex
     : state.browseCodex;
@@ -465,6 +542,7 @@ export async function openFavoritesView(options = {}) {
 
 export async function openSiteSearchView(options = {}) {
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
+  cancelCodexSwitch();
   const baseCodex = state.codex && !virtualView()
     ? state.codex
     : state.browseCodex;
@@ -721,6 +799,10 @@ export function applyFilter(options = {}) {
   const unblocked = list.filter(entry => !isContentBlocked(entry));
   const blockedCount = list.length - unblocked.length;
   state.list = state.favoritesView ? filterFavoritesEntries(unblocked) : rankSearchResults(unblocked, plan);
+  // 今日画师只在那本书的「全部」视图置顶：有目录、搜索 / 筛选、更新筛选、收藏或全站搜索时保持原顺序
+  if (!state.favoritesView && !state.siteSearchView && !plan.hasActiveSearch && !state.activePath.length && !updateFilter) {
+    state.list = pinFeatured(state.list, state.codex);
+  }
   const relatedDirectories = !plan.hasErrors && plan.positiveTerms.length
     ? findRelatedDirectories({
       codex: state.codex,
@@ -980,22 +1062,35 @@ setMasonryActions({
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 
+setIntroActions({ settleCardEntry });
+
 setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory });
 
 /* 更新时间线的行点击：换书 + 落到该批次的筛选，等于替用户按了一次结果栏里的
-   「NEW x.xx更新」。换书本身会重置 updateFilter，所以必须在 loadCodex 之后再写。 */
-setUpdatesActions({
-  openBatch: async ({ codexId, batchId, consumeLayer = false }) => {
-    if (!codexId || !batchId) return;
-    const sameCodex = state.codex?.id === codexId && !state.favoritesView && !state.siteSearchView;
-    if (!sameCodex) {
-      await loadCodex(codexId, { historyMode: 'push', transition: 'route', consumeLayer });
-    }
-    state.updateFilter = batchId;
-    applyFilter({ resetScroll: true, transition: 'filter' });
-    syncUrlState(sameCodex
-      ? { historyMode: 'push', transition: 'route', consumeLayer }
-      : { historyMode: 'replace' });
+   「NEW x.xx更新」。换书时把批次当作路由状态交给 loadCodex（换书本身会重置 updateFilter），
+   首次渲染就落在这一批——换书接力只落地一次，不会刚显影完又整屏换一遍。同一本书直接改筛选。 */
+async function openUpdateBatch({ codexId, batchId, consumeLayer = false }) {
+  if (!codexId || !batchId) return;
+  const sameCodex = state.codex?.id === codexId && !state.favoritesView && !state.siteSearchView;
+  if (!sameCodex) {
+    await loadCodex(codexId, {
+      historyMode: 'push', transition: 'route', consumeLayer, urlState: { codex: codexId, updateFilter: batchId },
+    });
+    return;
+  }
+  state.updateFilter = batchId;
+  applyFilter({ resetScroll: true, transition: 'filter' });
+  syncUrlState({ historyMode: 'push', transition: 'route', consumeLayer });
+}
+setUpdatesActions({ openBatch: openUpdateBatch });
+/* 法典选择器卷头的「最近新增」走同一条跳转，并和顶栏一样把这一批记为已读 */
+setCodexUiActions({
+  loadUpdates,
+  bookPreviews,
+  isContentBlocked,
+  openUpdateBatch: options => {
+    markBatchBookRead(options.batchId, options.codexId);
+    return openUpdateBatch(options);
   },
 });
 

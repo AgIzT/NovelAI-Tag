@@ -39,10 +39,12 @@ globalThis.getComputedStyle = () => ({ display: 'block' });
 
 const {
   applyCardImageLoadPolicy,
+  applyCardHeightChanges,
   cardImageLoadPolicy,
   computeLayout,
   estimateBodyMetrics,
   estimateImageHeight,
+  invalidateBodyMetrics,
   masonryViewport,
 } = await import('../site/assets/app/masonry.js');
 const { state, densityConfig, DEFAULT_DENSITY } = await import('../site/assets/app/state.js');
@@ -201,6 +203,51 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   document.querySelector = originalQuery;
   delete window.innerWidth;
   state.density = DEFAULT_DENSITY;
+}
+
+// 同宽重排必须保住实测尺寸、原列与屏外累计高度；变化的布局输入不能复用旧实测。
+{
+  const originalQuery = document.querySelector;
+  const saved = { density: state.density, sdMode: state.sdMode, innerWidth: window.innerWidth };
+  const masonry = { clientWidth: 780, style: {} };
+  document.querySelector = selector => ['#masonry', '#main'].includes(selector) ? masonry : null;
+  window.innerWidth = 1280;
+  state.density = 'standard';
+  state.nodes.clear();
+  state.list = Array.from({ length: 8 }, (_, i) => ({ id: `resize-${i}`, title: '卡片', tags: 'tag' }));
+  computeLayout();
+  applyCardHeightChanges([{ placement: state.placements[0], nextHeight: state.placements[0].height + 37 }]);
+  let previous = new Map(state.placements.map(p => [p.entry, p]));
+  const geometry = () => state.placements.map(p => [p.col, p.top, p.width, p.height, p.tagsHeight]);
+  const before = geometry();
+  computeLayout({ previous, preserveColumns: true });
+  assert.deepEqual(geometry(), before, '同宽重排不丢实测高度，也不重新分列制造位置变化');
+
+  const entry = state.list[0];
+  const expectedHeight = () => Math.ceil(estimateImageHeight(entry, state.itemWidth) + estimateBodyMetrics(entry, state.itemWidth).height);
+  state.density = 'comfort';
+  masonry.clientWidth = previous.get(entry).width;
+  computeLayout({ previous, preserveColumns: true });
+  assert.equal(state.itemWidth, previous.get(entry).width, '卡宽相同的密度切换夹具');
+  assert.equal(state.placements[0].height, expectedHeight(), '同宽但密度变化时不能保留旧实测高度');
+
+  applyCardHeightChanges([{ placement: state.placements[0], nextHeight: state.placements[0].height + 37 }]);
+  previous = new Map(state.placements.map(p => [p.entry, p]));
+  state.sdMode = !state.sdMode;
+  computeLayout({ previous, preserveColumns: true });
+  assert.equal(state.placements[0].height, expectedHeight(), '复制模式变化不能复用旧实测高度');
+
+  applyCardHeightChanges([{ placement: state.placements[0], nextHeight: state.placements[0].height + 37 }]);
+  previous = new Map(state.placements.map(p => [p.entry, p]));
+  entry.tags = 'tag, '.repeat(80);
+  invalidateBodyMetrics(entry);
+  computeLayout({ previous, preserveColumns: true });
+  assert.equal(state.placements[0].height, expectedHeight(), '词条内容失效后不能复用旧实测高度');
+  document.querySelector = originalQuery;
+  state.density = saved.density;
+  state.sdMode = saved.sdMode;
+  if (saved.innerWidth === undefined) delete window.innerWidth;
+  else window.innerWidth = saved.innerWidth;
 }
 
 // 手机卡片的标题只保留收藏星星，负面/角色操作不再占据底栏。

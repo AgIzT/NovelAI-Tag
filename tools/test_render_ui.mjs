@@ -104,6 +104,7 @@ const {
   lightboxNavigationContext,
   lightboxOriginalAction,
   lightboxOriginalCopy,
+  lightboxOriginalDragHint,
   preloadImage,
   preloadLightboxNeighbors,
   resolvedUrl,
@@ -539,7 +540,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   dom.delete('#blockingResultBtn'); dom.delete('#blockingSettingsSummary'); dom.delete('#empty');
 }
 
-// 邻图仍同时预热缩略图和原图；缓存失败可重试，且超过 300 项会淘汰最旧 URL。
+// 桌面邻图同时预热缩略图和原图，触屏只预热缩略图；缓存失败可重试，且超过 300 项会淘汰最旧 URL。
 {
   const images = [];
   globalThis.Image = class {
@@ -576,9 +577,26 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
       { path: 'thumb-2.jpg', original: 'original-2.png' },
     ],
   };
+  const touchMatchMedia = window.matchMedia;
+  window.matchMedia = () => ({ matches: false });
   const beforeNeighbors = images.length;
   preloadLightboxNeighbors();
-  assert.equal(images.length, beforeNeighbors + 4, '前后邻图应各保留缩略图+原图预热');
+  assert.equal(images.length, beforeNeighbors + 4, '桌面前后邻图应各保留缩略图+原图预热');
+  window.matchMedia = touchMatchMedia;
+
+  state.lightbox = {
+    entry: { id: 'touch-entry', assetRev: 'r3' },
+    index: 0,
+    images: [
+      { path: 'touch-thumb-0.jpg', original: 'touch-original-0.png' },
+      { path: 'touch-thumb-1.jpg', original: 'touch-original-1.png' },
+      { path: 'touch-thumb-2.jpg', original: 'touch-original-2.png' },
+    ],
+  };
+  const beforeTouchNeighbors = images.length;
+  preloadLightboxNeighbors();
+  assert.equal(images.length, beforeTouchNeighbors + 2, '触屏邻图只预热缩略图，原图等翻到那张再加载');
+  assert.ok(images.slice(beforeTouchNeighbors).every(image => image.src.includes('touch-thumb-')));
 
   state.codex = {
     id: 'thumb-book', hasOriginal: false,
@@ -779,14 +797,42 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     false,
     '含原图法典仍需逐张确认物理 original',
   );
+  // 整本无原图的书可声明个别一级目录保留原图：只放行这些目录，逐图仍要有物理原图。
+  state.codexes = [...state.codexes, { id: 'section-original', hasOriginal: false, originalSections: ['秋季课堂'] }];
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: ['秋季课堂', '仙舟联盟'] }, physicalOriginal),
+    true, '声明的一级目录放行');
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: '秋季课堂/仙舟联盟' }, physicalOriginal),
+    true, '字符串路径同样按一级目录判断');
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: ['背景', '纯色'] }, physicalOriginal),
+    false, '未声明的目录仍服从整本无原图');
+  assert.equal(entryImageCanUseOriginal({ _srcCodexId: 'section-original', path: ['秋季课堂'] }, { path: 'thumb.jpg' }),
+    false, '声明的目录里没有物理原图的图仍拒绝');
+  assert.equal(entryImageCanUseOriginal({
+    _srcCodexId: 'section-original', path: ['渡鸦的构图鉴', '秋季课堂'], _srcPath: ['秋季课堂', '仙舟联盟'],
+  }, physicalOriginal), true, '收藏墙 / 全站搜索按真实目录 _srcPath 判断');
+  assert.equal(entryImageCanUseOriginal({
+    _srcCodexId: 'section-original', path: ['秋季课堂'], _srcPath: ['背景'],
+  }, physicalOriginal), false, '虚拟视图改写后的 path 不能冒充声明目录');
+  assert.equal(entrySourceAllowsOriginal({ _srcCodexId: 'without-original', path: ['秋季课堂'] }), false,
+    '没声明的书不受别的书目录名影响');
+  assert.deepEqual(normalizeCodex({ id: 'section-original', hasOriginal: false, originalSections: ['秋季课堂'] }, {
+    id: 'section-original', entries: [],
+  }).originalSections, ['秋季课堂'], '书目声明随归一化保留');
   assert.equal(lightboxOriginalCopy('ready', true).tip, '可拖入 NovelAI 读取生成参数');
   assert.match(lightboxOriginalCopy('ready', false).tip, /不提供可读取的生成参数/);
   assert.equal(lightboxOriginalCopy('ready', true, 'NoobXL V').tip, '原图保留 NoobXL V 生成参数');
   assert.equal(lightboxOriginalCopy('loading', true, 'NoobXL V').tip, '原图加载中');
+  assert.equal(lightboxOriginalCopy('loading', true).tip, '原图加载中，加载完可拖入 NovelAI');
   assert.match(lightboxOriginalCopy('ready', false, 'NoobXL V').tip, /不提供可读取的生成参数/);
   assert.match(lightboxOriginalCopy('failed', true).label, /失败/);
   assert.match(lightboxOriginalCopy('thumbnail', false).label, /仅缩略图/);
   assert.equal(lightboxOriginalCopy('unavailable', false).label, '无原图');
+  // 能读参数的原图没到手时拦下拖动：加载中等一等，失败指向「查看原图」；其余放行。
+  assert.equal(lightboxOriginalDragHint('loading', true), '原图加载中，加载完再拖');
+  assert.match(lightboxOriginalDragHint('failed', true), /「查看原图」/);
+  assert.equal(lightboxOriginalDragHint('ready', true), '');
+  assert.equal(lightboxOriginalDragHint('thumbnail', true), '');
+  assert.equal(lightboxOriginalDragHint('loading', false), '', '不提供可读参数的来源不拦拖动');
   assert.deepEqual(
     lightboxOriginalAction(false, false),
     { disabled: true, label: '无原图', title: '本法典不提供原图' },
@@ -1569,6 +1615,13 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(stylesSource, /\.toast\{[\s\S]*max-width:min\(360px,calc\(100vw - 24px\)\)/);
   assert.match(stylesSource, /\.toast\.has-action\{[\s\S]*min-height:44px[\s\S]*padding:4px 6px 4px 14px/);
   assert.match(stylesSource, /\.toast\.has-action \.toast-message\{[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/);
+  // 「点击卡片放大」：电脑端开关，排在界面风格下面、手机隐藏；只管有图的卡，点击时现读设置。
+  assert.match(indexSource, /id="themeControl"[\s\S]*?<\/div>\s*<\/div>\s*<div class="set-row card-zoom-set-row">[\s\S]*?id="cardZoomToggle"/);
+  assert.match(stylesSource, /@media \(max-width:600px\)\{[\s\S]*?\.card-zoom-set-row\{display:none\}/);
+  assert.match(masonrySource, /function cardOpensImage\(e\) \{\s*return hasEntryImage\(e\) && \(state\.cardZoom \|\| isPackEntry\(e\)\);/);
+  assert.match(masonrySource, /node\.onclick = \(\) => \{\s*if \(cardClickOpensDetail\(e\)\)/);
+  const uiZoomSource = await readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8');
+  assert.match(uiZoomSource, /cardZoomToggle\.onchange = e => applyCardZoom\(e\.target\.checked\)/);
 
   // ---- 界面基件（ui-kit.css）防漂移 ----
   const uiKitSource = await readFile(new URL('../site/assets/ui-kit.css', import.meta.url), 'utf8');
@@ -1679,7 +1732,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(relayCss, /\.tag-relay-plan-lane\.relay-editor\{[^}]*display:flex;flex-direction:column/);
   assert.match(relayCss, /\.relay-editor-surface>\.relay-editor-mirror,\.relay-editor-surface>\.relay-editor-input\{[\s\S]*font:400 13px\/2\.6/);
   assert.match(relayCss, /is-peek[\s\S]*--relay-shelf-peek-height/);
-  assert.match(relayCss, /@media\(max-height:480px\),\(pointer:coarse\) and \(max-height:640px\)[\s\S]*min-height:56px/);
+  // 键盘高度单独兜底：整栏能滚动，素材收起时编辑面仍保留最小高度。
+  assert.match(relayCss, /@media\s*\(max-height:480px\)\s*\{\s*\.tag-relay-rail\{[^}]*overflow-y:auto/);
+  assert.match(relayCss, /@media\s*\(max-height:480px\)\s*\{(?:(?!@media)[\s\S])*?\.relay-editor-surface\{[^}]*min-height:56px/);
   assert.match(relayCss, /\.tag-relay-rail \.tag-relay-zone-source\{[^}]*min-height:88px/);
   assert.match(relayCss, /\.tag-relay-primary:disabled,\.tag-relay-secondary:disabled/);
   assert.match(relaySource, /tag-relay-chip-negative/);

@@ -653,12 +653,19 @@ return {surface:rect(surface),input:rect(input),root:rect(document.querySelector
             styles = self.js(r'''
 return [...qa.mirror().querySelectorAll('.relay-token')].map(e=>{
  const s=getComputedStyle(e);return {text:e.firstChild.textContent,background:s.backgroundColor,
- shadow:s.boxShadow,border:s.borderTopWidth,outline:s.outlineStyle}
+ shadow:s.boxShadow,border:s.borderTopWidth,outline:s.outlineStyle,
+ modified:['is-up','is-down','is-fold','is-off'].some(c=>e.classList.contains(c))}
 });''')
+            # 2026-10-08 块·药丸：普通 tag 仍只画文本；被调过的 tag（这里是 {soft lighting}）才是药丸。
             for style in styles:
-                self.check(style['background'] == 'rgba(0, 0, 0, 0)' and style['shadow'] == 'none' and
-                           style['border'] == '0px' and style['outline'] == 'none',
-                           'plain token acquired a decorative frame: ' + repr(style))
+                self.check(style['border'] == '0px' and style['outline'] == 'none',
+                           'token acquired a border or outline: ' + repr(style))
+                if style['modified']:
+                    self.check(style['background'] != 'rgba(0, 0, 0, 0)', 'weighted token is not drawn as a pill: ' + repr(style))
+                else:
+                    self.check(style['background'] == 'rgba(0, 0, 0, 0)' and style['shadow'] == 'none',
+                               'plain token acquired a decorative frame: ' + repr(style))
+            self.check(any(style['modified'] for style in styles), 'fixture lost its weighted token')
             caret = self.js('const i=qa.input();return [i.selectionStart,i.selectionEnd];')
             expected = before.index('forest') + 3
             self.check(caret == [expected, expected], 'plain token click was intercepted instead of moving caret')
@@ -682,16 +689,65 @@ const next=document.createRange();next.selectNodeContents(token.nextElementSibli
 return {title:rect(a),image:rect(b),count:rect(c),nextTitle:rect(d),imageInNote:note.contains(pic),
  overlaps:Math.min(a.right,b.right)>Math.max(a.left,b.left)&&Math.min(a.bottom,b.bottom)>Math.max(a.top,b.top),
  tokenBackground:getComputedStyle(token).backgroundColor,tokenShadow:getComputedStyle(token).boxShadow,
+ accent:(()=>{const p=document.createElement('i');p.style.color='var(--accent)';document.body.append(p);const c=getComputedStyle(p).color;p.remove();return c})(),
  panelHidden:document.querySelector('.relay-token-panel').hidden};''')
             self.check(evidence['imageInNote'], 'thumbnail is outside the annotation row')
             self.check(not evidence['overlaps'], 'thumbnail covers the material title: ' + repr(evidence))
             self.check(evidence['image']['right'] <= evidence['count']['left'], 'thumbnail covers the item count')
             self.check(evidence['count']['top'] >= evidence['title']['bottom'], 'item count covers the material title')
             self.check(max(evidence['image']['bottom'], evidence['count']['bottom']) <= evidence['nextTitle']['top'], 'annotation overlaps the next text line')
-            self.check(evidence['tokenBackground'] == 'rgba(0, 0, 0, 0)' and evidence['tokenShadow'] == 'none', 'fold still has a persistent theme-color box')
+            # 块是浅色底 + 左端色脊（只画不占位），不是满铺主题色框。
+            self.check(evidence['tokenBackground'] != 'rgba(0, 0, 0, 0)' and evidence['tokenShadow'] != 'none',
+                       'fold is not drawn as a block: ' + repr(evidence))
+            self.check(evidence['tokenBackground'] != evidence['accent'], 'fold is filled with the solid theme color: ' + repr(evidence))
             self.check(evidence['panelHidden'], 'inserting material opened optional actions')
             self.screenshot('thumbnail-annotation-row')
             return evidence
+
+        def pill_language():
+            # 块·药丸（2026-10-08）：只画不占位、外扩留在裁切框内、零宽守卫在 span 外、分隔符压在药丸上。
+            self.click('#source')
+            self.type(', 1.3::silver hair::, [[blush]], masterpiece, plain, ')
+            self.select_token('masterpiece')
+            self.panel('禁用')
+            self.key('End', 2)
+            self.type('1.2::wrap me around the far edge of this narrow editor line please::, tail')
+            evidence = self.js(r'''
+const mirror=qa.mirror(),surface=mirror.parentElement,b=surface.getBoundingClientRect();
+const left=b.left+surface.clientLeft,right=left+surface.clientWidth;
+const px=(s,n)=>parseFloat(s.getPropertyValue(n))||0;
+const tokens=[...mirror.querySelectorAll('.relay-token')].map(e=>{
+ const s=getComputedStyle(e),fold=e.classList.contains('is-fold'),off=e.classList.contains('is-off');
+ const decorated=s.backgroundColor!=='rgba(0, 0, 0, 0)'||s.backgroundImage!=='none';
+ const reachL=decorated?(fold?px(s,'--spine-gap')+px(s,'--spine-w'):px(s,'--pill-x'))+(off?1:0):0;
+ const reachR=decorated?px(s,'--pill-x')+(off?1:0):0;
+ const rects=[...e.getClientRects()].filter(r=>r.width>=1);
+ return {text:e.firstChild.textContent,classes:e.className,
+  box:['paddingLeft','paddingRight','marginLeft','marginRight','borderLeftWidth','borderRightWidth'].map(p=>s[p]),
+  zIndex:s.zIndex,guardInside:/^​|​$/.test(e.firstChild.textContent),
+  overflow:Math.max(0,...rects.map(r=>Math.max(left-(r.left-reachL),(r.right+reachR)-right)))};
+});
+return {tokens,isolation:getComputedStyle(mirror).isolation,wrapped:tokens.some(t=>t.text.includes('wrap')&&
+ [...mirror.querySelectorAll('.relay-token')].find(e=>e.firstChild.textContent.includes('wrap')).getClientRects().length>1)};''')
+            for token in evidence['tokens']:
+                self.check(all(v == '0px' for v in token['box']), 'token got layout-affecting box: ' + repr(token))
+                self.check(token['overflow'] <= .01, 'pill paint is clipped by the editor: ' + repr(token))
+                self.check(not token['guardInside'], 'zero-width guard left inside the token span: ' + repr(token))
+                self.check(token['zIndex'] == '-1', 'token is not painted under separators: ' + repr(token))
+            self.check(evidence['isolation'] == 'isolate', 'mirror does not isolate token stacking')
+            self.check(evidence['wrapped'], 'fixture did not exercise a wrapped pill')
+            off = [t for t in evidence['tokens'] if 'is-off' in t['classes']]
+            self.check(off and off[0]['text'].startswith('~'), 'disabled token fixture missing: ' + repr(off))
+            self.assert_geometry('pill-language')
+            self.select_token('silver hair')
+            panel = self.js(r'''
+const name=document.querySelector('.relay-token-panel .relay-token-name'),mult=document.querySelector('.relay-token-panel .relay-token-mult');
+return {name:name.className,mult:mult.className,multColor:getComputedStyle(mult).color,nameBg:getComputedStyle(name).backgroundColor};''')
+            self.check('is-token' in panel['name'] and 'is-up' in panel['name'] and 'is-up' in panel['mult'],
+                       'panel head does not carry the token language: ' + repr(panel))
+            self.check(panel['nameBg'] != 'rgba(0, 0, 0, 0)', 'panel head is not drawn as a pill: ' + repr(panel))
+            self.screenshot('pill-language')
+            return {'tokens': evidence['tokens'], 'panel': panel}
 
         def click_fold_actions_and_edit():
             self.setup_text('blue sky, ')
@@ -829,7 +885,8 @@ return {title:rect(a),image:rect(b),count:rect(c),nextTitle:rect(d),imageInNote:
                   ('10-plain-drop-on-fold', plain_drop_on_fold),
                   ('05-expand-undo-metadata', expand_undo), ('10-scrolled-character-drop', scrolled_drop)]
         cases += [('11-compact-empty', compact_empty), ('11-plain-unframed', plain_unframed),
-                  ('11-thumbnail-below-title', thumbnail_below_title), ('11-click-fold-actions-double-edit', click_fold_actions_and_edit),
+                  ('11-thumbnail-below-title', thumbnail_below_title), ('11-pill-language', pill_language),
+                  ('11-click-fold-actions-double-edit', click_fold_actions_and_edit),
                   ('11-drag-fold-no-expansion', drag_across_fold), ('11-shift-fold-no-expansion', shift_select_fold)]
         cases += [('12-plain-click-selection-fold', plain_click_and_fold_selection),
                   ('12-selected-groups-fold', selected_groups_to_text), ('12-channel-keyboard', channel_keyboard)]

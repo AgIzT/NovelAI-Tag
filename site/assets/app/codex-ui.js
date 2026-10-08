@@ -7,6 +7,7 @@ import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
 import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { originalSectionsOf } from './original-capability.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -47,11 +48,21 @@ const CODEX_TYPES = [
   ] },
 ];
 
+/* 电脑端每类是一卷：书脊与卷头都写「卷一 / 卷二…」 */
+const VOLUME_NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+const volumeLabel = index => `卷${VOLUME_NUMERALS[index] || index + 1}`;
+const RECENT_UPDATE_MS = 7 * 24 * 3600 * 1000;
+
 const codexType = c => (c && c.type) || 'codex';
 const codexPickerTitle = c => c?.selectorTitle || c?.title || '';
 const realCodexesOfType = typeId => state.codexes.filter(c => codexType(c) === typeId);
 const typeIconOf = c => (CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_TYPES[0]).icon;
 const codexImagedPct = c => (c?.entryCount ? Math.round(Number(c.imagedCount || 0) / Number(c.entryCount) * 100) : 0);
+/* 线路图站点的红点：最新一期更新在 7 天内 */
+const isRecentlyUpdated = c => {
+  const latest = updateFilterDefinitions(c).find(filter => filter.latest);
+  return Boolean(latest && Number.isFinite(latest.time) && Date.now() - latest.time < RECENT_UPDATE_MS);
+};
 /* 外部数据源：书与图都托管在别人站上（只用来打「外部源」小标） */
 const isExternalCodex = c => /^https?:/i.test(String(c?.dataUrl || ''));
 /* NovelAI 官方标记，由官方图描成的单色矢量：深底那版的锚点与手柄本就是从笔尖里挖掉的，
@@ -128,14 +139,18 @@ export function codexCoverUrl(c) {
 /* 封面构图只接受有界数值；独立 scale 与原有 hover transform 叠加。
    未配置时不输出 style 属性，继续使用各表面的默认构图。 */
 export function codexCoverStyle(c) {
+  const framing = coverFraming(c);
+  if (!framing) return '';
+  const { x, y, scale } = framing;
+  return ` style="object-position:${x}% ${y}%;transform-origin:${x}% ${y}%;scale:${scale}"`;
+}
+
+function coverFraming(c) {
   const framing = c?.coverFraming;
-  if (!framing || typeof framing !== 'object' || Array.isArray(framing)) return '';
+  if (!framing || typeof framing !== 'object' || Array.isArray(framing)) return null;
   const bounded = (value, min, max, fallback) =>
     typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
-  const x = bounded(framing.x, 0, 100, 50);
-  const y = bounded(framing.y, 0, 100, 50);
-  const scale = bounded(framing.scale, 1, 2, 1);
-  return ` style="object-position:${x}% ${y}%;transform-origin:${x}% ${y}%;scale:${scale}"`;
+  return { x: bounded(framing.x, 0, 100, 50), y: bounded(framing.y, 0, 100, 50), scale: bounded(framing.scale, 1, 2, 1) };
 }
 
 /* 详情横幅与法典选择器必须服从同一份 cover 元数据；只有未配置封面时，
@@ -164,6 +179,10 @@ const codexUiActions = {
   syncUrlState: () => {},
   openLightbox: () => {},
   updateVirtualCards: () => {},
+  loadUpdates: async () => [],
+  openUpdateBatch: async () => {},
+  isContentBlocked: () => false,
+  bookPreviews: () => [],
 };
 
 export function setCodexUiActions(actions = {}) {
@@ -174,22 +193,26 @@ export function invalidateAccessViewMemo() {
   accessViewMemo = null;
 }
 
-/* 自绘法典选择器：PC = 类型级联双栏（左类型轨 + 右列表）；移动端 = 分组下拉（各类型小标题 + 条目堆叠）。
-   原生 #codexSelect 仅做值同步。 */
+/* 自绘法典选择器：PC = 四卷（每类一卷并排，打开的那卷占满，其余收成书脊）；
+   移动端 = 线路图（每类一条竖向线路，书是线上的站，全部展开）。
+   两套布局都沿用 `.codex-type[data-type]` / `.codex-item[data-id]` 与 `.locked/.active`，
+   verify_ui 与 updateCodexPickerState 靠这几个钩子。原生 #codexSelect 仅做值同步。 */
 export function setupCodexPicker() {
   const sel = $('#codexSelect');
   const btn = $('#codexBtn');
   const menu = $('#codexMenu');
   if (!btn || !menu) return;
 
-  let activeType = null;  // 级联模式下当前选中的类型
-  let syncTypeIndicator = () => {};
+  let activeType = null;  // 四卷里当前打开的那一卷
   let dismissN5LaunchNotice = () => {};
+  let updateBatches = null;  // updates.json 的批次；卷头「最近新增」读它，载入前为 null
   const n5Launch = n5LaunchMode();
   const n5LaunchActive = n5Launch.active && state.codexes.some(isN5LaunchCodex);
   document.body.classList.toggle('n5-launch-active', n5LaunchActive);
 
-  const focusableItems = () => [...menu.querySelectorAll('.n5-launch-book, .codex-type, .codex-item, .codex-door')];
+  /* 已打开那卷的书脊被卷体盖住、tabindex=-1，方向键要跳过它 */
+  const focusableItems = () => [...menu.querySelectorAll('.n5-launch-book, .codex-type, .vr-cap, .codex-item, .codex-door')]
+    .filter(el => el.tabIndex >= 0 && el.getClientRects().length);
   const focusItem = index => {
     const list = focusableItems();
     if (!list.length) return;
@@ -198,16 +221,26 @@ export function setupCodexPicker() {
   const focusPreferredItem = ({ preventScroll = n5LaunchActive } = {}) => {
     if (menu.hidden) return;
     const target = (n5LaunchActive && menu.querySelector('.n5-launch-panel')) ||
-      menu.querySelector('.codex-item.active') || menu.querySelector('.codex-type.active') || focusableItems()[0];
+      menu.querySelector('.codex-item.active') || focusableItems()[0];
     target?.focus({ preventScroll });
   };
   const mobileLayout = window.matchMedia('(max-width: 600px)');
   const isMobile = () => mobileLayout.matches;
+  /* 四卷比按钮宽得多：窄桌面上「按钮左沿 + 菜单宽」会超出视口，往左收回来。手机端走 fixed，不处理。 */
+  const placeMenu = () => {
+    menu.style.left = '';
+    if (menu.hidden || isMobile()) return;
+    const overflow = menu.getBoundingClientRect().right - (document.documentElement.clientWidth - 14);
+    if (overflow > 0) menu.style.left = `${-Math.ceil(overflow)}px`;
+  };
   const openDirect = ({ focus = false } = {}) => {
+    // 上一次换书留下的「按下」淡化，只属于那一次关闭
+    menu.classList.remove('is-choosing');
     renderMenu();
     menu.inert = false;
     menu.hidden = false;
-    syncTypeIndicator();
+    placeMenu();
+    ensureUpdates();
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
     if (focus) requestAnimationFrame(() => focusPreferredItem());
@@ -215,7 +248,6 @@ export function setupCodexPicker() {
   const closeDirect = ({ focusButton = false } = {}) => {
     menu.inert = true;
     menu.hidden = true;
-    menu.querySelectorAll('.codex-list, .codex-type-indicator').forEach(cancelUiMotion);
     btn.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
     if (focusButton) btn.focus({ preventScroll: true });
@@ -240,10 +272,26 @@ export function setupCodexPicker() {
   };
   closePickerRef = close;   // 供外部模块（本地编辑模式）正确收起选择器，含移动端托管历史层
 
+  /* 换书接力的起点：按下那本书的封面图和它露出来的那一格（frame）。四本卷的样张条以条里第一张（就是封面）
+     为准、只露它自己那一窄条；没配封面、图还没载好时不飞，横幅照常原地换。
+     framing 是新书横幅封面的构图，替身落定时要和横幅取景一致。 */
+  const switchOrigin = (c, source) => {
+    if (!source || !c?.cover) return null;
+    const strip = source.querySelector('.vb-strip img');
+    const img = strip || source.querySelector('.ci-cover > img') || source.querySelector('.n5b-cover img');
+    if (!img || !img.complete || !img.naturalWidth) return null;
+    if (img.matches('.ci-cover > img') && !img.classList.contains('is-loaded')) return null;
+    const frame = strip || img.closest('.ci-cover, .n5b-cover');
+    if (!frame) return null;
+    const framing = coverFraming(c);
+    return { img, frame, framing: framing && { x: framing.x / 100, y: framing.y / 100, scale: framing.scale } };
+  };
+
   const chooseCodex = (c, source) => {
     if (!c) return;
     if (isCodexLocked(c)) { showNsfwLockedHint(); return; }
     dismissN5LaunchNotice();
+    menu.querySelectorAll('.is-selecting').forEach(el => el.classList.remove('is-selecting'));
     source?.classList.add('is-selecting');
     const changed = state.favoritesView || state.siteSearchView || sel.value !== c.id;
     if (!changed) {
@@ -251,9 +299,130 @@ export function setupCodexPicker() {
       return;
     }
     const consumeLayer = topHistoryLayerId() === 'codex-menu';
+    // 起点要在菜单开始退场前量：关菜单只是挂上退场过渡，同一帧里位置还准
+    const origin = switchOrigin(c, source);
+    menu.classList.add('is-choosing');
     close({ focusButton: true, historyMode: 'none' });
     sel.value = c.id;
-    codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer });
+    codexUiActions.loadCodex(c.id, { historyMode: 'push', transition: 'route', consumeLayer, origin });
+  };
+
+  /* 卷头「最近新增」的点击：进那本书并落到那一批，和顶栏「最近更新」的行点击同一条路 */
+  const chooseBatch = (codexId, batchId) => {
+    const c = state.codexes.find(item => item.id === codexId);
+    if (!c || !batchId) return;
+    if (isCodexLocked(c)) { showNsfwLockedHint(); return; }
+    dismissN5LaunchNotice();
+    const consumeLayer = topHistoryLayerId() === 'codex-menu';
+    close({ focusButton: true, historyMode: 'none' });
+    sel.value = c.id;
+    void codexUiActions.openUpdateBatch({ codexId: c.id, batchId, consumeLayer });
+  };
+
+  /* 更新索引顶栏开站时就在载，这里只是复用同一个 Promise；载好时菜单若开着，把占位换成「最近新增」 */
+  const ensureUpdates = () => {
+    if (updateBatches) return;
+    Promise.resolve(codexUiActions.loadUpdates()).then(list => {
+      updateBatches = Array.isArray(list) ? list : [];
+      if (menu.hidden) return;
+      menu.querySelectorAll('.vol-recent.is-pending').forEach(el => {
+        const t = buildTypes().find(item => item.id === el.dataset.type);
+        if (t) el.outerHTML = recentHTML(t);
+      });
+      menu.querySelectorAll('.vol-grid[data-layout="strips"] .vbook[data-id]').forEach(addPreviewStrip);
+    }, () => { updateBatches = []; });
+  };
+
+  /* 4 本卷「样张条」：封面位换成封面 + 书内几张竖图并排（构建时挑好，codexes.json 写 previews 可单独指定）。
+     未解锁的书保持糊掉的单张封面；带 nsfw 标记的样图只给已解锁访客看；索引里没有就保持单张封面。 */
+  const addPreviewStrip = card => {
+    if (card.classList.contains('locked') || card.querySelector('.vb-strip')) return;
+    const c = state.codexes.find(item => item.id === card.dataset.id);
+    if (!c) return;
+    const previews = (codexUiActions.bookPreviews(c.id) || [])
+      .filter(item => (!item.nsfw || state.allowNsfw) && !codexUiActions.isContentBlocked({ id: item.id, _srcCodexId: c.id }));
+    if (!previews.length) return;
+    const framing = c.coverFraming && typeof c.coverFraming === 'object' ? c.coverFraming : null;
+    const cover = codexCoverUrl(c);
+    const shots = [
+      ...(cover ? [{ url: cover, position: framing ? `${framing.x ?? 50}% ${framing.y ?? 50}%` : '' }] : []),
+      ...previews.map(item => ({ url: thumbUrl({ image: item.image, assetRev: item.assetRev, assetCodexId: item.assetCodexId }, c) })),
+    ].slice(0, 4);
+    const strip = document.createElement('span');
+    strip.className = 'vb-strip';
+    strip.setAttribute('aria-hidden', 'true');
+    strip.innerHTML = shots.map((shot, s) =>
+      `<img src="${esc(shot.url)}" alt="" loading="lazy" decoding="async" style="--s:${s}${shot.position ? `;object-position:${shot.position}` : ''}">`).join('');
+    card.querySelector('.ci-cover')?.appendChild(strip);
+  };
+
+  /* 卷头「最近新增」：这一类里访客看得到的最近一次更新（维护者给某本书那一批标了 pickerHidden 的不算）。
+     条数按访客能看到的算（未解锁 NSFW 用 safeCount）。样图来自 updates.json 的 samples：默认只挑能公开的，
+     维护者指定的成人档样图带 nsfw 标记、只给已解锁的访客看。没有能看的图时改画「新增分布」——这一批落在
+     哪几个目录、各多少条；连目录都数不出才用「待配图」卡顶上；索引里没有这一类的更新时退回前几本的封面。 */
+  const visibleUpdateCount = book => (state.allowNsfw ? book.count : book.safeCount);
+  const recentForType = t => {
+    const open = new Map(t.real.filter(c => !isCodexLocked(c)).map(c => [c.id, c]));
+    for (const batch of updateBatches || []) {
+      const books = batch.books
+        .filter(book => !book.pickerHidden && open.has(book.codexId) && visibleUpdateCount(book) > 0)
+        .map(book => ({ ...book, meta: open.get(book.codexId), shown: visibleUpdateCount(book) }))
+        .sort((a, b) => b.shown - a.shown);
+      if (books.length) return { batch, books };
+    }
+    return null;
+  };
+  const mergeDirs = books => {
+    const totals = new Map();
+    books.forEach(book => (state.allowNsfw ? book.dirs : book.safeDirs)
+      .forEach(([name, count]) => totals.set(name, (totals.get(name) || 0) + count)));
+    return [...totals].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  };
+  const recentHTML = t => {
+    if (!updateBatches) return `<span class="vol-recent is-pending" data-type="${esc(t.id)}" aria-hidden="true"></span>`;
+    // 旧版索引（线上数据还没用新脚本重建时）没有样图、分布和可见条数，整块退回封面
+    const recent = updateBatches.some(batch => batch.books.some(book => book.hasPreview)) ? recentForType(t) : null;
+    if (!recent) return t.real.length ? `<span class="vol-collage" aria-hidden="true">${t.real.slice(0, 4).map(c => miniCover(c, 'vc-card')).join('')}</span>` : '';
+    const { batch, books } = recent;
+    const lead = books[0];
+    const total = books.reduce((sum, book) => sum + book.shown, 0);
+    const [, month, day] = String(batch.date).split('-').map(Number);
+    const when = `${month}.${day}`;
+    const what = books.length > 1 ? `${codexPickerTitle(lead.meta)} 等 ${books.length} 本` : codexPickerTitle(lead.meta);
+    const target = codexId => `data-recent-codex="${esc(codexId)}" data-recent-batch="${esc(batch.id)}"`;
+    const samples = books
+      .flatMap(book => book.samples.map(sample => ({ ...sample, book })))
+      .filter(sample => (!sample.nsfw || state.allowNsfw) &&
+        !codexUiActions.isContentBlocked({ id: sample.id, _srcCodexId: sample.book.codexId }))
+      .slice(0, 4);
+    const dirs = samples.length ? [] : mergeDirs(books);
+    let visual;
+    if (samples.length) {
+      visual = `<span class="vol-collage vr-fan" style="--k:${samples.length}">` + samples.map((sample, j) =>
+        `<button type="button" class="vc-card vr-card" style="--j:${j}" tabindex="-1" ${target(sample.book.codexId)} ` +
+        `aria-label="${esc(codexPickerTitle(sample.book.meta))} ${when} 新增">` +
+        `<img src="${esc(thumbUrl({ image: sample.image, assetRev: sample.assetRev, assetCodexId: sample.assetCodexId }, sample.book.meta))}" alt="" loading="lazy" decoding="async"></button>`).join('') +
+        `</span>`;
+    } else if (dirs.length) {
+      const top = dirs[0][1];
+      visual = `<button type="button" class="vr-dist" tabindex="-1" ${target(lead.codexId)} aria-label="${esc(what)} ${when} 新增分布">` +
+        `<span class="vr-dist-k">新增分布</span>` +
+        dirs.map(([name, count], i) =>
+          `<span class="vr-row" style="--i:${i};--w:${Math.max(6, Math.round(count / top * 100))}%">` +
+          `<span class="vr-name">${esc(name)}</span><b>${count.toLocaleString()}</b><span class="vr-bar"></span></span>`).join('') +
+        `</button>`;
+    } else {
+      visual = `<span class="vol-collage vr-fan" style="--k:3">` +
+        `<span class="vc-card vr-blank" style="--j:0"></span><span class="vc-card vr-blank" style="--j:1"></span>` +
+        `<button type="button" class="vc-card vr-card vr-num" style="--j:2" tabindex="-1" ${target(lead.codexId)} aria-label="${esc(what)} ${when} 新增">` +
+        `${TYPE_ICONS.image}<i>待配图</i></button></span>`;
+    }
+    return `<span class="vol-recent">` +
+      `<button type="button" class="vr-cap" ${target(lead.codexId)}>` +
+      `<span class="vr-k">最近新增</span><b>+${total.toLocaleString()}<i>条</i></b>` +
+      `<span class="vr-sub">${when} · ${esc(codexPickerTitle(lead.meta))}` +
+      (books.length > 1 ? ` <span class="vr-more">等 ${books.length} 本</span>` : '') + `</span></button>` +
+      visual + `</span>`;
   };
 
   /* 类型清单：每类带真实法典 real[] 与是否占位 soon */
@@ -263,11 +432,11 @@ export function setupCodexPicker() {
   }).filter(t => !document.body.classList.contains('local-edition') || t.real.length > 0);
 
   /* 封面槽：占位块永远在底下垫着，图加载成功才淡入盖上去；图挂了/没配封面都自然露出占位，不会有破图 */
-  const coverSlot = (iconKey, url = '', c = null) =>
+  const coverSlot = (iconKey, url = '', c = null, extra = '') =>
     `<span class="ci-cover">` +
     `<span class="ci-ph">${TYPE_ICONS[iconKey]}</span>` +
     (url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async"${codexCoverStyle(c)}>` : '') +
-    `<span class="ci-veil">${LOCK_ICON}</span>` +
+    `<span class="ci-veil">${LOCK_ICON}</span>` + extra +
     `</span>`;
 
   const bindCoverReveal = item => {
@@ -278,7 +447,9 @@ export function setupCodexPicker() {
     else img.onload = reveal;   // 失败时保持透明，露出下面的占位块
   };
 
-  const makeRealItem = c => {
+  /* 一本书一个按钮：variant = 'vbook'（四卷里的等大书卡）| 'stn'（线路图上的站）。
+     两种都是 .codex-item[data-id]，状态签与锁态同一套：含原图 / NSFW 两枚都进 DOM，靠 .locked 二选一。 */
+  const makeRealItem = (c, variant) => {
     const locked = isCodexLocked(c);
     const active = pickerActiveCodexId() === c.id;
     const n5Featured = n5LaunchActive && isN5LaunchCodex(c);
@@ -289,7 +460,7 @@ export function setupCodexPicker() {
     const version = c.version === '外部源' ? '' : c.version;
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = `codex-item${locked ? ' locked' : ''}${active ? ' active' : ''}${n5Featured ? ' n5-highlight' : ''}`;
+    item.className = `codex-item ${variant}${locked ? ' locked' : ''}${active ? ' active' : ''}`;
     item.dataset.id = c.id;
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
     /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
@@ -297,33 +468,37 @@ export function setupCodexPicker() {
       `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
-    item.innerHTML =
-      coverSlot(typeIconOf(c), cover, c) +
+    const ring = `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>`;
+    const stat = `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>${ring}`;
+    const main =
       `<span class="ci-main">` +
-      `<span class="ci-head"><span class="ci-name">${esc(codexPickerTitle(c))}</span>` +
+      // 书名一行排不下时省略；悬停给出书的全名
+      `<span class="ci-head"><span class="ci-name" title="${esc(c.title || codexPickerTitle(c))}">${esc(codexPickerTitle(c))}</span>` +
       (active ? '<span class="ci-now">当前</span>' : '') +
       (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
-      `<span class="ci-foot"><span class="ci-tags">${renderCodexChips(c)}</span>` +
-      `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>` +
-      `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>` +
-      `</span></span>`;
+      `<span class="ci-tags">${renderCodexChips(c)}</span>` +
+      `</span>`;
+    item.innerHTML = variant === 'stn'
+      ? coverSlot(typeIconOf(c), cover, c) + main + `<span class="stn-stat">${stat}</span>` +
+        (isRecentlyUpdated(c) ? '<span class="stn-fresh" aria-hidden="true"></span>' : '')
+      : coverSlot(typeIconOf(c), cover, c, `<span class="vb-stat">${stat}</span>`) + main;
     bindCoverReveal(item);
     item.onclick = () => chooseCodex(c, item);
     return item;
   };
 
-  const makeSoonItem = (t, ph) => {
+  const makeSoonItem = (t, ph, variant) => {
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = 'codex-item soon';
+    item.className = `codex-item ${variant} soon`;
     item.dataset.soon = t.id;
     item.innerHTML =
       coverSlot(t.icon) +
       `<span class="ci-main">` +
       `<span class="ci-head"><span class="ci-name">${esc(ph.title)}</span></span>` +
       `<span class="ci-sub">${esc(ph.meta || '')}</span>` +
-      `<span class="ci-foot"><span class="ci-tags"><span class="ci-soon-chip">占位册</span></span></span>` +
+      `<span class="ci-tags"><span class="ci-soon-chip">占位册</span></span>` +
       `</span>`;
     item.onclick = () => toast(`「${t.name}」即将上线`, '');
     return item;
@@ -401,28 +576,34 @@ export function setupCodexPicker() {
     return wrap;
   };
 
-  const fillItems = (container, t) => {
+  const fillItems = (container, t, variant) => {
     if (t.soon) {
-      (t.placeholders || []).forEach(ph => container.appendChild(makeSoonItem(t, ph)));
+      (t.placeholders || []).forEach(ph => container.appendChild(makeSoonItem(t, ph, variant)));
     } else {
-      t.real.forEach(c => container.appendChild(makeRealItem(c)));
+      t.real.forEach(c => container.appendChild(makeRealItem(c, variant)));
     }
   };
 
-  /* 类型轨底部的合计：把左栏那块空白用成有用的信息，顺带说明圆环是什么 */
-  const makeRailFoot = () => {
-    const books = state.codexes.length;
-    const entries = state.codexes.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
-    const foot = document.createElement('div');
-    foot.className = 'codex-rail-foot';
-    foot.innerHTML = `共 <b>${books}</b> 本 · <b>${entries.toLocaleString()}</b> 条词条<br>右侧圆环＝配图率`;
-    return foot;
+  /* 入场动效按序号错开：--i 交给 CSS 算 animation-delay */
+  const indexChildren = (container, start = 0) => {
+    [...container.children].forEach((el, i) => el.style.setProperty('--i', start + i));
+    return start + container.children.length;
+  };
+  const typeCount = t => (t.soon ? (t.placeholders || []).length : t.real.length);
+  const typeEntries = t => t.real.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+  /* 书脊小封面与卷头拼贴共用；data-lock-id 让 updateCodexPickerState 就地切换锁态 */
+  const miniCover = (c, cls) => {
+    const url = codexCoverUrl(c);
+    return `<span class="${cls}${isCodexLocked(c) ? ' locked' : ''}" data-lock-id="${esc(c.id)}">` +
+      (url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async"${codexCoverStyle(c)}>` : '') +
+      `</span>`;
   };
 
-  /* PC：级联双栏 */
-  const renderCascade = types => {
-    menu.classList.add('cascade');
-    menu.classList.remove('grouped');
+  /* PC：四卷。每类一卷并排，打开的那卷靠 flex-grow 过渡撑开，其余收成书脊。
+     卷体只给打开的那卷渲染、换卷时同步替换——`.codex-item[data-id]` 永远只列这一卷（verify_ui 依赖）。 */
+  const renderVolumes = types => {
+    menu.classList.add('volumes');
+    menu.classList.remove('metro');
     menu.innerHTML = '';
     // 本地版允许从零法典启动；此时选择器只需要下面的“法典管理”门。
     if (!types.length) return;
@@ -430,97 +611,119 @@ export function setupCodexPicker() {
       const preferred = codexType(pickerActiveCodex());
       activeType = types.some(t => t.id === preferred) ? preferred : types[0].id;
     }
-    const rail = document.createElement('div');
-    rail.className = 'codex-rail';
-    const indicator = document.createElement('span');
-    indicator.className = 'codex-type-indicator';
-    indicator.setAttribute('aria-hidden', 'true');
-    indicator.hidden = true;
-    rail.appendChild(indicator);
-    syncTypeIndicator = ({ animate = false } = {}) => {
-      const selected = rail.querySelector('.codex-type.active');
-      if (menu.hidden || !selected) return;
-      const previous = { translate: getComputedStyle(indicator).translate, height: getComputedStyle(indicator).height };
-      const next = { translate: `0 ${selected.offsetTop}px`, height: `${selected.offsetHeight}px` };
-      const wasVisible = !indicator.hidden;
-      cancelUiMotion(indicator);
-      Object.assign(indicator.style, next);
-      indicator.hidden = false;
-      if (animate && wasVisible) animateUi(indicator, [previous, next]);
+    const vols = document.createElement('div');
+    vols.className = 'codex-vols';
+    vols.style.setProperty('--n', types.length);
+    const volumes = types.map((t, index) => {
+      const section = document.createElement('section');
+      section.className = `codex-vol cat-${t.id}`;
+      section.style.setProperty('--i', index);
+      const spine = document.createElement('button');
+      spine.type = 'button';
+      spine.className = 'codex-type vol-spine';
+      spine.dataset.type = t.id;
+      spine.title = t.sub;
+      spine.setAttribute('aria-controls', `codexVol-${t.id}`);
+      spine.setAttribute('aria-label', `${volumeLabel(index)} ${t.name}，${typeCount(t)} 本`);
+      spine.innerHTML =
+        `<span class="vs-no">${volumeLabel(index)}</span>` +
+        `<span class="vs-ico">${TYPE_ICONS[t.icon]}</span>` +
+        `<span class="vs-name">${esc(t.name)}</span>` +
+        `<span class="vs-n">${t.soon ? '<span class="codex-soon-tag">占位</span>' : `<b>${t.real.length}</b>本`}</span>` +
+        `<span class="vs-thumbs" aria-hidden="true">${t.real.slice(0, 3).map(c => miniCover(c, 'vs-thumb')).join('')}</span>`;
+      spine.onclick = () => setActive(t.id, { fromSpine: spine });
+      const body = document.createElement('div');
+      body.className = 'vol-body';
+      body.id = `codexVol-${t.id}`;
+      section.append(spine, body);
+      vols.appendChild(section);
+      return { t, index, section, spine, body };
+    });
+    const fillVolume = ({ t, index, body }) => {
+      const head = document.createElement('header');
+      head.className = 'vol-head';
+      head.innerHTML =
+        `<span class="vh-text"><span class="vh-no">${volumeLabel(index)}</span>` +
+        `<span class="vh-name">${TYPE_ICONS[t.icon]}<b>${esc(t.name)}</b></span>` +
+        `<span class="vh-sub">${esc(t.sub)}</span>` +
+        (t.soon ? '' : `<span class="vh-stats"><span><b>${t.real.length}</b> 本 · <b>${typeEntries(t).toLocaleString()}</b> 条词条</span> · <span>圆环＝配图率</span></span>`) +
+        `</span>` + recentHTML(t);
+      const grid = document.createElement('div');
+      grid.className = 'vol-grid';
+      const count = typeCount(t);
+      /* 卷内一律等大，排法按本数换，目的都是让竖构图的封面别被横着裁成一条：
+         ≤3 本一行高卡；4 本 2×2「样张条」——封面位换成封面 + 书内几张竖图并排；
+         5 本起两列「书架」——竖版封面在左、文字在右，法典的封面画成精装书（行多了网格内部滚动）。 */
+      const layout = count <= 3 ? 'row' : count === 4 ? 'strips' : 'shelf';
+      grid.dataset.layout = layout;
+      grid.style.setProperty('--cols', count <= 3 ? Math.max(1, count) : 2);
+      fillItems(grid, t, 'vbook');
+      indexChildren(grid);
+      if (layout === 'strips') grid.querySelectorAll('.vbook[data-id]').forEach(addPreviewStrip);
+      if (layout === 'shelf') {
+        // 封面只有 80 宽，条数与圆环挪进文字栏
+        grid.querySelectorAll('.vbook').forEach(card => {
+          const stat = card.querySelector('.ci-cover .vb-stat');
+          if (stat) card.querySelector('.ci-main').appendChild(stat);
+        });
+      }
+      body.replaceChildren(head, ...(t.soon ? [makeSoonBanner(t)] : []), grid);
     };
-    const listWrap = document.createElement('div');
-    listWrap.className = 'codex-list';
-    let renderedType = null;
-    const setActive = id => {
-      if (renderedType === id) return;
-      const animate = renderedType !== null && !menu.hidden;
-      const previousHeight = animate ? listWrap.getBoundingClientRect().height : 0;
-      cancelUiMotion(listWrap);
-      renderedType = activeType = id;
-      rail.querySelectorAll('.codex-type').forEach(el => {
-        const active = el.dataset.type === id;
-        el.classList.toggle('active', active);
-        el.setAttribute('aria-pressed', active ? 'true' : 'false');
+    const setActive = (id, { fromSpine = null } = {}) => {
+      activeType = id;
+      // 首次打开时卷内跟着书脊入场；换卷时等宽度过渡走一段再浮入
+      vols.classList.toggle('is-switching', Boolean(fromSpine));
+      volumes.forEach(v => {
+        const open = v.t.id === id;
+        v.section.classList.toggle('is-open', open);
+        v.spine.classList.toggle('active', open);
+        v.spine.setAttribute('aria-expanded', open ? 'true' : 'false');
+        v.spine.tabIndex = open ? -1 : 0;
+        v.body.inert = !open;
+        if (open) fillVolume(v);
+        else v.body.replaceChildren();
       });
-      listWrap.innerHTML = '';
-      const t = types.find(x => x.id === id);
-      if (t.soon) listWrap.appendChild(makeSoonBanner(t));
-      fillItems(listWrap, t);
-      listWrap.scrollTop = 0;
-      syncTypeIndicator({ animate });
-      if (animate) {
-        const height = listWrap.getBoundingClientRect().height;
-        animateUi(listWrap, [
-          { height: `${previousHeight}px`, opacity: .5, translate: '0 5px' },
-          { height: `${height}px`, opacity: 1, translate: '0 0' },
-        ]);
+      // 键盘换卷：被按的书脊随即藏到卷体后面，焦点交给新卷的第一本
+      if (fromSpine && document.activeElement === fromSpine) {
+        menu.querySelector('.codex-vol.is-open .codex-item')?.focus({ preventScroll: true });
       }
     };
-    types.forEach(t => {
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'codex-type';
-      el.dataset.type = t.id;
-      el.setAttribute('aria-pressed', 'false');
-      const count = t.soon ? (t.placeholders || []).length : t.real.length;
-      el.title = t.sub;
-      el.innerHTML =
-        `<span class="ct-ico">${TYPE_ICONS[t.icon]}</span>` +
-        `<span class="ct-name">${esc(t.name)}${t.soon ? '<span class="codex-soon-tag">占位</span>' : ''}</span>` +
-        `<span class="ct-n">${count}</span>`;
-      el.onclick = () => setActive(t.id);
-      rail.appendChild(el);
+    vols.addEventListener('click', ev => {
+      const recent = ev.target.closest('[data-recent-batch]');
+      if (recent) chooseBatch(recent.dataset.recentCodex, recent.dataset.recentBatch);
     });
-    rail.appendChild(makeRailFoot());
-    menu.appendChild(rail);
-    menu.appendChild(listWrap);
+    menu.appendChild(vols);
     setActive(activeType);
   };
 
-  /* 移动端：分组下拉（方案 A） */
-  const renderGrouped = types => {
-    menu.classList.add('grouped');
-    menu.classList.remove('cascade');
+  /* 手机：线路图。每类一条竖向线路，线路牌 + 一站一本，全部展开随面板滚动；
+     手机上没有「选类型」这一步，所以不渲染 .codex-type。 */
+  const renderMetro = types => {
+    menu.classList.add('metro');
+    menu.classList.remove('volumes');
     menu.innerHTML = '';
-    types.forEach(t => {
-      const head = document.createElement('div');
-      head.className = 'codex-group-head';
-      head.innerHTML =
-        `<span class="cg-ico">${TYPE_ICONS[t.icon]}</span>` +
-        `<span class="cg-name">${esc(t.name)}</span>` +
-        `<span class="cg-sub">${esc(t.sub)}</span>` +
-        (t.soon ? '<span class="codex-soon-tag">占位</span>' : '');
-      menu.appendChild(head);
-      if (t.soon) menu.appendChild(makeSoonBanner(t));
-      fillItems(menu, t);
+    let order = 0;
+    types.forEach((t, index) => {
+      const line = document.createElement('section');
+      line.className = `metro-line cat-${t.id}${t.soon ? ' soon' : ''}`;
+      line.style.setProperty('--li', index);
+      line.innerHTML =
+        `<div class="metro-badge" style="--i:${order}"><span class="mb-pill">${TYPE_ICONS[t.icon]}` +
+        `<b>${esc(t.name)}</b><span class="mb-n">${t.soon ? '占位' : `${t.real.length} 本`}</span></span>` +
+        `<span class="mb-sub">${esc(t.sub)}</span></div>`;
+      if (t.soon) line.appendChild(makeSoonBanner(t));
+      const track = document.createElement('div');
+      track.className = 'metro-track';
+      fillItems(track, t, 'stn');
+      order = indexChildren(track, order + 1);
+      line.appendChild(track);
+      menu.appendChild(line);
     });
   };
 
   const renderMenu = () => {
-    menu.querySelectorAll('.codex-list, .codex-type-indicator').forEach(cancelUiMotion);
-    syncTypeIndicator = () => {};
-    if (isMobile()) renderGrouped(buildTypes());
-    else renderCascade(buildTypes());
+    if (isMobile()) renderMetro(buildTypes());
+    else renderVolumes(buildTypes());
     const launchPanel = makeN5LaunchPanel();
     if (launchPanel) menu.prepend(launchPanel);
     menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
@@ -653,7 +856,7 @@ export function setupCodexPicker() {
       focused?.classList.contains('codex-item') ? '.codex-item' :
       focused?.classList.contains('codex-door') ? '.codex-door' : '.codex-type';
     renderMenu();
-    syncTypeIndicator();
+    placeMenu();
     if (isMobile() && !getManagedHistoryEntry()?.layers.some(layer => layer.id === 'codex-menu')) {
       openHistoryLayer('codex-menu', { mode: topHistoryLayerId() === 'banner-about' ? 'replace' : 'push' });
     }
@@ -664,6 +867,10 @@ export function setupCodexPicker() {
       else focusPreferredItem({ preventScroll: true });
     }
   });
+  window.addEventListener('resize', () => {
+    if (!menu.hidden) placeMenu();
+  });
+  ensureUpdates();
   setupN5LaunchNotice();
 }
 
@@ -682,6 +889,10 @@ export function updateCodexPickerState() {
     else it.removeAttribute('aria-current');
     if (locked) it.title = NSFW_LOCKED_MESSAGE;
     else it.removeAttribute('title');
+  });
+  // 书脊小封面与卷头拼贴只跟锁态走
+  document.querySelectorAll('#codexMenu [data-lock-id]').forEach(el => {
+    el.classList.toggle('locked', isCodexLocked(state.codexes.find(item => item.id === el.dataset.lockId)));
   });
 }
 
@@ -980,7 +1191,13 @@ function buildAccessView(entries, emptyPaths) {
   return { tree: toList(root), hiddenCount };
 }
 
+/* 整本无原图、但书目声明了 originalSections 的一级目录，在目录行上标「含原图」。 */
+function treeOriginalSections() {
+  return state.codex?.hasOriginal ? [] : originalSectionsOf(state.codex);
+}
+
 export function buildNodes(nodes, parent, prefix, depth) {
+  const originalSections = depth === 0 ? treeOriginalSections() : [];
   for (const nd of nodes) {
     if (!state.allowR18g && isR18gName(nd.name)) continue;  // 隐藏 R18G/重口 分类
     const path = prefix.concat(nd.name);
@@ -999,6 +1216,8 @@ export function buildNodes(nodes, parent, prefix, depth) {
     row.innerHTML =
       `<span class="tw-arrow">${hasKids ? '▾' : ''}</span>` +
       `<span class="tw-name">${esc(nd.name)}</span>` +
+      (originalSections.includes(nd.name)
+        ? '<span class="tw-orig" title="这一节保留原图：放大后可拖入 NovelAI 读取生成参数">含原图</span>' : '') +
       `<span class="tw-count">${nd.count}</span>`;
     if (hasKids) {
       const arrow = row.querySelector('.tw-arrow');
@@ -1452,36 +1671,80 @@ export function openRandomEntry(entry) {
 }
 
 /* ---------------- 法典横幅 / 分类轨道 ---------------- */
-export function renderCodexHeader() {
-  const c = state.codex;
-  const banner = $('#codexBanner');
-  if (!banner) return;
-  closeBannerAbout();
-  document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
+const bannerImagedPct = c => (c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0);
+
+/* 横幅主体：封面；字栏自上而下是卷号眉标、书名、作者（单独一行）、版本 · 原图签 · 作者主页；
+   配图进度沉到卡片底边一条细线、条数在右下角（样式见 styles.css「法典横幅」）。这些都只读 codexes.json 也有的字段，
+   所以换书接力时可以先用 meta 画好（pending：封面不播二段浮现、进度行留给计步与落地揭开）。
+   收藏墙 / 全站搜索这类虚拟视图没有卷别，保留「书名 + 作者 · 版本」两行。 */
+function originalPillTitle(c) {
+  if (c.hasOriginal) return '本法典保留原图：放大后可拖入 NovelAI 读取生成参数';
+  const sections = originalSectionsOf(c);
+  if (sections.length) return `除「${sections.join('」「')}」外为压缩缩略图，拖入 NovelAI 读不出参数`;
+  return '本法典为压缩缩略图，拖入 NovelAI 读不出参数';
+}
+
+function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const cover = codexBannerCoverEntry(c);
-  const pct = c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0;
-  const metaText = [c.author, c.version].filter(Boolean).join(' · ');
-  const virtualView = state.favoritesView || state.siteSearchView;
   const exampleLabel = codexExampleLabel(c);
   const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
-    `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(c.hasOriginal ? '本法典保留原图：放大后可拖入 NovelAI 读取生成参数' : '本法典为压缩缩略图，拖入 NovelAI 读不出参数')}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
+    `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(originalPillTitle(c))}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
   const home = virtualView ? null : authorHomepage(c);
+  // 卷号与分类色同选择器四卷：cat-* 类取 styles.css 里那套由强调色转色相的分类辅助色
+  const typeIndex = Math.max(0, CODEX_TYPES.findIndex(t => t.id === codexType(c)));
+  banner.classList.remove(...CODEX_TYPES.map(t => `cat-${t.id}`));
+  if (!virtualView) banner.classList.add(`cat-${CODEX_TYPES[typeIndex].id}`);
+  const head = virtualView
+    ? `<div class="banner-title">${esc(c.title)}</div>` +
+      `<div class="banner-meta"><span>${esc([c.author, c.version].filter(Boolean).join(' · '))}</span></div>`
+    : `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
+      `<div class="banner-title">${esc(c.title)}</div>` +
+      (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}</div>` : '') +
+      `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
+      `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
-    `<div class="banner-cover">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
-    `<div class="banner-info">` +
-    `<div class="banner-title">${esc(c.title)}</div>` +
-    `<div class="banner-meta"><span>${esc(metaText)}</span>${originalPill}` +
-    `${home ? renderAuthorHomepage(home) : ''}</div>` +
-    `<div class="banner-progress"><div class="bp-track"><div class="bp-fill" style="width:${pct}%"></div></div>` +
-    `<span class="bp-text">${c.imagedCount} / ${c.entryCount} 已配图</span></div>` +
-    `</div>`;
+    `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
+    `<div class="banner-info">${head}</div>` +
+    // 进度行直接挂在横幅下（不进 .banner-info）：字栏入场动画带位移，会临时成为绝对定位的参照，沉底的进度线会跟着跳
+    `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
+    `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
+  banner.dataset.identity = virtualView ? '' : c.id;
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */
   const coverImg = banner.querySelector('.banner-cover img');
   if (coverImg) {
     const reveal = () => coverImg.classList.add('is-loaded');
     if (coverImg.complete && coverImg.naturalWidth) reveal();
     else { coverImg.onload = reveal; coverImg.onerror = reveal; }
+  }
+}
+
+/* 换书接力：数据还没到就先把横幅换成新书（app/codex-switch.js 回顶那一刻调）。
+   awaitingCover：封面替身还在飞，横幅自己的封面先藏着，落定时再露出来。 */
+export function renderBannerIdentity(c, { awaitingCover = false } = {}) {
+  const banner = $('#codexBanner');
+  if (!banner) return;
+  closeBannerAbout();
+  document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
+  fillBanner(banner, c, { pending: true });
+  if (awaitingCover) banner.querySelector('.banner-cover')?.classList.add('awaiting-cover');
+}
+
+export function renderCodexHeader({ keepIdentity = false } = {}) {
+  const c = state.codex;
+  const banner = $('#codexBanner');
+  if (!banner) return;
+  closeBannerAbout();
+  document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
+  const virtualView = state.favoritesView || state.siteSearchView;
+  if (keepIdentity && !virtualView && banner.dataset.identity === c.id) {
+    /* 接力时已用 meta 画好：重建会让封面 / 文字的二段浮现在落地时再播一遍。
+       只补数据才有的「关于」气泡；进度条按数据校准宽度，揭开与计数由编排器落地时做。 */
+    banner.querySelector('.banner-about-btn')?.remove();
+    const fill = banner.querySelector('.bp-fill');
+    if (fill) fill.style.width = `${bannerImagedPct(c)}%`;
+  } else {
+    fillBanner(banner, c, { virtualView });
   }
   if (!virtualView) renderBannerAbout(c, banner);
   renderCategoryRail();
@@ -1598,7 +1861,7 @@ function authorHomepage(c) {
 function renderAuthorHomepage(home) {
   const bili = home.platform === 'bilibili';
   const title = `在新标签页打开 ${home.name} 的${bili ? ' B 站' : ''}主页`;
-  return `<a class="banner-home${bili ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener" title="${esc(title)}">` +
+  return `<a class="banner-home${bili ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener" title="${esc(title)}" aria-label="${esc(title)}">` +
     `${bili ? BILIBILI_ICON : EXT_ICON}<span>${bili ? '前往作者B站主页' : '前往作者主页'}</span>${ARROW_ICON}</a>`;
 }
 

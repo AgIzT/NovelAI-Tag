@@ -1,38 +1,46 @@
-/* 首访开场「显影」——照搬 `珍贵的优化建议/动效方案演示.html` 的 INTROS.diffusion 分镜，
-   逐条落到真实 UI 上。原方案的四件套一件都不能少：
+/* 首访开场：等数据时「发牌」，开幕后「显影」。
 
-     ① 全屏噪声层     opacity 0→.14→.05→0（浅色主题按比例抬到 .2/.08，见下），活得比幕布久
-     ② 打字机 prompt  `masterpiece, best quality, 法典图鉴`，26ms/字 + ▌ 光标
-     ③ step N/28      采样步数，+3 / 90ms，与打字机同起同收 —— 它同时就是**等待逻辑**：
-                      数据没到就封顶在 27/28，绝不谎报采样完成；28 这一格留给开幕（「先加载，后播放」）
-     ④ 连续显影        横幅封面按桌面 12→4.5→1.2→0 / 移动 8→3→.8→0 平滑收敛，
-                      不再把概念稿的 steps(2) 搬到真实照片上（那会被眼睛读成卡帧）
-
-   然后才是收尾的两波（照原方案的形，节奏整体提速一档）：分类圆点 scale(.4)→1 / 200ms / 错峰 50ms；
-   卡片壳延迟 30ms 做 translateY(6px)+线性透明度，图片在幕布退开时晚 30ms 公开显影；移动端只取 1 张、
-   桌面最多 3 张，并且必须在 420ms 内完成 load + decode，避免冷启动把解码塞进第一帧 filter paint。
+   等数据（html.intro-arm）：
+     ① 全屏噪声层     opacity 0→.14→.05→0（浅色主题按比例抬到 .16/.065，见下），活得比幕布久
+     ② 牌堆切牌        index.html 里写死的一叠卡背（首帧就在，不等模块），这里每 540ms 切一次牌；
+                      数据不来就一直切，画面不会停住。等待逻辑仍是 dataReady，不靠动画时长
+     ③ 今日画师名字行  只在直接进站时显示（featured.js 的 isPlainFeaturedVisit）：artist: 后面的字乱跳，
+                      app.js 拿到首屏真放在第一格的今日画师后调 setIntroFeatured()，约 0.3s 内逐字定住
+   开幕（intro-reveal）：
+     ④ 发牌            首排几张卡从牌堆顶一张接一张翻面飞到各自的位置（替身是真卡的克隆），图在半空由糊到清，
+                      落地即换回真卡；第一张就是今日画师
+     ⑤ 连续显影        横幅封面按桌面 12→4.5→1.2→0 / 移动 8→3→.8→0 平滑收敛（原 diffusion 分镜），
+                      分类圆点 scale(.4)→1 / 200ms / 错峰 50ms，首排以外的卡片照常短显影
 
    纪律：静止帧 = 终态（收尾把 intro-* 全摘掉；intro-done 只压静态页面骨架，首批动态节点另打
-   intro-no-replay，不能顺手锁死以后切换法典新建的 chip/banner 内容）；任意输入立即跳终态。 */
+   intro-no-replay，不能顺手锁死以后切换法典新建的 chip/banner 内容）；任意输入立即跳终态，
+   在飞的替身当场收掉、真卡当场显形。 */
 
 import { $ } from './utils.js';
+import { isPlainFeaturedVisit } from './featured.js';
+
+const introActions = { settleCardEntry: () => {} };
+
+export function setIntroActions(actions) {
+  Object.assign(introActions, actions);
+}
 
 /* ⚠ 与 index.html 内联脚本共用：改名两处同改。UI 里不暴露，只给截图器 / 回归脚本关动效用
    （tools/verify_ui.py 经 Page.addScriptToEvaluateOnNewDocument 预置成 'off'） */
 export const MOTION_STORAGE_KEY = 'fadian-motion';
 
-const PROMPT_TEXT = 'masterpiece, best quality, 法典图鉴';
-const TYPE_MS = 26;          // 每字（原方案 34ms，整体提速后同比压掉）
-const STEP_TOTAL = 28;
-/* 计数与打字机同时起跑、同时收尾：31 字 × 26ms ≈ 806ms，9 tick × 90ms = 810ms 正好到封顶 27 */
-const STEP_TICK_MS = 90;
-const STEP_ADD = 3;
+const MIN_SHOW_MS = 700;     // 数据秒到时也让牌堆亮个相、切一次牌（原打字机本来就占约 0.8s）
+const CUT_FIRST_MS = 300;
+const CUT_EVERY_MS = 540;
+const DEAL_FLY_MS = 520;
+const DEAL_FACE_AT = 0.42;
 const DEVELOP_MS = 520;      // hero 封面显影，与 CSS 的 introDevelop 必须同长
 const TAIL_MS = 180;         // 等首排图片/分类波落稳；最后一帧不靠 finish() 硬切
 const VEIL_MS = 130;         // 幕布只负责交接；不能盖住卡片最有辨识度的模糊→清晰阶段
 const INTRO_ASSET_WAIT_MS = 420;
 const PROGRESS_DELAY_MS = 90;
 const PROGRESS_MS = 520;
+const EASE = 'cubic-bezier(.22,1,.36,1)';
 
 let settled = null;
 let settleNow = null;
@@ -97,6 +105,8 @@ export function startIntro() {
   dataReadyRequested = false;
   bindSkip();
   document.addEventListener('intro:timeout', onIntroTimeout, { once: true });
+  startShuffle();
+  startTodayScramble();
   runIntro().catch(() => finishIntro({ skipped: true }));
 }
 
@@ -104,8 +114,6 @@ const onIntroTimeout = () => finishIntro({ skipped: true });
 
 async function runIntro() {
   const noise = document.querySelector('.intro-noise');
-  const promptEl = $('#introPrompt');
-  const stepEl = $('#introStep');
 
   // ① 噪声铺开：站点先是「一片未成形」
   // ⚠ 原方案的 .14 是按近黑舞台（#07080d）调的；浅色主题略抬一档，但不能让噪声盖住
@@ -116,32 +124,9 @@ async function runIntro() {
   const noiseIn = noise?.animate([{ opacity: 0 }, { opacity: peak }], { duration: 200, fill: 'both' });
   if (finished) return;
 
-  // ② 采样步数：与打字机**同时**出现并同步推进（读起来是「一边写 prompt 一边采样」）。
-  //    封顶 27/28 是本站加的等待闸门：数据没到就绝不谎报采样完成，28 这一格留给开幕那一刻。
-  stepEl?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, fill: 'both' });
-  let step = 0;
-  const stepTimer = window.setInterval(() => {
-    if (finished) { window.clearInterval(stepTimer); return; }
-    step = Math.min(STEP_TOTAL - 1, step + STEP_ADD);
-    if (stepEl) stepEl.textContent = `step ${step}/${STEP_TOTAL}`;
-  }, STEP_TICK_MS);
-  timers.push(stepTimer);
-
-  // ③ 打字机：把这次「生成」的 prompt 敲出来。等待期就演给用户看，而不是空转转圈
-  if (promptEl) {
-    for (let i = 1; i <= PROMPT_TEXT.length; i++) {
-      if (finished) return;
-      promptEl.textContent = `${PROMPT_TEXT.slice(0, i)}▌`;
-      await wait(TYPE_MS);
-    }
-    promptEl.textContent = PROMPT_TEXT;
-  }
+  // ②③ 切牌与名字行已在 startIntro 起跑；这里只等「首次视图 + 首排图片到位」与最短亮相时长
+  await Promise.all([dataReady, wait(MIN_SHOW_MS)]);
   if (finished) return;
-
-  await dataReady;              // 打字机敲完 + 首次视图/首排图片到位，两个条件都满足才开幕
-  if (finished) return;
-  window.clearInterval(stepTimer);
-  if (stepEl) stepEl.textContent = `step ${STEP_TOTAL}/${STEP_TOTAL}`;   // 28/28 = 开幕这一格
 
   // ④ 开幕：幕布让开，真实 UI 在噪声底下连续分段显影（CSS introDevelop / play-state 由此刻放行）
   const html = document.documentElement;
@@ -151,11 +136,7 @@ async function runIntro() {
   veil?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: VEIL_MS, easing: 'ease-out', fill: 'forwards' });
   timers.push(window.setTimeout(() => { if (veil) veil.style.display = 'none'; }, VEIL_MS));
   document.dispatchEvent(new CustomEvent('intro:reveal'));
-
-  // 真站横幅比演示舞台更靠上，读数在幕布打开时就退场，避免压住标题/进度条
-  const console_ = $('#introConsole');
-  console_?.animate([{ opacity: 1 }, { opacity: 0, filter: 'blur(3px)' }],
-    { duration: 140, easing: 'ease-out', fill: 'forwards' });
+  const dealMs = dealFirstRow();
 
   // 噪声跟着显影两段退场：先在轮廓成形时回落，再在细节清晰时退净
   timers.push(window.setTimeout(() => {
@@ -166,8 +147,238 @@ async function runIntro() {
   }, DEVELOP_MS));
 
   startProgressCount();
-  await wait(DEVELOP_MS + TAIL_MS);
+  // 发牌比显影长时多等最后一张落地：动画按帧对齐，定时器若抢在落地之前收尾，那张真卡会再淡入一次
+  await wait(Math.max(DEVELOP_MS + TAIL_MS, dealMs + 80));
   finishIntro();
+}
+
+/* ---------- 牌堆：切牌（等数据）与发牌（开幕） ---------- */
+
+const deal = { cards: [], shuffling: false, flyers: [], dealt: [] };
+const slot = k => `translate(${k * 2}px,${k * 2.4}px)`;
+
+function placeDeck() {
+  const n = deal.cards.length;
+  deal.cards.forEach((card, k) => { card.style.zIndex = String(n - k); card.style.transform = slot(k); });
+}
+
+/* 切牌：顶牌往一侧抽出、塞回牌底，左右交替；其余每张上移一格。
+   index.html 里最后一张牌画在最上面，所以倒过来排：cards[0] 是顶牌。 */
+function startShuffle() {
+  const deck = $('#introDeck');
+  if (!deck) return;
+  deal.cards = [...deck.children].reverse();
+  deal.shuffling = true;
+  placeDeck();
+  let dir = 1;
+  const cut = () => {
+    if (!deal.shuffling || finished) return;
+    const width = deck.getBoundingClientRect().width;
+    const top = deal.cards.shift();
+    const out = `translate(${dir * width * 0.7}px,-10px) rotate(${dir * 8}deg)`;
+    top.style.zIndex = String(deal.cards.length + 2);   // 抽出途中压在所有牌之上，塞回时再落到牌底
+    const lift = top.animate([{ transform: slot(0) }, { transform: out }],
+      { duration: 200, easing: 'cubic-bezier(.3,.6,.3,1)', fill: 'forwards' });
+    const n = deal.cards.length + 1;
+    deal.cards.forEach((card, k) => {
+      card.animate([{ transform: slot(k + 1) }, { transform: slot(k) }], { duration: 240, easing: EASE });
+      card.style.transform = slot(k);
+      card.style.zIndex = String(n - k);
+    });
+    deal.cards.push(top);
+    lift.finished.then(() => {
+      if (!deal.shuffling) return;
+      top.style.zIndex = '0';
+      top.style.transform = slot(n - 1);
+      top.animate([{ transform: out }, { transform: slot(n - 1) }], { duration: 240, easing: EASE });
+      lift.cancel();
+    }, () => {});
+    dir = -dir;
+    timers.push(window.setTimeout(cut, CUT_EVERY_MS));
+  };
+  timers.push(window.setTimeout(cut, CUT_FIRST_MS));
+}
+
+/* 首排 = 视口里最靠上的那一排卡，按 left 从左到右（瀑布流第一格在最左）。
+   取落地矩形时临时归零主内容与卡片的入场位移；同一任务内还原，不结束或重启原动画。 */
+function firstRowCards() {
+  const nodes = [...document.querySelectorAll('#masonry .card')];
+  const styles = [];
+  const override = (node, prop, value) => {
+    if (!node) return;
+    styles.push([node, prop, node.style.getPropertyValue(prop), node.style.getPropertyPriority(prop)]);
+    node.style.setProperty(prop, value, 'important');
+  };
+  try {
+    override($('#main'), 'translate', 'none');
+    for (const card of nodes) {
+      override(card, 'transition', 'none');
+      override(card, '--entry-offset', '0px');
+    }
+    const cards = nodes.map(card => [card, card.getBoundingClientRect()])
+      .filter(([, r]) => r.width > 0 && r.bottom > 0 && r.top < innerHeight);
+    if (!cards.length) return [];
+    const top = Math.min(...cards.map(([, r]) => r.top));
+    return cards.filter(([, r]) => r.top - top < 10).sort((a, b) => a[1].left - b[1].left);
+  } finally {
+    for (const [node, prop, value, priority] of styles.reverse()) {
+      if (value) node.style.setProperty(prop, value, priority);
+      else node.style.removeProperty(prop);
+    }
+  }
+}
+
+/* 发牌：每张首排卡克隆成替身，从牌堆顶翻面飞到真卡的位置，落地即换回真卡。返回整段时长。
+   只有原本就是显影焦点（intro-focus）的那几张替身做模糊收清，守住「桌面 ≤3、手机 1 张滤镜」的预算；
+   开幕时图还没到的，替身逐帧跟着真卡补上 src / 加载完成态。 */
+function dealFirstRow() {
+  deal.shuffling = false;
+  const deck = $('#introDeck');
+  const today = $('#introToday');
+  if (today && !today.hidden && !today.classList.contains('is-gone')) {
+    today.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
+  }
+  if (!deck) return 0;
+  for (const card of deal.cards) for (const anim of card.getAnimations()) anim.cancel();
+  placeDeck();
+  const row = firstRowCards();
+  const stagger = innerWidth <= 600 ? 110 : 85;
+  const fadeDeck = delay => deck.animate([{ opacity: 1, scale: 1 }, { opacity: 0, scale: 0.92 }],
+    { duration: 220, delay, easing: 'ease-in', fill: 'forwards' });
+  if (!row.length) {
+    fadeDeck(0);
+    return 220;
+  }
+  const d = deck.getBoundingClientRect();
+  const cx = d.left + d.width / 2;
+  const cy = d.top + d.height / 2;
+  row.forEach(([card, r], i) => {
+    card.classList.add('intro-dealt');
+    deal.dealt.push(card);
+    const fly = document.createElement('div');
+    fly.className = 'intro-flyer';
+    fly.inert = true;
+    fly.setAttribute('aria-hidden', 'true');
+    fly.style.width = `${r.width}px`;
+    fly.style.height = `${r.height}px`;
+    const face = card.cloneNode(true);
+    const focus = face.classList.contains('intro-focus');
+    face.classList.remove('card-enter', 'is-entered', 'intro-focus', 'switch-focus', 'intro-dealt', 'intro-no-replay');
+    face.removeAttribute('data-entry-pending');
+    face.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;transform:none;opacity:1;margin:0;transition:none';
+    const back = document.createElement('i');
+    back.className = 'intro-card';
+    back.innerHTML = '<b>法典<span>图鉴</span></b>';
+    fly.append(face, back);
+    document.body.append(fly);
+    deal.flyers.push(fly);
+
+    const delay = i * stagger;
+    timers.push(window.setTimeout(() => { if (deal.cards[i]) deal.cards[i].style.visibility = 'hidden'; }, delay));
+    const s0 = d.width / r.width;
+    const sx = cx - r.width / 2;
+    const sy = cy - r.height / 2;
+    const tilt = (i % 2 ? 1 : -1) * (4 + i);
+    const flight = fly.animate([
+      { transform: `perspective(1600px) translate(${sx}px,${sy}px) rotateY(180deg) rotate(0deg) scale(${s0})` },
+      { transform: `perspective(1600px) translate(${(sx + r.left) / 2}px,${Math.min(sy, r.top) - 46}px) rotateY(95deg) rotate(${tilt}deg) scale(${(s0 + 1) / 2})`, offset: DEAL_FACE_AT },
+      { transform: `perspective(1600px) translate(${r.left}px,${r.top}px) rotateY(0deg) rotate(0deg) scale(1)` },
+    ], { duration: DEAL_FLY_MS, delay, easing: 'cubic-bezier(.3,.7,.25,1)', fill: 'both' });
+
+    const img = face.querySelector('.card-img');
+    const realImg = card.querySelector('.card-img');
+    if (img && realImg) {
+      const follow = () => {
+        if (!fly.isConnected) return;
+        const src = realImg.getAttribute('src');
+        if (src && img.getAttribute('src') !== src) img.setAttribute('src', src);
+        if (realImg.classList.contains('is-loaded') || (img.complete && img.naturalWidth)) {
+          img.classList.add('is-loaded');
+          face.querySelector('.card-img-wrap')?.classList.remove('is-loading');
+          return;
+        }
+        requestAnimationFrame(follow);
+      };
+      follow();
+      // 翻过来那一刻图还带一点糊，落地前收清
+      if (focus) {
+        img.animate([{ filter: 'blur(6px) saturate(.75)' }, { filter: 'blur(2px) saturate(.92)', offset: 0.5 }, { filter: 'blur(0) saturate(1)' }],
+          { duration: DEAL_FLY_MS * (1 - DEAL_FACE_AT), delay: delay + DEAL_FLY_MS * DEAL_FACE_AT, easing: 'linear', fill: 'backwards' });
+      }
+    }
+    flight.finished.then(() => landCard(card, fly), () => {});
+  });
+  // 首排以外的余牌不能留在原地淡出；最后一张起飞时整副牌堆立即退场。
+  deck.animate([{ opacity: 1 }, { opacity: 0 }],
+    { duration: 1, delay: (row.length - 1) * stagger, easing: 'step-start', fill: 'forwards' });
+  return (row.length - 1) * stagger + DEAL_FLY_MS;
+}
+
+/* 交回真卡前由瀑布流统一结算壳与图片；先撤显影规则再显形，避免图片重播与两处恢复过渡相互覆盖。 */
+function revealDealt(card) {
+  introActions.settleCardEntry(card, { immediate: true });
+  card.classList.remove('intro-dealt');
+  void card.offsetWidth;
+}
+
+function landCard(card, fly) {
+  if (!fly.isConnected) return;
+  revealDealt(card);
+  fly.remove();
+  deal.flyers = deal.flyers.filter(item => item !== fly);
+  deal.dealt = deal.dealt.filter(item => item !== card);
+}
+
+/* 跳过、超时或收尾：在飞的替身当场收掉，真卡当场显形 */
+function settleDeal() {
+  deal.shuffling = false;
+  for (const fly of deal.flyers) {
+    for (const anim of fly.getAnimations()) anim.cancel();
+    fly.remove();
+  }
+  for (const card of deal.dealt) revealDealt(card);
+  deal.flyers = [];
+  deal.dealt = [];
+}
+
+/* ---------- 今日画师名字行 ---------- */
+
+const GLYPHS = 'abcdefghijklmnopqrstuvwxyz0123456789_';
+const noiseText = n => Array.from({ length: n }, () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]).join('');
+let scrambleTimer = 0;
+
+function startTodayScramble() {
+  const line = $('#introToday');
+  const name = $('#introTodayName');
+  if (!line || !name || !isPlainFeaturedVisit()) return;
+  line.hidden = false;
+  name.textContent = noiseText(8);
+  scrambleTimer = window.setInterval(() => { name.textContent = noiseText(8); }, 55);
+  timers.push(scrambleTimer);
+}
+
+/** app.js 在首次视图渲染后调：首屏第一格真是今日画师就把名字定住，否则（被屏蔽、深链进别处等）淡出名字行。 */
+export function setIntroFeatured(artist) {
+  const line = $('#introToday');
+  const name = $('#introTodayName');
+  if (finished || !line || !name || line.hidden) return;
+  window.clearInterval(scrambleTimer);
+  if (!artist) {
+    // 记一笔：开幕时别再从不透明淡一次（那会让已经淡掉的名字行闪回来）
+    line.classList.add('is-gone');
+    line.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
+    return;
+  }
+  // 不管名字多长都在约 0.3 秒内定完：数据到了离开幕通常只剩零点几秒
+  const per = Math.max(1, Math.ceil(artist.length / 9));
+  let locked = 0;
+  const tick = () => {
+    locked = Math.min(artist.length, locked + per);
+    name.textContent = artist.slice(0, locked) + noiseText(artist.length - locked);
+    if (locked < artist.length) timers.push(window.setTimeout(tick, 32));
+    else line.classList.add('is-locked');
+  };
+  tick();
 }
 
 async function waitForIntroAssets() {
@@ -224,6 +435,7 @@ export function finishIntro({ skipped = false } = {}) {
   finished = true;
   for (const id of timers) { window.clearTimeout(id); window.clearInterval(id); }
   timers = [];
+  settleDeal();
   cancelAnimationFrame(counterRaf);
   counterRaf = 0;
   unbindSkip();
