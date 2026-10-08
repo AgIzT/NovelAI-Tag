@@ -1,7 +1,12 @@
-"""生成画师样张索引 site/data/artist_index.json。
+"""生成画师样张索引 site/data/artist_index.json 与画风串表 site/data/artist_strings.json。
 
-灯箱「画师」一栏读这份索引：把提示词里的 artist:xxx 逐个对到画师词典里的单画师样张，
-显示缩略图，点开看大图或跳到那条词条。
+灯箱「画师」一栏读样张索引：把提示词里的 artist:xxx 逐个对到画师词典里的单画师样张，
+显示缩略图，点开看大图或跳到那条词条。画风实验台另读画风串表：
+
+- 画风串 = 一条提示词里出现的 ≥2 位画师；同一组画师（不论顺序）只记一次，
+  画师顺序与倍率取目录栏顺序里第一条用到它的词条。
+- 只从书名推得出版本（v4.5 / v5）的书里收；各版本分开存。
+- 代表作取第一条常规级、有图的词条，另记这组画师共有几张常规级配图；没有常规级配图的串只用于统计。
 
 - 样张只取画师词典里「整条 tags 只有一个 artist:」的词条（画风组词条不算），
   按 v4.5 / v5 两本分开存；同一画师有多条时取书里第一条，另记条数。
@@ -12,24 +17,26 @@
 输出不含时间戳，内容不变时文件字节不变。另写 output/artist-index/构建报告.md：
 覆盖率，以及各书提示词里出现最多、但词典里还没有单画师样张的画师。
 
-只读 site/data/*.json，只写 site/data/artist_index.json 与 output/artist-index/。
+只读 site/data/*.json，只写 site/data/artist_index.json、site/data/artist_strings.json 与 output/artist-index/。
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_tag_zh import bare_tag, split_pieces  # noqa: E402
+from build_tag_zh import SEPARATOR, bare_tag, split_pieces  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "site" / "data"
 OUT_FILE = DATA / "artist_index.json"
+STRINGS_FILE = DATA / "artist_strings.json"
 REPORT_DIR = ROOT / "output" / "artist-index"
 
 SCHEMA = 1
@@ -66,6 +73,43 @@ def prompt_artists(text: str) -> list[str]:
         if name and name not in seen:
             seen.append(name)
     return seen
+
+
+# 与 tag-zh-core.js 的 splitPromptPieces、artist-core.js 的 promptArtists 逐条一致（全站数据对拍过）
+LEADING_MARKS = re.compile(r"^[\s{}\[\]()]*(?:-?\d+(?:\.\d+)?::[\s{}\[\]()]*)*")
+WEIGHT_OPEN = re.compile(r"(-?\d+(?:\.\d+)?)::")
+LEAD_SPACE = re.compile(r"^\s*")
+BRACE_STEP = 1.05
+
+
+def prompt_artist_weights(text: str) -> list[tuple[str, float]]:
+    """提示词里的画师及倍率，按第一次出现的顺序去重：
+    NAI 数字权重（1.5::…:: 组也算）× 1.05^花括号层数 ÷ 1.05^方括号层数。"""
+    found: dict[str, float] = {}
+    curly = square = 0
+    open_weight = None
+    parts = SEPARATOR.split(str(text or "").replace("﻿", ""))
+    for i in range(0, len(parts), 2):
+        body = parts[i] or ""
+        sep = parts[i + 1] if i + 1 < len(parts) else ""
+        if not body and not sep:
+            continue
+        piece = body[LEAD_SPACE.match(body).end():]
+        marks = LEADING_MARKS.match(piece).group(0)
+        weight = open_weight
+        for match in WEIGHT_OPEN.finditer(marks):
+            weight = float(match.group(1))
+            open_weight = weight
+        if "::" in piece[len(marks):]:
+            open_weight = None
+        opens_curly, opens_square = piece.count("{"), piece.count("[")
+        level = (curly + opens_curly) - (square + opens_square)
+        curly = max(0, curly + opens_curly - piece.count("}"))
+        square = max(0, square + opens_square - piece.count("]"))
+        name = artist_key(piece)
+        if name and name not in found:
+            found[name] = (1 if weight is None else weight) * BRACE_STEP ** level
+    return list(found.items())
 
 
 def read_json(path: Path):
@@ -145,6 +189,75 @@ def build_samples(book_id: str):
     }
 
 
+def round_weight(weight: float):
+    """保留两位小数，进位与 JS 的 Math.round(w * 100) / 100 相同（Python 的 round 是银行家舍入，0.175 会得 0.17）。"""
+    return 1 if abs(weight - 1) < 0.005 else math.floor(weight * 100 + 0.5) / 100
+
+
+def build_strings(codexes: list[dict]) -> dict:
+    """各版本的画风串表。成员写成画师序号，倍率不是 1 的写 [序号, 倍率]；
+    串记录 [成员, 书序号, 词条 id, 图片, assetRev, assetCodexId, 常规级配图数]，
+    图片等于「id.jpg」、assetCodexId 等于书 id 时写空值，末尾空值省掉；没有常规级配图的只剩 [成员]。"""
+    found: dict[str, dict[tuple, dict]] = {version: {} for version in BOOKS}
+    for meta in codexes:
+        version = codex_model(meta)
+        path = DATA / f"{meta['id']}.json"
+        if not version or not path.exists():
+            continue
+        data = read_json(path)
+        rank = directory_order(data.get("tree"))
+        entries = data.get("entries", [])
+        ordered = sorted(range(len(entries)), key=lambda i: (rank.get(tuple(entries[i].get("path") or []), len(rank)), i))
+        for entry in (entries[i] for i in ordered):
+            members = prompt_artist_weights(entry.get("tags") or "")
+            if len(members) < 2:
+                continue
+            slot = found[version].setdefault(tuple(sorted(name for name, _ in members)),
+                                             {"members": members, "rep": None, "images": 0})
+            if meta.get("nsfw") or entry_rating(entry) not in SAFE_RATINGS or not entry.get("image"):
+                continue
+            slot["images"] += 1
+            if slot["rep"] is None:
+                slot["rep"] = (str(meta["id"]), entry)
+    out = {}
+    for version, strings in found.items():
+        artists: dict[str, int] = {}
+        books: dict[str, int] = {}
+        records = []
+        for slot in strings.values():
+            members = []
+            for name, weight in slot["members"]:
+                index = artists.setdefault(name, len(artists))
+                weight = round_weight(weight)
+                members.append(index if weight == 1 else [index, weight])
+            record = [members]
+            if slot["rep"]:
+                codex_id, entry = slot["rep"]
+                entry_id = str(entry["id"])
+                image = str(entry["image"])
+                asset_codex = str(entry.get("assetCodexId") or "")
+                record += [
+                    books.setdefault(codex_id, len(books)),
+                    entry_id,
+                    "" if image == f"{entry_id}.jpg" else image,
+                    str(entry.get("assetRev") or ""),
+                    "" if asset_codex in ("", codex_id) else asset_codex,
+                    slot["images"],
+                ]
+                while record[-1] in ("", 0) and len(record) > 3:
+                    record.pop()
+            records.append(record)
+        out[version] = {"books": list(books), "artists": list(artists), "strings": records}
+    return out
+
+
+def write_if_changed(path: Path, payload) -> int:
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=False).encode("utf-8")
+    if not path.exists() or path.read_bytes() != body:
+        path.write_bytes(body)
+    return len(body)
+
+
 def main() -> int:
     codexes = read_json(DATA / "codexes.json")
     versions = {version: build_samples(book) for version, book in BOOKS.items()}
@@ -153,12 +266,13 @@ def main() -> int:
         model = codex_model(meta)
         if model:
             models[str(meta["id"])] = model
-    payload = {"schema": SCHEMA, "versions": versions, "codexModel": dict(sorted(models.items()))}
-    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=False).encode("utf-8")
-    if not OUT_FILE.exists() or OUT_FILE.read_bytes() != body:
-        OUT_FILE.write_bytes(body)
-    write_report(codexes, versions, len(body))
-    print(f"已写 {OUT_FILE.relative_to(ROOT)}（{len(body) / 1024:.0f} KB）")
+    size = write_if_changed(OUT_FILE, {"schema": SCHEMA, "versions": versions, "codexModel": dict(sorted(models.items()))})
+    strings = build_strings(codexes)
+    strings_size = write_if_changed(STRINGS_FILE, {"schema": SCHEMA, "versions": strings})
+    write_report(codexes, versions, size)
+    print(f"已写 {OUT_FILE.relative_to(ROOT)}（{size / 1024:.0f} KB）")
+    print(f"已写 {STRINGS_FILE.relative_to(ROOT)}（{strings_size / 1024:.0f} KB；"
+          + "，".join(f"{v} {len(info['strings'])} 串" for v, info in strings.items()) + "）")
     return 0
 
 

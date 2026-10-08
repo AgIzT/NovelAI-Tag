@@ -2,8 +2,10 @@
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -34,6 +36,37 @@ class ArtistKeyTest(unittest.TestCase):
         order = bai.directory_order(tree)
         self.assertLess(order[("单画师词典", "雨燕")], order[("单画师词典", "wwuumm")])
         self.assertLess(order[("单画师词典", "wwuumm")], order[("画风组词典", "梦神")])
+
+    def test_prompt_artist_weights_matches_frontend(self):
+        got = bai.prompt_artist_weights(
+            "artist:a, 0.4::artist:b, artist:c::, [[artist:d]], {artist:e, smile}, artist:a, year 2024")
+        self.assertEqual([(name, bai.round_weight(w)) for name, w in got],
+                         [("a", 1), ("b", 0.4), ("c", 0.4), ("d", 0.91), ("e", 1.05)])
+        self.assertEqual(bai.round_weight(0.175), 0.18, "进位要和 JS 的 Math.round 一致")
+
+    def test_build_strings_dedupes_sets_and_skips_restricted_reps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            entries = [
+                {"id": "p1", "path": ["R18"], "rating": "r18", "image": "p1.jpg", "tags": "artist:a, artist:b"},
+                {"id": "p2", "path": ["常规"], "image": "p2.jpg", "assetRev": "rv", "tags": "0.5::artist:b::, artist:a"},
+                {"id": "p3", "path": ["常规"], "image": "p3.png", "tags": "artist:b, artist:a, smile"},
+                {"id": "p4", "path": ["常规"], "tags": "artist:c, artist:d"},
+                {"id": "p5", "path": ["常规"], "image": "p5.jpg", "tags": "artist:solo"},
+            ]
+            tree = [{"name": "常规", "count": 4, "children": []}, {"name": "R18", "count": 1, "children": []}]
+            (data / "pack5.json").write_text(json.dumps({"entries": entries, "tree": tree}), encoding="utf-8")
+            codexes = [{"id": "pack5", "title": "NovelAI v5社区精选图包"}, {"id": "misc", "title": "渡鸦的构图鉴"}]
+            with mock.patch.object(bai, "DATA", data):
+                out = bai.build_strings(codexes)
+        self.assertEqual(out["n45"], {"books": [], "artists": [], "strings": []})
+        n5 = out["n5"]
+        self.assertEqual(n5["books"], ["pack5"])
+        self.assertEqual(n5["artists"], ["b", "a", "c", "d"], "顺序取目录栏里第一条用到它的词条（常规在 R18 前）")
+        self.assertEqual(n5["strings"], [
+            [[[0, 0.5], 1], 0, "p2", "", "rv", "", 2],
+            [[2, 3]],
+        ], "同一组画师只记一次；没有常规级配图的只剩成员")
 
     def test_codex_model_from_title(self):
         self.assertEqual(bai.codex_model({"title": "NovelAI v4.5社区精选图包"}), "n45")
