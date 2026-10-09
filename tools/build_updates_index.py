@@ -2,8 +2,8 @@
 
 把每本书 codexes.json 里的 updateFilters（批次）与该书 <id>.json 里词条的
 updateBatches / isNew 对上，按批次日期跨书聚合成一条倒序时间线，供顶栏动态气泡
-和「公告 / 更新 / 反馈」面板的更新页签读取。每本书每批另带几张样图（samples，
-只取非成人的有图词条），供法典选择器卷头的「最近新增」扇使用。
+和「公告 / 更新 / 反馈」面板的更新页签读取。每本书每批另带几张样图（samples），
+供法典选择器卷头的「最近新增」扇使用；成人书的样图带解锁标记。
 
 判定规则与前端 site/assets/app/data.js 的 updateFilterDefinitions /
 entryMatchesUpdateFilter 逐条对齐——两边算出的条数必须一致，否则页签里的数字
@@ -123,11 +123,26 @@ def sample_of(entry: dict, nsfw: bool = False) -> dict:
     return sample
 
 
+def pick_auto_samples(meta: dict, entries: list[dict], limit: int, *, exclude_image: str = "") -> list[dict]:
+    """更新批次与书内样张共用的默认抽样：按书内顺序均匀取，成人书标记解锁。"""
+    nsfw_book = bool(meta.get("nsfw"))
+    pool = [
+        entry for entry in entries
+        if isinstance(entry, dict) and entry.get("image") and str(entry["image"]) != exclude_image
+        and (entry_rating(entry) != "r18g" if nsfw_book else is_safe_entry(entry))
+    ]
+    if not pool:
+        return []
+    count = min(limit, len(pool))
+    step = len(pool) / count
+    return [sample_of(pool[int(index * step + step / 2)], nsfw_book) for index in range(count)]
+
+
 def pick_samples(meta: dict, entries: list[dict], pinned: list[str] = ()) -> tuple[list[dict], list[str]]:
     """给这一批新增挑几张样图。
 
-    默认规则：只取能公开的有图词条，按书里的顺序均匀取几张，同一批数据每次挑出来都一样；
-    整本 NSFW 的书一张不出。
+    默认规则与书内样张一致：按书里的顺序均匀取有图词条，同一批数据每次挑出来都一样；
+    整本 NSFW 的书标记解锁，其余书只取能公开的词条。
     这一批在 codexes.json 里写了 samples（图片文件名）就按它来、顺序照写的：维护者可以指定
     成人档的图，这类样图带 nsfw 标记、前端只给已解锁的访客看；R18G 一律不收。
     写的图不在这一批或没图会被跳过并报出来，一张都对不上时退回默认规则。"""
@@ -147,14 +162,7 @@ def pick_samples(meta: dict, entries: list[dict], pinned: list[str] = ()) -> tup
             nsfw_book = bool(meta.get("nsfw"))
             return [sample_of(entry, nsfw_book or not is_safe_entry(entry)) for entry in chosen[:SAMPLES_PER_BOOK]], notes
         notes.append("指定样图一张都用不上，改按默认规则挑")
-    if meta.get("nsfw"):
-        return [], notes
-    pool = [entry for entry in entries if entry.get("image") and is_safe_entry(entry)]
-    if not pool:
-        return [], notes
-    count = min(SAMPLES_PER_BOOK, len(pool))
-    step = len(pool) / count
-    return [sample_of(pool[int(index * step + step / 2)]) for index in range(count)], notes
+    return pick_auto_samples(meta, entries, SAMPLES_PER_BOOK), notes
 
 
 def pick_previews(meta: dict, entries: list[dict]) -> tuple[list[dict], list[str]]:
@@ -185,15 +193,7 @@ def pick_previews(meta: dict, entries: list[dict]) -> tuple[list[dict], list[str
         if chosen:
             return [sample_of(entry, nsfw_book or not is_safe_entry(entry)) for entry in chosen[:PREVIEWS_PER_BOOK]], notes
         notes.append("指定预览图一张都用不上，改按默认规则挑")
-    if nsfw_book:
-        pool = [entry for entry in imaged if entry_rating(entry) != "r18g" and str(entry["image"]) != cover]
-    else:
-        pool = [entry for entry in imaged if is_safe_entry(entry) and str(entry["image"]) != cover]
-    if not pool:
-        return [], notes
-    count = min(PREVIEWS_PER_BOOK, len(pool))
-    step = len(pool) / count
-    return [sample_of(pool[int(index * step + step / 2)], nsfw_book) for index in range(count)], notes
+    return pick_auto_samples(meta, imaged, PREVIEWS_PER_BOOK, exclude_image=cover), notes
 
 
 def dir_distribution(entries: list[dict], limit: int = 3) -> list[list]:

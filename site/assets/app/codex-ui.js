@@ -357,8 +357,8 @@ export function setupCodexPicker() {
   };
 
   /* 卷头「最近新增」：这一类里访客看得到的最近一次更新（维护者给某本书那一批标了 pickerHidden 的不算）。
-     条数按访客能看到的算（未解锁 NSFW 用 safeCount）。样图来自 updates.json 的 samples：默认只挑能公开的，
-     维护者指定的成人档样图带 nsfw 标记、只给已解锁的访客看。没有能看的图时改画「新增分布」——这一批落在
+     条数按访客能看到的算（未解锁 NSFW 用 safeCount）。样图来自 updates.json 的 samples：与书内样张统一自动抽取，
+     成人书或维护者指定的成人档样图带 nsfw 标记、只给已解锁的访客看。没有能看的图时改画「新增分布」——这一批落在
      哪几个目录、各多少条；连目录都数不出才用「待配图」卡顶上；索引里没有这一类的更新时退回前几本的封面。 */
   const visibleUpdateCount = book => (state.allowNsfw ? book.count : book.safeCount);
   const recentForType = t => {
