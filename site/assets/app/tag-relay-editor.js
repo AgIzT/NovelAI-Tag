@@ -29,14 +29,20 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
   channels.setAttribute('aria-label', '提示词通道');
   channels.style.setProperty('--seg-count', '2');
   const buttons = new Map();
-  let panelActive = false, panelSignature = '';
+  /* 例图条：当前通道里带图的词组，按正文顺序一组一张。它不在文字流里，所以能占位，
+     镜像那条「只画不占位」的约束管不到这里。 */
+  const pics = element('div', 'relay-pics');
+  pics.setAttribute('role', 'group');
+  pics.setAttribute('aria-label', '词组例图');
+  pics.hidden = true;
+  let panelActive = false, panelSignature = '', picsSignature = '', panelHost = panel;
   let editVersion = 0;
   const expansions = new Map();
   root.classList.add('relay-editor');
-  root.replaceChildren(channels, actions);
+  root.replaceChildren(channels, pics, actions);
   const here = () => session[session.channel];
   const view = () => views.get(session.channel);
-  const button = (label, action, host = panel) => {
+  const button = (label, action, host = panelHost) => {
     const node = element('button', '', label);
     node.type = 'button';
     node.addEventListener('mousedown', event => event.preventDefault());
@@ -144,9 +150,9 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     const { text, folds } = here(), cur = currentToken();
     const duplicates = analyzeOutput(text, folds, { dedupe: session.dedupe, isLocked }).duplicateDetails;
     v.duplicates = duplicates;
-    const fragment = document.createDocumentFragment();
+    const fragment = document.createDocumentFragment(), list = tokens(text);
     let at = 0;
-    for (const t of tokens(text)) {
+    for (const t of list) {
       /* 首尾零宽守卫放在 span 外：「​~tag~​」「​#词组​」折行时零宽字符会单独留在上一行行尾，
          留在 span 里注音就挂到上一行，块和药丸还会在行尾多画一个空框。文字顺序不变，落点计数不受影响。 */
       const lead = t.core.match(/^​*/)[0], rest = t.core.slice(lead.length);
@@ -157,6 +163,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       const span = element('span', 'relay-token', guarded ? body : t.core);
       span.dataset.start = String(t.start);
       span.classList.toggle('is-fold', Boolean(fold));
+      if (fold && !locked) span.dataset.fold = t.fold;
       span.classList.toggle('is-locked', Boolean(locked));
       span.classList.toggle('is-off', t.off);
       span.classList.toggle('is-up', t.mult > 1.001);
@@ -186,11 +193,120 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     }
     v.mirror.replaceChildren(fragment);
     v.surface.classList.toggle('is-empty', !text);
+    paintPics(list);
     const scroll = v.surface.scrollTop;
     v.input.style.height = `${v.mirror.scrollHeight}px`;
     v.surface.scrollTop = scroll;
     paintPanel(cur, duplicates);
   }
+
+  /* 只在组名、图或停用状态变了才重建，打字时不重新解码图片。点卡时再按名字回查位置。 */
+  function paintPics(list) {
+    const { folds } = here(), seen = new Set(), items = [];
+    for (const t of list) {
+      const fold = folds.get(t.fold);
+      if (!fold?.image || isLocked(fold) || seen.has(t.fold)) continue;
+      seen.add(t.fold); items.push({ t, fold });
+    }
+    const signature = JSON.stringify(items.map(({ t, fold }) => [t.fold, fold.image, t.off]));
+    pics.hidden = !items.length;
+    if (signature === picsSignature) return;
+    picsSignature = signature;
+    hidePeek();
+    pics.replaceChildren(...items.map(({ t, fold }) => {
+      const card = element('button', 'relay-pic');
+      card.type = 'button';
+      card.dataset.fold = t.fold;
+      card.classList.toggle('is-off', t.off);
+      card.setAttribute('aria-label', `选中 #${t.fold}`);
+      const img = element('img', 'relay-pic-img');
+      img.src = fold.image; img.alt = ''; img.draggable = false;
+      card.append(img, element('span', 'relay-pic-name', t.fold));
+      let touch = false;
+      card.addEventListener('pointerdown', event => { touch = event.pointerType !== 'mouse'; });
+      card.addEventListener('mousedown', event => event.preventDefault());
+      card.addEventListener('click', () => selectFold(t.fold, { focus: !touch }));
+      card.addEventListener('pointerenter', event => {
+        if (event.pointerType !== 'mouse') return;
+        hot(t.fold, true); showPeek(card, t.fold);
+      });
+      card.addEventListener('pointerleave', () => { hot(t.fold, false); if (!peekPinned) hidePeek(); });
+      return card;
+    }));
+  }
+  function hot(name, on) {
+    for (const span of view().mirror.querySelectorAll('.relay-token[data-fold]')) {
+      if (span.dataset.fold === name) span.classList.toggle('is-hot', on);
+    }
+  }
+  /* 触屏点卡不聚焦输入框，免得只是想看图却弹出软键盘；面板照样按选区出。 */
+  function selectFold(name, { focus = true } = {}) {
+    const t = tokens(here().text).find(item => item.fold === name);
+    if (!t) return;
+    const { input, surface, mirror } = view();
+    if (focus) input.focus({ preventScroll: true });
+    input.setSelectionRange(t.start, t.end);
+    panelActive = true;
+    paintPanel(currentToken(), view().duplicates);
+    const span = mirror.querySelector(`.relay-token[data-start="${t.start}"]`);
+    if (!span) return;
+    const top = span.offsetTop, bottom = top + span.offsetHeight + 18;
+    if (top < surface.scrollTop) surface.scrollTop = Math.max(0, top - 8);
+    else if (bottom > surface.scrollTop + surface.clientHeight) surface.scrollTop = bottom - surface.clientHeight;
+  }
+  function markPics(t) {
+    const current = !panel.hidden && t?.fold;
+    for (const card of pics.children) card.classList.toggle('is-current', Boolean(current) && card.dataset.fold === current);
+  }
+
+  /* 放大的例图挂在 body 上：方案区是滚动容器，挂在里面会被裁；层级在侧栏之上、灯箱之下。
+     桌面优先放在侧栏左边，不盖住正在看的正文；窄屏水平居中，放在触发点下方或上方。 */
+  let peek = null, peekImg = null, peekCaption = null, peekAnchor = null, peekPinned = false;
+  function showPeek(anchor, name, { pinned = false } = {}) {
+    const fold = here().folds.get(name);
+    if (!fold?.image || isLocked(fold)) { hidePeek(); return; }
+    if (!peek) {
+      peek = element('div', 'relay-pic-peek');
+      peek.setAttribute('aria-hidden', 'true');
+      peekImg = element('img', ''); peekImg.alt = ''; peekImg.draggable = false;
+      peekCaption = element('span', 'relay-pic-peek-name');
+      peek.append(peekImg, peekCaption);
+      peekImg.addEventListener('load', () => { if (peekAnchor) placePeek(peekAnchor); });
+      document.body.append(peek);
+    }
+    peekAnchor = anchor; peekPinned = pinned;
+    peekImg.src = fold.image;
+    peekCaption.textContent = fold.title || name;
+    peek.hidden = false;
+    placePeek(anchor);
+  }
+  /* 收起时连图和标题一起清掉：撤权后被锁的标题与缩略图不能留在 DOM 里。 */
+  function hidePeek() {
+    peekAnchor = null; peekPinned = false;
+    if (!peek) return;
+    peek.hidden = true;
+    peekImg.removeAttribute('src');
+    peekCaption.textContent = '';
+  }
+  function placePeek(anchor) {
+    if (!peek || peek.hidden || !anchor.isConnected) return;
+    const a = anchor.getBoundingClientRect(), rail = root.closest('.tag-relay-rail')?.getBoundingClientRect() || a;
+    const w = peek.offsetWidth, h = peek.offsetHeight, gap = 10;
+    const clamp = (value, max) => Math.max(8, Math.min(value, max));
+    let left, top;
+    if (rail.left - gap - w >= 8) { left = rail.left - gap - w; top = a.top - 8; }
+    else {
+      left = (innerWidth - w) / 2;
+      top = a.bottom + gap + h <= innerHeight - 8 ? a.bottom + gap : a.top - gap - h;
+    }
+    peek.style.left = `${clamp(left, innerWidth - w - 8)}px`;
+    peek.style.top = `${clamp(top, innerHeight - h - 8)}px`;
+  }
+  document.addEventListener('pointerdown', event => {
+    if (peekPinned && !peekAnchor?.contains(event.target)) hidePeek();
+  }, true);
+  document.addEventListener('scroll', () => { if (peekAnchor) hidePeek(); }, { capture: true, passive: true });
+  window.addEventListener('resize', () => { if (peekAnchor) hidePeek(); });
 
   function rewrite(t, next) {
     if (next === t.core) return;
@@ -258,6 +374,11 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
   }
   function paintPanel(t, duplicates = view().duplicates) {
     if (view().selecting) return;
+    renderPanel(t, duplicates);
+    markPics(t);
+    if (peekAnchor && !peekAnchor.isConnected) hidePeek();
+  }
+  function renderPanel(t, duplicates) {
     const selected = selectedFold();
     const hasSelection = Boolean(selected.text.trim());
     /* 原子词组被自动选中仍是单条操作，不能误入“折叠选区”。 */
@@ -270,6 +391,8 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     if (signature === panelSignature && panel.childNodes.length) return;
     panelSignature = signature;
     panel.replaceChildren();
+    panel.classList.remove('has-pic');
+    panelHost = panel;
     /* 选中态：面板整块换成「已选 N 项 + 折叠」，不再并列 tag 操作。 */
     if (hasSelection && !singleFold) {
       panel.append(element('span', 'relay-token-name', `已选 ${tokens(selected.text).length || 1} 项`));
@@ -297,6 +420,28 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     }
     if (!t) return;
     const fold = here().folds.get(t.fold), locked = fold && isLocked(fold);
+    /* 带图的词组：例图在左，名字和动作在右。点图钉住放大图，悬停只临时看。 */
+    let box = panel;
+    if (fold?.image && !locked) {
+      const pic = element('button', 'relay-token-pic');
+      pic.type = 'button';
+      pic.setAttribute('aria-label', `放大 #${t.fold} 的例图`);
+      const img = element('img', ''); img.src = fold.image; img.alt = ''; img.draggable = false;
+      pic.append(img);
+      pic.addEventListener('mousedown', event => event.preventDefault());
+      pic.addEventListener('click', () => {
+        if (peekPinned && peekAnchor === pic) hidePeek(); else showPeek(pic, t.fold, { pinned: true });
+      });
+      pic.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || !peekPinned) return;
+        event.preventDefault(); event.stopPropagation(); hidePeek();
+      });
+      pic.addEventListener('pointerenter', event => { if (event.pointerType === 'mouse' && !peekPinned) showPeek(pic, t.fold); });
+      pic.addEventListener('pointerleave', () => { if (!peekPinned) hidePeek(); });
+      box = panelHost = element('div', 'relay-token-body');
+      panel.append(pic, box);
+      panel.classList.add('has-pic');
+    }
     const name = element('span', 'relay-token-name', locked ? '内容已锁定' : fold ? `#${t.fold}` : t.name);
     /* 面板头是被点中那一个的放大版：同形同色。锁定时只留文字。 */
     if (!locked) {
@@ -306,28 +451,31 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       name.classList.toggle('is-up', t.mult > 1.001);
       name.classList.toggle('is-down', t.mult < .999);
     }
-    panel.append(name);
+    box.append(name);
     const duplicate = duplicates.get(t.start);
     const note = duplicate?.kind === 'group' ? `组内 ${duplicate.count} 个 tag 会在输出时合并`
       : duplicate ? `${fold ? '整组' : '此 tag'}重复，输出时与第 ${duplicate.firstOrdinal} 项合并`
         : fold ? `${tokens(fold.body).length} 项` : translate(t);
-    if (!locked && note) panel.append(element('span', 'relay-token-meaning', note));
+    if (!locked && note) box.append(element('span', 'relay-token-meaning', note));
     if (!locked) {
+      /* 权重四件放一组：面板变窄时整组换行，− 和 + 不会被拆到两行。 */
+      const weight = element('span', 'relay-token-weight');
+      box.append(weight);
       // 按十分位整数加减，按钮始终落在 0.1 刻度，避免浮点尾数累积。
-      button('−', () => rewrite(t, wrapped(t, t.body, (Math.round(t.mult * 10) - 1) / 10)));
+      button('−', () => rewrite(t, wrapped(t, t.body, (Math.round(t.mult * 10) - 1) / 10)), weight);
       const mult = element('span', 'relay-token-mult', `×${Number(t.mult.toFixed(1))}`);
       mult.classList.toggle('is-up', t.mult > 1.001);
       mult.classList.toggle('is-down', t.mult < .999);
-      panel.append(mult);
-      button('+', () => rewrite(t, wrapped(t, t.body, (Math.round(t.mult * 10) + 1) / 10)));
-      button('清除权重', () => rewrite(t, wrapped(t, t.body, 1))).disabled = Math.abs(t.mult - 1) < .001;
+      weight.append(mult);
+      button('+', () => rewrite(t, wrapped(t, t.body, (Math.round(t.mult * 10) + 1) / 10)), weight);
+      button('清除权重', () => rewrite(t, wrapped(t, t.body, 1)), weight).disabled = Math.abs(t.mult - 1) < .001;
       button(t.off ? '启用' : '禁用', () => rewrite(t, t.off ? t.core.slice(2, -2) : `${OFF_OPEN}${t.core}${OFF_CLOSE}`));
       if (fold) {
         button('展开', () => expand(t));
         if (fold.codexId && fold.entryId) {
           const link = element('a', 'relay-token-source', '查看来源');
           link.href = `/share/${encodeURIComponent(fold.codexId)}/${encodeURIComponent(fold.entryId)}`;
-          link.target = '_blank'; link.rel = 'noopener noreferrer'; panel.append(link);
+          link.target = '_blank'; link.rel = 'noopener noreferrer'; box.append(link);
         }
       }
     }
