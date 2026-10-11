@@ -1796,8 +1796,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const copyStart = composeSource.indexOf('async function saveDraftAsCopy(');
   const copyBody = composeSource.slice(copyStart, composeSource.indexOf('function renderSaveState(', copyStart));
   assert.match(copyBody, /structuredClone\(draft\.plan\)/, '另存动作必须保存独立快照');
-  assert.match(copyBody, /if \(generation !== draft\.generation\) return false;[\s\S]*drafts\.delete\(snapshot\.id\)/,
-    '删除原草稿前必须证明等待期间没有新输入');
+  const generationGuard = copyBody.match(/if \(generation !== draft\.generation\) \{([\s\S]*?)\}\s*clearTimeout\(draft\.timer\);\s*drafts\.delete\(snapshot\.id\)/);
+  assert.ok(generationGuard, '删除原草稿前必须先处理等待期间的新 generation');
+  assert.match(generationGuard[1], /return false;\s*$/, 'generation 不同的整个分支必须在删除前退出');
+  assert.doesNotMatch(generationGuard[1], /drafts\.delete\(/, '新 generation 分支不能删除原草稿');
   assert.match(composeSource, /action\('载入已保存版本',[\s\S]*requestRelayAction\([\s\S]*drafts\.delete\(activeId\)/);
 }
 

@@ -20,6 +20,8 @@ import { createStorageCoordinator, writeStorageTransaction } from './storage-coo
 
 let current = null;
 let storageIssue = null;
+/* 补偿失败后不知道哪些字节已经生效。本页不能靠一次可读重载把失败操作重放。 */
+let rollbackFailure = null;
 let bound = false;
 let initialization = null;
 const listeners = new Set();
@@ -36,7 +38,7 @@ export function relayState() {
   if (!current) {
     const loaded = loadRelayStateStatus();
     current = loaded.state;
-    storageIssue = loaded.ok ? null : loaded.reason;
+    storageIssue = rollbackFailure ? 'rollback' : loaded.ok ? null : loaded.reason;
     if (storageIssue) reportFailure(storageIssue);
   }
   return current;
@@ -63,6 +65,29 @@ function publish(meta) {
       console.warn('[tag-relay] 订阅者出错', error);
     }
   }
+}
+
+function failedResult(transaction) {
+  return { ok: false, reason: transaction.reason,
+    ...(transaction.error !== undefined ? { error: transaction.error } : {}),
+    ...(transaction.rollbackErrors !== undefined ? { rollbackErrors: transaction.rollbackErrors } : {}),
+    ...(transaction.trimmed !== undefined ? { trimmed: transaction.trimmed } : {}),
+    ...(transaction.result !== undefined ? { result: transaction.result } : {}),
+    ...(transaction.planId !== undefined ? { planId: transaction.planId } : {}),
+    ...(transaction.revision !== undefined ? { revision: transaction.revision } : {}),
+  };
+}
+
+function rememberRollback(transaction) {
+  if (transaction.reason === 'rollback' && !rollbackFailure) {
+    /* 必须在持锁回调返回前锁存：已经排队的下一次提交也要拒绝执行 mutator。 */
+    rollbackFailure = failedResult(transaction);
+    storageIssue = 'rollback';
+    clearTimeout(pendingReload); pendingReload = 0; pendingChange = null;
+    reportFailure(storageIssue);
+    publish({ changed: 'all', source: 'rollback', issue: storageIssue });
+  }
+  return transaction;
 }
 
 function lockToken() {
@@ -136,23 +161,27 @@ function persistState(storage, next, changed, { allowTrim = true, fence } = {}) 
   const payload = JSON.stringify(normalized);
   const attempt = tryWrite(storage, payload, changed, fence);
   if (attempt.ok) return { ok: true, written: true, next: normalized };
-  if (!attempt.quota) return { ok: false, reason: 'save' };
+  if (!attempt.quota) return { ...attempt, reason: attempt.reason === 'rollback' ? 'rollback' : 'save' };
   /* 首次迁移必须完整保留成品历史。写不下就保留旧 key，等待用户腾出空间后重试。 */
-  if (!allowTrim) return { ok: false, reason: 'quota' };
+  if (!allowTrim) return { ...attempt, reason: 'quota' };
 
   /* 配额撞墙的自救。真正撑爆的是复制历史，而「清空复制历史」埋在编排页签里，
      一句「请检查浏览器存储权限」不可能把用户领过去；先自己丢掉最旧的几条再试一次。
-     ⚠ 全程只动 next（loadRelayState 出来的独立副本），失败时磁盘与内存都还是撞墙前那份。 */
+     ⚠ 全程只动 next（loadRelayState 出来的独立副本）；补偿失败时必须保留不确定结果。 */
   const { trimmed } = trimStateToBudget(next, Math.floor(payload.length * RELAY_QUOTA_BUDGET_RATIO));
-  if (!trimmed) return { ok: false, reason: 'quota', trimmed: 0 };
+  if (!trimmed) return { ...attempt, reason: 'quota', trimmed: 0 };
   const retryState = normalizeRelayState(next);
   /* 历史被裁掉了，脏区不再只是调用方声明的那一块，退回全量。 */
   const retry = tryWrite(storage, JSON.stringify(retryState), 'all', fence);
-  if (!retry.ok) return { ok: false, reason: 'quota', trimmed };
+  if (!retry.ok) return { ...retry, reason: retry.reason === 'rollback' ? 'rollback' : 'quota', trimmed };
   return { ok: true, written: true, next: retryState, trimmed };
 }
 
 function reportFailure(reason) {
+  if (reason === 'rollback') {
+    toast('中转站保存结果未能确认。先保留本页输入，再重新加载检查方案。', '!');
+    return;
+  }
   if (reason === 'migration-save' || reason === 'migration-quota') {
     toast('旧中转站数据已保留，迁移未保存', '!', {
       label: '重试', onClick: async () => { await initializeRelay(); },
@@ -197,24 +226,28 @@ function reportFailure(reason) {
 /* 读取可以同步展示，迁移写入必须与普通提交共用同一把锁。失败时旧 key 一字不动，
    再次调用会重新读取、校验和试编译；成功后 v4 优先，不会重复导入旧方案。 */
 export async function initializeRelay() {
+  if (rollbackFailure) return failedResult(rollbackFailure);
   if (initialization) return await initialization;
   /* 先留可读候选，写入失败后仍能查看；锁内会再读一遍作为唯一提交底本。 */
   relayState();
   initialization = (async () => {
     const transaction = await coordinator.run((storage, fence) => {
+      if (rollbackFailure) return failedResult(rollbackFailure);
       const loaded = loadRelayStateStatus(storage);
       if (!loaded.ok) return { ok: false, reason: loaded.reason };
       if (!loaded.migrated) return { ok: true, next: loaded.state, migrated: false };
       const saved = persistState(storage, loaded.state, 'all', { allowTrim: false, fence });
-      return saved.ok ? { ...saved, migrated: true } : {
-        ...saved, reason: saved.reason === 'quota' ? 'migration-quota' : 'migration-save',
-      };
+      return rememberRollback(saved.ok ? { ...saved, migrated: true } : {
+        ...saved, reason: saved.reason === 'rollback' ? 'rollback'
+          : saved.reason === 'quota' ? 'migration-quota' : 'migration-save',
+      });
     });
+    if (rollbackFailure) return failedResult(rollbackFailure);
     if (!transaction.ok) {
       storageIssue = transaction.reason;
       reportFailure(storageIssue);
       publish({ changed: 'all', source: 'migration', issue: storageIssue });
-      return { ok: false, reason: storageIssue };
+      return failedResult(transaction);
     }
     current = transaction.next;
     storageIssue = null;
@@ -230,7 +263,13 @@ export const retryRelayMigration = initializeRelay;
    侧栏据此只重绘对应的页签——入库现在挂在复制这条最高频的路径上，
    每次都全量重建 50 张带图卡片会直接压到复制反馈的动效上。 */
 export async function commitRelay(mutator, { changed = 'all', planId, revision, expectedRevision = revision } = {}) {
+  if (rollbackFailure) {
+    reportFailure('rollback');
+    return failedResult(rollbackFailure);
+  }
+  relayState();
   const transaction = await coordinator.run((storage, fence) => {
+    if (rollbackFailure) return failedResult(rollbackFailure);
     /* ⚠ 不再 clone：loadRelayState 走的是 JSON.parse + normalizeRelayState，产出的已是
        全新对象图，与 current 没有任何共享引用。再 structuredClone + 再 normalize 一遍是白跑，
        实测占单次提交四成耗时。 */
@@ -258,13 +297,14 @@ export async function commitRelay(mutator, { changed = 'all', planId, revision, 
       return { ok: false, reason: result.reason, next, result, planId, revision: result.plan?.revision };
     }
     const saved = persistState(storage, next, changed, { allowTrim: !loaded.migrated, fence });
-    if (!saved.ok && loaded.migrated) {
+    if (!saved.ok && loaded.migrated && saved.reason !== 'rollback') {
       saved.reason = saved.reason === 'quota' ? 'migration-quota' : 'migration-save';
     }
-    return { ...saved, result };
+    return rememberRollback({ ...saved, result });
   });
 
-  /* ⚠ 先落盘再换内存：写失败时内存与磁盘不会失步，用户手里的中转站还是刚才那份。 */
+  if (rollbackFailure) return failedResult(rollbackFailure);
+  /* 已确认成功或已确认补偿后才换内存；补偿失败保留旧内存并锁定本页写入。 */
   if (!transaction.ok) {
     if (transaction.reason === 'conflict' || transaction.reason === 'missing-plan') {
       current = transaction.next;
@@ -272,7 +312,7 @@ export async function commitRelay(mutator, { changed = 'all', planId, revision, 
       publish({ changed: 'plan', source: 'conflict', issue: transaction.reason, planId: transaction.planId });
     } else if (transaction.reason.startsWith('migration-')) storageIssue = transaction.reason;
     reportFailure(transaction.reason);
-    return { ok: false, result: transaction.result, reason: transaction.reason, planId: transaction.planId, revision: transaction.revision };
+    return failedResult(transaction);
   }
   /* ⚠ 换上的是**规整后**的那一份，与磁盘上的字节同源。直接换 mutator 改过的 next，
      将来任何加进 normalize 的规整都会让内存与磁盘悄悄分叉。 */
@@ -325,6 +365,7 @@ export function subscribeRelay(listener) {
 }
 
 function reloadFromStorage(source, changed = 'all') {
+  if (rollbackFailure) return;
   const loaded = loadRelayStateStatus();
   storageIssue = loaded.ok ? null : loaded.reason;
   if (loaded.ok || !current) current = loaded.state;
@@ -338,6 +379,7 @@ export async function setupRelayStore() {
   /* 跨标签页同步。⚠ storage 事件只在**别的**标签页写入时触发，
      所以同页内的修改必须走 commitRelay，指望它兜底是不行的。 */
   window.addEventListener('storage', event => {
+    if (rollbackFailure) return;
     /* ⚠ 同源 iframe 里一次 sessionStorage.clear() 同样派发 key === null 的 storage 事件。
        不认 storageArea 就会被当成 localStorage 被清空，整份重载一次。
        （惯例照抄 favorites-backup.js 的 subscribeFavoritesChanges。） */
