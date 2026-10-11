@@ -5,7 +5,7 @@ export async function loadFavoritesTestModules() {
   const urls = new Map();
   const makeUrl = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
   urls.set('./feedback.js', makeUrl('export function toast() {}'));
-  for (const name of ['favorites-backup-core', 'favorites-library-core', 'favorites-library-store', 'favorites-backup-store', 'favorites-origin-migration']) {
+  for (const name of ['storage-coordinator', 'favorites-backup-core', 'favorites-library-core', 'favorites-library-store', 'favorites-backup-store', 'favorites-origin-migration']) {
     let source = await readFile(new URL('../site/assets/app/' + name + '.js', import.meta.url), 'utf8');
     for (const [path, url] of urls) source = source.replaceAll("from '" + path + "'", "from '" + url + "'");
     urls.set('./' + name + '.js', makeUrl(source));

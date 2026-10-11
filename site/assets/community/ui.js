@@ -4,7 +4,7 @@ import { scrubClipboardFallback } from '../app/clipboard-fallback.js';
 import { closeMask } from '../app/modal.js';
 import { forgetHistoryLayer, goBackFrom, scheduleHistoryScrollCheckpoint } from '../app/browser-history.js';
 import { COMMUNITY_CATEGORIES } from './constants.js';
-import { favoriteCountForEntries, isFavorite, toggleFavorite } from './favorites.js';
+import { favoriteCountForEntries, favoriteKey, isFavorite, toggleFavorite } from './favorites.js';
 import { currentCommunityHistorySession, syncCommunityHistory } from './router.js';
 import { requestCommunityNsfwAccess } from './nsfw-confirm.js';
 import { revokeCommunityDetailAccess } from './detail.js';
@@ -22,6 +22,7 @@ let openDetail = null;
 let openSubmit = null;
 let nsfwRequestSeq = 0;
 let deferredNsfwDetail = null;
+const pendingFavorites = new Set();
 const nextSearchSessionId = () => `community-search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 export function initCommunityUI(handlers = {}) {
@@ -84,12 +85,26 @@ export function applyCommunityFilters({ scrollTop = false } = {}) {
   }
 }
 
-function handleToggleFavorite(entry) {
-  const active = toggleFavorite(entry);
-  toast(active ? '已收藏' : '已取消收藏');
-  updateFavoriteButton();
-  applyCommunityFilters();
-  syncCommunityHistory({ historyMode: 'replace' });
+async function handleToggleFavorite(entry) {
+  const key = favoriteKey(entry);
+  if (pendingFavorites.has(key)) return;
+  pendingFavorites.add(key);
+  try {
+    const result = await toggleFavorite(entry);
+    if (!result.ok) {
+      const message = result.reason === 'quota' ? '收藏没能保存：浏览器存储已满，打开「收藏备份」备份并清理后重试'
+        : result.reason === 'corrupt' ? '收藏数据无法读取，打开「收藏备份」导出原数据后再恢复'
+        : result.reason === 'lock' ? '收藏没能保存，另一个标签页正在修改。重试一次。'
+        : result.reason === 'rollback' ? '收藏保存未完成，打开「收藏备份」检查当前内容'
+        : '收藏没能保存：浏览器禁止了本站的本地存储，恢复存储权限后重试';
+      toast(message, '!');
+      return;
+    }
+    toast(result.active ? '已收藏' : '已取消收藏');
+    updateFavoriteButton();
+    applyCommunityFilters();
+    syncCommunityHistory({ historyMode: 'replace' });
+  } finally { pendingFavorites.delete(key); }
 }
 
 function selectCategory(category) {

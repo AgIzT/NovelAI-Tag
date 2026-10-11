@@ -37,6 +37,29 @@ function readCommunity(storage, codexes) {
   }, codexes);
 }
 
+function stableJson(value) {
+  return JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+}
+
+// 只比较覆盖会删除或替换的旧对象；同数量换身份、改备注和改归类都需要重新确认。
+// 顶层更新时间不属于损失对象，保留下来的相同对象也不使确认过期。
+export function createReplaceReview({ plan, currentLibrary } = {}) {
+  const replaced = (current, next, identity) => {
+    const retained = new Map(next.map(item => [identity(item), stableJson(item)]));
+    return current.filter(item => retained.get(identity(item)) !== stableJson(item))
+      .sort((a, b) => identity(a) < identity(b) ? -1 : identity(a) > identity(b) ? 1 : 0);
+  };
+  const nextCommunity = new Set(plan.next.community);
+  return stableJson({
+    items: replaced(currentLibrary.items, plan.nextLibrary.items, item => item.key),
+    folders: replaced(currentLibrary.folders, plan.nextLibrary.folders, folder => folder.id),
+    memberships: replaced(currentLibrary.memberships, plan.nextLibrary.memberships,
+      member => JSON.stringify([member.itemKey, member.folderId])),
+    community: plan.current.community.filter(id => !nextCommunity.has(id)).sort(),
+  });
+}
+
 export function createFavoritesBackupStore(store = defaultStore) {
   const readCurrent = async ({ storage, codexes = [] } = {}) => {
     const ready = await store.ensureLibrary({ silent: true, codexes });
@@ -46,7 +69,8 @@ export function createFavoritesBackupStore(store = defaultStore) {
     return { ...current, atlasKeys: libraryKeys(library), library };
   };
 
-  const restore = async ({ backup, mode = 'merge', storage, codexes = [], preserveCommunity = false, expectedCorruptRaw } = {}) => {
+  const restore = async ({ backup, mode = 'merge', storage, codexes = [], preserveCommunity = false,
+    expectedCorruptRaw, expectedReplaceReview } = {}) => {
     if (expectedCorruptRaw !== undefined && mode !== 'replace') {
       throw new FavoritesBackupError('INVALID_MODE', '当前收藏数据无法读取，只能选择覆盖恢复。');
     }
@@ -59,6 +83,11 @@ export function createFavoritesBackupStore(store = defaultStore) {
         : backup;
       // 预览后可能已有另一标签页写入；拿锁后的 draft 才是恢复计划的当前值。
       plan = createLibraryRestorePlan({ backup: incoming, currentLibrary: draft, currentCommunityIds: current.communityIds, mode, codexes });
+      if (mode === 'replace' && expectedReplaceReview !== undefined
+          && expectedReplaceReview !== createReplaceReview({ plan, currentLibrary: draft })) {
+        throw new FavoritesBackupError('REPLACE_PLAN_CHANGED',
+          '当前收藏已改变，覆盖范围已更新。检查后再次确认。', { current, plan });
+      }
       for (const key of Object.keys(draft)) delete draft[key];
       Object.assign(draft, plan.nextLibrary);
     }, {

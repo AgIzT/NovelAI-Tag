@@ -1437,8 +1437,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(indexSource, /id="sdPositivePreview"[^>]*aria-pressed="false"[^>]*hidden/);
   assert.match(indexSource, /id="sdNegativePreview"[^>]*aria-pressed="false"[^>]*hidden/);
   assert.match(lightboxSource, /renderPromptBlock\(pre, naiToSd\(source\)\)/);
-  assert.match(appSource, /state\.allowNsfw = localStorage\.getItem\(NSFW_STORAGE_KEY\) === '1';[\s\S]*if \(state\.allowNsfw\) localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
-  assert.match(uiSource, /localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
+  assert.match(appSource, /state\.allowNsfw = readPreference\(NSFW_STORAGE_KEY\) === '1';[\s\S]*if \(state\.allowNsfw\) writePreference\(ADULT_CONFIRMATION_STORAGE_KEY, '1'/);
+  assert.match(uiSource, /key: ADULT_CONFIRMATION_STORAGE_KEY, value: '1'/);
   assert.match(indexSource, /class="search-match-chip" hidden/);
   assert.match(masonrySource, /hiddenSearchMatch\(e, highlightTerms\)/);
   assert.match(indexSource, /class="zoom-btn(?: [^"]+)?"[^>]*type="button"[^>]*aria-label="放大查看"/);
@@ -1524,7 +1524,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(indexSource, /id="sidebar"[\s\S]*id="sidebarBackdrop"[\s\S]*id="main"/);
   assert.match(stylesSource, /\.sidebar:not\(\.closed\)\+\.sidebar-backdrop\{[\s\S]*z-index:24[\s\S]*touch-action:none/);
   assert.match(stylesSource, /\.tree\{overscroll-behavior:contain\}/);
-  assert.match(uiSource, /sidebarBackdrop\?\.addEventListener\('click', \(\) => \{\s*if \(closeHistoryLayer\('mobile-sidebar'\)\) return;/);
+  assert.match(uiSource, /sidebarBackdrop\?\.addEventListener\('click', \(\) => \{\s*if \(!writePreference\('fadian-sidebar', 'closed'\)\) return;\s*if \(closeHistoryLayer\('mobile-sidebar'\)\) return;/);
   assert.match(indexSource, /id="densityQuickBtn"/);
   assert.match(uiSource, /densityQuickBtn\.onclick = \(\) => applyDensity\(nextDensity\(state\.density\), \{ render: true, announce: true \}\)/);
   const railActiveSource = codexUiSource.match(/export function updateRailActive\(\) \{[\s\S]*?\n\}/)?.[0] || '';
@@ -1792,7 +1792,14 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const syncBody = composeSource.slice(syncStart, composeSource.indexOf('function renderManager', syncStart));
   assert.match(syncBody, /if \(draft\.dirty\) \{ draft\.issue = stored \? 'conflict' : 'missing-plan'; renderSaveState\(\); \}/);
   assert.match(composeSource, /const drafts = new Map\(\)/);
-  assert.match(composeSource, /action\('另存副本',[\s\S]*structuredClone\(draft\.plan\)/);
+  assert.match(composeSource, /action\('另存副本',[^\n]*saveDraftAsCopy\(draft\)/);
+  const copyStart = composeSource.indexOf('async function saveDraftAsCopy(');
+  const copyBody = composeSource.slice(copyStart, composeSource.indexOf('function renderSaveState(', copyStart));
+  assert.match(copyBody, /structuredClone\(draft\.plan\)/, '另存动作必须保存独立快照');
+  const generationGuard = copyBody.match(/if \(generation !== draft\.generation\) \{([\s\S]*?)\}\s*clearTimeout\(draft\.timer\);\s*drafts\.delete\(snapshot\.id\)/);
+  assert.ok(generationGuard, '删除原草稿前必须先处理等待期间的新 generation');
+  assert.match(generationGuard[1], /return false;\s*$/, 'generation 不同的整个分支必须在删除前退出');
+  assert.doesNotMatch(generationGuard[1], /drafts\.delete\(/, '新 generation 分支不能删除原草稿');
   assert.match(composeSource, /action\('载入已保存版本',[\s\S]*requestRelayAction\([\s\S]*drafts\.delete\(activeId\)/);
 }
 

@@ -2,6 +2,7 @@ import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
+import { readPreference, writePreference, writePreferences } from './preferences-storage.js';
 import { animateUi } from './ui-motion.js';
 import { firstUnlockedCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
@@ -127,21 +128,22 @@ export function updateSearchScopeControl() {
   btn.setAttribute('aria-label', site ? '搜索范围：全站' : '搜索范围：当前法典');
 }
 
-export function applyDensity(value, { render = true, announce = false } = {}) {
+export function applyDensity(value, { render = true, announce = false, persist = true } = {}) {
   const next = normalizeDensity(value);
+  if (persist && !writePreference(DENSITY_STORAGE_KEY, next)) return false;
   const changed = state.density !== next;
   const anchor = changed && render ? captureMasonryAnchor() : null;
   state.density = next;
   document.body.classList.remove(...Object.keys(DENSITY_PRESETS).map(k => `density-${k}`));
   document.body.classList.add(`density-${next}`);
-  localStorage.setItem(DENSITY_STORAGE_KEY, next);
   updateDensityControls();
-  if (!changed || !render || !state.codex) return;
+  if (!changed || !render || !state.codex) return true;
   relayoutVisible({ animate: true });
   restoreMasonryAnchor(anchor);
   updateVirtualCards(true);
   updateScrollProgress();
   if (announce) toast(`卡片密度：${densityConfig().label}`);
+  return true;
 }
 
 export function bindUI() {
@@ -265,8 +267,9 @@ export function bindUI() {
   updateSearchScopeControl();
   if (searchScopeBtn) {
     searchScopeBtn.onclick = () => {
-      state.searchScope = normalizeSearchScope(state.searchScope === 'site' ? 'codex' : 'site');
-      localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, state.searchScope);
+      const next = normalizeSearchScope(state.searchScope === 'site' ? 'codex' : 'site');
+      if (!writePreference(SEARCH_SCOPE_STORAGE_KEY, next)) return;
+      state.searchScope = next;
       updateSearchScopeControl();
       if (searchIsActive()) {
         void applySearchConditions();
@@ -429,8 +432,8 @@ export function bindUI() {
       } else if (action?.id === 'clear-all') {
         await clearAllSearch();
       } else if (action?.id === 'scope-site') {
+        if (!writePreference(SEARCH_SCOPE_STORAGE_KEY, 'site')) return;
         state.searchScope = 'site';
-        localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, state.searchScope);
         updateSearchScopeControl();
         await applySearchConditions();
       }
@@ -462,15 +465,20 @@ export function bindUI() {
      旧版只有 fadian-dark 布尔值——读到它就迁成对应的显式档，老用户手感一点不变；
      只有从没设置过的新访客才落到 auto。 */
   const readDarkMode = () => {
-    const saved = localStorage.getItem(DARK_MODE_STORAGE_KEY);
+    const saved = readPreference(DARK_MODE_STORAGE_KEY);
     if (DARK_MODES.some(m => m.id === saved)) return saved;
-    const legacy = localStorage.getItem(LEGACY_DARK_STORAGE_KEY);
+    const legacy = readPreference(LEGACY_DARK_STORAGE_KEY);
     return legacy === '1' ? 'dark' : legacy === '0' ? 'light' : 'auto';
   };
   let darkMode = readDarkMode();
   const applyTheme = (mode, { persist = true } = {}) => {
-    darkMode = DARK_MODES.some(m => m.id === mode) ? mode : 'auto';
-    const d = darkMode === 'auto' ? systemDark.matches : darkMode === 'dark';
+    const next = DARK_MODES.some(m => m.id === mode) ? mode : 'auto';
+    const d = next === 'auto' ? systemDark.matches : next === 'dark';
+    if (persist && !writePreferences([
+      { key: DARK_MODE_STORAGE_KEY, value: next },
+      { key: LEGACY_DARK_STORAGE_KEY, value: d ? '1' : '0' },
+    ])) return false;
+    darkMode = next;
     document.body.classList.toggle('dark', d);
     document.documentElement.style.colorScheme = d ? 'dark' : 'light';   // 滚动条等原生控件跟随深浅色
     const icon = d ? THEME_ICONS.sun : THEME_ICONS.moon;
@@ -478,53 +486,57 @@ export function bindUI() {
     themeBtn.innerHTML = icon;
     themeBtn.setAttribute('aria-label', label);
     if (themeMenuBtn) themeMenuBtn.innerHTML = `${icon}<span><b>${label}</b></span>`;
-    if (persist) localStorage.setItem(DARK_MODE_STORAGE_KEY, darkMode);
-    localStorage.setItem(LEGACY_DARK_STORAGE_KEY, d ? '1' : '0');   // 404 / strings / review 只认这个旧键
     for (const b of document.querySelectorAll('#darkModeControl [data-dark-mode]'))
       b.setAttribute('aria-pressed', b.dataset.darkMode === darkMode ? 'true' : 'false');
+    return true;
   };
   /* 顶栏按钮只管「现在翻到反面」，按下就脱离 auto——用户点它要的是确定结果，不是继续跟系统走 */
   const toggleTheme = () => applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark');
   themeBtn.onclick = toggleTheme;
   applyTheme(darkMode, { persist: false });
+  // 其它页面只读旧布尔键；首次 auto 也同步派生结果，不改三档偏好。
+  writePreference(LEGACY_DARK_STORAGE_KEY, document.body.classList.contains('dark') ? '1' : '0', { announce: false });
   systemDark.addEventListener('change', () => {
-    if (darkMode === 'auto') applyTheme('auto', { persist: false });
+    if (darkMode === 'auto') {
+      applyTheme('auto', { persist: false });
+      // 系统变化不改 auto 偏好；404 / strings / review 的旧镜像尽力跟随。
+      writePreference(LEGACY_DARK_STORAGE_KEY, systemDark.matches ? '1' : '0', { announce: false });
+    }
   });
   for (const b of document.querySelectorAll('#darkModeControl [data-dark-mode]')) {
     b.onclick = () => {
-      applyTheme(b.dataset.darkMode);
-      toast(`深浅色：${DARK_MODES.find(m => m.id === darkMode).name}`);
+      if (applyTheme(b.dataset.darkMode)) toast(`深浅色：${DARK_MODES.find(m => m.id === darkMode).name}`);
     };
   }
 
   /* 界面风格（换肤）：与深浅色正交，每套 light+dark 都在 CSS 里；默认紫=不加类 */
-  const applySkin = id => {
+  const applySkin = (id, { persist = true } = {}) => {
     const t = THEMES.find(x => x.id === id) || THEMES[0];
+    if (persist && !writePreference(THEME_STORAGE_KEY, t.id)) return null;
     for (const x of THEMES) if (x.id) document.body.classList.remove('theme-' + x.id);
     if (t.id) document.body.classList.add('theme-' + t.id);
-    localStorage.setItem(THEME_STORAGE_KEY, t.id);
     for (const b of document.querySelectorAll('#themeControl [data-theme]'))
       b.setAttribute('aria-pressed', b.dataset.theme === t.id ? 'true' : 'false');
     return t;
   };
   for (const b of document.querySelectorAll('#themeControl [data-theme]'))
-    b.onclick = () => toast(`界面风格：${applySkin(b.dataset.theme).name}`);
-  applySkin(localStorage.getItem(THEME_STORAGE_KEY) || '');
+    b.onclick = () => { const selected = applySkin(b.dataset.theme); if (selected) toast(`界面风格：${selected.name}`); };
+  applySkin(readPreference(THEME_STORAGE_KEY, ''), { persist: false });
 
   /* 界面字体（换嗓子）：与配色、深浅色同样正交；默认=不加类。
      只换 UI / 展示 / 目录三支，prompt 框永远留着等宽体。 */
-  const applyFont = id => {
+  const applyFont = (id, { persist = true } = {}) => {
     const f = FONTS.find(x => x.id === id) || FONTS[0];
+    if (persist && !writePreference(FONT_STORAGE_KEY, f.id)) return null;
     for (const x of FONTS) if (x.id) document.body.classList.remove('font-' + x.id);
     if (f.id) document.body.classList.add('font-' + f.id);
-    localStorage.setItem(FONT_STORAGE_KEY, f.id);
     for (const b of document.querySelectorAll('#fontControl [data-font]'))
       b.setAttribute('aria-pressed', b.dataset.font === f.id ? 'true' : 'false');
     return f;
   };
   for (const b of document.querySelectorAll('#fontControl [data-font]'))
-    b.onclick = () => toast(`站内字体：${applyFont(b.dataset.font).name}`);
-  applyFont(localStorage.getItem(FONT_STORAGE_KEY) || '');
+    b.onclick = () => { const selected = applyFont(b.dataset.font); if (selected) toast(`站内字体：${selected.name}`); };
+  applyFont(readPreference(FONT_STORAGE_KEY, ''), { persist: false });
 
   /* SD 复制模式：设置里的开关 + 顶栏常驻角标（开着才显示，点角标可关），状态存 localStorage */
   const sdToggle = $('#sdModeToggle');
@@ -546,35 +558,45 @@ export function bindUI() {
       }
     }
   };
-  const applySdMode = (on, animate = true) => {
+  const applySdMode = (on, animate = true, { persist = true } = {}) => {
+    if (persist && !writePreference('fadian-sdmode', on ? '1' : '0')) {
+      if (sdToggle) sdToggle.checked = state.sdMode;
+      return false;
+    }
     const changed = state.sdMode !== on;
     state.sdMode = on;
     if (sdToggle) sdToggle.checked = on;
     document.body.classList.toggle('sd-mode', on);
-    localStorage.setItem('fadian-sdmode', on ? '1' : '0');
     showSdBadge(on, animate);
     if (changed) refreshCardPrompts();
+    return true;
   };
   if (sdToggle) sdToggle.onchange = e => applySdMode(e.target.checked);
   if (sdBadge) sdBadge.onclick = () => applySdMode(false);
-  applySdMode(localStorage.getItem('fadian-sdmode') === '1', false);  // 初始化不做动画
+  applySdMode(readPreference('fadian-sdmode') === '1', false, { persist: false });  // 初始化不做动画
 
   /* 点击卡片放大：电脑端点卡片改开大图；手机本来就开大图，设置行在窄屏隐藏 */
   const cardZoomToggle = $('#cardZoomToggle');
-  const applyCardZoom = on => {
+  const applyCardZoom = (on, { persist = true } = {}) => {
+    if (persist && !writePreference(CARD_ZOOM_STORAGE_KEY, on ? '1' : '0')) {
+      if (cardZoomToggle) cardZoomToggle.checked = state.cardZoom;
+      return false;
+    }
     state.cardZoom = on;
     if (cardZoomToggle) cardZoomToggle.checked = on;
-    localStorage.setItem(CARD_ZOOM_STORAGE_KEY, on ? '1' : '0');
     refreshCopyHints();
+    return true;
   };
   if (cardZoomToggle) cardZoomToggle.onchange = e => applyCardZoom(e.target.checked);
-  applyCardZoom(localStorage.getItem(CARD_ZOOM_STORAGE_KEY) === '1');
+  applyCardZoom(readPreference(CARD_ZOOM_STORAGE_KEY) === '1', { persist: false });
 
   /* tag 中文对照：设置开关与灯箱「中文对照」按钮是同一个偏好，任一处改另一处跟着变 */
   const tagZhSetting = $('#tagZhSettingToggle');
   if (tagZhSetting) {
     tagZhSetting.checked = isTagZhEnabled();
-    tagZhSetting.onchange = e => setTagZhEnabled(e.target.checked);
+    tagZhSetting.onchange = e => {
+      if (!setTagZhEnabled(e.target.checked)) e.target.checked = isTagZhEnabled();
+    };
     onTagZhChange(on => { tagZhSetting.checked = on; });
   }
 
@@ -589,32 +611,35 @@ export function bindUI() {
 
   const sidebar = $('#sidebar');
   const sidebarBackdrop = $('#sidebarBackdrop');
-  const savedSidebar = localStorage.getItem('fadian-sidebar');
+  const savedSidebar = readPreference('fadian-sidebar');
   if (savedSidebar === 'closed' || (savedSidebar === null && window.innerWidth <= 600)) {
     sidebar.classList.add('closed');
   }
-  const setSidebarOpenDirect = open => {
+  const setSidebarOpenDirect = (open, { persist = true } = {}) => {
+    if (persist && !writePreference('fadian-sidebar', open ? 'open' : 'closed')) return false;
     sidebar.classList.toggle('closed', !open);
-    localStorage.setItem('fadian-sidebar', open ? 'open' : 'closed');
+    return true;
   };
   registerHistoryLayer('mobile-sidebar', {
     isOpen: () => mobileQuery.matches && !sidebar.classList.contains('closed'),
-    open: () => setSidebarOpenDirect(true),
-    close: () => setSidebarOpenDirect(false),
+    open: () => setSidebarOpenDirect(true, { persist: false }),
+    close: () => setSidebarOpenDirect(false, { persist: false }),
   });
   sidebarBackdrop?.addEventListener('click', () => {
+    if (!writePreference('fadian-sidebar', 'closed')) return;
     if (closeHistoryLayer('mobile-sidebar')) return;
-    setSidebarOpenDirect(false);
+    setSidebarOpenDirect(false, { persist: false });
     forgetHistoryLayer('mobile-sidebar');
   });
   $('#menuBtn').onclick = () => {
     // 收藏视图窄屏时这颗按钮唤起收藏夹抽屉；宽屏仍是折叠/展开左栏。
     if (uiActions.toggleFavoritesFolders($('#menuBtn'))) return;
     const opening = sidebar.classList.contains('closed');
+    if (!writePreference('fadian-sidebar', opening ? 'open' : 'closed')) return;
     if (mobileQuery.matches && !opening && closeHistoryLayer('mobile-sidebar')) return;
     const replaceLayer = mobileQuery.matches && opening && topHistoryLayerId() === 'banner-about';
     if (replaceLayer) closeBannerAbout();
-    setSidebarOpenDirect(opening);
+    setSidebarOpenDirect(opening, { persist: false });
     if (!mobileQuery.matches) return;
     if (opening) openHistoryLayer('mobile-sidebar', { mode: replaceLayer ? 'replace' : 'push' });
     else forgetHistoryLayer('mobile-sidebar');
@@ -827,16 +852,27 @@ export function bindUI() {
     if (revoked) scrubRestrictedSurfaces();
   };
   const setNsfwAccess = (on, { announce = false, persist = true } = {}) => {
-    state.allowNsfw = Boolean(on);
+    const next = Boolean(on);
+    const writes = next ? [
+      { key: ADULT_CONFIRMATION_STORAGE_KEY, value: '1' },
+      { key: NSFW_STORAGE_KEY, value: '1' },
+    ] : [
+      { key: NSFW_STORAGE_KEY, value: '0' },
+      { key: R18G_STORAGE_KEY, value: '0' },
+    ];
+    if (persist && !writePreferences(writes)) {
+      if (nsfwToggle) nsfwToggle.checked = state.allowNsfw;
+      return false;
+    }
+    state.allowNsfw = next;
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
-    if (persist) localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
-    if (persist && state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     if (nsfwToggle) nsfwToggle.checked = state.allowNsfw;
-    if (!state.allowNsfw) setR18gAccess(false, { persist, refresh: false });  // 两档一起关闭后只清场一次
+    if (!state.allowNsfw) setR18gAccess(false, { persist: false, refresh: false });  // 两档同次保存，关闭后只清场一次
     if (!state.allowNsfw && (state.activePath || []).some(isNsfwPathSegment)) state.activePath = [];
     updateR18gToggleState();
     refreshContentAccess({ revoked: !state.allowNsfw });
     if (announce) toast(state.allowNsfw ? 'NSFW 法典已解锁' : 'NSFW 法典已锁定');
+    return true;
   };
   const cancelNsfwConfirm = () => {
     if (nsfwToggle) nsfwToggle.checked = false;
@@ -854,8 +890,7 @@ export function bindUI() {
     };
   }
   $('#nsfwAccept').onclick = () => {
-    setNsfwAccess(true, { announce: true });
-    closeMask(nsfwMask);
+    if (setNsfwAccess(true, { announce: true })) closeMask(nsfwMask);
   };
   $('#nsfwCancel').onclick = cancelNsfwConfirm;
   $('#nsfwCancelX').onclick = cancelNsfwConfirm;
@@ -898,14 +933,19 @@ export function bindUI() {
   const cancelR18gConfirm = () => { if (r18gToggle) r18gToggle.checked = false; closeMask(r18gMask); };
   const setR18gAccess = (on, { announce = false, persist = true, refresh = true } = {}) => {
     const wasAllowed = state.allowR18g;
-    state.allowR18g = Boolean(on) && state.allowNsfw;
+    const next = Boolean(on) && state.allowNsfw;
+    if (persist && !writePreference(R18G_STORAGE_KEY, next ? '1' : '0')) {
+      if (r18gToggle) r18gToggle.checked = state.allowR18g;
+      return false;
+    }
+    state.allowR18g = next;
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
-    if (persist) localStorage.setItem(R18G_STORAGE_KEY, state.allowR18g ? '1' : '0');
     if (r18gToggle) r18gToggle.checked = state.allowR18g;
     if (!state.allowR18g && (state.activePath || []).some(isR18gName)) state.activePath = [];  // 关闭时若停在 r18g 分类则退回全部
     // 本来就关着（如别的标签页开 NSFW 时补读 R18G）不算撤权，不清场。
     if (refresh) refreshContentAccess({ revoked: wasAllowed && !state.allowR18g });
     if (announce) toast(state.allowR18g ? '已开启 R18G / 重口' : 'R18G / 重口内容已隐藏');
+    return true;
   };
   const updateR18gToggleState = () => {
     if (!r18gToggle) return;
@@ -929,7 +969,7 @@ export function bindUI() {
   if (r18gMask) {
     $('#r18gNext').onclick = () => {
       if (r18gStep < R18G_STEPS.length - 1) { r18gStep++; renderR18gStep(); }
-      else { setR18gAccess(true, { announce: true }); closeMask(r18gMask); }
+      else if (setR18gAccess(true, { announce: true })) closeMask(r18gMask);
     };
     $('#r18gBack').onclick = () => {
       if (r18gStep > 0) { r18gStep--; renderR18gStep(); }
@@ -943,7 +983,9 @@ export function bindUI() {
   /* 两个开关是同源持久化偏好，不应在多标签页里各自保留一套权限状态。
      storage 事件不回发当前页，所以本地确认流程仍只走上面的 setter。 */
   window.addEventListener('storage', event => {
-    if (event.storageArea && event.storageArea !== localStorage) return;
+    let storage;
+    try { storage = globalThis.localStorage; } catch { /* 撤权仍按事件执行。 */ }
+    if (event.storageArea && storage && event.storageArea !== storage) return;
     if (event.key === null) {
       setNsfwAccess(false, { persist: false });
       return;
@@ -955,11 +997,11 @@ export function bindUI() {
          NSFW 键（「先开 R18G → 关 NSFW → 再开 NSFW」就走这条）时，本页 R18G 会停在
          false 而对端是 true。方向是 fail-closed 不算漏，但两页状态不一致，这里补一次
          读盘对齐。关闭方向不用补：setNsfwAccess(false) 内部已强制关掉 R18G。 */
-      if (on) setR18gAccess(localStorage.getItem(R18G_STORAGE_KEY) === '1', { persist: false });
+      if (on) setR18gAccess(readPreference(R18G_STORAGE_KEY) === '1', { persist: false });
       return;
     }
     if (event.key === R18G_STORAGE_KEY) {
-      if (event.newValue === '1' && !state.allowNsfw && localStorage.getItem(NSFW_STORAGE_KEY) === '1') {
+      if (event.newValue === '1' && !state.allowNsfw && readPreference(NSFW_STORAGE_KEY) === '1') {
         setNsfwAccess(true, { persist: false });
       }
       setR18gAccess(event.newValue === '1', { persist: false });

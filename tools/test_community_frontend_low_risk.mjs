@@ -24,9 +24,9 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
 
     const favorites = await import(new URL('../site/assets/community/favorites.js?blocked-storage', import.meta.url));
     const entry = { id: 'blocked-storage-entry' };
-    assert.equal(favorites.toggleFavorite(entry), true);
-    assert.equal(favorites.isFavorite(entry), true, '写入失败不应中断当前会话的收藏交互');
-    assert.equal(favorites.toggleFavorite(entry), false);
+    assert.equal((await favorites.toggleFavorite(entry)).ok, false);
+    assert.equal(favorites.isFavorite(entry), false, '写入失败不能显示成已收藏');
+    assert.equal((await favorites.toggleFavorite(entry)).reason, 'storage');
 
     const uiSource = await readFile(new URL('../site/assets/community/ui.js', import.meta.url), 'utf8');
     const favoritesSource = await readFile(new URL('../site/assets/community/favorites.js', import.meta.url), 'utf8');

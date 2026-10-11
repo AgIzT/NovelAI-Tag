@@ -25,6 +25,7 @@ import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, ren
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
+import { readPreference, writePreference } from './app/preferences-storage.js';
 import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions } from './app/intro.js';
@@ -222,21 +223,21 @@ export async function init() {
     configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
     setLoading('');
-    state.recentEntries = normalizeRecentEntries(safeJsonParse(localStorage.getItem(RECENT_STORAGE_KEY), []));
-    state.lastBrowse = normalizeLastBrowse(safeJsonParse(localStorage.getItem(LAST_BROWSE_STORAGE_KEY), null));
-    state.allowNsfw = localStorage.getItem(NSFW_STORAGE_KEY) === '1';
+    state.recentEntries = normalizeRecentEntries(safeJsonParse(readPreference(RECENT_STORAGE_KEY), []));
+    state.lastBrowse = normalizeLastBrowse(safeJsonParse(readPreference(LAST_BROWSE_STORAGE_KEY), null));
+    state.allowNsfw = readPreference(NSFW_STORAGE_KEY) === '1';
     // 旧主站 key=1 已代表用户完成过成人确认；单向迁移确认事实，
     // 使其不再依附于之后可随时关闭的主站展示偏好。
-    if (state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
+    if (state.allowNsfw) writePreference(ADULT_CONFIRMATION_STORAGE_KEY, '1', { announce: false });
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
-    state.allowR18g = state.allowNsfw && localStorage.getItem(R18G_STORAGE_KEY) === '1';
+    state.allowR18g = state.allowNsfw && readPreference(R18G_STORAGE_KEY) === '1';
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
     /* ⚠ 必须排在分级开关恢复之后：建栏时会立刻渲染一次「最近复制」，而 snapshotLocked 读的是
        内存里的 state.allowNsfw / allowR18g。它原先在模块体里跑，早于这里，首屏那一版整列都会
        被误判成锁定——之前只是被 store 里那次无条件的 pageshow 重载恰好盖住了。 */
     await setupTagRelay();
-    applyDensity(localStorage.getItem(DENSITY_STORAGE_KEY), { render: false });
-    state.searchScope = normalizeSearchScope(localStorage.getItem(SEARCH_SCOPE_STORAGE_KEY));
+    applyDensity(readPreference(DENSITY_STORAGE_KEY), { render: false, persist: false });
+    state.searchScope = normalizeSearchScope(readPreference(SEARCH_SCOPE_STORAGE_KEY));
     const { codexes, media, about } = await loadBootstrapData();
     state.codexes = codexes;
     await ensureLibrary();
@@ -673,6 +674,7 @@ export async function openRelatedDirectory(item, options = {}) {
   const codexId = String(item?.codexId || '').trim();
   const path = Array.isArray(item?.path) ? item.path.map(part => String(part || '').trim()).filter(Boolean) : [];
   if (!codexId || !path.length) return;
+  if (!writePreference(SEARCH_SCOPE_STORAGE_KEY, 'codex')) return;
   state.query = '';
   state.searchDraft = '';
   state.searchFilters = [];
@@ -684,7 +686,6 @@ export async function openRelatedDirectory(item, options = {}) {
   state.searchScope = 'codex';
   state.updateFilter = '';
   setOnlyFavControl(false);
-  localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, state.searchScope);
   updateSearchScopeControl();
   await loadCodex(codexId, {
     urlState: { codex: codexId, path, q: '', searchFilters: [], scope: 'codex' },

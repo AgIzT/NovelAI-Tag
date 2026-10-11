@@ -118,7 +118,12 @@ add('blockingMoreEntries', nodes.blockingEntriesPanel, 'button');
 for (const id of ['blockingEnabled', 'blockingPaused', 'blockingClose']) add(id, mask);
 for (const id of ['blockingSettingsBtn', 'blockingResultBtn', 'blockingSettingsSummary', 'blockingRevealClose', 'blockingRevealCancel', 'blockingRevealManage']) add(id);
 const storage = new Map();
-globalThis.localStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) };
+Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
+globalThis.localStorage = {
+  getItem: key => storage.get(key) || null,
+  setItem: (key, value) => storage.set(key, value),
+  removeItem: key => storage.delete(key),
+};
 const save = (words, entries = []) => storage.set(BLOCKING_STORAGE_KEY, JSON.stringify({ version: 1, enabled: true, words, entries }));
 save(['alpha', 'beta', 'gamma']);
 state.list = [{}];
@@ -131,7 +136,7 @@ const flush = async () => { for (let i = 0; i < 8; i += 1) await Promise.resolve
 
 const [alpha, beta, gamma] = wordRows();
 beta.querySelector('button').focus();
-removeBlockedWord('alpha');
+await removeBlockedWord('alpha');
 assert.deepEqual(wordRows(), [beta, gamma], '未删除的节点保持身份');
 assert.equal(document.activeElement, beta.querySelector('button'), '未删除的按钮保持焦点');
 assert.equal(alpha.inert, true);
@@ -140,7 +145,7 @@ assert.equal(alpha.querySelector('button').dataset.removeWord, undefined);
 assert.equal(alpha.querySelector('button').disabled, true);
 assert.equal(running().find(animation => animation.element === beta).frames[0].translate, '100px 0px', '余项从之前的位置补位');
 const stale = [...running()];
-removeBlockedWord('beta');
+await removeBlockedWord('beta');
 assert.equal(alpha.isConnected, false, '快速删除先收掉上一轮残影');
 assert.equal(document.activeElement, gamma.querySelector('button'), '删除焦点项后落到相邻项');
 stale.forEach(animation => animation.finish());
@@ -181,7 +186,7 @@ for (const mode of ['reduce', 'motion-off']) {
   nodes.blockingWordsTab.onclick();
 }
 wordRows()[0].querySelector('button').focus();
-removeBlockedWord('delta');
+await removeBlockedWord('delta');
 assert.equal(nodes.blockingWordList.children.length, 0, '关闭动效时删除直接终态，无残影');
 assert.equal(document.activeElement, nodes.blockingWordInput, '最后一项删除后回到添加入口');
 reduced = false;
@@ -191,12 +196,12 @@ receiveBlockingStorage({ key: BLOCKING_STORAGE_KEY, storageArea: localStorage })
 nodes.blockingEntriesTab.onclick();
 const [firstEntry, secondEntry] = nodes.blockingEntryList.children;
 firstEntry.querySelector('button').focus();
-restoreContentEntry('book:first');
+await restoreContentEntry('book:first');
 assert.equal(firstEntry.inert, true);
 assert.equal(firstEntry.querySelector('button').dataset.restoreEntry, undefined, '恢复后残影不可重复提交');
 assert.equal(nodes.blockingEntryList.children[0], secondEntry, '恢复条目复用剩余行');
 assert.equal(document.activeElement, secondEntry.querySelector('button'));
-restoreContentEntry('book:second');
+await restoreContentEntry('book:second');
 assert.equal(document.activeElement, nodes.blockingEntriesTab, '恢复末项后回到页签');
 await sleep(350);
 assert.equal(nodes.blockingEntryList.children.length, 0);

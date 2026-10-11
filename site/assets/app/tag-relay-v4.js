@@ -25,7 +25,13 @@ const historyLimit = value => Number.isFinite(Number.parseInt(value, 10))
   ? Math.max(1, Number.parseInt(value, 10)) : legacy.TAG_RELAY_HISTORY_LIMIT;
 function uniqueId(values, requested, prefix) {
   const used = new Set(values.map(value => value.id));
-  const base = text(requested) || `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`}`;
+  let base = text(requested);
+  if (!base) {
+    let uuid;
+    try { uuid = globalThis.crypto?.randomUUID?.(); }
+    catch { /* 本地方案身份在 UUID 读取或调用被拒绝时仍可生成。 */ }
+    base = `${prefix}-${uuid || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`}`;
+  }
   let id = base, index = 2;
   while (used.has(id)) id = `${base}-${index++}`;
   return id;
@@ -338,22 +344,24 @@ function parseStoredState(payload, options = {}) {
   }
   return normalizeRelayState(source, options);
 }
-export function loadRelayStateStatus(storage = globalThis.localStorage, options = {}) {
+export function loadRelayStateStatus(storage, options = {}) {
   try {
+    const target = storage === undefined ? globalThis.localStorage : storage;
     for (const key of options.key ? [options.key] : [TAG_RELAY_STORAGE_KEY, ...TAG_RELAY_LEGACY_STORAGE_KEYS]) {
-      const payload = storage?.getItem?.(key);
+      const payload = target?.getItem?.(key);
       if (payload !== null && payload !== undefined) return { ok: true, state: parseStoredState(payload, options),
         migrated: !options.key && key !== TAG_RELAY_STORAGE_KEY, sourceKey: key };
     }
     return { ok: true, state: createRelayState(options), migrated: false, sourceKey: '' };
   } catch (error) { return { ok: false, state: createRelayState(options), reason: error.reason || 'storage', error }; }
 }
-export function loadRelayState(storage = globalThis.localStorage, options = {}) { return loadRelayStateStatus(storage, options).state; }
-export function saveRelayState(state, storage = globalThis.localStorage, options = {}) {
+export function loadRelayState(storage, options = {}) { return loadRelayStateStatus(storage, options).state; }
+export function saveRelayState(state, storage, options = {}) {
   try {
-    if (!loadRelayStateStatus(storage, options).ok) return false;
+    const target = storage === undefined ? globalThis.localStorage : storage;
+    if (!loadRelayStateStatus(target, options).ok) return false;
     const key = options.key || TAG_RELAY_STORAGE_KEY, payload = serializeRelayState(state, options);
-    storage?.setItem?.(key, payload); return storage?.getItem?.(key) === payload;
+    target?.setItem?.(key, payload); return target?.getItem?.(key) === payload;
   } catch { return false; }
 }
 export function trimStateToBudget(state, maxChars, options = {}) {

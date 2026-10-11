@@ -35,11 +35,19 @@ function translate(token) {
   return isTagZhEnabled() ? lookupLoadedTagZh(token.name || token.core || '', [token.codexId, state.codex?.id])?.zh || '' : '';
 }
 function currentDraft() { return drafts.get(activeId); }
+function scheduleDraftSave(draft) {
+  clearTimeout(draft.timer);
+  draft.timer = setTimeout(async () => { draft.timer = 0; await saveDraft(draft); }, 160);
+}
+function draftSaveBlocked(draft) {
+  if (getRelayStorageIssue() !== 'rollback' && draft.issue !== 'rollback') return false;
+  draft.issue = 'rollback'; renderSaveState(); return true;
+}
 function draftFor(plan) {
   const existing = drafts.get(plan.id);
   if (existing && !existing.dirty && !existing.saving && existing.revision !== plan.revision) drafts.delete(plan.id);
   if (!drafts.has(plan.id)) drafts.set(plan.id, { plan: structuredClone(plan), revision: plan.revision,
-    generation: 0, dirty: false, issue: '', saving: null, timer: 0 });
+    generation: 0, dirty: false, issue: '', saving: null, copying: null, activeCopyId: '', timer: 0 });
   return drafts.get(plan.id);
 }
 function openPlan(plan) {
@@ -57,14 +65,15 @@ function editorChanged(meta = {}) {
     const draft = currentDraft();
     draft.plan = planForSession(draft.plan, editor.getSnapshot(), { gc: false });
     draft.generation += 1; draft.dirty = true;
-    clearTimeout(draft.timer);
-    draft.timer = setTimeout(async () => { await saveDraft(draft); }, 160);
+    scheduleDraftSave(draft);
     renderSaveState();
   }
   renderOutput();
 }
 async function saveDraft(draft) {
-  clearTimeout(draft.timer);
+  clearTimeout(draft.timer); draft.timer = 0;
+  if (draftSaveBlocked(draft)) return false;
+  if (draft.copying) return await draft.copying;
   if (draft.saving) return await draft.saving;
   if (!draft.dirty) return true;
   if (['conflict', 'missing-plan'].includes(draft.issue)) return false;
@@ -72,12 +81,18 @@ async function saveDraft(draft) {
     while (draft.dirty) {
       const generation = draft.generation, revision = draft.revision;
       const snapshot = structuredClone(draft.plan);
-      const result = await commitRelay(next => replacePlanText(next, snapshot.id, snapshot, { expectedRevision: revision }),
+      const result = await commitRelay(next => {
+        const saved = replacePlanText(next, snapshot.id, snapshot, { expectedRevision: revision });
+        /* 副本已写出后仍可能收到输入。正文与 active 一起提交，刷新才能回到尾段所在方案；
+           对端随后选择了其它方案时保留它的选择，不无条件改回本页。 */
+        if (saved.ok && draft.activeCopyId && next.activePlanId === draft.activeCopyId) setActivePlan(next, snapshot.id);
+        return saved;
+      },
         { changed: 'plan', planId: snapshot.id, revision });
       if (!result.ok) { draft.issue = result.reason; return false; }
       const saved = getPlan(relayState(), snapshot.id);
       draft.revision = saved.revision; draft.plan.revision = saved.revision;
-      draft.issue = ''; draft.dirty = generation !== draft.generation;
+      draft.activeCopyId = ''; draft.issue = ''; draft.dirty = generation !== draft.generation;
     }
     return true;
   })();
@@ -88,34 +103,81 @@ async function saveDraft(draft) {
 export async function flushCompose() {
   return currentDraft() ? await saveDraft(currentDraft()) : true;
 }
+async function saveDraftAsCopy(draft) {
+  if (draftSaveBlocked(draft)) return false;
+  if (draft.copying) return await draft.copying;
+  clearTimeout(draft.timer); draft.timer = 0;
+  const generation = draft.generation, snapshot = structuredClone(draft.plan), previousActiveId = relayState().activePlanId;
+  let resumeSave = false, activatedCopyId = '';
+  draft.copying = (async () => {
+    if (draft.saving) await draft.saving;
+    const result = await commitRelay(next => {
+      const copy = createPlan(next, `${snapshot.name}（本页副本）`, { activate: false });
+      const saved = replacePlanText(next, copy.id, snapshot, { expectedRevision: copy.revision });
+      /* 点击快照另存成功后，只有本页未继续输入、对端未改变选择时才切到它。
+         尾段仍保存原方案，不能先持久选择一份缺尾段的副本。 */
+      if (saved.ok && generation === draft.generation && drafts.get(snapshot.id) === draft
+        && activeId === snapshot.id && next.activePlanId === previousActiveId) {
+        setActivePlan(next, copy.id); activatedCopyId = copy.id;
+      }
+      return saved;
+    }, { changed: 'plan' });
+    if (!result.ok) { draft.issue = result.reason; return false; }
+    /* 只清除已保存的 generation。等锁时再输入的内容仍留在原草稿，提示未保存，
+       用户可以继续编辑或再次另存；不能用点击时的副本重建编辑器吞掉尾段。 */
+    if (drafts.get(snapshot.id) !== draft) return true;
+    if (generation !== draft.generation) {
+      if (draft.dirty) {
+        if (activatedCopyId) draft.activeCopyId = activatedCopyId;
+        if (!draft.issue) draft.issue = 'unsaved-copy';
+        resumeSave = !['conflict', 'missing-plan', 'rollback'].includes(draft.issue);
+      }
+      return false;
+    }
+    clearTimeout(draft.timer);
+    drafts.delete(snapshot.id);
+    if (activeId === snapshot.id) openPlan(getPlan(relayState(), result.result.plan.id));
+    return true;
+  })();
+  renderSaveState();
+  try { return await draft.copying; }
+  finally {
+    draft.copying = null;
+    /* 等副本时 debounce 可能已经只等待 copying 而耗尽；先释放 copying 再补排。
+       对端已改动的草稿仍要求人工另存，不能用自动保存覆盖原方案。 */
+    if (resumeSave && drafts.get(snapshot.id) === draft && draft.dirty
+      && !['conflict', 'missing-plan', 'rollback'].includes(draft.issue)
+      && getRelayStorageIssue() !== 'rollback') scheduleDraftSave(draft);
+    renderSaveState();
+  }
+}
 function renderSaveState() {
   if (!refs) return;
   const draft = currentDraft();
   refs.saveState.replaceChildren();
-  const issue = draft?.issue || getRelayStorageIssue();
+  const storageIssue = getRelayStorageIssue();
+  const issue = storageIssue === 'rollback' ? storageIssue : draft?.issue || storageIssue;
   /* 正常逐字保存不插入状态行，避免每次输入把正文与光标上下推移。 */
   refs.saveState.hidden = !issue;
   if (refs.saveState.hidden) return;
-  refs.saveState.append(element('span', '', issue === 'conflict' || issue === 'missing-plan'
+  refs.saveState.append(element('span', '', issue === 'rollback'
+    ? '保存结果未能确认。先保留本页输入，再重新加载检查方案。' : issue === 'conflict' || issue === 'missing-plan'
     ? '另一页面已更新方案，本页输入已保留' : issue ? '尚未保存，输入仍在本页' : '正在保存…'));
   const action = (label, run) => {
     const button = element('button', '', label); button.type = 'button'; button.onclick = run; refs.saveState.append(button);
   };
   if (!issue) return;
+  if (issue === 'rollback') { action('重新加载页面', () => window.location.reload()); return; }
   if (!['conflict', 'missing-plan'].includes(issue)) action('重试保存', async () => {
-    await initializeRelay(); if (draft) draft.issue = ''; await flushCompose(); renderSaveState();
+    if (getRelayStorageIssue() === 'rollback') { renderSaveState(); return; }
+    await initializeRelay();
+    if (getRelayStorageIssue() === 'rollback') { renderSaveState(); return; }
+    if (draft) draft.issue = ''; await flushCompose(); renderSaveState();
   });
-  action('另存副本', async () => {
-    if (!draft) return;
-    const snapshot = structuredClone(draft.plan);
-    const result = await commitRelay(next => {
-      const copy = createPlan(next, `${snapshot.name}（本页副本）`);
-      return replacePlanText(next, copy.id, snapshot, { expectedRevision: copy.revision });
-    }, { changed: 'plan' });
-    if (result.ok) { drafts.delete(snapshot.id); openPlan(getActivePlan(relayState())); }
-  });
+  action('另存副本', async () => { if (draft) await saveDraftAsCopy(draft); });
   if (issue === 'conflict' || issue === 'missing-plan') action('载入已保存版本', async () => {
     if (!await requestRelayAction({ title: '放弃本页未保存输入？', message: '载入另一页面保存的版本。', confirmLabel: '载入', danger: true })) return;
+    if (getRelayStorageIssue() === 'rollback') { renderSaveState(); return; }
     drafts.delete(activeId); openPlan(getPlan(relayState(), activeId) || getActivePlan(relayState()));
   });
 }

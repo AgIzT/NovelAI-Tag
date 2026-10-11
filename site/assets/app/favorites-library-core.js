@@ -32,6 +32,25 @@ const iso = value => {
 const text = (value, max) => typeof value === 'string'
   ? [...value.replace(CONTROL_RE, '')].slice(0, max).join('') : '';
 const bytes = value => new TextEncoder().encode(typeof value === 'string' ? value : JSON.stringify(value)).length;
+const NOTE_SEPARATOR = '\n\n---\n\n';
+
+function itemNoteParts(item) {
+  const note = typeof item.note === 'string' ? item.note : '';
+  // 只信与正文完全对应的冲突记录。普通原文可以含分隔符，不能靠拆正文猜来源；
+  // 用户另行编辑 note 后也不能让已过期的片段覆盖新原文。
+  if (Array.isArray(item.noteParts) && item.noteParts.length > 1
+      && item.noteParts.every(part => typeof part === 'string' && part !== '')
+      && new Set(item.noteParts).size === item.noteParts.length
+      && item.noteParts.join(NOTE_SEPARATOR) === note) return [...item.noteParts];
+  return note ? [note] : [];
+}
+
+function mergeItemNotes(target, incoming) {
+  const parts = [...new Set([...itemNoteParts(target), ...itemNoteParts(incoming)])];
+  target.note = parts.join(NOTE_SEPARATOR);
+  if (parts.length > 1) target.noteParts = parts;
+  else delete target.noteParts;
+}
 
 /* 预制收藏夹：每个收藏库只播种一次，靠 presetsSeeded 记账。用户删掉或改名后不再补回；
    已有同名夹子直接跳过。播种是运行时策略，只由 store 在建库/载入时调用，迁移与备份解析保持纯净。 */
@@ -121,14 +140,15 @@ export function normalizeLibrary(value, { codexes = [], now = new Date() } = {})
       if (error instanceof FavoritesBackupError) continue;
       throw error;
     }
-    const item = { key, addedAt: iso(raw.addedAt), note: typeof raw.note === 'string' ? raw.note : '' };
+    const item = { key, addedAt: iso(raw.addedAt), note: '' };
+    mergeItemNotes(item, raw);
     if (iso(raw.importedAt)) item.importedAt = iso(raw.importedAt);
     const snap = normalizeSnapshot(raw.snap);
     if (snap) item.snap = snap;
     if (!itemMap.has(key)) itemMap.set(key, item);
     else {
       const old = itemMap.get(key);
-      if (!old.note && item.note) old.note = item.note;
+      mergeItemNotes(old, item);
       if (!old.snap && item.snap) old.snap = item.snap;
       if (!old.addedAt && item.addedAt) old.addedAt = item.addedAt;
       if (!old.importedAt && item.importedAt) old.importedAt = item.importedAt;
@@ -387,7 +407,7 @@ export function createLibraryRestorePlan({
     for (const item of incoming.items) {
       if (items.has(item.key)) {
         const existing = nextLibrary.items.find(candidate => candidate.key === item.key);
-        if (!existing.note && item.note) existing.note = item.note;
+        mergeItemNotes(existing, item);
         if (!existing.snap && item.snap) existing.snap = item.snap;
         continue;
       }
