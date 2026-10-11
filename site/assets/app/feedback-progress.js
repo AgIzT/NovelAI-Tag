@@ -36,7 +36,7 @@ export const FEEDBACK_PROGRESS = Object.freeze({
   }),
   declined: Object.freeze({
     label: '暂不采纳',
-    description: '评估后暂不采纳，具体原因请查看回复。',
+    description: '评估后暂不采纳，原因见维护者回复。',
     status: 'ignored',
   }),
 });

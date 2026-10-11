@@ -248,19 +248,19 @@ def entry_description(entry: dict[str, Any]) -> str:
     note = clean_text(entry.get("note") or entry.get("comment") or "")
     if note and not tags:
         parts.append(note)
-    return truncate(" | ".join(parts) or "NovelAI tag atlas entry")
+    return truncate(" | ".join(parts) or "NovelAI 提示词条目")
 
 
-def codex_description(codex: dict[str, Any], share_count: int) -> str:
+def codex_description(codex: dict[str, Any]) -> str:
     title = clean_text(codex.get("title") or codex.get("id"))
     version = clean_text(codex.get("version"))
     author = clean_text(codex.get("author"))
-    bits = [f"{share_count} shareable entries"]
+    bits = [title]
     if author:
-        bits.append(f"author: {author}")
+        bits.append(f"作者：{author}")
     if version:
-        bits.append(f"version: {version}")
-    return truncate(f"{title} - " + " / ".join(bits))
+        bits.append(f"版本：{version}")
+    return truncate(" · ".join(bits))
 
 
 def build_title_only_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
@@ -412,7 +412,7 @@ def build() -> tuple[dict[str, Any], dict[str, Any], list[str]]:
             "title": clean_text(codex.get("title") or codex_id),
             "selectorTitle": clean_text(codex.get("selectorTitle")),
             "type": clean_text(codex.get("type") or "codex"),
-            "description": codex_description(codex, share_count),
+            "description": codex_description(codex),
             "entryCount": to_int(codex.get("entryCount") or len(raw_entries) or 0),
             "shareCount": share_count,
             "cover": cover,

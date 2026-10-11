@@ -23,6 +23,7 @@ export const state = {
   query: '',
   // 旧版 strings-nsfw 只需单击即可写入，不能把它单独当成年确认凭证。
   showNSFW: shouldRestoreCommunityNsfw(),
+  hiddenNsfwMatches: 0,   // 当前筛选命中、但因未开混显而隐藏的 NSFW 投稿数
   onlyFavorites: safeStorageGet('community-only-favorites') === 'true',
   activeEntryId: '',
   activeImageIndex: 0,

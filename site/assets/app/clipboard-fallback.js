@@ -30,7 +30,7 @@ function ensureClipboardFallback() {
           <span class="favorites-backup-mark" aria-hidden="true">!</span>
           <div>
             <h2 id="clipboardFallbackTitle">自动复制未成功</h2>
-            <p id="clipboardFallbackDesc">文本已在下方全选。请长按复制，或按 Ctrl/Cmd+C 手动复制。</p>
+            <p id="clipboardFallbackDesc">文本已在下方全选。长按复制，或按 Ctrl/Cmd+C 复制。</p>
           </div>
         </div>
         <button class="favorites-backup-close" type="button" data-clipboard-close aria-label="关闭手动复制面板">×</button>

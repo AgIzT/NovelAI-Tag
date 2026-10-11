@@ -48,7 +48,7 @@
     var h = document.createElement('h2');
     h.textContent = '这个测试版已经结束了';
     var p = document.createElement('p');
-    p.textContent = '它只是一次功能内测，不是法典图鉴的正式地址，数据也不会保留。请改用正式站。';
+    p.textContent = '这是功能内测地址，不是法典图鉴的正式地址，这里的数据不会保留。改用正式站。';
     var a = document.createElement('a');
     a.href = CANONICAL_URL;
     a.rel = 'noopener';

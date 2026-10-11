@@ -582,7 +582,7 @@ for (const scenario of ['blocked', 'closed', 'timeout']) {
   await tick(15);
   assert.equal(windowApi.messageListenerCount, 0);
   assert.equal(documentApi.start.disabled, false);
-  if (scenario === 'blocked') assert.match(documentApi.feedback.textContent, /阻止/);
+  if (scenario === 'blocked') assert.match(documentApi.feedback.textContent, /拦截/);
   if (scenario === 'closed') assert.match(documentApi.feedback.textContent, /关闭/);
   if (scenario === 'timeout') assert.match(documentApi.feedback.textContent, /超时/);
 }

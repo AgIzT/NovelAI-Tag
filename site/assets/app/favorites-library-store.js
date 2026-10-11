@@ -15,9 +15,16 @@ const LOCK_WAIT = 48;
 const FENCE_PREFIX = FAVORITES_LIBRARY_STORAGE_KEY + ':fence:';
 const FENCE_WAIT = 3000;
 
-function isQuotaError(error) {
+export function isQuotaError(error) {
   return error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED'
     || error?.code === 22 || error?.code === 1014;
+}
+/* 撤销走 silent 提交，store 不会自己报错；这里按失败原因给一句能看懂的话。 */
+export function undoFailureMessage(result) {
+  if (result?.error?.code === 'UNDO_CONFLICT') return result.error.message;
+  if (result?.reason === 'quota') return '撤销未完成：浏览器存储已满';
+  if (result?.reason === 'lock') return '撤销未完成：另一个标签页正在修改收藏';
+  return '撤销未完成';
 }
 function freeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
@@ -77,8 +84,8 @@ export function createLibraryStore({
   function reportFailure(transaction) {
     const { reason, error } = transaction;
     if (reason === 'quota') {
-      notifySafely('收藏没能保存：浏览器存储已满', '!', {
-        label: '备份并清理', onClick: () => actions.openBackup(),
+      notifySafely('收藏未保存：浏览器存储已满。在「浏览记录」里清空最近浏览，或在中转站清空「成品记录」后重试', '!', {
+        label: '备份与恢复', onClick: () => actions.openBackup(),
       });
     } else if (reason === 'lock') {
       notifySafely('收藏没能保存，另一个标签页正在修改。重试一次。', '!');

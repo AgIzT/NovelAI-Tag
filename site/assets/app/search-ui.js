@@ -21,7 +21,7 @@ export const DEFAULT_SEARCH_FILTER_FIELDS = Object.freeze([
   { field: 'prompt', label: '标签 / 正向提示词', placeholder: '例如：blue eyes', operators: TEXT_OPERATORS },
   { field: 'negative', label: '负面提示词', placeholder: '例如：lowres', operators: TEXT_OPERATORS },
   { field: 'note', label: '备注', placeholder: '输入备注文字', operators: TEXT_OPERATORS },
-  { field: 'raw', label: '原始标签', placeholder: '输入原始 tag', operators: TEXT_OPERATORS },
+  { field: 'raw', label: '原始提示词', placeholder: '输入原始提示词', operators: TEXT_OPERATORS },
   { field: 'author', label: '作者', placeholder: '输入作者名称', operators: TEXT_OPERATORS },
   { field: 'codex', label: '法典', placeholder: '输入法典名称', operators: TEXT_OPERATORS },
   {
@@ -573,7 +573,7 @@ async function submitBuilder(event) {
     const accepted = await searchUiActions.addFilter(payload);
     if (accepted !== false && !el('searchFilterValue')?.hidden) el('searchFilterValue').value = '';
   } catch (error) {
-    setFilterFeedback(clean(error?.message) || '添加失败，请刷新后重试');
+    setFilterFeedback(clean(error?.message) || '添加失败，刷新页面后重试');
   } finally {
     if (add) add.disabled = false;
   }
@@ -642,7 +642,7 @@ export function setupSearchUi() {
       : searchUiActions.removeQueryTerm(filter.queryValue);
     void Promise.resolve(removeAction).catch(error => {
       pendingFilterFocusIndex = null;
-      setFilterFeedback(clean(error?.message) || '移除失败，请刷新后重试');
+      setFilterFeedback(clean(error?.message) || '移除失败，刷新页面后重试');
     }).finally(() => pendingFilterRemovalChips.delete(chip));
   });
 

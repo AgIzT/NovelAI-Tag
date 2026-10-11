@@ -319,7 +319,7 @@ async function loadCurrent() {
   const controller = new AbortController();
   loadController = controller;
   state.loading = true;
-  $('#list').innerHTML = '<div class="empty-state">加载中...</div>';
+  $('#list').innerHTML = '<div class="empty-state">加载中…</div>';
   $('#empty').hidden = true;
   const view = state.view;
   const status = state.status;
@@ -411,7 +411,7 @@ async function runBatch(action, options = {}) {
   if (action === 'moveCategory' && !payload.category) {
     payload.category = $('#batchCategory')?.value || '';
     if (!payload.category) {
-      toast('请选择目标分类');
+      toast('选择目标分类');
       return;
     }
   }
@@ -423,7 +423,7 @@ async function runBatch(action, options = {}) {
   }
   if (action === 'restore') payload.targetStatus = 'hidden';
   const limitNote = deferredCount ? `（单次最多 100 条，另有 ${deferredCount} 条会保持选中）` : '';
-  if (!options.retry && action !== 'moveCategory' && !confirm(`确认对 ${ids.length} 条内容执行「${actionLabel(action)}」？${limitNote}`)) return;
+  if (!options.retry && action !== 'moveCategory' && !confirm(`${batchConfirmText(action, ids.length)}${limitNote}`)) return;
 
   const body = { action, ids, status: state.status, ...payload };
   const visibleBefore = currentItems();
@@ -536,7 +536,7 @@ async function copyFeedback(id) {
     `类型：${item.typeLabel || item.type}`,
     `展示进度：${progress.label}`,
     `后台分组：${FEEDBACK_LABELS[item.status] || item.status || '进行中'}`,
-    `公开展示：${item.publicVisible ? '是' : '否（等待维护者确认）'}`,
+    `公开展示：${item.publicVisible ? '是' : '否'}`,
     `描述：${item.description}`,
     `联系方式：${item.contact || '未填写'}`,
     `页面：${page.url || ''}`,
@@ -557,7 +557,7 @@ async function copyFeedback(id) {
     document.execCommand('copy');
     textarea.remove();
   }
-  toast('反馈上下文已复制');
+  toast('已复制反馈上下文');
 }
 
 function toggleSelection(id, checked, useRange) {
@@ -669,11 +669,11 @@ function confirmDiscardChanges(message = '') {
 
 function requestReason(action, initialValue) {
   const verb = action === 'reject' ? '拒绝' : '下架';
-  const reason = prompt(`请填写${verb}原因（会保存为管理备注）`, initialValue || '');
+  const reason = prompt(`填写${verb}原因（会保存为管理备注）`, initialValue || '');
   if (reason == null) return null;
   const clean = reason.trim();
   if (!clean) {
-    toast(`请填写${verb}原因`);
+    toast(`填写${verb}原因`);
     return null;
   }
   return clean;
@@ -894,7 +894,7 @@ function handleError(error, replaceList = false) {
     showLogin(error.message);
     return;
   }
-  if (replaceList) $('#list').innerHTML = `<div class="empty-state">加载失败：${escapeText(error.message || '未知错误')}</div>`;
+  if (replaceList) $('#list').innerHTML = `<div class="empty-state">加载失败：${escapeText(error.message || '未知错误')}。点「刷新」重试</div>`;
   toast(error.message || '操作失败');
 }
 
@@ -912,9 +912,21 @@ function toast(message) {
 
 function confirmText(action, item) {
   const title = item.title || item.id;
-  if (action === 'delete') return `确认软删除「${title}」？之后仍可恢复。`;
-  if (action === 'purge') return `确认永久删除「${title}」？记录和图片都会删除。`;
+  if (action === 'delete') return `删除「${title}」？之后仍可恢复。`;
+  if (action === 'purge') return `永久删除「${title}」？记录和图片都会删除。`;
   return `确认操作「${title}」？`;
+}
+
+/* 确认框问的是「将要做什么」，不能借用 actionLabel 的结果词（「执行『已上架』？」）。 */
+const BATCH_VERBS = {
+  approve: '通过并发布', reject: '拒绝并留档', publish: '上架', unpublish: '下架',
+  delete: '删除', restore: '恢复为下架', purge: '永久删除',
+};
+const BATCH_NOTES = { delete: '之后仍可恢复。', purge: '记录和图片都会删除。' };
+function batchConfirmText(action, count) {
+  const verb = BATCH_VERBS[action];
+  if (!verb) return `确认对 ${count} 条内容执行「${actionLabel(action)}」？`;
+  return `${verb}这 ${count} 条投稿？${BATCH_NOTES[action] || ''}`;
 }
 
 function actionLabel(action) {
@@ -924,7 +936,7 @@ function actionLabel(action) {
     reject: '已拒绝留档',
     publish: '已上架',
     unpublish: '已下架',
-    delete: '已软删除',
+    delete: '已删除',
     restore: '已恢复',
     purge: '已永久删除',
     moveCategory: '移动分类',

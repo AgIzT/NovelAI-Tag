@@ -41,11 +41,11 @@ export async function onRequestPost(context) {
 
   const ipHash = await hashIp(request, env);
   const limited = await applySoftRateLimit(env.STRINGS_BUCKET, ipHash);
-  if (limited) return err('反馈太频繁，请稍后再试', 429);
+  if (limited) return err('反馈太频繁，10 分钟后再试', 429);
 
   const pend = await env.STRINGS_BUCKET.list({ prefix: 'feedback/pending/', limit: 1000 });
   const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
-  if (pendCount >= LIMITS.pendingMax) return err('反馈队列已满，请过几天再试', 429);
+  if (pendCount >= LIMITS.pendingMax) return err('反馈队列已满，过几天再试', 429);
 
   const now = new Date();
   const id = crypto.randomUUID();

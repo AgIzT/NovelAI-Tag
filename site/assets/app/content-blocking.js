@@ -41,10 +41,17 @@ export function receiveBlockingStorage(event) {
   listeners.forEach(listener => listener());
 }
 
+function isQuotaError(error) {
+  return error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || error?.code === 22 || error?.code === 1014;
+}
+
 function save(next) {
   const normalized = normalizeBlockingPreferences(next);
   try { localStorage.setItem(BLOCKING_STORAGE_KEY, JSON.stringify(normalized)); }
-  catch { return { error: '无法保存屏蔽清单，清空最近浏览或复制历史后重试' }; }
+  catch (error) {
+    return { error: isQuotaError(error) ? '屏蔽清单未保存：浏览器存储已满。在「浏览记录」里清空最近浏览，或在中转站清空「成品记录」后重试' : '屏蔽清单未保存：浏览器不允许本站保存数据' };
+  }
   install(normalized);
   listeners.forEach(listener => listener());
   return { ok: true };

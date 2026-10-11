@@ -126,10 +126,10 @@ assert.equal(approved.succeeded[0].action, 'approve');
 assert.equal(approved.succeeded[0].item.status, 'approved');
 assert.deepEqual(approved.failed, [{
   id: '2fffffff',
-  error: '该内容不存在或状态不匹配',
+  error: '这条投稿不存在或状态已变化，点「刷新」重新加载',
   status: 404,
 }]);
-assert.deepEqual(approved.errors, [{ id: '2fffffff', error: '该内容不存在或状态不匹配' }]);
+assert.deepEqual(approved.errors, [{ id: '2fffffff', error: '这条投稿不存在或状态已变化，点「刷新」重新加载' }]);
 assert.equal(bucket.communityWrites, 1, 'batch approve should rebuild once');
 assert.equal(bucket.objects.has('community/pending/20000001.json'), false);
 assert.equal(bucket.objects.has('community/approved/20000001.json'), true);

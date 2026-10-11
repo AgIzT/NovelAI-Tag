@@ -253,11 +253,11 @@ async function submitFeedback(ev) {
   const contact = ($('#feedbackContact')?.value || '').trim();
   const honeypot = $('#feedbackHoneypot')?.value || '';
   if (!TYPE_VALUES.includes(type)) {
-    showStatus('请选择有效的反馈类型。', true);
+    showStatus('选择反馈类型。', true);
     return;
   }
   if (description.length < MIN_DESC) {
-    showStatus(`请再多写一点，至少 ${MIN_DESC} 个字。`, true);
+    showStatus(`描述至少 ${MIN_DESC} 个字。`, true);
     return;
   }
   if (description.length > MAX_DESC) {
@@ -279,7 +279,7 @@ async function submitFeedback(ev) {
   const fallbackText = buildFallbackText(currentPayload);
   if (submit) submit.disabled = true;
   if (status) {
-    status.textContent = '正在提交...';
+    status.textContent = '正在提交…';
     status.classList.remove('error', 'success');
   }
   try {
@@ -299,7 +299,7 @@ async function submitFeedback(ev) {
     }
     if (seq !== reportSeq) return;
     if (!res.ok || !data.ok) throw new Error(data.error || `提交失败（${res.status}）`);
-    toast('反馈已提交，感谢你帮忙把这里修得更好');
+    toast('反馈已提交');
     $('#feedbackDesc').value = '';
     $('#feedbackContact').value = '';
     $('#feedbackHoneypot').value = '';
@@ -346,14 +346,14 @@ async function copyFallbackText() {
   const result = await writeClipboardText(text, { canWrite });
   if (!canWrite() || result.blocked) return;
   if (result.ok) {
-    toast('反馈文本已复制');
+    toast('已复制反馈文本');
     return;
   }
   const manualFallbackShown = showClipboardFallback(text, { trigger });
   toast(
     manualFallbackShown
       ? '自动复制未成功，已打开手动复制面板'
-      : '自动复制未成功，请长按/手动选择文本',
+      : '自动复制未成功，长按或手动选中文本复制',
     '!',
   );
 }
@@ -425,8 +425,8 @@ async function loadPublicFeedback({ force = false } = {}) {
     if (list) {
       list.innerHTML = `
         <div class="feedback-public-state is-error">
-          <b>处理进度暂时加载失败</b>
-          <span>请稍后刷新重试，提交反馈仍可正常使用。</span>
+          <b>处理进度加载失败</b>
+          <span>点「重新加载」重试。</span>
           <button type="button" data-feedback-retry>重新加载</button>
         </div>`;
       list.querySelector('[data-feedback-retry]')?.addEventListener('click', () => loadPublicFeedback({ force: true }));
@@ -461,7 +461,7 @@ function renderPublicFeedback() {
       ? '当前筛选下没有公开反馈。'
       : '还没有公开反馈。由维护者确认公开后，会显示在这里。';
     const owned = ownedRecords.length
-      ? `<small>本设备提交过 ${ownedRecords.length} 条，其中 ${publicOwnedCount} 条已公开；未公开不代表丢失。</small>`
+      ? `<small>本设备提交过 ${ownedRecords.length} 条，其中 ${publicOwnedCount} 条已公开。</small>`
       : '';
     list.innerHTML = `<div class="feedback-public-state">${esc(message)}${owned}</div>`;
     return;
@@ -482,7 +482,7 @@ function renderPublicFeedbackCard(item, ownedIds = new Set()) {
     <details class="feedback-public-card${owned ? ' is-owned' : ''}">
       <summary>
         <span class="feedback-public-card-top">
-          <span class="feedback-public-type">${esc(item.typeLabel || item.type || '反馈')}${owned ? '<b>我提交的</b>' : ''}</span>
+          <span class="feedback-public-type">${esc(item.typeLabel || item.type || '反馈')}${owned ? '<b>本设备提交</b>' : ''}</span>
           <span class="feedback-public-status ${publicProgressTone(item.progressStatus)}">${esc(progress.label)}</span>
         </span>
         <span class="feedback-public-description">${esc(item.description || '无反馈内容')}</span>
@@ -600,7 +600,7 @@ function buildFallbackText(payload) {
 
 function snippet(value) {
   const text = String(value || '').trim();
-  return text.length > MAX_SNIPPET ? `${text.slice(0, MAX_SNIPPET)}...` : text;
+  return text.length > MAX_SNIPPET ? `${text.slice(0, MAX_SNIPPET)}…` : text;
 }
 
 export function reportTypeLabel(type) {

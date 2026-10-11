@@ -45,7 +45,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
 <main>
   <div class="mark" aria-hidden="true">★</div>
   <h1>找回旧域收藏</h1>
-  <p class="intro">此页面只读取保存在旧 <code>pages.dev</code> 域名下的法典图鉴与共创广场收藏。数据不会上传服务器，迁移完成后旧收藏仍会保留。</p>
+  <p class="intro">此页面只读取保存在旧 <code>pages.dev</code> 域名下的法典图鉴与共创广场收藏。数据不会上传服务器。</p>
   <div class="counts" aria-label="旧域收藏数量">
     <div class="count"><span>法典图鉴</span><strong id="atlasCount">—</strong></div>
     <div class="count"><span>共创广场</span><strong id="communityCount">—</strong></div>
@@ -149,7 +149,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
     } catch {
       return {
         items: [],
-        warning: `${key} 已损坏或无法读取，已跳过这一类收藏`,
+        warning: `${key === COMMUNITY_KEY ? '共创广场收藏' : '法典图鉴收藏'}已损坏或无法读取，已跳过`,
       };
     }
   }
@@ -165,7 +165,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
   function validateFavorites(favorites) {
     const total = favorites.atlasKeys.length + favorites.communityIds.length;
     if (total > MAX_ITEMS) throw new Error('旧域收藏超过 30,000 条，无法自动迁移');
-    if (payloadBytes(favorites) > MAX_BYTES) throw new Error('旧域收藏超过 2 MiB，无法自动迁移');
+    if (payloadBytes(favorites) > MAX_BYTES) throw new Error('旧域收藏超过 2 MB，无法自动迁移');
     return favorites;
   }
 
@@ -181,7 +181,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
     };
     const text = JSON.stringify(backup);
     if (new TextEncoder().encode(text).byteLength > MAX_BYTES) {
-      throw new Error('生成的收藏备份超过 2 MiB');
+      throw new Error('生成的收藏备份超过 2 MB');
     }
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json;charset=utf-8' }));
     const link = document.createElement('a');
@@ -195,7 +195,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
   }
 
   if (!originAllowed) {
-    setStatus('请从旧 pages.dev 域名打开此救援页面。', true);
+    setStatus('从旧 pages.dev 域名打开此救援页面。', true);
     downloadBtn.hidden = true;
     return;
   }
@@ -222,7 +222,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
     downloadBtn.addEventListener('click', () => {
       try {
         downloadBackup(favorites);
-        setStatus('JSON 备份已下载。请回到新域名，在“收藏备份与恢复”中选择该文件。');
+        setStatus('JSON 备份已下载。回到新域名，在「收藏备份与恢复」中选择该文件。');
       } catch (error) {
         setStatus(error.message || '无法生成 JSON 备份。', true);
       }
@@ -234,7 +234,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
 
   if (!window.opener || !nonce) {
     const message = favorites.atlasKeys.length + favorites.communityIds.length
-      ? '已找到旧收藏。请下载 JSON 备份，再到新域名恢复。'
+      ? '已找到旧收藏。下载 JSON 备份，再到新域名恢复。'
       : '当前浏览器的旧域名下没有发现收藏。';
     setStatus(readWarnings.length ? `${message} 注意：${readWarnings.join('；')}。` : message, Boolean(readWarnings.length));
     return;
@@ -284,7 +284,7 @@ button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
         setTimeout(() => window.close(), 1100);
       }
     } else {
-      setStatus(event.data.message || '自动迁移失败，请下载 JSON 备份后手动恢复。', true);
+      setStatus(event.data.message || '自动迁移失败，下载 JSON 备份后手动恢复。', true);
     }
   });
 

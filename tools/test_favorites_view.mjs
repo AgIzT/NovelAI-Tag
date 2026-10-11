@@ -80,6 +80,6 @@ assert.equal(afterDelete.items.find(item => item.key === 'a:safe').note, '另一
 assert.deepEqual(afterDelete.memberships.filter(item => item.itemKey === 'a:safe'), [{ itemKey: 'a:safe', folderId: 'f2' }], '撤销不重放重新收藏后的旧归属');
 assert.ok(afterDelete.items.some(item => item.key === 'new:item'), '保留同时加入的无关收藏');
 assert.ok(afterDelete.items.some(item => item.key === 'old:item'), '恢复本次删除且未被重新收藏的项');
-assert.throws(() => view.restoreFavoriteObjects(afterDelete, { folder: { id: 'other', name: '画风' } }, 'folder'), /撤销没能完成/, '撤销删夹不得覆盖后来创建的同名夹');
+assert.throws(() => view.restoreFavoriteObjects(afterDelete, { folder: { id: 'other', name: '画风' } }, 'folder'), /撤销未完成：已有同名收藏夹/, '撤销删夹不得覆盖后来创建的同名夹');
 console.log('favorites view filters/counts/undo: all tests passed');
 delete globalThis.__favoritesViewTest;

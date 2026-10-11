@@ -80,7 +80,7 @@ for (const [progressStatus, bucketStatus] of Object.entries(EXPECTED_PROGRESS_BU
   );
 }
 assert.equal(BACKEND_FEEDBACK_PROGRESS.unread.description, '维护者尚未查看这条反馈。');
-assert.equal(BACKEND_FEEDBACK_PROGRESS.declined.description, '评估后暂不采纳，具体原因请查看回复。');
+assert.equal(BACKEND_FEEDBACK_PROGRESS.declined.description, '评估后暂不采纳，原因见维护者回复。');
 const legacyOptOutDetail = renderFeedbackDetail({
   id: 'legacy-opt-out',
   status: 'pending',
@@ -94,7 +94,7 @@ const legacyOptOutDetail = renderFeedbackDetail({
 });
 assert.match(legacyOptOutDetail, /id="feedbackPublicVisible" type="checkbox"/);
 assert.doesNotMatch(legacyOptOutDetail, /feedbackPublicVisible"[^>]*disabled/);
-assert.match(legacyOptOutDetail, /是否公开由维护者决定/);
+assert.match(legacyOptOutDetail, /开启后主站会展示反馈内容、进度与回复/);
 assert.doesNotMatch(legacyOptOutDetail, /反馈者已选择不公开|反馈者未选择不公开/);
 
 function request(method, path, body) {

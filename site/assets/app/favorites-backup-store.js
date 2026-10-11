@@ -111,6 +111,6 @@ export function serializeLibraryFavorites({ library, communityIds = [], codexes 
     if (size <= maxBytes) return json;
     // 库正文达预算后，备份封装与共创标识仍会占空间；只裁剪导出副本的展示快照。
     const budget = trimLibraryToBudget(copy, Math.max(0, encode(JSON.stringify(copy)) - (size - maxBytes) - 64));
-    if (!budget.trimmed) throw new FavoritesBackupError('FILE_TOO_LARGE', '收藏备份超过 2 MiB，无法导出。');
+    if (!budget.trimmed) throw new FavoritesBackupError('FILE_TOO_LARGE', '收藏备份超过 2 MB，无法导出。取消一部分收藏后重试。');
   }
 }

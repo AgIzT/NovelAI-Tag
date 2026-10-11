@@ -61,7 +61,7 @@ export function initDetailDialog() {
 export function openCommunityDetail(entry, imageIndex = 0, options = {}) {
   if (!detailMask || !detailBody || !entry) return false;
   if (!canShowCommunityEntry(entry)) {
-    toast('请先开启 NSFW 并完成成人确认', '!');
+    toast('先开启「NSFW 混显」并完成成人确认', '!');
     return false;
   }
   const parentScrollY = Math.max(0, window.scrollY || 0);
@@ -169,7 +169,7 @@ function renderDetail() {
         ${(entry.tags || []).length ? `<div class="community-detail-tags">${entry.tags.map(tag => `<span>${escHtml(tag)}</span>`).join('')}</div>` : ''}
         <div class="community-detail-actions" data-detail-like-slot hidden></div>
         <div class="prompt-section">
-          <div class="prompt-heading"><span>Prompt</span><button class="ui-press" type="button" data-copy="prompt">复制</button></div>
+          <div class="prompt-heading"><span>正向提示词</span><button class="ui-press" type="button" data-copy="prompt">复制</button></div>
           <pre>${escHtml(entry.prompt || '')}</pre>
         </div>
         ${entry.negative ? `<div class="prompt-section">
@@ -239,15 +239,15 @@ function renderDetail() {
                 const negativeResult = await copyText(entry.negative, { trigger: button, canCopy });
                 if (!canCopy() || negativeResult?.blocked) return;
                 toast(
-                  `已复制负面 Prompt${negativeResult?.converted ? '（SD 格式）' : ''}`,
+                  `已复制负面提示词${negativeResult?.converted ? '（SD 格式）' : ''}`,
                   '✓',
                 );
               } catch (error) {
                 if (!canCopy()) return;
                 toast(
                   error?.copyResult?.manualFallbackShown
-                    ? '自动复制未成功，请在弹窗中手动复制'
-                    : '复制失败，请长按/手动选择文本',
+                    ? '自动复制未成功，在弹窗中手动复制'
+                    : '复制失败，长按或手动选中文本复制',
                   '!',
                 );
               }
@@ -255,7 +255,7 @@ function renderDetail() {
           }
           : null;
         toast(
-          `${type === 'negative' ? '已复制负面 Prompt' : '已复制 Prompt'}${result?.converted ? '（SD 格式）' : ''}`,
+          `${type === 'negative' ? '已复制负面提示词' : '已复制正向提示词'}${result?.converted ? '（SD 格式）' : ''}`,
           '✓',
           action,
         );
@@ -263,8 +263,8 @@ function renderDetail() {
         if (!canCopy()) return;
         toast(
           error?.copyResult?.manualFallbackShown
-            ? '自动复制未成功，请在弹窗中手动复制'
-            : '复制失败，请长按/手动选择文本',
+            ? '自动复制未成功，在弹窗中手动复制'
+            : '复制失败，长按或手动选中文本复制',
           '!',
         );
       }
@@ -275,10 +275,10 @@ function renderDetail() {
     try {
       const result = await copyText(shareUrl, { convert: false, trigger: event.currentTarget, canCopy });
       if (!canCopy() || result?.blocked) return;
-      toast('投稿链接已复制');
+      toast('已复制投稿链接');
     } catch (error) {
       if (!canCopy()) return;
-      toast(error?.copyResult?.manualFallbackShown ? '请在弹窗中手动复制链接' : '链接复制失败', '!');
+      toast(error?.copyResult?.manualFallbackShown ? '在弹窗中手动复制链接' : '链接复制失败，手动复制地址栏里的链接', '!');
     }
   });
 }

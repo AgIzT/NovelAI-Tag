@@ -26,7 +26,7 @@ export function clearToken() {
 
 function unauthorizedError(message) {
   clearToken();
-  const error = new Error(message || '管理口令错误或已失效');
+  const error = new Error(message || '管理口令无效，重新填写后点「进入后台」');
   error.unauthorized = true;
   return error;
 }

@@ -432,7 +432,7 @@ export function parseFavoritesBackup(text, codexes = []) {
   }
   if (parsed.version !== FAVORITES_BACKUP_VERSION) {
     const message = typeof parsed.version === 'number' && parsed.version > FAVORITES_BACKUP_VERSION
-      ? '备份版本较新，请先更新站点后再导入'
+      ? '备份版本较新，刷新页面更新站点后再导入'
       : '不支持这个收藏备份版本';
     fail('UNSUPPORTED_VERSION', message, { version: parsed.version });
   }

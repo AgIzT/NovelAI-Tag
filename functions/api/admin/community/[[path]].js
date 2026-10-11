@@ -245,7 +245,7 @@ async function purgeItem(env, body, operation) {
 async function batchMutate(env, body) {
   const ids = Array.isArray(body.ids) ? body.ids.map(String).filter(validId).slice(0, 100) : [];
   const action = cleanLine(body.action, 40);
-  if (!ids.length) throw httpError('请选择要操作的内容');
+  if (!ids.length) throw httpError('选择要操作的内容');
   if (!action || action === 'batch' || !MUTATIONS.has(action)) throw httpError('批量操作无效');
   const succeeded = [];
   const failed = [];
@@ -283,7 +283,7 @@ async function requireItem(env, id, statuses = COMMUNITY_STATUSES) {
   const itemId = String(id || '');
   if (!validId(itemId)) throw httpError('无效的内容 id');
   const found = await findCommunityRecord(env, itemId, statuses);
-  if (!found) throw httpError('该内容不存在或状态不匹配', 404);
+  if (!found) throw httpError('这条投稿不存在或状态已变化，点「刷新」重新加载', 404);
   return found;
 }
 

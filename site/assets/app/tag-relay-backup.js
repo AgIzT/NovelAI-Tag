@@ -7,8 +7,8 @@ const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
 const bindings = new WeakMap();
 
 function backupError(error) {
-  if (error?.reason === 'future-version') return '这份备份来自更新版本，请更新页面后再恢复';
-  return '备份格式不正确，请选择中转站导出的 JSON 文件';
+  if (error?.reason === 'future-version') return '这份备份来自更新版本，刷新页面后再恢复';
+  return '备份格式不正确，选择中转站导出的 JSON 文件';
 }
 
 function dateStamp() {
@@ -64,7 +64,7 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
     try {
       return await binding.beforeAction() !== false;
     } catch {
-      toast('当前输入未能保存，请重试后再操作备份', '!');
+      toast('当前输入未能保存，重试保存后再操作备份', '!');
       return false;
     }
   };
@@ -79,7 +79,7 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
       const issue = getRelayStorageIssue();
       if (issue) {
         const message = issue === 'future-version'
-          ? '方案数据来自更新版本，暂不能导出，请更新页面后重试'
+          ? '方案数据来自更新版本，刷新页面后再导出'
           : issue === 'corrupt-data'
             ? '本机方案数据无法读取，暂不能导出；原始数据已保留'
             : '浏览器存储无法读取，暂不能导出备份';
@@ -97,7 +97,7 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
       link.click();
       toast('已导出中转站方案备份', '✓');
     } catch {
-      toast('备份导出失败，请重试', '!');
+      toast('备份导出失败，重试一次', '!');
     } finally {
       link?.remove();
       // 留出浏览器接管下载的时间，避免部分浏览器拿到已撤销的地址。
@@ -119,7 +119,7 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
     fileInput.value = '';
     if (!file || binding.busy) return;
     if (file.size > MAX_BACKUP_BYTES) {
-      toast('备份文件过大，请选择不超过 20 MB 的 JSON 文件', '!');
+      toast('备份文件过大，选择不超过 20 MB 的 JSON 文件', '!');
       return;
     }
     setBusy(true);
@@ -128,7 +128,7 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
       try {
         raw = await file.text();
       } catch {
-        toast('备份文件读取失败，请重新选择文件', '!');
+        toast('备份文件读取失败，重新选择文件', '!');
         return;
       }
       let backup;
@@ -150,7 +150,7 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
       await binding.afterRestore(action.result);
       toast(`已恢复 ${action.result?.planCount || 0} 个方案副本`, '✓');
     } catch {
-      toast('备份恢复未完成，请重试', '!');
+      toast('备份恢复未完成，重试一次', '!');
     } finally {
       setBusy(false);
     }

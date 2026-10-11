@@ -123,9 +123,9 @@ const MOBILE_DENSITY_PRESETS = {
 };
 export const NSFW_STORAGE_KEY = 'fadian-nsfw-ok';
 export const ADULT_CONFIRMATION_STORAGE_KEY = 'fadian-adult-confirmed-v1';
-export const NSFW_LOCKED_MESSAGE = '请先在设置里开启「允许 NSFW 法典展示」，并确认成人内容提示。';
+export const NSFW_LOCKED_MESSAGE = '在设置中开启「显示 NSFW 内容」并完成成人内容确认后可查看';
 export const R18G_STORAGE_KEY = 'fadian-r18g-ok';
-export const R18G_LOCKED_MESSAGE = 'R18G / 重口内容默认完全隐藏，需在设置中完成多重确认后才会显示。';
+export const R18G_LOCKED_MESSAGE = '在设置中开启「显示 R18G / 重口内容」并完成确认后可查看';
 
 export const state = {
   codex: null,        // 当前法典数据

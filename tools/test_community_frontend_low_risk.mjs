@@ -131,13 +131,13 @@ ${source}`;
   detail.renderDetail();
   await button.listener();
   assert.deepEqual(messages.at(-1), {
-    message: '复制失败，请长按/手动选择文本',
+    message: '复制失败，长按或手动选中文本复制',
     icon: '!',
   });
   copyFails = false;
   detail.renderDetail();
   await button.listener();
-  assert.equal(messages.at(-1).message, '已复制 Prompt');
+  assert.equal(messages.at(-1).message, '已复制正向提示词');
   delete globalThis.__communityDetailLowRiskTest;
 }
 

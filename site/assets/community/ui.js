@@ -64,6 +64,7 @@ export function applyCommunityFilters({ scrollTop = false } = {}) {
 
   if (state.onlyFavorites) list = list.filter(isFavorite);
 
+  state.hiddenNsfwMatches = state.showNSFW ? 0 : list.filter(entry => entry.nsfw).length;
   if (!state.showNSFW) list = list.filter(entry => !entry.nsfw);
 
   state.filtered = list;

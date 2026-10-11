@@ -73,7 +73,7 @@ assert.equal(quotaStore.librarySnapshot(), before);
 assert.equal(quotaStore.storage.getItem(KEY), beforeRaw);
 assert.equal(quotaStore.broadcasts.length, 0);
 assert.ok(!quotaStore.storage.writes.some(([key]) => key === LIBRARY_SIGNAL_KEY));
-assert.equal(quotaStore.notices.at(-1)[2].label, '备份并清理');
+assert.equal(quotaStore.notices.at(-1)[2].label, '备份与恢复');
 const overBudget = make(new MemoryStorage({ [KEY]: raw() }));
 await overBudget.ensureLibrary();
 assert.equal((await overBudget.commitLibrary(next => { next.items[0].note = '中'.repeat(800000); })).reason, 'quota');

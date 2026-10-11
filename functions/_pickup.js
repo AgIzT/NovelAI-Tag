@@ -64,7 +64,7 @@ export async function readPickupBody(request) {
     return { status: 413, error: '收藏数据超过取件码上限' };
   }
   let text;
-  try { text = await request.text(); } catch { return { status: 400, error: '请求内容无法读取' }; }
+  try { text = await request.text(); } catch { return { status: 400, error: '请求内容无法读取，重新点「生成取件码」或「取件」' }; }
   if (new TextEncoder().encode(text).byteLength > PICKUP_MAX_BODY_BYTES) {
     return { status: 413, error: '收藏数据超过取件码上限' };
   }
@@ -72,7 +72,7 @@ export async function readPickupBody(request) {
     const data = JSON.parse(text);
     if (data && typeof data === 'object' && !Array.isArray(data)) return { data };
   } catch {}
-  return { status: 400, error: '请求内容格式无效' };
+  return { status: 400, error: '请求内容格式无效，重新点「生成取件码」或「取件」' };
 }
 
 // 同一批里顺带清掉过期取件与限流桶。

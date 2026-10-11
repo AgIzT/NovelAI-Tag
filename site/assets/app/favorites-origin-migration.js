@@ -130,7 +130,7 @@ export async function createFavoritesMigrationRestore({
     fail('INVALID_MIGRATION_PAYLOAD', '旧域收藏数据结构无效');
   }
   if (encodedSize(payload) > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
-    fail('MIGRATION_TOO_LARGE', '旧域收藏数据超过 2 MiB，无法自动迁移');
+    fail('MIGRATION_TOO_LARGE', '旧域收藏数据超过 2 MB，无法自动迁移');
   }
 
   const backup = createFavoritesBackup({
@@ -257,7 +257,7 @@ export function setupFavoritesOriginMigration(options = {}) {
             nonce,
           }, oldOrigin);
         } catch {
-          setError('旧域迁移窗口已关闭。请重新尝试，或改用 JSON 备份恢复。');
+          setError('旧域迁移窗口已关闭。再试一次，或改用 JSON 备份恢复。');
           cleanup();
           return;
         }
@@ -316,13 +316,13 @@ export function setupFavoritesOriginMigration(options = {}) {
         postResult(migrationResultMessage(nonce, 'error', {
           message: error?.message || '旧域收藏迁移失败',
         }));
-        setError(error?.message || '旧域收藏迁移失败，请改用 JSON 备份恢复。');
+        setError(error?.message || '旧域收藏迁移失败，改用 JSON 备份恢复。');
         cleanup();
       }
     };
 
     const timeoutId = windowApi.setTimeout(() => {
-      setError('连接旧域超时。请确认迁移窗口未被拦截，或改用 JSON 备份恢复。');
+      setError('连接旧域超时。确认迁移窗口没被浏览器拦截，或改用 JSON 备份恢复。');
       cleanup();
     }, options.timeoutMs || MIGRATION_TIMEOUT_MS);
 
@@ -350,12 +350,12 @@ export function setupFavoritesOriginMigration(options = {}) {
       );
     } catch {
       cleanup();
-      setError('无法打开迁移窗口。请允许弹窗后重试，或手动打开救援页下载备份。');
+      setError('无法打开迁移窗口。允许本站弹窗后重试，或手动打开救援页下载备份。');
       return;
     }
     if (!popup) {
       cleanup();
-      setError('浏览器阻止了迁移窗口。请允许弹窗后重试，或手动打开救援页下载备份。');
+      setError('浏览器拦截了迁移窗口。允许本站弹窗后重试，或手动打开救援页下载备份。');
       return;
     }
     session.popup = popup;

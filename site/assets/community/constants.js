@@ -6,7 +6,7 @@ export const SUBMIT_CATEGORIES = Object.freeze([
 ]);
 
 export const SUBMIT_DISABLED = false;
-export const SUBMIT_DISABLED_MESSAGE = '投稿功能测试中，将会很快开放';
+export const SUBMIT_DISABLED_MESSAGE = '投稿功能暂未开放';
 
 export const LIMITS = Object.freeze({
   title: 60,

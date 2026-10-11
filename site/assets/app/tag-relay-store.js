@@ -254,7 +254,7 @@ function reportFailure(reason) {
     return;
   }
   if (reason === 'future-version') {
-    toast('中转站数据来自更新版本，请刷新页面；原数据已保留', '!');
+    toast('中转站数据来自更新版本，刷新页面；原数据已保留', '!');
     return;
   }
   if (reason === 'corrupt-data') {
@@ -270,7 +270,7 @@ function reportFailure(reason) {
     return;
   }
   if (reason === 'lock') {
-    toast('中转站正在被另一个标签页更新，请重试', '!');
+    toast('中转站正在被另一个标签页更新，重试一次', '!');
     return;
   }
   if (reason === 'mutator') {
@@ -278,10 +278,10 @@ function reportFailure(reason) {
     return;
   }
   if (reason === 'quota') {
-    toast('中转站已存满，请清理成品记录后重试', '!');
+    toast('中转站已存满，清空「成品记录」后重试', '!');
     return;
   }
-  toast('中转站保存失败，请检查浏览器存储权限', '!');
+  toast('方案未能保存。手动全选并复制当前输入，再检查浏览器是否允许本站保存数据', '!');
 }
 
 /* 读取可以同步展示，迁移写入必须与普通提交共用同一把锁。失败时旧 key 一字不动，
@@ -369,7 +369,7 @@ export async function commitRelay(mutator, { changed = 'all', planId, revision, 
   current = transaction.next;
   storageIssue = null;
   if (transaction.trimmed) {
-    toast(`中转站已存满，已自动清理 ${transaction.trimmed} 条最旧的复制历史`, '!');
+    toast(`中转站已存满，已自动清理 ${transaction.trimmed} 条最旧的成品记录`, '!');
   }
   publish({ changed: transaction.trimmed ? 'all' : changed, source: 'local' });
   return { ok: true, result: transaction.result };
@@ -433,7 +433,7 @@ export async function setupRelayStore() {
        （惯例照抄 favorites-backup.js 的 subscribeFavoritesChanges。） */
     if (event.storageArea !== globalThis.localStorage) return;
     if (TAG_RELAY_LEGACY_STORAGE_KEYS.includes(event.key)) {
-      toast('旧版页面更新了中转站，请刷新旧页面；当前方案保持不变', '!');
+      toast('旧版页面更新了中转站，刷新旧页面；当前方案保持不变', '!');
       publish({ changed: 'legacy', source: 'storage', issue: 'legacy-updated' });
       return;
     }

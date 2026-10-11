@@ -143,7 +143,7 @@ function syncLocalEditionEmptyState() {
     ? '<div class="empty-mark" aria-hidden="true">＋</div>' +
       '<h2>这里还没有法典</h2>' +
       '<p>创建第一本法典，然后就可以添加分类、词条和本地图片。</p>' +
-      '<div class="empty-actions"><button type="button" id="localFirstCodexBtn">＋ 创建我的第一本法典</button></div>'
+      '<div class="empty-actions"><button type="button" id="localFirstCodexBtn">＋ 创建法典</button></div>'
     : '<h2>这里还没有法典</h2>';
   empty.hidden = false;
   if (enabled) {
@@ -212,7 +212,7 @@ function mountEditDialog(mask, { trigger = document.activeElement } = {}) {
   mask.hidden = true;
   const close = options => {
     if (mask.dataset.busy === '1') {
-      toast('正在导入，请等待当前批次完成');
+      toast('正在导入，当前批次完成后再操作');
       return;
     }
     closeMask(mask, options);
@@ -240,7 +240,7 @@ function mountEditDialog(mask, { trigger = document.activeElement } = {}) {
    opts.silent=true 只抑制服务器返回的预期错误，连接失败始终提示。 */
 async function editFetch(path, body, opts = {}) {
   if (saving) {
-    toast('正在保存，请稍候再试');
+    toast('正在保存，保存完成后再操作');
     return null;
   }
   saving = true;
@@ -250,14 +250,15 @@ async function editFetch(path, body, opts = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await res.json().catch(() => ({ ok: false, error: '响应解析失败' }));
+    const data = await res.json().catch(() => ({ ok: false, error: '编辑器返回的内容无法识别，重新打开这本法典核对是否已保存' }));
     if (!data.ok) {
-      if (!opts.silent) toast(data.error || '保存失败');
+      if (!opts.silent) toast(data.error || '操作失败，重新打开这本法典核对后重试');
       return opts.wantError ? data : null;
     }
     return data;
   } catch (ex) {
-    toast('无法连接编辑服务：' + (ex?.message || ex));
+    console.warn('[edit] 编辑服务请求失败', ex);
+    toast('无法连接本地编辑器，重新启动编辑器后重试');
     return null;
   } finally {
     saving = false;
@@ -504,7 +505,7 @@ function readFileAsDataURL(file) {
 async function inspectImageFile(file) {
   let dataURL;
   try { dataURL = await readFileAsDataURL(file); }
-  catch { return { dataURL: null, metadata: null, error: '读取图片失败' }; }
+  catch { return { dataURL: null, metadata: null, error: '读取图片失败，重新选择图片' }; }
   const res = await editFetch('/__edit__/metadata', { dataURL }, { wantError: true, silent: true });
   if (!res?.ok) {
     return { dataURL, metadata: null, error: res?.error || '无法读取图片参数' };
@@ -551,10 +552,10 @@ function metadataSummary(metadata) {
 }
 
 async function uploadImage(entry, file) {
-  if (file.type && !/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
+  if (file.type && !/^image\//.test(file.type)) { toast('选择图片文件'); return; }
   let dataURL;
   try { dataURL = await readFileAsDataURL(file); }
-  catch { toast('读取文件失败'); return; }
+  catch { toast('读取文件失败，重新选择文件'); return; }
   const entryId = entry.id;
   const res = await editFetch('/__edit__/image', {
     codexId: currentCodexId(), entryId, op: 'set', dataURL,
@@ -620,13 +621,13 @@ async function openSiteSearchEntryForEdit(target) {
       ? state.codex?.entries?.find(entry => entry.id === target.entryId)
       : null;
     if (!fresh) {
-      toast('没有找到原词条，请返回后重新搜索');
+      toast('没有找到原词条，返回后重新搜索');
       return;
     }
     openLightbox(fresh, 0, null, { historyMode: 'none', allowEmpty: true });
   } catch (error) {
     console.error('打开搜索结果原词条失败', error);
-    toast('打开原词条失败，请重试');
+    toast('打开原词条失败，再点一次重试');
   } finally {
     openingSearchEntry = false;
   }
@@ -871,7 +872,7 @@ function openCodexManager() {
       <div class="edit-actions">
         <button type="button" class="edit-btn primary" id="cxSave">保存本书信息</button>
         <button type="button" class="edit-btn danger" id="cxDelete">删除这本法典</button>
-      </div>` : `<div class="edit-hint">${meta ? '这本是外部数据源，不能在本地编辑。' : '当前还没有法典，请在下面创建第一本。'}</div>`}
+      </div>` : `<div class="edit-hint">${meta ? '这本是外部数据源，不能在本地编辑。' : '还没有法典，在下面创建。'}</div>`}
       <hr class="edit-sep">
       <div class="edit-panel-title">新建一本法典</div>
       <label>id（小写字母/数字/下划线，建后不可改）<input type="text" id="cxNewId" placeholder="my_codex"></label>
@@ -1110,7 +1111,7 @@ function openCreateDialog(path = null) {
       return;
     }
     if (file.type && !/^image\//.test(file.type)) {
-      metadataStatus.textContent = '请选择图片文件';
+      metadataStatus.textContent = '选择图片文件';
       metadataStatus.classList.add('is-error');
       return;
     }
@@ -1144,7 +1145,7 @@ function openCreateDialog(path = null) {
   };
   mask.querySelector('#ndCancel').onclick = () => close();
   mask.querySelector('#ndSave').onclick = async () => {
-    if (metadataBusy) { toast('图片参数仍在读取，请稍候'); return; }
+    if (metadataBusy) { toast('图片参数还在读取，读取完成后再保存'); return; }
     const targetPath = fixed || splitTreePath(pathSel?.value || '');
     const values = {
       title: mask.querySelector('#ndTitle').value,
@@ -1154,12 +1155,12 @@ function openCreateDialog(path = null) {
     const invalid = validateEntryForm(values, { requireAll: true });
     if (invalid) { toast(invalid); return; }
     const imageFile = imageInput.files?.[0] || null;
-    if (imageFile?.type && !/^image\//.test(imageFile.type)) { toast('请选择图片文件'); return; }
-    if (imageFile && !imageReadOk) { toast('图片尚未读取成功，请重新选择'); return; }
+    if (imageFile?.type && !/^image\//.test(imageFile.type)) { toast('选择图片文件'); return; }
+    if (imageFile && !imageReadOk) { toast('图片读取失败，重新选择图片'); return; }
     let imageDataURL = null;
     if (imageFile) {
       try { imageDataURL = await readFileAsDataURL(imageFile); }
-      catch { toast('读取图片失败'); return; }
+      catch { toast('读取图片失败，重新选择图片'); return; }
     }
     const negative = mask.querySelector('#ndNegative').value.trim();
     const note = mask.querySelector('#ndNote').value.trim();
@@ -1269,7 +1270,7 @@ function openBatchImportDialog(path = null) {
       return;
     }
     if (files.length > BATCH_IMPORT_MAX) {
-      status.textContent = `一次最多导入 ${BATCH_IMPORT_MAX} 张，请分批选择`;
+      status.textContent = `一次最多导入 ${BATCH_IMPORT_MAX} 张，分批选择`;
       status.classList.add('is-error');
       return;
     }
@@ -1281,7 +1282,7 @@ function openBatchImportDialog(path = null) {
       status.textContent = `正在读取图片参数 ${index + 1} / ${files.length}：${file.name}`;
       let inspected = { metadata: null, error: '' };
       if (file.type && !/^image\//.test(file.type)) inspected.error = '不是图片文件';
-      else if (file.size > 45 * 1024 * 1024) inspected.error = '单张图片超过 45MB';
+      else if (file.size > 45 * 1024 * 1024) inspected.error = '单张图片超过 45 MB';
       else inspected = await inspectImageFile(file);
       let error = inspected.error;
       if (inspected.metadata && !inspected.metadata.prompt) error = '未读取到主正向 Tag，已跳过';
@@ -1307,7 +1308,7 @@ function openBatchImportDialog(path = null) {
     const selected = [...list.querySelectorAll('.edit-batch-row')].filter(row =>
       row.querySelector('[data-batch-select]')?.checked && !row.querySelector('[data-batch-select]')?.disabled
     );
-    if (!selected.length) { toast('请至少选择一张可导入图片'); return; }
+    if (!selected.length) { toast('至少选择一张可导入的图片'); return; }
     for (const row of selected) {
       if (!row.querySelector('[data-batch-title]').value.trim()) {
         toast('每个待导入词条都必须有标题');

@@ -564,12 +564,12 @@ export function setupCodexPicker() {
     const a = document.createElement('a');
     a.className = 'codex-door';
     a.href = '/strings.html';
-    a.setAttribute('aria-label', '前往社区共建，投稿你的图片与提示词作品');
+    a.setAttribute('aria-label', '前往共创广场投稿图片与提示词');
     a.innerHTML =
       `<span class="cd-ico">${DOOR_PLUS_ICON}</span>` +
       `<span class="cd-main">` +
-      `<span class="cd-name">社区共建 · 去投稿</span>` +
-      `<span class="cd-sub">浏览大家的图片与提示词作品，也加入你的一份</span>` +
+      `<span class="cd-name">共创广场 · 投稿</span>` +
+      `<span class="cd-sub">社区投稿的图片与提示词作品</span>` +
       `</span>` +
       `<span class="cd-out">${DOOR_OUT_ICON}</span>`;
     wrap.appendChild(a);
@@ -794,7 +794,7 @@ export function setupCodexPicker() {
         `<p class="n5-notice-sub">${n5BooksLabel(featured.length)}新法典 · ` +
         `<b>${entries.toLocaleString()}</b> 条词条</p>` +
         `<div class="n5-notice-actions">` +
-        `<button class="n5-btn solid n5-notice-open" type="button">看看新法典</button>` +
+        `<button class="n5-btn solid n5-notice-open" type="button">查看新法典</button>` +
         `<button class="n5-btn ghost n5-notice-later" type="button">以后再说</button>` +
         `</div>` +
         `<span class="n5-stamp">${esc(n5LaunchStamp(featured))}</span>` +

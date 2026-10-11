@@ -123,7 +123,7 @@ const env = {
   });
   const data = await res.json();
   assert.equal(res.status, 413, JSON.stringify(data));
-  assert.match(data.error, /总体积过大/);
+  assert.match(data.error, /总体积超过 \d+ MB/);
   assert.equal(bucket.objects.size, 0, '请求体预检失败不得写入 R2');
 }
 

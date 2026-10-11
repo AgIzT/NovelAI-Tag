@@ -8,7 +8,7 @@ import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { bindBackdropDismiss, bindOutsideDismiss, focusFirstIn, trapFocus, configureMask, openMask, closeMask, isGlobalShortcutBlocked, topInteractionLayer } from './modal.js';
 import { createSelectMenu } from './select-menu.js';
 import { registerHistoryLayer, openHistoryLayer, closeHistoryLayer, forgetHistoryLayer, topHistoryLayerId } from './browser-history.js';
-import { librarySnapshot, commitLibrary, subscribeLibrary } from './favorites-library-store.js';
+import { librarySnapshot, commitLibrary, subscribeLibrary, undoFailureMessage } from './favorites-library-store.js';
 import { createFolder, renameFolder, deleteFolder, removeLibraryItems, setFolderMembership, FavoritesLibraryError } from './favorites-library-core.js';
 
 const actions = {
@@ -399,7 +399,7 @@ export function renderFavoritesHeader() {
   const empty = byId('empty');
   if (empty && !state.list?.length) {
     empty.replaceChildren();
-    const message = !library().items.length ? '还没有收藏。点卡片上的 ☆ 收藏词条。'
+    const message = !library().items.length ? '还没有收藏。点卡片标题旁的 ☆ 收藏词条。'
       : hasFilter ? '没有匹配的收藏。' : state.favFolder === '_unsorted' ? '收藏都已归类。' : '这个收藏夹还没有内容。';
     empty.append(element('p', '', message));
     if (library().items.length && (hasFilter || state.favFolder)) {
@@ -551,7 +551,7 @@ function openMenu(id, trigger, fromHeader = false) {
 export function restoreFavoriteObjects(doc, snapshot, kind) {
   if (snapshot.folder) {
     if (doc.folders.some(folder => folder.id === snapshot.folder.id || folder.name === snapshot.folder.name)) {
-      throw new FavoritesLibraryError('UNDO_CONFLICT', '撤销没能完成');
+      throw new FavoritesLibraryError('UNDO_CONFLICT', '撤销未完成：已有同名收藏夹');
     }
     createFolder(doc, snapshot.folder.name, { id: snapshot.folder.id });
     Object.assign(doc.folders.find(folder => folder.id === snapshot.folder.id), clone(snapshot.folder));
@@ -568,7 +568,7 @@ export function restoreFavoriteObjects(doc, snapshot, kind) {
     if (!items.has(membership.itemKey) || recreated.has(membership.itemKey)) continue;
     if (!folderIds.has(membership.folderId)) {
       if (kind === 'folder') continue;
-      throw new FavoritesLibraryError('UNDO_CONFLICT', '撤销没能完成');
+      throw new FavoritesLibraryError('UNDO_CONFLICT', '撤销未完成：原收藏夹已删除');
     }
     const key = JSON.stringify([membership.itemKey, membership.folderId]);
     if (!relations.has(key)) {
@@ -578,9 +578,9 @@ export function restoreFavoriteObjects(doc, snapshot, kind) {
   }
 }
 function undoToast(message, snapshot, kind) {
-  toast(message, '✓', { label: '撤销', failureMessage: '撤销没能完成', onClick: async () => {
+  toast(message, '✓', { label: '撤销', failureMessage: '撤销未完成', onClick: async () => {
     const result = await commitLibrary(doc => restoreFavoriteObjects(doc, snapshot, kind), { changed: 'all', silent: true });
-    if (!result.ok) { toast('撤销没能完成', '!'); return false; }
+    if (!result.ok) { toast(undoFailureMessage(result), '!'); return false; }
     if (kind === 'items') await refreshItems();
     else refreshContent();
     return true;
@@ -658,7 +658,7 @@ export async function openOrganize(keys, trigger = document.activeElement) {
   try { await actions.prepareEntries(); } catch (error) {
     if (request !== organizeRequestSeq) return;
     console.warn('[favorites] 整理所需来源暂未读到', error);
-    toast('收藏来源没能加载，重试一次', '!');
+    toast('收藏来源加载失败，重新点「整理」重试', '!');
     return;
   }
   if (request !== organizeRequestSeq) return;
@@ -719,7 +719,7 @@ function renderOrganizeList() {
     if (oldStatus && oldStatus !== status) favoriteMotion(check,
       [{ scale: .9, opacity: .6 }, { scale: 1, opacity: 1 }], { duration: 120 });
   }
-  if (!found.length) list.append(element('p', 'favorites-panel-empty', query ? '没有叫「' + query + '」的收藏夹' : '还没有收藏夹。'));
+  if (!found.length) list.append(element('p', 'favorites-panel-empty', query ? '没有叫「' + query + '」的收藏夹' : '还没有收藏夹'));
   list.scrollTop = scroll;
   if (focused && !list.contains(document.activeElement) && layerOpen(IDS.organize) && !layerOpen(IDS.dialog)) {
     ([...list.children].find(row => row.dataset.folderCheck === focused) || byId('favoritesOrganizeSearch'))?.focus({ preventScroll: true });

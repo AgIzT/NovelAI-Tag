@@ -125,7 +125,7 @@ async function buildSiteSearchCodexFresh() {
   const lockedCount = lockedMetas.reduce((n, meta) => n + Number(meta.entryCount || 0), 0);
   const notices = [];
   if (lockedCount) notices.push(`另有 ${lockedCount} 条在 NSFW 法典中，开启 NSFW 后可搜索`);
-  if (failedCount) notices.push(`${failedCount} 条所在的法典加载失败，稍后再试`);
+  if (failedCount) notices.push(`${failedCount} 条所在的法典加载失败，刷新页面重试`);
 
   return {
     // fetchCodex 的“发布回退数据”刻意不进 codexCache，以便下次重试外部源；

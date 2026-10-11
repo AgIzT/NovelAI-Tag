@@ -203,7 +203,7 @@ try {
   quotaLimit = values.get(TAG_RELAY_STORAGE_KEY).length;   // 再长一个字节就撞墙
   const trimmedCommit = await store.commitRelay(next => touchInboxEntry(next, entry('quota')), { changed: 'inbox' });
   assert.equal(trimmedCommit.ok, true, '撞配额后应当裁剪历史并重试成功');
-  assert.match(lastToast(), /已自动清理 \d+ 条最旧的复制历史/, '配额撞墙的提示要指向复制历史，不是存储权限');
+  assert.match(lastToast(), /已自动清理 \d+ 条最旧的成品记录/, '配额撞墙的提示要指向成品记录，不是存储权限');
   const survivors = store.relayState().history.map(item => item.label);
   assert.ok(survivors.length < 6, '必须真的丢掉了历史');
   assert.deepEqual(

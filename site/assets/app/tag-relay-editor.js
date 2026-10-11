@@ -44,7 +44,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     host.append(node);
     return node;
   };
-  for (const [channel, label] of [['positive', '正向'], ['negative', '负向']]) {
+  for (const [channel, label] of [['positive', '正向'], ['negative', '负面']]) {
     const channelButton = element('button', '', label);
     channelButton.type = 'button';
     channelButton.setAttribute('role', 'tab');
@@ -239,7 +239,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
   async function foldSelection(event) {
     const selected = selectedFold(), channel = session.channel, version = editVersion;
     if (!selected.text.trim() || foldRanges(selected.text).length) {
-      notify('请先选中要折叠的普通文本'); return;
+      notify('先选中要折叠的普通文本'); return;
     }
     let { match } = selected;
     if (!match) {

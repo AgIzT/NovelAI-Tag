@@ -263,7 +263,7 @@ function scanQuery(input) {
   return {
     tokens: phrases,
     issue: quote
-      ? searchIssue('unclosed_quote', '引号没有闭合，请补全后再搜索', source)
+      ? searchIssue('unclosed_quote', '引号没有闭合，补全后再搜索', source)
       : null,
   };
 }
@@ -607,7 +607,7 @@ export function parseSearchQuery(raw, filterValues = []) {
 
   const uniquePositiveTerms = uniqueTerms(positiveTerms);
   if (input && !uniquePositiveTerms.length && extractedFilterCount === 0 && !issues.length) {
-    issues.push(searchIssue('empty_search', '请输入至少一个有效关键词或筛选条件', rawInput));
+    issues.push(searchIssue('empty_search', '输入至少一个关键词或筛选条件', rawInput));
   }
   const textConditionKeys = new Set(uniquePositiveTerms.map(term => `default\u0000include\u0000${term}`));
   for (const filter of filters) {
@@ -820,9 +820,9 @@ export function hiddenSearchMatch(entry, terms = currentHighlightTerms()) {
   const unresolved = needles.filter(term => !searchTextIncludes(visible, term));
   if (!unresolved.length) return null;
   const fields = [
-    ['负面词', [entry?.negative, characterNegativeText(entry)].filter(Boolean).join('\n')],
+    ['负面提示词', [entry?.negative, characterNegativeText(entry)].filter(Boolean).join('\n')],
     ['备注', entry?.note],
-    ['Raw', rawTagText(entry)],
+    ['原始提示词', rawTagText(entry)],
     ['路径', entryActualPath(entry).join(' › ')],
   ];
   for (const [label, value] of fields) {

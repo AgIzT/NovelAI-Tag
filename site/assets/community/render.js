@@ -46,8 +46,8 @@ export function renderResultBar() {
   }
 
   const parts = [];
-  if (state.activeCategory) parts.push(`分类: ${state.activeCategory}`);
-  if (state.query) parts.push(`搜索 "${state.query}"`);
+  if (state.activeCategory) parts.push(`分类：${state.activeCategory}`);
+  if (state.query) parts.push(`搜索「${state.query}」`);
   if (state.onlyFavorites) parts.push('只看收藏');
   if (!state.showNSFW) parts.push('已隐藏 NSFW');
   parts.push(`<b>${state.filtered.length}</b> 条投稿`);
@@ -62,23 +62,23 @@ export function renderEmptyState({ onSubmit, onClearSearch, onShowAll, onShowNSF
   if (!visible) return;
 
   const hasEntries = state.entries.length > 0;
-  let title = '还没有人投稿，来当第一个';
-  let desc = '提交作品信息，之后会进入这里。';
+  let title = '暂无投稿';
+  let desc = '投稿审核通过后会出现在这里。';
   const actions = [];
 
   if (state.loadError) {
     title = '共创广场加载失败';
-    desc = '暂时无法取得投稿数据，请刷新后重试。';
+    desc = '投稿数据加载失败，刷新页面重试。';
     actions.push({ label: '刷新重试', action: () => window.location.reload() });
   } else if (!hasEntries) {
-    actions.push({ label: '分享你的作品', action: onSubmit });
+    actions.push({ label: '投稿', action: onSubmit });
   } else if (state.onlyFavorites) {
-    title = '还没有收藏的投稿';
+    title = '当前筛选下没有收藏的投稿';
     desc = '在卡片右上角点星标，就能把喜欢的作品收进这里。';
-    actions.push({ label: '查看全部投稿', action: onShowFavoritesAll });
-  } else if (!state.showNSFW && state.entries.some(entry => entry.nsfw)) {
+    actions.push({ label: '取消收藏筛选', action: onShowFavoritesAll });
+  } else if (!state.showNSFW && state.hiddenNsfwMatches > 0) {
     title = '当前筛选下没有可见投稿';
-    desc = 'NSFW 投稿已被隐藏，开启后会和普通投稿混合显示。';
+    desc = `有 ${state.hiddenNsfwMatches} 条匹配的 NSFW 投稿已隐藏，开启混显后显示。`;
     actions.push({ label: '开启 NSFW 混显', action: onShowNSFW });
     actions.push({ label: '查看全部', action: onShowAll });
   } else if (state.query) {
@@ -87,9 +87,9 @@ export function renderEmptyState({ onSubmit, onClearSearch, onShowAll, onShowNSF
     actions.push({ label: '清空搜索', action: onClearSearch });
   } else if (state.activeCategory) {
     title = '这个分类还没有投稿';
-    desc = '先回到全部视图看看，或者贡献这个分类的第一条。';
+    desc = '查看全部投稿，或向这个分类投稿。';
     actions.push({ label: '查看全部', action: onShowAll });
-    actions.push({ label: '分享你的作品', action: onSubmit });
+    actions.push({ label: '投稿', action: onSubmit });
   }
 
   empty.innerHTML = `
@@ -189,7 +189,7 @@ function createCard(entry, { onOpenDetail, onToggleFavorite } = {}) {
       media.appendChild(param);
     }
   } else {
-    media.innerHTML = '<span>Prompt</span>';
+    media.innerHTML = '<span>提示词</span>';
   }
   if (entry.nsfw) {
     const badge = document.createElement('span');

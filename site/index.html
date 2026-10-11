@@ -193,7 +193,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <header class="search-filter-head">
         <div>
           <strong id="searchFilterTitle">筛选搜索结果</strong>
-          <p>可按目录、备注、负面词等字段添加条件。</p>
+          <p>可按目录、备注、负面提示词等字段添加条件。</p>
         </div>
         <button id="searchFilterClose" class="search-filter-close" type="button" aria-label="关闭筛选面板" title="关闭筛选面板">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
@@ -458,7 +458,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </button>
       <div class="tag-relay-output-actions">
         <button id="relayCopyAll" class="ui-press tag-relay-secondary" type="button">复制全部提示词</button>
-        <button id="relayCopyNegative" class="ui-press tag-relay-secondary" type="button">只复制负向</button>
+        <button id="relayCopyNegative" class="ui-press tag-relay-secondary" type="button">只复制负面</button>
         <span class="tag-relay-output-gap"></span>
         <!-- 格式与连接是「设一次就不动」的，原先和最高频的复制键一样醒目、常驻 32px。
              收进这个披露里：收起时它自己就是当前格式的标签。 -->
@@ -499,8 +499,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           <textarea id="relayPositiveOutput" rows="3" readonly placeholder="正向输出会显示在这里"></textarea>
         </div>
         <div class="tag-relay-output-box">
-          <span><label for="relayNegativeOutput"><b>负向</b></label><small id="relayNegativeMeta">0 段</small></span>
-          <textarea id="relayNegativeOutput" rows="2" readonly placeholder="负向输出会显示在这里"></textarea>
+          <span><label for="relayNegativeOutput"><b>负面</b></label><small id="relayNegativeMeta">0 段</small></span>
+          <textarea id="relayNegativeOutput" rows="2" readonly placeholder="负面输出会显示在这里"></textarea>
         </div>
       </div>
 
@@ -585,7 +585,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div class="set-row seg-row">
       <div class="set-info">
         <div class="set-name">深浅色</div>
-        <div class="set-desc">跟随系统时随设备的日夜设置自动切换</div>
+        <div class="set-desc">跟随系统时随设备的日夜设置自动切换。</div>
       </div>
       <div id="darkModeControl" class="seg-control" role="group" aria-label="深浅色">
         <button class="seg-option" type="button" data-dark-mode="auto" aria-pressed="false">跟随系统</button>
@@ -596,7 +596,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div class="set-row density-row">
       <div class="set-info">
         <div class="set-name">卡片密度</div>
-        <div class="set-desc">调整图片大小与摘要长度</div>
+        <div class="set-desc">调整图片大小与摘要长度。</div>
       </div>
       <div id="densityControl" class="density-control" role="group" aria-label="卡片密度">
         <button class="density-option" type="button" data-density="comfort" aria-pressed="false">舒适</button>
@@ -631,7 +631,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div class="set-row card-zoom-set-row">
       <div class="set-info">
         <div class="set-name">点击卡片放大</div>
-        <div class="set-desc">开启后在大图里复制提示词</div>
+        <div class="set-desc">开启后点卡片打开词条详情，在详情里复制提示词。</div>
       </div>
       <label class="switch live"><input type="checkbox" id="cardZoomToggle"><i></i></label>
     </div>
@@ -644,7 +644,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </div>
     <div class="set-row">
       <div class="set-info">
-        <div class="set-name">tag 中文自动翻译</div>
+        <div class="set-name">tag 中文对照</div>
         <div class="set-desc">在详情里每个 tag 下方标注中文译名，虚线下划线的是机翻，仅供参考。</div>
       </div>
       <label class="switch live"><input type="checkbox" id="tagZhSettingToggle" checked><i></i></label>
@@ -652,14 +652,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <div class="set-row nsfw-set-row">
       <div class="set-info">
         <div class="set-name">显示 NSFW 内容</div>
-        <div class="set-desc">开启后显示成人向目录与条目</div>
+        <div class="set-desc">开启后显示成人向目录与条目。</div>
       </div>
       <label class="switch live"><input type="checkbox" id="nsfwToggle"><i></i></label>
     </div>
     <div class="set-row r18g-set-row">
       <div class="set-info">
         <div class="set-name">显示 R18G / 重口内容</div>
-        <div class="set-desc">包含猎奇极端内容</div>
+        <div class="set-desc">包含猎奇极端内容。</div>
       </div>
       <label class="switch live"><input type="checkbox" id="r18gToggle"><i></i></label>
     </div>
@@ -719,8 +719,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <h2 id="nsfwConfirmTitle" class="settings-title">成人内容提示</h2>
     <p class="settings-note nsfw-note">开启后，站点会展示包含成人向、裸露、性暗示或露骨性行为提示词与例图的法典内容。</p>
     <div class="nsfw-body">
-      <p>请确认你所在地区允许访问此类内容，并且你已年满 18 周岁或达到当地法定成年年龄。</p>
-      <p>开启后产生的浏览、复制和使用行为由用户自行负责；请确保后续使用符合当地法律法规、平台规则和公共场合使用规范。</p>
+      <p>确认你所在地区允许访问此类内容，并且你已年满 18 周岁或达到当地法定成年年龄。</p>
+      <p>开启后的浏览、复制和使用由你自行负责，需符合当地法律法规、平台规则和公共场合使用规范。</p>
     </div>
     <div class="nsfw-actions">
       <button id="nsfwCancel" class="nsfw-secondary" type="button">取消</button>
@@ -736,7 +736,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <h2 id="r18gConfirmTitle" class="settings-title">⚠ 重口 / R18G 内容警告</h2>
     <p class="settings-note r18g-note" id="r18gWarnText"></p>
     <div class="nsfw-actions">
-      <button id="r18gBack" class="nsfw-secondary" type="button">我点错了，退出</button>
+      <button id="r18gBack" class="nsfw-secondary" type="button">退出</button>
       <button id="r18gNext" class="nsfw-primary danger" type="button">继续</button>
     </div>
   </div>
@@ -750,8 +750,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div><kbd>/</kbd><span>聚焦搜索</span></div>
       <div><kbd>?</kbd><span>打开快捷键</span></div>
       <div><kbd>G</kbd><span>回到顶部</span></div>
-      <div><kbd>Esc</kbd><span>关闭弹窗 / 灯箱</span></div>
-      <div><kbd>←</kbd><kbd>→</kbd><span>灯箱切图</span></div>
+      <div><kbd>Esc</kbd><span>关闭弹窗 / 词条详情</span></div>
+      <div><kbd>←</kbd><kbd>→</kbd><span>词条详情里切图</span></div>
     </div>
   </div>
 </div>
@@ -847,7 +847,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <label class="favorites-backup-file" for="favoritesImportFile">
           <span aria-hidden="true">＋</span>
           <b>选择 JSON 备份文件</b>
-          <small>最大 2 MiB，仅在浏览器中读取</small>
+          <small>最大 2 MB，仅在浏览器中读取</small>
         </label>
         <input id="favoritesImportFile" class="favorites-backup-file-input" type="file" accept=".json,application/json">
 
@@ -1076,7 +1076,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-<div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="图片灯箱" hidden>
+<div id="lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="词条详情" hidden>
   <button id="lightboxClose" class="lb-circle lightbox-close ui-press" type="button" aria-label="关闭">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
   </button>
@@ -1117,7 +1117,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="lightbox-actions">
         <button class="ui-press" id="favoriteLightbox" type="button" aria-label="收藏" aria-pressed="false">☆</button>
         <button class="ui-press" id="copyAll" type="button">复制全部</button>
-        <button class="ui-press" id="copyRawTag" type="button">复制当前图 Raw</button>
+        <button class="ui-press" id="copyRawTag" type="button" title="复制当前这张图的原始提示词">复制原始提示词</button>
         <button class="ui-press" id="viewOriginal" type="button">查看原图</button>
         <button class="ui-press" id="shareLightbox" type="button">分享</button>
         <button class="ui-press" id="reportLightbox" type="button">反馈此图</button>
@@ -1125,7 +1125,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
       <div class="lightbox-section">
         <div class="section-head">
-          <div class="section-label">正向 tags</div>
+          <div class="section-label">正向提示词</div>
           <button id="tagZhToggle" class="tag-zh-toggle ui-press" type="button" aria-pressed="true" title="在每个 tag 下方标注中文译名；复制内容不受影响">中文对照</button>
           <button id="sdPositivePreview" class="sd-preview-toggle ui-press" type="button" aria-pressed="false" hidden>SD 预览</button>
           <button class="ui-press" id="copyPositive" type="button">复制正向</button>
@@ -1149,14 +1149,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
       <div id="negativeBlock" class="lightbox-section">
         <div class="section-head">
-          <div class="section-label">Negative</div>
+          <div class="section-label">负面提示词</div>
           <button id="sdNegativePreview" class="sd-preview-toggle ui-press" type="button" aria-pressed="false" hidden>SD 预览</button>
           <button class="ui-press" id="copyNegative" type="button">复制负面</button>
         </div>
         <pre id="lightboxNegative"></pre>
       </div>
       <div id="noteBlock" class="lightbox-section">
-        <div class="section-label">Note</div>
+        <div class="section-label">备注</div>
         <pre id="lightboxNote"></pre>
       </div>
     </aside>
