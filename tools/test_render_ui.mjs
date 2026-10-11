@@ -1459,8 +1459,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(onboardingSource, /function finishOnboarding\(\) \{\s*try \{\s*localStorage\.setItem/);
   assert.match(onboardingSource, /export function openOnboarding\(\{ trigger = document\.activeElement, historyMode = 'push' \} = \{\}\)/);
   assert.equal((onboardingSource.match(/cls: 'obs-[1-4]'/g) || []).length, 4);
-  assert.match(onboardingSource, /十本法典随时切，也能全站搜/);
-  assert.match(onboardingSource, /点顶栏书名可在十本法典间切换/);
+  assert.match(onboardingSource, /多本法典随时切，也能全站搜/);
+  assert.match(onboardingSource, /点顶栏书名切换法典/);
   assert.match(onboardingSource, /社区整理的 NovelAI 提示词法典图鉴/);
   assert.match(indexSource, /id="onboardingStep"[^>]*>1 \/ 4</);
   assert.equal((indexSource.match(/class="onboarding-dot(?: active)?"/g) || []).length, 4);

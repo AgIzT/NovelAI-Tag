@@ -17,8 +17,8 @@ const STEPS = [
   {
     cls: 'obs-3',
     scene: `<div class="ob-searchbox"><b>本书</b><i></i><span></span></div><div class="ob-searchscope"><i>本书</i><b>全站</b></div>${CUR}`,
-    title: '十本法典随时切，也能全站搜',
-    body: '点顶栏书名可在十本法典间切换；搜索栏左侧还能在“本书”和“全站”间切换，并用 path:、has:image、fav:true 等高级语法精确筛选。',
+    title: '多本法典随时切，也能全站搜',
+    body: '点顶栏书名切换法典；搜索栏左侧还能在“本书”和“全站”间切换，并用 path:、has:image、fav:true 等高级语法精确筛选。',
   },
   {
     cls: 'obs-2',
