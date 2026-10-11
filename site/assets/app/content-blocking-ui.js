@@ -26,12 +26,12 @@ function showSaveError(result) {
   return true;
 }
 
-export function hideCard(entry) {
-  const result = hideContentEntry(entry);
+export async function hideCard(entry) {
+  const result = await hideContentEntry(entry);
   if (showSaveError(result)) return;
   toast(getBlockingPreferences().enabled ? '已隐藏卡片' : '已加入屏蔽清单，屏蔽已暂停', '✓', {
-    label: '撤销', onClick: () => {
-      if (!showSaveError(restoreContentEntry(result.key))) toast('已撤销隐藏');
+    label: '撤销', onClick: async () => {
+      if (!showSaveError(await restoreContentEntry(result.key))) toast('已撤销隐藏');
     },
   });
 }
@@ -324,8 +324,14 @@ export function setupContentBlocking() {
     }
   }, true);
   $('#blockingRevealManage').onclick = event => openBlockingManager(event.currentTarget);
-  $('#blockingEnabled').onchange = event => {
-    if (showSaveError(setContentBlockingEnabled(event.target.checked))) renderBlockingManager();
+  $('#blockingEnabled').onchange = async event => {
+    const input = event.target;
+    const enabled = input.checked;
+    input.checked = getBlockingPreferences().enabled;
+    input.disabled = true;
+    try {
+      if (showSaveError(await setContentBlockingEnabled(enabled))) renderBlockingManager();
+    } finally { input.disabled = false; }
   };
   const chooseTab = tab => {
     if (currentTab !== tab.dataset.blockingTab) renderBlockingManager({ tab: tab.dataset.blockingTab });
@@ -344,24 +350,43 @@ export function setupContentBlocking() {
     $('#blockingWordError').hidden = true;
     event.target.setAttribute('aria-invalid', 'false');
   };
-  $('#blockingWordForm').onsubmit = event => {
+  let addingWords = false;
+  $('#blockingWordForm').onsubmit = async event => {
     event.preventDefault();
+    if (addingWords) return;
+    addingWords = true;
     const input = $('#blockingWordInput');
-    const result = addBlockedWords(input.value);
+    const submitted = input.value;
+    const button = $('#blockingWordForm').querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    let result;
+    try { result = await addBlockedWords(submitted); }
+    finally {
+      addingWords = false;
+      if (button) button.disabled = false;
+    }
     const error = $('#blockingWordError');
     error.textContent = result.error || '';
     error.hidden = !result.error;
     input.setAttribute('aria-invalid', String(Boolean(result.error)));
-    if (!result.error) input.value = '';
-    input.focus();
+    if (!result.error && input.value === submitted) input.value = '';
+    if (mask.classList.contains('show')) input.focus();
   };
-  $('#blockingWordList').onclick = event => {
+  $('#blockingWordList').onclick = async event => {
     const button = event.target.closest('[data-remove-word]');
-    if (button && !button.closest('[inert]')) showSaveError(removeBlockedWord(button.dataset.removeWord));
+    if (!button || button.disabled || button.closest('[inert]')) return;
+    const word = button.dataset.removeWord;
+    button.disabled = true;
+    try { showSaveError(await removeBlockedWord(word)); }
+    finally { if (button.dataset.removeWord === word) button.disabled = false; }
   };
-  $('#blockingEntryList').onclick = event => {
+  $('#blockingEntryList').onclick = async event => {
     const button = event.target.closest('[data-restore-entry]');
-    if (button && !button.closest('[inert]')) showSaveError(restoreContentEntry(button.dataset.restoreEntry));
+    if (!button || button.disabled || button.closest('[inert]')) return;
+    const key = button.dataset.restoreEntry;
+    button.disabled = true;
+    try { showSaveError(await restoreContentEntry(key)); }
+    finally { if (button.dataset.restoreEntry === key) button.disabled = false; }
   };
   $('#blockingMoreEntries').onclick = () => { shownEntries += 40; renderBlockingManager(); };
   subscribeContentBlocking(() => { actions.refresh(); renderBlockingManager(); updateBlockingSummary(); });

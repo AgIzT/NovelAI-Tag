@@ -45,6 +45,39 @@ assert.deepEqual(dirty.memberships, [{ itemKey: 'alpha:alpha-set', folderId: 'on
 assert.deepEqual(normalizeLibrary(dirty, { codexes, now }), dirty, 'schema 规范化幂等');
 assert.deepEqual(normalizeLibrary({ folders: 'bad', items: {}, memberships: true }, { now }).items, []);
 
+// 别名多对一不能选掉第二份非空备注；原文内的分隔符、空白和子串均按完整文本保留。
+{
+  const first = '第一份原文\n\n---\n\n保留空白  \n末尾';
+  const second = '保留空白';
+  const third = '第三份\u0000原文';
+  const aliases = [{ id: 'alpha', aliases: ['old_alpha'], entryAliases: { a: 'merged', b: 'merged' } }];
+  let merged = normalizeLibrary({
+    libraryId: 'note-conflicts', updatedAt: now,
+    items: [
+      { key: 'old_alpha:a', note: first, addedAt: now },
+      { key: 'alpha:b', note: second, importedAt: now, snap: { title: '第二份元数据' } },
+      { key: 'alpha:merged', note: third, addedAt: '2026-09-13T12:00:00Z' },
+      { key: 'alpha:a', note: first },
+    ],
+  }, { codexes: aliases, now });
+  assert.equal(merged.items.length, 1, '多个历史身份仍只保留一张卡');
+  assert.deepEqual(merged.items[0].noteParts, [first, second, third]);
+  for (const note of [first, second, third]) assert.ok(merged.items[0].note.includes(note), '每份完整原文都在 note 中');
+  assert.equal(merged.items[0].addedAt, now);
+  assert.equal(merged.items[0].importedAt, now);
+  assert.equal(merged.items[0].snap.title, '第二份元数据');
+  const before = structuredClone(merged);
+  for (let round = 0; round < 8; round++) merged = normalizeLibrary(merged, { codexes: aliases, now });
+  assert.deepEqual(merged, before, '反复归一不追加已有备注');
+  const edited = structuredClone(merged);
+  edited.items[0].note = '用户修改后的原文';
+  const normalizedEdit = normalizeLibrary(edited, { codexes: aliases, now });
+  assert.equal(normalizedEdit.items[0].note, '用户修改后的原文');
+  assert.equal(normalizedEdit.items[0].noteParts, undefined, '失配的冲突片段不能恢复到用户新正文');
+  const invalidParts = normalizeLibrary({ items: [{ key: 'alpha:a', note: first, noteParts: ['伪造', 1] }] }, { now });
+  assert.equal(invalidParts.items[0].note, first, '不合法附加字段不能损伤 V2 原文');
+}
+
 const doc = fresh();
 const folder = createFolder(doc, '  画风 ', { id: 'styles', now });
 assert.equal(folder.name, '画风');

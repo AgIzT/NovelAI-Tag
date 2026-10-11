@@ -18,7 +18,7 @@ const { state } = await import('../site/assets/app/state.js');
 const { openEntryDeepLink, setRouterActions } = await import('../site/assets/app/router.js');
 const { isFav, toggleFav } = await import('../site/assets/app/favorites.js');
 const libraryStore = await import('../site/assets/app/favorites-library-store.js');
-const { FAVORITES_LIBRARY_STORAGE_KEY, libraryKeys } = await import('../site/assets/app/favorites-library-core.js');
+const { FAVORITES_LIBRARY_STORAGE_KEY, libraryKeys, normalizeLibrary, createLibraryBackup, parseLibraryBackup, createLibraryRestorePlan } = await import('../site/assets/app/favorites-library-core.js');
 const { buildFavoritesCodex } = await import('../site/assets/app/fav-codex.js');
 const { renderShareResponse } = await import('../functions/_share.js');
 
@@ -52,6 +52,25 @@ const backup = core.createFavoritesBackup({ atlasKeys: keys, communityIds: [], c
 assert.deepEqual(backup.favorites.atlas, [favorite]);
 const legacyBackup = { ...backup, favorites: { atlas: ids.map(entryId => ({ codexId, entryId })), community: [] } };
 assert.deepEqual(core.parseFavoritesBackup(JSON.stringify(legacyBackup), codexes).favorites.atlas, [favorite]);
+
+// 各历史身份带有不同备注和元数据时，去重身份仍保留全部原文及多夹归属。
+{
+  const noteTexts = ids.map((id, index) => `历史身份 ${id}\n个人备注 ${index}`);
+  const merged = normalizeLibrary({
+    libraryId: 'entry-alias-note-conflicts', updatedAt: '2026-10-11T00:00:00Z',
+    folders: [{ id: 'first', name: '第一夹' }, { id: 'second', name: '第二夹' }],
+    items: keys.map((key, index) => ({ key, note: noteTexts[index], addedAt: new Date(Date.UTC(2026, 8, index + 1)).toISOString() })),
+    memberships: keys.map((itemKey, index) => ({ itemKey, folderId: index % 2 ? 'second' : 'first' })),
+  }, { codexes });
+  assert.deepEqual(libraryKeys(merged), [keys[0]]);
+  assert.deepEqual(merged.items[0].noteParts, noteTexts);
+  assert.equal(merged.memberships.length, 2);
+  assert.ok(merged.memberships.every(member => member.itemKey === keys[0]));
+  const parsedNotes = parseLibraryBackup(JSON.stringify(createLibraryBackup({ library: merged, codexes })), codexes);
+  assert.deepEqual(parsedNotes.library, merged, 'entryAliases 合并备注的 V2 往返');
+  const repeatNotes = createLibraryRestorePlan({ backup: parsedNotes, currentLibrary: merged, codexes });
+  assert.equal(repeatNotes.hasChanges, false, '六个历史身份重复导入不膨胀备注');
+}
 
 const entry = {
   id: ids[0], title: 'DC 001', rating: 'r18', path: ['author', 'NSFW'],

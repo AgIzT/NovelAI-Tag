@@ -16,6 +16,7 @@ import {
   trimStateToBudget,
 } from './tag-relay-v4.js';
 import { snapshotEntry, snapshotFragment } from './tag-relay-snapshot.js';
+import { createStorageCoordinator, writeStorageTransaction } from './storage-coordinator.js';
 
 let current = null;
 let storageIssue = null;
@@ -24,18 +25,11 @@ let initialization = null;
 const listeners = new Set();
 const RELAY_LOCK_KEY = `${TAG_RELAY_STORAGE_KEY}:lock`;
 const RELAY_SIGNAL_KEY = `${TAG_RELAY_STORAGE_KEY}:signal`;
-const RELAY_LOCK_TTL = 2_000;
-const RELAY_LOCK_WAIT = 48;
+const coordinator = createStorageCoordinator({ lockKey: RELAY_LOCK_KEY, signalKey: RELAY_SIGNAL_KEY });
 /* 撞配额后一次退到七成，而不是刚好退到不撞：只退一点点，下一次复制立刻再撞一次，
    用户会连着看见好几条「已自动清理」。 */
 const RELAY_QUOTA_BUDGET_RATIO = 0.7;
 const RELAY_CHANGE_KINDS = new Set(['inbox', 'plan', 'history', 'all']);
-
-/* withStorageLock 有两种「callback 根本没轮到跑」的结局，必须与 callback 自己的失败区分开：
-   以前它们塌成 null 和 false，于是 mutator 抛异常被 `!transaction` 一把抓住，
-   报成「请检查浏览器存储权限」——一条与真实原因毫无关系的文案，console 里还一个字都没有。 */
-const LOCK_BUSY = Object.freeze({ ok: false, reason: 'lock' });
-const STORAGE_BLOCKED = Object.freeze({ ok: false, reason: 'storage' });
 
 /* 惰性加载：import 本模块不该产生 localStorage 读取，等第一次真要用再读。 */
 export function relayState() {
@@ -80,79 +74,11 @@ function lockToken() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-/* ⚠ expiresAt 是**写锁那一方**的 Date.now()，读锁这方拿自己的表去比。系统时钟往回拨一小时，
-   一把 2 秒 TTL 的残留锁在别人眼里就成了「还有 59 分钟才过期」，提交会一路失败到时钟走回来。
-   一把合法的锁，剩余寿命不可能超过一个 TTL；这里放宽到 2 倍容忍正常的时钟微调，
-   再多就只能是时钟错位，当脏锁抢占。 */
-function isLockStale(holder, now) {
-  const expiresAt = Number(holder?.expiresAt);
-  if (!Number.isFinite(expiresAt)) return true;
-  return expiresAt <= now || expiresAt > now + RELAY_LOCK_TTL * 2;
-}
-
-/* localStorage 没有事务。两个标签页若都从自己的旧内存副本整份写回，后写者会把
-   前一页的新词条/方案抹掉。这里用一个极短期、带过期时间的同源锁把同步写串起来；
-   拿到锁后再从磁盘重读，mutator 永远作用在最新版本上。 */
-function withStorageLock(callback) {
-  const storage = globalThis.localStorage;
-  if (!storage?.getItem || !storage?.setItem || !storage?.removeItem) return callback();
-  const token = lockToken();
-  const deadline = Date.now() + RELAY_LOCK_WAIT;
-  let acquired = false;
-  try {
-    do {
-      const now = Date.now();
-      let holder = null;
-      try { holder = JSON.parse(storage.getItem(RELAY_LOCK_KEY) || 'null'); } catch { holder = null; }
-      if (!holder?.token || isLockStale(holder, now)) {
-        storage.setItem(RELAY_LOCK_KEY, JSON.stringify({ token, expiresAt: now + RELAY_LOCK_TTL }));
-        let verified = null;
-        try { verified = JSON.parse(storage.getItem(RELAY_LOCK_KEY) || 'null'); } catch { verified = null; }
-        acquired = verified?.token === token;
-      }
-    } while (!acquired && Date.now() < deadline);
-    return acquired ? callback() : LOCK_BUSY;
-  } catch (error) {
-    console.warn('[tag-relay] 事务锁不可用', error);
-    return STORAGE_BLOCKED;
-  } finally {
-    if (acquired) {
-      try {
-        const holder = JSON.parse(storage.getItem(RELAY_LOCK_KEY) || 'null');
-        if (holder?.token === token) storage.removeItem(RELAY_LOCK_KEY);
-      } catch {
-        // TTL 会回收残留锁；不能因清理失败把一次已完成写入报成失败。
-      }
-    }
-  }
-}
-
-/* ⚠ 上面那把 localStorage 锁**给不了互斥**：读-改-写不是原子的，两个标签页可以同时看到锁
-   空闲、同时写、然后各自回读到自己的 token 并双双判定「拿到了」。回读只能发现「我写完之后
-   又被别人覆盖」，发现不了「我写之前别人已经写完并验证过了」——后写的一方必然验证通过。
-
-   navigator.locks 是浏览器提供的真正的同源互斥量，自带排队，也不用 48ms 忙等把主线程钉住
-   （入库挂在复制这条最高频路径上，那 48ms 是实打实吃掉一帧多的输入响应）。
-   代价是 commitRelay 必须变成 async——调用方一律要 await，忘了 await 会拿到一个 Promise，
-   而 Promise 是 truthy 的，`if (action.ok)` 会静默走进失败分支。
-
-   ⚠ 同步短锁保留作兜底：老浏览器没有 navigator.locks 时行为与从前一致（能降低概率、不是事务）。 */
-async function withRelayLock(callback) {
-  const locks = globalThis.navigator?.locks;
-  if (typeof locks?.request !== 'function') return withStorageLock(callback);
-  try {
-    return await locks.request(RELAY_LOCK_KEY, { mode: 'exclusive' }, () => callback());
-  } catch (error) {
-    /* 锁服务本身不可用（部分隐私模式 / 沙箱 iframe）时退回同步短锁，别让写入整个失败。 */
-    console.warn('[tag-relay] Web Locks 不可用，退回同步短锁', error);
-    return withStorageLock(callback);
-  }
-}
-
 let signalSeq = 0;
 /* 每个页面一个前缀：两页在同一毫秒各发一次信号也不会写出同一份 JSON。 */
 const signalOrigin = lockToken();
 let pendingChange = null;
+let pendingReload = 0;
 
 /* ⚠ 跨标签页也要精细化重绘。本地提交知道自己只脏了 inbox，对端却只看得见「主 key 变了」，
    一律按 changed:'all' 处理 → 侧栏开着的那一页每复制一次就重建 50 张带图卡片。
@@ -163,18 +89,8 @@ let pendingChange = null;
    二来它必须每次都变才能触发对端的 storage 事件（同值 setItem 不派发），
       塞进 state 就等于「同一份数据每次序列化结果都不同」，反过来引起无谓写入。
 
-   ⚠ 信号必须**先于**数据写出：对端收到信号只记下脏区、不重读，等主 key 的事件到了才真读盘。
-   写失败时会补发一条 'all' 把这条提示降级，免得它留在对端误导下一次重载。 */
-function announceChange(changed) {
-  try {
-    globalThis.localStorage?.setItem?.(
-      RELAY_SIGNAL_KEY,
-      JSON.stringify({ changed, rev: `${signalOrigin}-${++signalSeq}` }),
-    );
-  } catch {
-    // 信号写不进去只是退化成对端全量重绘，不能因此把真正的数据写入报成失败。
-  }
-}
+   信号在主键回读成功后写出，epoch/nonce 对应锁服务中的提交标记。
+   下一 renderer 必须等标记可见后才能读底本；信号失败与主键一起补偿，不能宣布成功。 */
 
 function readChangeKind(raw) {
   try {
@@ -186,46 +102,40 @@ function readChangeKind(raw) {
   return 'all';
 }
 
-function isQuotaError(error) {
-  const name = error?.name;
-  return name === 'QuotaExceededError'
-    || name === 'NS_ERROR_DOM_QUOTA_REACHED'   // Firefox 的旧名字
-    || error?.code === 22
-    || error?.code === 1014;
-}
-
 /* ⚠ 这里不走 core 的 saveRelayState，有两个它给不了的信息：
    1) 它把异常吞成 false，配额撞墙与「浏览器禁了存储」完全分不出来，而这两者的自救方式相反；
    2) 它的返回值实际上只说明「setItem 这个方法存在」，静默丢弃写入的假 storage 会误报成功。
    所以这一层自己 setItem、自己读回校验。写出的字节与 core 的 serializeRelayState 等价
    （都是 JSON.stringify(normalizeRelayState(x))），拆开只是为了共用同一次 normalize。 */
-function tryWrite(storage, payload, changed) {
-  try {
-    announceChange(changed);
-    storage.setItem(TAG_RELAY_STORAGE_KEY, payload);
-    if (storage.getItem?.(TAG_RELAY_STORAGE_KEY) !== payload) {
-      announceChange('all');
-      return { ok: false, quota: false };
+function tryWrite(storage, payload, changed, fence) {
+  const signal = { changed, rev: `${signalOrigin}-${++signalSeq}`, committed: true };
+  let marker = fence;
+  if (!marker) {
+    /* 锁服务暂时不可用时，不能用纯重绘提示抹掉仍被持有的上一提交标记。 */
+    try { marker = JSON.parse(storage.getItem(RELAY_SIGNAL_KEY) || 'null'); }
+    catch (error) {
+      if (!(error instanceof SyntaxError)) return { ok: false, quota: false, error };
     }
-    return { ok: true };
-  } catch (error) {
-    const quota = isQuotaError(error);
-    if (!quota) console.warn('[tag-relay] 中转站写入失败', error);
-    /* 数据没落地，刚发出去的那条精细信号就成了谎话；降级成全量，免得对端漏刷。 */
-    announceChange('all');
-    return { ok: false, quota };
   }
+  if (Number.isSafeInteger(marker?.epoch) && marker.epoch > 0 && typeof marker.nonce === 'string') {
+    Object.assign(signal, { epoch: marker.epoch, nonce: marker.nonce });
+  }
+  const result = writeStorageTransaction(storage, [
+    { key: TAG_RELAY_STORAGE_KEY, value: payload },
+    { key: RELAY_SIGNAL_KEY, value: JSON.stringify(signal) },
+  ]);
+  if (!result.ok && result.reason !== 'quota') console.warn('[tag-relay] 中转站写入失败', result.error);
+  return { ...result, quota: result.reason === 'quota' };
 }
 
 /* ⚠ 内存换上的必须是**同一次** normalize 的产物：normalizeRelayState 会给缺失的时间戳
    补 new Date()，跑两遍可能差出几毫秒，磁盘与内存就再也字节不一致了。 */
-function persistState(next, changed, { allowTrim = true } = {}) {
-  const storage = globalThis.localStorage;
+function persistState(storage, next, changed, { allowTrim = true, fence } = {}) {
   if (!storage?.setItem) return { ok: false, reason: 'save' };
   const normalized = normalizeRelayState(next);
   const payload = JSON.stringify(normalized);
-  const attempt = tryWrite(storage, payload, changed);
-  if (attempt.ok) return { ok: true, next: normalized };
+  const attempt = tryWrite(storage, payload, changed, fence);
+  if (attempt.ok) return { ok: true, written: true, next: normalized };
   if (!attempt.quota) return { ok: false, reason: 'save' };
   /* 首次迁移必须完整保留成品历史。写不下就保留旧 key，等待用户腾出空间后重试。 */
   if (!allowTrim) return { ok: false, reason: 'quota' };
@@ -237,9 +147,9 @@ function persistState(next, changed, { allowTrim = true } = {}) {
   if (!trimmed) return { ok: false, reason: 'quota', trimmed: 0 };
   const retryState = normalizeRelayState(next);
   /* 历史被裁掉了，脏区不再只是调用方声明的那一块，退回全量。 */
-  const retry = tryWrite(storage, JSON.stringify(retryState), 'all');
+  const retry = tryWrite(storage, JSON.stringify(retryState), 'all', fence);
   if (!retry.ok) return { ok: false, reason: 'quota', trimmed };
-  return { ok: true, next: retryState, trimmed };
+  return { ok: true, written: true, next: retryState, trimmed };
 }
 
 function reportFailure(reason) {
@@ -291,11 +201,11 @@ export async function initializeRelay() {
   /* 先留可读候选，写入失败后仍能查看；锁内会再读一遍作为唯一提交底本。 */
   relayState();
   initialization = (async () => {
-    const transaction = await withRelayLock(() => {
-      const loaded = loadRelayStateStatus();
+    const transaction = await coordinator.run((storage, fence) => {
+      const loaded = loadRelayStateStatus(storage);
       if (!loaded.ok) return { ok: false, reason: loaded.reason };
       if (!loaded.migrated) return { ok: true, next: loaded.state, migrated: false };
-      const saved = persistState(loaded.state, 'all', { allowTrim: false });
+      const saved = persistState(storage, loaded.state, 'all', { allowTrim: false, fence });
       return saved.ok ? { ...saved, migrated: true } : {
         ...saved, reason: saved.reason === 'quota' ? 'migration-quota' : 'migration-save',
       };
@@ -320,11 +230,11 @@ export const retryRelayMigration = initializeRelay;
    侧栏据此只重绘对应的页签——入库现在挂在复制这条最高频的路径上，
    每次都全量重建 50 张带图卡片会直接压到复制反馈的动效上。 */
 export async function commitRelay(mutator, { changed = 'all', planId, revision, expectedRevision = revision } = {}) {
-  const transaction = await withRelayLock(() => {
+  const transaction = await coordinator.run((storage, fence) => {
     /* ⚠ 不再 clone：loadRelayState 走的是 JSON.parse + normalizeRelayState，产出的已是
        全新对象图，与 current 没有任何共享引用。再 structuredClone + 再 normalize 一遍是白跑，
        实测占单次提交四成耗时。 */
-    const loaded = loadRelayStateStatus();
+    const loaded = loadRelayStateStatus(storage);
     if (!loaded.ok) {
       storageIssue = loaded.reason;
       return { ok: false, reason: loaded.reason };
@@ -347,7 +257,7 @@ export async function commitRelay(mutator, { changed = 'all', planId, revision, 
     if (result?.ok === false && ['conflict', 'missing-plan'].includes(result.reason)) {
       return { ok: false, reason: result.reason, next, result, planId, revision: result.plan?.revision };
     }
-    const saved = persistState(next, changed, { allowTrim: !loaded.migrated });
+    const saved = persistState(storage, next, changed, { allowTrim: !loaded.migrated, fence });
     if (!saved.ok && loaded.migrated) {
       saved.reason = saved.reason === 'quota' ? 'migration-quota' : 'migration-save';
     }
@@ -438,15 +348,33 @@ export async function setupRelayStore() {
       return;
     }
     if (event.key === RELAY_SIGNAL_KEY) {
-      /* 信号先到、数据后到：这里只记脏区，真正的重读等主 key 的事件。 */
-      pendingChange = readChangeKind(event.newValue);
+      const changed = readChangeKind(event.newValue);
+      let signal;
+      try { signal = JSON.parse(event.newValue || 'null'); } catch { signal = null; }
+      if (signal?.committed === true) {
+        /* 新信号在主键之后：完整提交已传播，合并主键事件安排的兜底重读。 */
+        clearTimeout(pendingReload); pendingReload = 0; pendingChange = null;
+        reloadFromStorage('storage', changed);
+      } else {
+        // 旧版信号在主键之前，只记脏区；缺 query 的旧浏览器也保留主键兜底。
+        pendingChange = changed;
+      }
       return;
     }
     /* 锁 key（:lock）落在这一行：它与主 key 不相等，写锁不该引起对端重载。 */
     if (event.key !== null && event.key !== TAG_RELAY_STORAGE_KEY) return;
-    const changed = event.key === null ? 'all' : (pendingChange || 'all');
-    pendingChange = null;
-    reloadFromStorage('storage', changed);
+    clearTimeout(pendingReload);
+    if (event.key === null) {
+      pendingReload = 0; pendingChange = null;
+      reloadFromStorage('storage', 'all');
+    } else {
+      /* 等后置信号带来精细脏区；旧程序只写主键时下一任务全量重读。 */
+      pendingReload = setTimeout(() => {
+        const changed = pendingChange || 'all';
+        pendingReload = 0; pendingChange = null;
+        reloadFromStorage('storage', changed);
+      }, 0);
+    }
   });
   /* ⚠ 只认 persisted：普通首次加载也会派发 pageshow，白付一次读盘 + 一次 changed:'all'
      的全量重绘（实测大状态下多 13ms 读盘、重建 50 张带图卡片）。

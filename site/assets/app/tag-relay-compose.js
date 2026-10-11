@@ -39,7 +39,7 @@ function draftFor(plan) {
   const existing = drafts.get(plan.id);
   if (existing && !existing.dirty && !existing.saving && existing.revision !== plan.revision) drafts.delete(plan.id);
   if (!drafts.has(plan.id)) drafts.set(plan.id, { plan: structuredClone(plan), revision: plan.revision,
-    generation: 0, dirty: false, issue: '', saving: null, timer: 0 });
+    generation: 0, dirty: false, issue: '', saving: null, copying: null, timer: 0 });
   return drafts.get(plan.id);
 }
 function openPlan(plan) {
@@ -65,6 +65,7 @@ function editorChanged(meta = {}) {
 }
 async function saveDraft(draft) {
   clearTimeout(draft.timer);
+  if (draft.copying) return await draft.copying;
   if (draft.saving) return await draft.saving;
   if (!draft.dirty) return true;
   if (['conflict', 'missing-plan'].includes(draft.issue)) return false;
@@ -88,6 +89,30 @@ async function saveDraft(draft) {
 export async function flushCompose() {
   return currentDraft() ? await saveDraft(currentDraft()) : true;
 }
+async function saveDraftAsCopy(draft) {
+  if (draft.copying) return await draft.copying;
+  clearTimeout(draft.timer);
+  const generation = draft.generation, snapshot = structuredClone(draft.plan);
+  draft.copying = (async () => {
+    if (draft.saving) await draft.saving;
+    const result = await commitRelay(next => {
+      const copy = createPlan(next, `${snapshot.name}（本页副本）`);
+      return replacePlanText(next, copy.id, snapshot, { expectedRevision: copy.revision });
+    }, { changed: 'plan' });
+    if (!result.ok) { draft.issue = result.reason; return false; }
+    /* 只清除已保存的 generation。等锁时再输入的内容仍留在原草稿，提示未保存，
+       用户可以继续编辑或再次另存；不能用点击时的副本重建编辑器吞掉尾段。 */
+    if (drafts.get(snapshot.id) !== draft) return true;
+    if (generation !== draft.generation) return false;
+    clearTimeout(draft.timer);
+    drafts.delete(snapshot.id);
+    if (activeId === snapshot.id) openPlan(getPlan(relayState(), result.result.plan.id));
+    return true;
+  })();
+  renderSaveState();
+  try { return await draft.copying; }
+  finally { draft.copying = null; renderSaveState(); }
+}
 function renderSaveState() {
   if (!refs) return;
   const draft = currentDraft();
@@ -105,15 +130,7 @@ function renderSaveState() {
   if (!['conflict', 'missing-plan'].includes(issue)) action('重试保存', async () => {
     await initializeRelay(); if (draft) draft.issue = ''; await flushCompose(); renderSaveState();
   });
-  action('另存副本', async () => {
-    if (!draft) return;
-    const snapshot = structuredClone(draft.plan);
-    const result = await commitRelay(next => {
-      const copy = createPlan(next, `${snapshot.name}（本页副本）`);
-      return replacePlanText(next, copy.id, snapshot, { expectedRevision: copy.revision });
-    }, { changed: 'plan' });
-    if (result.ok) { drafts.delete(snapshot.id); openPlan(getActivePlan(relayState())); }
-  });
+  action('另存副本', async () => { if (draft) await saveDraftAsCopy(draft); });
   if (issue === 'conflict' || issue === 'missing-plan') action('载入已保存版本', async () => {
     if (!await requestRelayAction({ title: '放弃本页未保存输入？', message: '载入另一页面保存的版本。', confirmLabel: '载入', danger: true })) return;
     drafts.delete(activeId); openPlan(getPlan(relayState(), activeId) || getActivePlan(relayState()));

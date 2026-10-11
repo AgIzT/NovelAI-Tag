@@ -74,4 +74,44 @@ assert.ok(result.memberships.every(member => member.itemKey !== 'alpha:alpha-new
   assert.ok(withSnapshot.items[0].snap, '导出预算不改本地库');
   assert.throws(() => backupStore.serializeLibraryFavorites({ library: withoutSnapshot, codexes, maxBytes: 50 }), error => error.code === 'FILE_TOO_LARGE');
 }
+// 同一规范身份的两份非空备注在备份往返、合并及重复导入中保留；变化的日期/快照不产生新备注。
+{
+  const aliases = [{ id: 'alpha', entryAliases: { oldA: 'merged', oldB: 'merged' } }];
+  const originals = ['第一份备注\n保留尾部空白  ', '第二份备注\n\n---\n\n正文自带分隔符'];
+  const localNotes = library.normalizeLibrary({
+    libraryId: 'notes-local', updatedAt: '2026-09-01T00:00:00Z', migratedFrom: 'v1', presetsSeeded: 1,
+    items: [{ key: 'alpha:oldA', addedAt: '2026-08-01T00:00:00Z', note: originals[0] }],
+  }, { codexes: aliases });
+  const incomingNotes = library.normalizeLibrary({
+    libraryId: 'notes-import', updatedAt: '2026-09-01T00:00:00Z',
+    items: [{ key: 'alpha:oldB', addedAt: '2026-09-01T00:00:00Z', note: originals[1], snap: { title: '异机快照' } }],
+  }, { codexes: aliases });
+  const incomingBackup = parseLibraryBackup(JSON.stringify(createLibraryBackup({ library: incomingNotes, codexes: aliases })), aliases);
+  const noteValues = new Map([[FAVORITES_LIBRARY_STORAGE_KEY, JSON.stringify(localNotes)]]);
+  const noteStorage = {
+    getItem: key => noteValues.get(key) ?? null,
+    setItem: (key, value) => noteValues.set(key, String(value)),
+    removeItem: key => noteValues.delete(key),
+  };
+  const noteStore = store.createLibraryStore({ getStorage: () => noteStorage, getLocks: () => null, eventTarget: null, getCodexes: () => aliases });
+  const noteAdapter = backupStore.createFavoritesBackupStore(noteStore);
+  await noteAdapter.restore({ backup: incomingBackup, storage: noteStorage, codexes: aliases });
+  const merged = noteStore.librarySnapshot();
+  assert.equal(merged.items.length, 1);
+  assert.deepEqual(merged.items[0].noteParts, originals);
+  assert.deepEqual(JSON.parse(noteStorage.getItem(FAVORITES_LIBRARY_STORAGE_KEY)).items[0].noteParts, originals);
+  const roundTrip = parseLibraryBackup(backupStore.serializeLibraryFavorites({ library: merged, codexes: aliases }), aliases);
+  assert.deepEqual(roundTrip.library.items[0], merged.items[0], '备份恢复包含冲突原文及其去重记录');
+  incomingBackup.library.items[0].addedAt = '2026-10-01T00:00:00.000Z';
+  incomingBackup.library.items[0].snap = { title: '变化的快照' };
+  for (let round = 0; round < 5; round++) {
+    const repeated = await noteAdapter.restore({ backup: incomingBackup, storage: noteStorage, codexes: aliases });
+    assert.equal(repeated.plan.hasChanges, false, '重复导入相同原文不受备份元数据变化影响');
+    assert.deepEqual(noteStore.librarySnapshot().items[0], merged.items[0]);
+    const mergedAgain = createLibraryRestorePlan({ backup: roundTrip, currentLibrary: noteStore.librarySnapshot(), codexes: aliases });
+    assert.equal(mergedAgain.hasChanges, false, '已合并备份不会被当作第三份原文');
+  }
+  assert.throws(() => backupStore.serializeLibraryFavorites({ library: merged, codexes: aliases, maxBytes: 50 }), error => error.code === 'FILE_TOO_LARGE');
+  assert.deepEqual(noteStore.librarySnapshot().items[0].noteParts, originals, '备份超预算不能截掉原文');
+}
 console.log('favorites backup V2: all tests passed');

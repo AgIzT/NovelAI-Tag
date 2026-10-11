@@ -28,8 +28,9 @@
 | `path-code.js` | `encodePathCode`、`pathFromCode`；目录路径与地址栏短码互转 | — | — | 编码是纯函数；解码需要法典树，分类改名后旧短码回退到可解析位置 |
 | `codex-route-compat.js` | `normalizeRoutePath`、`normalizeCodexRoutePath`；并册、改名、迁移后的旧路径兼容 | — | — | 保留只读迁移表；加载、历史恢复与最近浏览共用同一归一逻辑 |
 | `access.js` | 法典级与词条级 NSFW / R18G 判定、锁定提示 | — | `state.js`、`feedback.js` | 所有内容分级入口的单一判断层；调用方不得自行拼另一套门控 |
+| `storage-coordinator.js` | `createStorageCoordinator`、`writeStorageTransaction`；本地文档互斥、renderer 传播屏障与原字节补偿 | 最近提交标记锁 | — | 注入 storage / LockManager / 生命周期；回调同步且锁内重读，主键后写 signal；无完整 Web Locks 时仅短锁或互斥兜底，不承诺跨页新鲜度 |
 | `content-blocking-core.js` | 个人屏蔽清单规范化、字面整词/短语匹配、正向字段投影 | — | — | 负面、目录、备注不参与；逐图 rawTag 按现有正向契约读取 |
-| `content-blocking.js` | 本地屏蔽清单、稳定身份匹配、缓存与跨标签页同步 | 独立 localStorage、关键词匹配 WeakMap、变更订阅 | `state.js`、`data.js`、`favorites-backup-core.js`、`content-blocking-core.js` | 复用身份兼容，独立于收藏状态；保存成功才提交内存；编辑后失效词条缓存 |
+| `content-blocking.js` | 本地屏蔽清单、稳定身份匹配、缓存与跨标签页同步 | 独立 localStorage、关键词匹配 WeakMap、变更订阅 | `state.js`、`data.js`、`favorites-backup-core.js`、`content-blocking-core.js`、`storage-coordinator.js` | 增删/暂停均异步锁内重读，读失败保留已知清单且拒写；保存成功才提交内存；编辑后失效词条缓存 |
 | `content-blocking-ui.js` | 屏蔽管理、卡片隐藏/撤销、结果提示与主动打开时临时查看 | 页签、分页、结果命中数、按键复用的行节点与退场/高度动效 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`modal.js`、`ui-motion.js`、`content-blocking.js` | 保存与刷新不等待动画；关闭/快切结清局部动效，移除项立即 inert；调用方先执行分级门控；临时查看不修改持久清单 |
 | `media.js` | 图片能力判断、资源路径、版本参数、缩略图与原图 URL | — | `state.js` | 只解决资源定位，不判断“用户是否有权看原图” |
 | `nai-sd.js` | `naiToSd`、`fmtSdWeight`、`formatCopyText` | — | — | 无 DOM 的格式转换层，主站和共创广场可复用 |
@@ -61,8 +62,8 @@
 | `copy.js` | 词条 / 文本 / 所选片段复制、普通 / SD 模式角色标记与组合提示词、最近记录、复制动效与中转站收入 | 已复制样式的计时器 `WeakMap` | `state.js`、`feedback.js`、`history.js`、`clipboard.js`、`clipboard-fallback.js`、`nai-sd.js`、`copy-fx.js`、`tag-relay-rail.js`、`tag-relay-store.js`、`tag-relay-snapshot.js`、`access.js`、`data.js` | `fragment` / `relaySnapshot` 明确本次原文范围；复制前冻结来源，成功后才收入同范围快照，失败不收录；转换后的显示或输出不改写保存的英文原文 |
 | `favorites.js` | 收藏键、读写、按钮状态、切换收藏 | 动作注入、法典别名缓存、延迟刷新标记 | `state.js`、`feedback.js`、`data.js`、`favorites-backup-core.js`、`favorites-backup.js`、`favorites-library-core.js`、`favorites-library-store.js` | 注入 `applyFilter`、`refreshFavoritesView`、整理与撤销动作；保存成功后才改星标；虚拟视图通过 `_srcCodexId` 还原真实归属 |
 | `favorites-backup-core.js` | 备份格式、校验、归属归一、同书 `entryAliases` 单跳解析与历史键闭包、恢复计划、双键提交与回滚 | — | — | 浏览器无关的纯逻辑；保留 V1 格式与身份兼容；V2 文档/备份契约由 favorites-library-core.js 定义 |
-| `favorites-library-core.js` | V2 文档规范化、收藏夹与归属 CRUD、迁移、快照预算、备份 V2 与合并；`seedPresetFolders` 按 `presetsSeeded` 记账只播种一次预制夹 | — | `favorites-backup-core.js` | 纯逻辑；沿用 V1 稳定身份；仅淘汰 snap，绝不裁剪收藏或关系 |
-| `favorites-library-store.js` | 收藏库唯一写入口、迁移、回读验证、跨页订阅与损坏库定向恢复；载入时补播预制夹，与迁移同一次原子写入 | 不可变内存文档、锁与订阅 | `feedback.js`、`favorites-backup-core.js`、`favorites-library-core.js` | 注入法典索引、事件广播与备份入口；先落盘后更新 state 派生值；禁止导入视图 |
+| `favorites-library-core.js` | V2 文档规范化、收藏夹与归属 CRUD、迁移、快照预算、备份 V2 与合并；`seedPresetFolders` 按 `presetsSeeded` 记账只播种一次预制夹 | — | `favorites-backup-core.js` | 纯逻辑；沿用 V1 稳定身份；重复身份的备注保留完整原文并以 noteParts 精确去重；仅淘汰 snap，绝不裁剪收藏或关系 |
+| `favorites-library-store.js` | 收藏库唯一写入口、迁移、回读验证、跨页订阅与损坏库定向恢复；载入时补播预制夹，与迁移同一次原子写入 | 不可变内存文档、锁与订阅 | `feedback.js`、`favorites-backup-core.js`、`favorites-library-core.js`、`storage-coordinator.js` | 注入法典索引、事件广播与备份入口；先落盘后更新 state 派生值；禁止导入视图 |
 | `favorites-backup-store.js` | V2 备份读写协调、导出封装预算及损坏原文导出 | — | `favorites-backup-core.js`、`favorites-library-core.js`、`favorites-library-store.js` | 锁内重算恢复计划；社区副写失败补偿；损坏覆盖必须匹配用户确认时的原文字节 |
 | `favorites-view.js` | 收藏夹栏、来源筛选、统一计数、整理面板、选择模式、拖放与最小对象撤销；`refreshFavoriteBadges` 为复用节点就地对齐徽章 | 可见索引、面板/选择历史层、异步打开意图序号、语义回焦与单选菜单实例 | `state.js`、`access.js`、`content-blocking.js`、`media.js`、`feedback.js`、`ui-motion.js`、`modal.js`、`select-menu.js`、`browser-history.js`、`favorites-library-store.js`、`favorites-library-core.js` | 注入筛选、重建、路由和真实词条读取；snap 不参与显示或分级；批量动作与当前可见结果求交；命名/整理共用 settings / modal，排序由 select-menu 管理；回焦按稳定身份重新定位；导航作废待打开意图，后台取消局部动效 |
 | `favorites-transfer.js` | 有大小上限的 gzip / base64url 文本传输编解码 | — | — | 使用浏览器原生压缩流，不支持时回退原始 JSON |
@@ -101,14 +102,14 @@
 | `tag-relay-core.js` | 旧 v1–v3 schema、来源 / 片段稳定键、旧编译及迁移基线 | — | `nai-sd.js` | 纯计算；保留旧输出行为供 v4 迁移逐字节比较，不再作为当前方案写入模型 |
 | `tag-relay-v4.js` | 文本方案规范化、CRUD、revision、编译、迁移、历史与备份 | — | `tag-relay-core.js`、`tag-relay-text.js` | 存储 `{text,folds}`，提交前回收未引用 fold；旧语法兼容段仅随未改正文重定位；三格式 × 两连接迁移输出逐字节校验；未来版本拒绝降级 |
 | `tag-relay-snapshot.js` | `snapshotEntry` / `snapshotFragment`、真实来源键与快照锁定判断 | — | `access.js`、`data.js`、`media.js`、`state.js`、`tag-relay-core.js` | 来源身份、片段范围与实例身份分离；复制片段只保存指定通道 / 范围原文；来源属性在收入时冻结，锁定判断读当前内存权限 |
-| `tag-relay-store.js` | `relayState`、异步 `initializeRelay` / `commitRelay`、复制收入、跨页订阅 | 唯一存储副本、Web Locks、存储异常 | `feedback.js`、`tag-relay-v4.js`、`tag-relay-snapshot.js` | 单一写入口且不导入视图；v4 新 key 隔离旧库；迁移持锁一次写入且失败不裁历史；常规配额裁最旧历史；revision 冲突拒写并通知视图保留草稿 |
+| `tag-relay-store.js` | `relayState`、异步 `initializeRelay` / `commitRelay`、复制收入、跨页订阅 | 唯一存储副本、Web Locks、存储异常 | `feedback.js`、`tag-relay-v4.js`、`tag-relay-snapshot.js`、`storage-coordinator.js` | 单一写入口且不导入视图；主键后置信号完成传播屏障；v4 新 key 隔离旧库；迁移持锁一次写入且失败不裁历史；常规配额裁最旧历史；revision 冲突拒写并通知视图保留草稿 |
 | `tag-relay-editor.js` | `createRelayEditor`、`loadPlan` / `getSnapshot`、`insertSource`、`foldSelection`、渲染与权限刷新 | 双通道 textarea、旁路 Map、原生撤销与失败回退 | `tag-relay-core.js`、`tag-relay-text.js` | 镜像等距；正负页签与输入区共框；单击显示词条操作，双击组名展开；拖选后显示折叠入口；锁定名称投影为别名，保存还原规范名；旁路保留供撤销 |
 | `tag-relay-text.js` | 文本扫描、占位符 / 禁用守卫、权重与 `analyzeOutput` | — | `tag-relay-core.js`、`prompt-fragments.js` | 纯计算，不改输入；重复提示区分 token 与组内 tag；保留普通权重语法，复杂有符号权重无法安全改写时返回 null |
 | `tag-relay-backup.js` | `setupRelayBackup(scope,{beforeAction,afterRestore})` | WeakMap 绑定与忙状态 | `feedback.js`、`tag-relay-action.js`、`tag-relay-v4.js`、`tag-relay-store.js` | 导出前 await 草稿保存；JSON 恢复生成副本，await 成功回调后切方案；独立于收藏备份 |
 | `tag-relay-action.js` | 侧栏内的命名、确认和取消操作条 | 当前操作、引用与焦点返回点 | — | 轻量内联交互，不另叠浏览器原生 `prompt` / `confirm` |
 | `tag-relay-rail.js` | 侧栏外壳、开关、响应式模态判定、分区定位与脏标记 | 外壳 / 背景引用、当前分区、渲染器与脏集合 | `utils.js`、`browser-history.js`、`modal.js`、`tag-relay-action.js`、`tag-relay-motion.js` | `setRailPaneRenderers` 注入素材和编排渲染器，避免外壳与内容互相静态导入；停靠态不是历史层 |
 | `tag-relay-motion.js` | 中转站局部 FLIP 重排、入场 / 移除过渡与动画中断 | 列表快照、退出残影与动画句柄 | `ui-motion.js`、`utils.js` | 只管理中转站列表节点；快速重绘、收栏、隐藏页和 reduced-motion 会同步清理 |
-| `tag-relay-compose.js` | 方案管理、草稿保存、成品记录、备份接线、输出与权限刷新 | 每方案草稿 / revision / 保存状态、编辑器、输出选项 | `copy.js`、`feedback.js`、`state.js`、`tag-zh.js`、`tag-relay-editor.js`、`tag-relay-snapshot.js`、`tag-relay-text.js`、`tag-relay-v4.js`、`tag-relay-store.js`、`tag-relay-action.js`、`tag-relay-backup.js`、`select-menu.js` | 输入 debounce，失焦 / 收栏 / 操作前 await flush；跨页冲突保留本页输入，可另存；复制重验权限，缺来源快照历史拒绝展示 / 恢复 |
+| `tag-relay-compose.js` | 方案管理、草稿保存、成品记录、备份接线、输出与权限刷新 | 每方案草稿 / revision / 保存状态、编辑器、输出选项 | `copy.js`、`feedback.js`、`state.js`、`tag-zh.js`、`tag-relay-editor.js`、`tag-relay-snapshot.js`、`tag-relay-text.js`、`tag-relay-v4.js`、`tag-relay-store.js`、`tag-relay-action.js`、`tag-relay-backup.js`、`select-menu.js` | 输入 debounce，失焦 / 收栏 / 操作前 await flush；跨页冲突保留本页输入，另存仅清已保存 generation，等待锁时的新输入继续留在原草稿；复制重验权限，缺来源快照历史拒绝展示 / 恢复 |
 | `tag-relay.js` | 中转站接线、素材仓库、收藏来源与入口计数 | 绑定标记、素材根、来源模式、收藏缓存 / 加载状态 | `access.js`、`data.js`、`fav-codex.js`、`favorites-backup.js`、`feedback.js`、`media.js`、`tag-relay-action.js`、`tag-relay-core.js`、`tag-relay-rail.js`、`tag-relay-compose.js`、`tag-relay-motion.js`、`tag-relay-snapshot.js`、`tag-relay-store.js`、`ui-motion.js` | 初始化 store、rail、action、compose，并把 `renderWarehouse` / `renderCompose` 注入外壳；素材默认按实际两行收起，隐藏行 inert，宽度 / 字体变化后重测；不改写主站共享法典状态 |
 
 ## 本地编辑器

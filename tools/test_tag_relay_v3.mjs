@@ -211,11 +211,13 @@ try {
   }
   transactionStorage.setItem(STORE_KEY, storedBefore);
   handlers.get('storage')({ storageArea: transactionStorage, key: STORE_KEY });
+  await new Promise(resolve => previous.setTimeout(resolve, 0));
   assert.equal(store.getRelayStorageIssue(), null);
   handlers.get('storage')({ storageArea: transactionStorage, key: STORE_LEGACY_KEY });
   assert.equal(events.at(-1).issue, 'legacy-updated');
   assert.equal(transactionStorage.getItem(STORE_KEY), storedBefore);
 } finally {
+  handlers.get('pagehide')?.({});
   globalThis.localStorage = previous.localStorage;
   globalThis.document = previous.document;
   globalThis.window = previous.window;

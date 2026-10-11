@@ -21,14 +21,18 @@ const previousWarn = console.warn;
 const previousSetTimeout = globalThis.setTimeout;
 
 const values = new Map();
-/* 配额只对主 key 生效：撞墙时信号 key 仍要能写，才能验到「写失败会补发一条 all」。 */
+/* 配额对主 key 生效；后置信号单独注入失败，验证主键的原字节补偿。 */
 let quotaLimit = Infinity;
+let failSignal = false;
+let ignoreSignal = false;
 const writes = [];
 const storage = {
   getItem: key => values.get(key) ?? null,
   setItem: (key, value) => {
     const text = String(value);
     writes.push({ key, text });
+    if (key === SIGNAL_KEY && failSignal) throw new Error('signal write failed');
+    if (key === SIGNAL_KEY && ignoreSignal) return;
     if (key === TAG_RELAY_STORAGE_KEY && text.length > quotaLimit) {
       const error = new Error('storage is full');
       error.name = 'QuotaExceededError';
@@ -188,6 +192,23 @@ try {
   assert.ok(warnings.some(line => line.includes('mutator-boom')), 'mutator 异常必须留下 console 记录');
   assert.doesNotMatch(lastToast(), /存储权限/, 'mutator 异常不该被报成存储权限问题');
 
+  // ---- 后置信号失败：恢复刚写的主键，内存保持旧值，不宣布伪完成提交 ----
+  for (const silent of [false, true]) {
+    const previousBytes = values.get(TAG_RELAY_STORAGE_KEY), previousSignal = values.get(SIGNAL_KEY);
+    const previousMemory = JSON.stringify(store.relayState());
+    failSignal = !silent; ignoreSignal = silent;
+    let mutations = 0;
+    const result = await store.commitRelay(next => {
+      mutations += 1; touchInboxEntry(next, entry('signal-failed'));
+    }, { changed: 'inbox' });
+    failSignal = false; ignoreSignal = false;
+    assert.equal(result.ok, false, '信号抛错或静默丢写都不能宣布成功');
+    assert.equal(mutations, 1, '失败动作不能被锁降级重放');
+    assert.equal(values.get(TAG_RELAY_STORAGE_KEY), previousBytes, '主键已写但信号失败必须恢复原字节');
+    assert.equal(values.get(SIGNAL_KEY), previousSignal);
+    assert.equal(JSON.stringify(store.relayState()), previousMemory);
+  }
+
   // ---- 配额：撞墙后自动裁剪最旧的复制历史再试一次 ----
   const bulk = 'copy-tag-'.repeat(220);
   for (let index = 0; index < 6; index += 1) {
@@ -251,7 +272,7 @@ try {
   fire('storage', { key: LOCK_KEY, storageArea: storage });
   assert.equal(events.length, beforeStorage, '写事务锁不该引起对端重载');
 
-  // ---- 跨标签页同步：信号先到只记脏区，主 key 的事件才真读盘 ----
+  // ---- 兼容旧信号：先到只记脏区，主键事件在下一任务重读 ----
   fire('storage', {
     key: SIGNAL_KEY,
     newValue: JSON.stringify({ changed: 'inbox', rev: 'peer-1' }),
@@ -259,11 +280,22 @@ try {
   });
   assert.equal(events.length, beforeStorage, '信号本身不该触发重读');
   fire('storage', { key: TAG_RELAY_STORAGE_KEY, storageArea: storage });
+  await new Promise(resolve => previousSetTimeout(resolve, 0));
   assert.equal(events.at(-1).changed, 'inbox', '对端同步必须沿用信号给出的脏区');
   fire('storage', { key: TAG_RELAY_STORAGE_KEY, storageArea: storage });
+  await new Promise(resolve => previousSetTimeout(resolve, 0));
   assert.equal(events.at(-1).changed, 'all', '没有信号（或信号已消费）时退回全量');
   fire('storage', { key: null, storageArea: storage });
   assert.equal(events.at(-1).changed, 'all', 'localStorage 整体被清空必须全量重载');
+
+  // 新完成信号在主键之后，合并主键兜底任务，保留精细重绘而不先全量重绘。
+  const beforeCompletedSignal = events.length;
+  fire('storage', { key: TAG_RELAY_STORAGE_KEY, storageArea: storage });
+  fire('storage', { key: SIGNAL_KEY, storageArea: storage,
+    newValue: JSON.stringify({ changed: 'history', committed: true, epoch: 20, nonce: 'peer-20' }) });
+  assert.equal(events.at(-1).changed, 'history');
+  await new Promise(resolve => previousSetTimeout(resolve, 0));
+  assert.equal(events.length, beforeCompletedSignal + 1, '主键与新信号应合并成一次精细重绘');
 
   // ---- Web Locks 必须真的被用上 ----
   /* ⚠ 光靠「两笔并发都成功」区分不出走没走真互斥量：Node 没有真并行，同步兜底那条路
@@ -352,6 +384,7 @@ try {
   }
 
   // ---- v3 迁移在锁中一次落盘；失败不裁历史、不碰旧 key，可原样重试 ----
+  fire('pagehide', {});
   values.clear();
   const old = legacy.createRelayState({ now: '2026-09-20T12:00:00.000Z' });
   const oldPlan = legacy.getActivePlan(old);
@@ -396,6 +429,7 @@ try {
   assert.equal(writes.length, writesAfterMigration, '已经迁移时无需再次写盘');
 
   // 最老的 v1 也只迁入新 key；其原始串既不规范化回写，也不被删掉。
+  fire('pagehide', {});
   values.clear();
   const oldestKey = TAG_RELAY_LEGACY_STORAGE_KEYS[1];
   const oldestBytes = JSON.stringify({ ...JSON.parse(oldBytes), version: 1 });
@@ -424,6 +458,7 @@ try {
     assert.equal(values.get(TAG_RELAY_STORAGE_KEY), bytes);
   }
 } finally {
+  fire('pagehide', {});
   console.warn = previousWarn;
   globalThis.setTimeout = previousSetTimeout;
   if (previousStorage === undefined) delete globalThis.localStorage;

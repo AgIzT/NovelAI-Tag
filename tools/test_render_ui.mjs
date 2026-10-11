@@ -1792,7 +1792,12 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const syncBody = composeSource.slice(syncStart, composeSource.indexOf('function renderManager', syncStart));
   assert.match(syncBody, /if \(draft\.dirty\) \{ draft\.issue = stored \? 'conflict' : 'missing-plan'; renderSaveState\(\); \}/);
   assert.match(composeSource, /const drafts = new Map\(\)/);
-  assert.match(composeSource, /action\('另存副本',[\s\S]*structuredClone\(draft\.plan\)/);
+  assert.match(composeSource, /action\('另存副本',[^\n]*saveDraftAsCopy\(draft\)/);
+  const copyStart = composeSource.indexOf('async function saveDraftAsCopy(');
+  const copyBody = composeSource.slice(copyStart, composeSource.indexOf('function renderSaveState(', copyStart));
+  assert.match(copyBody, /structuredClone\(draft\.plan\)/, '另存动作必须保存独立快照');
+  assert.match(copyBody, /if \(generation !== draft\.generation\) return false;[\s\S]*drafts\.delete\(snapshot\.id\)/,
+    '删除原草稿前必须证明等待期间没有新输入');
   assert.match(composeSource, /action\('载入已保存版本',[\s\S]*requestRelayAction\([\s\S]*drafts\.delete\(activeId\)/);
 }
 
