@@ -235,5 +235,5 @@ const brokenStorage = {
 assert.equal(preferences.writePreferences([
   { key: 'mode', value: 'dark' }, { key: 'mirror', value: '1' },
 ], { storage: brokenStorage }), false);
-assert.match(toasts.at(-1), /未能完整保存.*重新加载.*检查设置/);
+assert.match(toasts.at(-1), /未能完整保存.*刷新页面.*检查设置/);
 console.log(`settings storage regressions: PASS (${cases.length * 5 + 5} failure cases + retry + revocation + sidebar history)`);

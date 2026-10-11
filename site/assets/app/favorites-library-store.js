@@ -89,23 +89,23 @@ export function createLibraryStore({
         label: '备份与恢复', onClick: () => actions.openBackup(),
       });
     } else if (reason === 'lock') {
-      notifySafely('收藏没能保存，另一个标签页正在修改。重试一次。', '!');
+      notifySafely('收藏未保存：另一个标签页正在修改，重试一次', '!');
     } else if (reason === 'mutator') {
-      notifySafely('收藏这次操作没能完成，重试一次。', '!');
+      notifySafely('收藏操作未完成，重试一次', '!');
     } else if (reason === 'corrupt') {
       notifySafely('收藏数据无法读取，先导出备份再恢复。', '!', {
         label: '备份与恢复', onClick: () => actions.openBackup(),
       });
     } else if (reason === 'stale') {
-      notifySafely('收藏内容已变化，重新打开备份与恢复后再操作。', '!');
+      notifySafely('收藏内容已变化，重新打开「收藏备份与恢复」后再操作。', '!');
     } else if (reason === 'rollback') {
-      notifySafely('收藏恢复未完成，打开备份与恢复检查当前内容。', '!', {
+      notifySafely('收藏恢复未完成，打开「收藏备份与恢复」检查当前内容。', '!', {
         label: '备份与恢复', onClick: () => actions.openBackup(),
       });
     } else if (reason === 'validation' && error?.message) {
       notifySafely(error.message, '!');
     } else {
-      notifySafely('收藏没能保存：浏览器禁止了本站的本地存储', '!');
+      notifySafely('收藏未保存：浏览器不允许本站保存数据，在浏览器设置里允许后重试', '!');
     }
   }
   function publish(meta) {

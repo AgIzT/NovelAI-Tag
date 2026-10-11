@@ -356,7 +356,7 @@ const issueCases = [
   ['rollback UI and direct guards', async () => {
     const f = fixture({ issue: 'conflict', globalIssue: 'rollback' });
     assert.equal(f.refs.saveState.hidden, false);
-    assert.equal(f.refs.saveState.children[0].textContent, '保存结果未能确认。先保留本页输入，再重新加载检查方案。');
+    assert.equal(f.refs.saveState.children[0].textContent, '保存结果未能确认。先手动复制本页输入，再点「重新加载页面」检查方案。');
     const buttons = f.refs.saveState.children.filter(item => item.tag === 'button');
     assert.deepEqual(buttons.map(item => item.textContent), ['重新加载页面'], '不确定态不能提供普通重试、另存或载入');
     assert.equal(f.reloads(), 0, '结果不确定不能自动刷新丢草稿');

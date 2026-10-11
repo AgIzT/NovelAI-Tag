@@ -92,11 +92,11 @@ async function handleToggleFavorite(entry) {
   try {
     const result = await toggleFavorite(entry);
     if (!result.ok) {
-      const message = result.reason === 'quota' ? '收藏没能保存：浏览器存储已满，打开「收藏备份」备份并清理后重试'
+      const message = result.reason === 'quota' ? '收藏未保存：浏览器存储已满。在法典图鉴的「浏览记录」里清空最近浏览，或在中转站清空「成品记录」后重试'
         : result.reason === 'corrupt' ? '收藏数据无法读取，打开「收藏备份」导出原数据后再恢复'
-        : result.reason === 'lock' ? '收藏没能保存，另一个标签页正在修改。重试一次。'
+        : result.reason === 'lock' ? '收藏未保存：另一个标签页正在修改，重试一次'
         : result.reason === 'rollback' ? '收藏保存未完成，打开「收藏备份」检查当前内容'
-        : '收藏没能保存：浏览器禁止了本站的本地存储，恢复存储权限后重试';
+        : '收藏未保存：浏览器不允许本站保存数据，在浏览器设置里允许后重试';
       toast(message, '!');
       return;
     }

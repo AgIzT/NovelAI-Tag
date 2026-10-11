@@ -17,10 +17,10 @@ export function writePreferences(writes, { storage, announce = true } = {}) {
   } catch { result = { ok: false, reason: 'storage' }; }
   if (!result.ok && announce) {
     const message = result.reason === 'quota'
-      ? '浏览器存储已满，设置未保存；清理最近浏览或复制历史后重试'
+      ? '设置未保存：浏览器存储已满。在「浏览记录」里清空最近浏览，或在中转站清空「成品记录」后重试'
       : result.reason === 'rollback'
-        ? '设置未能完整保存，重新加载后检查设置'
-        : '浏览器存储不可用，设置未保存；恢复存储权限后重试';
+        ? '设置未能完整保存，刷新页面后检查设置'
+        : '设置未保存：浏览器不允许本站保存数据，在浏览器设置里允许后重试';
     toast(message, '!');
   }
   return result.ok;

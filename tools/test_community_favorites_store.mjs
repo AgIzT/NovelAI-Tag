@@ -204,7 +204,7 @@ await ui.handleToggleFavorite(entry('x'));
 assert.equal(calls, 1);
 assert.equal(messages.length, 0);
 release({ ok: false, reason: 'quota' }); await click;
-assert.equal(messages.length, 1); assert.match(messages[0][0], /没能保存/);
+assert.equal(messages.length, 1); assert.match(messages[0][0], /收藏未保存/);
 assert.equal(redraws, 0); assert.equal(histories, 0);
 const retry = ui.handleToggleFavorite(entry('x'));
 release({ ok: true, active: true }); await retry;

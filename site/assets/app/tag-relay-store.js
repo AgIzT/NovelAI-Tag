@@ -179,7 +179,7 @@ function persistState(storage, next, changed, { allowTrim = true, fence } = {}) 
 
 function reportFailure(reason) {
   if (reason === 'rollback') {
-    toast('中转站保存结果未能确认。先保留本页输入，再重新加载检查方案。', '!');
+    toast('中转站保存结果未能确认。先手动复制当前输入，再刷新页面检查方案。', '!');
     return;
   }
   if (reason === 'migration-save' || reason === 'migration-quota') {

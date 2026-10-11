@@ -161,7 +161,7 @@ function renderSaveState() {
   refs.saveState.hidden = !issue;
   if (refs.saveState.hidden) return;
   refs.saveState.append(element('span', '', issue === 'rollback'
-    ? '保存结果未能确认。先保留本页输入，再重新加载检查方案。' : issue === 'conflict' || issue === 'missing-plan'
+    ? '保存结果未能确认。先手动复制本页输入，再点「重新加载页面」检查方案。' : issue === 'conflict' || issue === 'missing-plan'
     ? '另一页面已更新方案，本页输入已保留' : issue ? '尚未保存，输入仍在本页' : '正在保存…'));
   const action = (label, run) => {
     const button = element('button', '', label); button.type = 'button'; button.onclick = run; refs.saveState.append(button);

@@ -279,7 +279,7 @@ for (const inputKind of ['file', 'pickup']) {
   assert.deepEqual(ctx.libraryStore.librarySnapshot(), memoryBefore);
   assert.equal(ctx.doc.nodes.get('favoritesReplaceConfirm').hidden, false);
   assert.match(ctx.doc.nodes.get('favoritesReplaceMessage').textContent, /2 条法典收藏/);
-  assert.match(ctx.doc.nodes.get('favoritesBackupError').textContent, /覆盖范围已更新.*再次确认/);
+  assert.match(ctx.doc.nodes.get('favoritesBackupError').textContent, /覆盖范围已更新.*再确认一次/);
   assert.doesNotMatch(ctx.doc.nodes.get('favoritesBackupStatus').textContent, /覆盖完成/);
   assert.equal(ctx.doc.nodes.get('favoritesReplaceConfirmBtn').disabled, false);
   // 排队的跨页读取可以晚于拒写完成；自动刷新不得抹掉需要重新确认的提示。
@@ -287,7 +287,7 @@ for (const inputKind of ['file', 'pickup']) {
     handler({ storageArea: ctx.storage, key: library.FAVORITES_LIBRARY_STORAGE_KEY });
   }
   await tick(); await tick();
-  assert.match(ctx.doc.nodes.get('favoritesBackupError').textContent, /覆盖范围已更新.*再次确认/);
+  assert.match(ctx.doc.nodes.get('favoritesBackupError').textContent, /覆盖范围已更新.*再确认一次/);
   assert.equal(ctx.storage.getItem(library.FAVORITES_LIBRARY_STORAGE_KEY), before);
   await ctx.doc.nodes.get('favoritesReplaceConfirmBtn').fire('click'); await ctx.waitIdle();
   assert.deepEqual(library.libraryKeys(ctx.libraryStore.librarySnapshot()), ['alpha:keep']);

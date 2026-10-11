@@ -19,14 +19,14 @@ function restoreError(result) {
   if (result.error instanceof FavoritesBackupError || result.error instanceof FavoritesLibraryError) return result.error;
   const code = result.reason === 'rollback' ? 'STORAGE_ROLLBACK_FAILED' : 'STORAGE_WRITE_FAILED';
   const messages = {
-    lock: '收藏没能保存，另一个标签页正在修改。重试一次。',
-    quota: '收藏没能保存：浏览器存储已满',
-    storage: '收藏没能保存：浏览器禁止了本站的本地存储',
+    lock: '收藏未保存：另一个标签页正在修改，重试一次',
+    quota: '收藏未保存：浏览器存储已满。在「浏览记录」里清空最近浏览，或在中转站清空「成品记录」后重试',
+    storage: '收藏未保存：浏览器不允许本站保存数据，在浏览器设置里允许后重试',
     stale: '当前收藏数据已改变，重新检查备份后再恢复。',
     corrupt: '当前收藏数据无法读取，先导出原始数据再恢复。',
     rollback: '收藏写入失败，且无法完整恢复原数据；重新导出当前收藏进行核对。',
   };
-  return new FavoritesBackupError(code, messages[result.reason] || '收藏没能保存，重新打开备份面板后重试。', { cause: result.error, reason: result.reason });
+  return new FavoritesBackupError(code, messages[result.reason] || '收藏未保存，重新打开「收藏备份与恢复」后重试。', { cause: result.error, reason: result.reason });
 }
 
 // 已迁移后只从 V2 读取图鉴收藏；旧 core 仅负责共创收藏的既有容错与校验。
@@ -86,7 +86,7 @@ export function createFavoritesBackupStore(store = defaultStore) {
       if (mode === 'replace' && expectedReplaceReview !== undefined
           && expectedReplaceReview !== createReplaceReview({ plan, currentLibrary: draft })) {
         throw new FavoritesBackupError('REPLACE_PLAN_CHANGED',
-          '当前收藏已改变，覆盖范围已更新。检查后再次确认。', { current, plan });
+          '当前收藏有变化，覆盖范围已更新，检查后再确认一次。', { current, plan });
       }
       for (const key of Object.keys(draft)) delete draft[key];
       Object.assign(draft, plan.nextLibrary);

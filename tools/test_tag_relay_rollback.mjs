@@ -86,7 +86,7 @@ async function assertLocked(f, result, mutate) {
   assert.equal(f.values.get(KEY), disk);
   assert.equal(JSON.stringify(f.store.relayState()), memory);
   assert.equal(f.store.getRelayStorageIssue(), 'rollback');
-  assert.match(f.lastToast(), /保存结果.*重新加载/);
+  assert.match(f.lastToast(), /保存结果未能确认.*刷新页面/);
 }
 async function test(label, run) {
   try { await run(); console.log(`PASS ${label}`); }
