@@ -3,8 +3,9 @@
 The default mode is a read-only plan. ``--apply`` quarantines confirmed source
 duplicates, appends only unseen entries, inserts the N5 community/korean
 directory level, and updates both books in one rollback-capable transaction.
-``--validate`` independently re-scans the installed assets and must be
-idempotent.  No R2 upload, release, commit, or push is performed.
+``--validate`` reads the current JSON and independently checks its installed
+assets and metadata; it does not replay an obsolete source import plan.
+No R2 upload, release, commit, or push is performed.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ from pack_import_core import (
     serial_title,
     set_prompt_note,
     sha256_file,
+    tree_counts,
     validate_asset,
     write_asset_bundle_from_paths,
     write_json,
@@ -63,6 +65,8 @@ N5_COMMUNITY_SAFE_PATH = (N5_ROOT_LABEL, "社区整理", "常规")
 N5_COMMUNITY_NSFW_PATH = (N5_ROOT_LABEL, "社区整理", "NSFW")
 N5_KOREAN_SAFE_PATH = (N5_ROOT_LABEL, "韩网整理", "常规")
 N5_KOREAN_NSFW_PATH = (N5_ROOT_LABEL, "韩网整理", "NSFW")
+# The maintained creator branch keeps the original Korean entry IDs/assets.
+N5_CREATOR_LABEL = "𝑨𝒂𝒂𝒍𝒊𝒄𝒆.𝒆𝒙𝒆"
 
 N45_TARGET_PREFIX = ("梦神 · 社区图包", "个人精选韩国图包")
 N45_SAFE_PATH = (*N45_TARGET_PREFIX, "常规")
@@ -1390,34 +1394,230 @@ def apply_update(
             path.unlink(missing_ok=True)
 
 
+def installed_target_entry(book_id: str, entry: dict[str, Any]) -> bool:
+    """Recognize Korean identities even after a maintained category move."""
+    if book_id == N5_BOOK_ID:
+        return (
+            clean_text(entry.get("id")).startswith(f"{N5_BOOK_ID}_mengshen_korean_")
+            or is_target_entry(book_id, entry)
+        )
+    return is_target_entry(book_id, entry)
+
+
+def installed_path_issue(book_id: str, entry: dict[str, Any]) -> str | None:
+    path = tuple(entry.get("path") or ())
+    if book_id == N5_BOOK_ID:
+        expected = {
+            (N5_ROOT_LABEL, branch, leaf): rating
+            for branch in ("韩网整理", N5_CREATOR_LABEL)
+            for leaf, rating in (("常规", "safe"), ("NSFW", "r18"))
+        }
+    else:
+        expected = {
+            N45_SAFE_PATH: "safe",
+            N45_NSFW_PATH: "r18",
+            (*N45_TARGET_PREFIX, "NSFW", "限制级"): "restricted",
+        }
+    if path not in expected or entry.get("rating") != expected[path]:
+        return f"{book_id}:{entry.get('id')}:path_or_rating"
+    return None
+
+
+def installed_book_issues(book_id: str, codex: dict[str, Any]) -> list[str]:
+    entries = list(codex.get("entries") or [])
+    ids = [clean_text(entry.get("id")) for entry in entries]
+    issues: list[str] = []
+    if codex.get("id") != book_id:
+        issues.append(f"{book_id}:book_id")
+    if "nsfw" in codex:
+        issues.append(f"{book_id}:unexpected_book_nsfw")
+    if not clean_text(codex.get("version")):
+        issues.append(f"{book_id}:version_missing")
+    if len(ids) != len(set(ids)) or not all(ids):
+        issues.append(f"{book_id}:missing_or_duplicate_entry_ids")
+    if codex.get("entryCount") != len(entries):
+        issues.append(f"{book_id}:entry_count")
+    if codex.get("imagedCount") != sum(bool(entry.get("image")) for entry in entries):
+        issues.append(f"{book_id}:imaged_count")
+    try:
+        expected = tree_counts(build_tree(entries))
+        for path in codex.get("emptyCategories") or []:
+            for length in range(1, len(path) + 1):
+                expected.setdefault(tuple(path[:length]), 0)
+        if tree_counts(codex.get("tree") or []) != expected:
+            issues.append(f"{book_id}:tree")
+    except (TypeError, ValueError, AttributeError):
+        issues.append(f"{book_id}:tree_invalid")
+    return issues
+
+
+def installed_prompt_issues(entry: dict[str, Any], rows: list[dict[str, Any]], label: str) -> list[str]:
+    issues: list[str] = []
+    items = image_items(entry)
+    if len(rows) != len(items) or not rows:
+        return [f"{label}:metadata_image_count"]
+    cover = rows[0]
+    for field, name in (("tags", "prompt"), ("negative", "negative")):
+        if clean_text(entry.get(field)) != clean_text(cover.get(name)):
+            issues.append(f"{label}:{name}")
+    if clean_character_prompts(entry.get("characterPrompts")) != clean_character_prompts(cover.get("characterPrompts")):
+        issues.append(f"{label}:character_prompts")
+    issues.extend(per_image_prompt_issues(entry, rows, label))
+    for position, (item, row) in enumerate(zip(items, rows), 1):
+        if row.get("error"):
+            issues.append(f"{label}[{position}]:{row['error']}")
+        elif not clean_text(row.get("prompt")):
+            issues.append(f"{label}[{position}]:original_no_prompt")
+        if len(items) > 1 and clean_text(item.get("rawTag")) != clean_text(row.get("prompt")):
+            issues.append(f"{label}[{position}]:raw_tag")
+        if len(items) == 1 and item.get("rawTag"):
+            issues.append(f"{label}:unexpected_raw_tag")
+    return issues
+
+
+def active_takedown_originals() -> dict[str, str]:
+    """Use the maintained exact-hash ledger, never infer a removal from absence."""
+    payload = json.loads((ROOT / "tools" / "data" / "image_takedowns.json").read_text(encoding="utf-8"))
+    result: dict[str, str] = {}
+    for case in payload.get("cases") or []:
+        if case.get("status") != "active":
+            continue
+        for member in case.get("members") or []:
+            for asset in member.get("assets") or []:
+                if asset.get("kind") == "original" and asset.get("sha256"):
+                    result[str(asset["sha256"])] = str(member.get("entryId") or "")
+    return result
+
+
+def installed_source_coverage(
+    rows: list[dict[str, Any]],
+    states: dict[str, dict[str, Any]],
+    takedowns: dict[str, str],
+) -> tuple[dict[str, Any], list[str]]:
+    issues: list[str] = []
+    exclusions: list[dict[str, str]] = []
+    duplicate_refs: list[dict[str, Any]] = []
+    matched = 0
+    for row in rows:
+        if not row.get("accepted"):
+            continue
+        book_id = str(row["bookId"])
+        digest = str(row.get("sha256") or "")
+        refs = states[book_id]["hashRefs"].get(digest, [])
+        if digest in takedowns:
+            exclusions.append({
+                "source": str(row["relativePath"]), "sha256": digest,
+                "removedEntryId": takedowns[digest],
+            })
+            if refs:
+                issues.append(f"{book_id}:{row['relativePath']}:active_takedown_reintroduced:{digest}")
+        elif not refs:
+            issues.append(f"{book_id}:{row['relativePath']}:source_hash_not_installed:{digest}")
+        else:
+            matched += 1
+            if len(refs) > 1:
+                duplicate_refs.append({
+                    "source": str(row["relativePath"]), "sha256": digest,
+                    "entryIds": [str(ref["entryId"]) for ref in refs],
+                })
+                if any(installed_target_entry(book_id, ref.get("entry") or {"id": ref["entryId"]}) for ref in refs):
+                    issues.append(f"{book_id}:{row['relativePath']}:duplicate_installed_source_hash:{digest}")
+    return {
+        "available": True,
+        "matchedImages": matched,
+        "activeTakedownExclusions": exclusions,
+        "preExistingDuplicateReferences": duplicate_refs,
+        "unmatchedImages": sum(":source_hash_not_installed:" in issue for issue in issues),
+    }, issues
+
+
 def validate_install(source: Path, workers: int) -> dict[str, Any]:
-    _rows, groups, source_info, plan, context = run_plan(source, workers)
-    if source_info.get("blockers"):
-        raise RuntimeError("validation blockers:\n" + "\n".join(source_info["blockers"][:100]))
-    if plan.get("wouldChange"):
-        raise RuntimeError("update is not idempotent:\n" + json.dumps(plan, ensure_ascii=False, indent=2))
-    n5 = context["n5"]
-    n45 = context["n45"]
-    validation = validate_payloads(n5, n45, groups)
+    # Source replay belongs to the plan/apply path. Later category moves,
+    # merges, suspension, cover changes and book versions are maintained on
+    # current JSON, so validation must start there rather than proposing undo.
+    n5, n45 = load_books()
+    books = {N5_BOOK_ID: n5, N45_BOOK_ID: n45}
+    issues: list[str] = []
+    tasks: list[dict[str, Any]] = []
+    targets: dict[tuple[str, str], dict[str, Any]] = {}
+    counts: dict[str, dict[str, Any]] = {}
+    for book_id, codex in books.items():
+        issues.extend(installed_book_issues(book_id, codex))
+        # Keep the former full-book asset checks, including other source
+        # branches. Only metadata/classification ownership is source-scoped.
+        for entry in codex.get("entries") or []:
+            asset_id = entry_asset_id(book_id, entry)
+            issues.extend(f"{book_id}:{issue}" for issue in validate_asset(
+                entry, IMAGE_ROOT / asset_id, ORIGINAL_ROOT / asset_id,
+            ))
+        entries = [entry for entry in codex.get("entries") or [] if installed_target_entry(book_id, entry)]
+        if not entries:
+            issues.append(f"{book_id}:target_entries_missing")
+        counts[book_id] = {
+            "entries": len(codex.get("entries") or []),
+            "version": codex.get("version"),
+            "assetEntriesChecked": len(codex.get("entries") or []),
+            "targetEntries": len(entries),
+            "targetImages": sum(len(image_items(entry)) for entry in entries),
+        }
+        for entry in entries:
+            entry_id = clean_text(entry.get("id"))
+            targets[(book_id, entry_id)] = entry
+            path_issue = installed_path_issue(book_id, entry)
+            if path_issue:
+                issues.append(path_issue)
+            for position, item in enumerate(image_items(entry), 1):
+                tasks.append({
+                    "bookId": book_id, "entryId": entry_id, "position": position,
+                    "sourcePath": str(original_path(book_id, entry, item)),
+                })
+    rows = run_parallel("Mengshen Korean installed metadata", inspect_image_task, tasks, workers)
+    by_entry: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_entry[(str(row["bookId"]), str(row["entryId"]))].append(row)
+    for key, entry in targets.items():
+        members = sorted(by_entry.get(key, []), key=lambda row: int(row["position"]))
+        issues.extend(installed_prompt_issues(entry, members, ":".join(key)))
+    source_coverage: dict[str, Any] = {"available": False, "reason": "source directory unavailable; current JSON/assets still checked"}
+    if source.is_dir():
+        source_rows, _groups, source_info = audit_source(source, workers)
+        issues.extend(f"source:{issue}" for issue in source_info.get("layoutIssues") or [])
+        issues.extend(f"source:unsupported_file:{path}" for path in source_info.get("unsupportedFiles") or [])
+        sizes = {int(row.get("bytes") or 0) for row in source_rows if row.get("accepted")}
+        try:
+            states = {book_id: current_hash_state(book_id, codex, sizes) for book_id, codex in books.items()}
+            source_coverage, source_issues = installed_source_coverage(source_rows, states, active_takedown_originals())
+            source_coverage["inputImages"] = source_info["inputImages"]
+            source_coverage["rejectedImageReasons"] = source_info["rejectedImageReasons"]
+            issues.extend(source_issues)
+        except (OSError, ValueError, RuntimeError) as exc:
+            issues.append(f"source_coverage:{exc}")
     index = json.loads((DATA_DIR / "codexes.json").read_text(encoding="utf-8"))
-    index_issues = index_contract_issues(index, {N5_BOOK_ID: n5, N45_BOOK_ID: n45})
-    if index_issues:
-        raise RuntimeError("index contract mismatch:\n" + "\n".join(index_issues))
+    issues.extend(index_contract_issues(index, books))
+    n5_cover = next((entry for entry in n5.get("entries") or [] if entry.get("image") == n5.get("cover")), None)
+    if not n5_cover or n5_cover.get("rating") != "safe":
+        issues.append(f"{N5_BOOK_ID}:unsafe_or_missing_cover")
     result = {
-        **validation,
-        "idempotentChanges": 0,
-        "indexMetadataMismatches": 0,
-        "sourceAudit": source_info,
-        "paths": plan["paths"],
-        "reports": context["files"],
+        "valid": not issues,
+        "validationScope": "current JSON, Korean identities and referenced installed originals",
+        "sourceReplay": False,
+        "sourceCoverage": source_coverage,
+        "books": counts,
+        "installedImagesVerified": len(rows),
+        "issues": list(dict.fromkeys(issues)),
+        "reports": {"validation": str(OUTPUT_DIR / "validation.json")},
     }
     write_json(OUTPUT_DIR / "validation.json", result)
+    if result["issues"]:
+        raise RuntimeError("installed validation issues (full list in validation.json):\n" + "\n".join(result["issues"][:200]))
     return result
 
 
 def main() -> int:
+    global OUTPUT_DIR
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--report-dir", type=Path, help="override the audit/validation output directory")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--apply", action="store_true")
     mode.add_argument("--validate", action="store_true")
@@ -1425,12 +1625,14 @@ def main() -> int:
     args = parser.parse_args()
     if args.workers < 1:
         raise SystemExit("--workers must be at least 1")
+    if args.report_dir is not None:
+        OUTPUT_DIR = args.report_dir.resolve()
     source = args.source.resolve()
-    if not source.is_dir():
-        raise SystemExit(f"source folder not found: {source}")
     if args.validate:
         print(json.dumps(validate_install(source, args.workers), ensure_ascii=False, indent=2))
         return 0
+    if not source.is_dir():
+        raise SystemExit(f"source folder not found: {source}")
 
     rows, groups, source_info, plan, context = run_plan(source, args.workers)
     output: dict[str, Any] = {
