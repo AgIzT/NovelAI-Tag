@@ -6,6 +6,7 @@ import {
   normImageParams,
 } from '../_lib.js';
 import { sniffImageKind, readPngSize, extractTextParams } from '../_params_core.js';
+import { reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
 
 // POST /api/submit — 游客投稿（multipart 表单）
 // 流程：字段/图片校验 → 压缩图 + 原图写入 R2 待审区
@@ -112,36 +113,46 @@ export async function onRequestPost({ request, env }) {
     images.push(image);
   }
 
+  // 并发保险：前面的 R2 计数只负责尽早拒绝；真正的上限在写入前用 D1 原子占位守住。
+  // 放在所有校验和解析之后，无效上传不会白占名额；D1 不可用时 slot 为 null，退回只看 R2 计数。
+  const slot = await reservePendingSlot(env, { queue: 'community', pendingCount: pendCount, max: LIMITS.pendingMax });
+  if (slot && !slot.reserved) return err('待审投稿已满，请过几天再来', 429);
+
   // 写入 R2
   const id = crypto.randomUUID();
-  const stored = [];
-  for (let i = 0; i < images.length; i++) {
-    const im = images[i];
-    const key = `community/img/${id}/${i + 1}.${im.ext}`;
-    await env.STRINGS_BUCKET.put(key, im.buf, {
-      httpMetadata: { contentType: CONTENT_TYPES[im.ext], cacheControl: 'public, max-age=31536000, immutable' },
-    });
-    const record = { key };
-    if (im.origBuf) {
-      const origKey = `community/img/${id}/${i + 1}.orig.${im.origExt}`;
-      await env.STRINGS_BUCKET.put(origKey, im.origBuf, {
-        httpMetadata: { contentType: CONTENT_TYPES[im.origExt], cacheControl: 'public, max-age=31536000, immutable' },
+  try {
+    const stored = [];
+    for (let i = 0; i < images.length; i++) {
+      const im = images[i];
+      const key = `community/img/${id}/${i + 1}.${im.ext}`;
+      await env.STRINGS_BUCKET.put(key, im.buf, {
+        httpMetadata: { contentType: CONTENT_TYPES[im.ext], cacheControl: 'public, max-age=31536000, immutable' },
       });
-      record.origKey = origKey;
+      const record = { key };
+      if (im.origBuf) {
+        const origKey = `community/img/${id}/${i + 1}.orig.${im.origExt}`;
+        await env.STRINGS_BUCKET.put(origKey, im.origBuf, {
+          httpMetadata: { contentType: CONTENT_TYPES[im.origExt], cacheControl: 'public, max-age=31536000, immutable' },
+        });
+        record.origKey = origKey;
+      }
+      if (im.width && im.height) { record.width = im.width; record.height = im.height; }
+      if (im.params) record.params = im.params;
+      stored.push(record);
     }
-    if (im.width && im.height) { record.width = im.width; record.height = im.height; }
-    if (im.params) record.params = im.params;
-    stored.push(record);
-  }
 
-  const record = {
-    id, title, prompt, negative, comment, tags, category, nsfw, submitter,
-    images: stored,
-    createdAt: Date.now(),
-  };
-  await env.STRINGS_BUCKET.put(`community/pending/${id}.json`, JSON.stringify(record), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
+    const record = {
+      id, title, prompt, negative, comment, tags, category, nsfw, submitter,
+      images: stored,
+      createdAt: Date.now(),
+    };
+    await env.STRINGS_BUCKET.put(`community/pending/${id}.json`, JSON.stringify(record), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+    });
+  } catch (error) {
+    await releasePendingSlot(env, { queue: 'community', id: slot?.id });
+    throw error;
+  }
 
   return json({ ok: true, id }, 201);
 }

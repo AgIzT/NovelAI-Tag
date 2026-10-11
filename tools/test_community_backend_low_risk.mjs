@@ -4,36 +4,7 @@ import assert from 'node:assert/strict';
 import { findFeedbackRecord } from '../functions/_feedback.js';
 import { moveCommunityRecord } from '../functions/_lib.js';
 import { onRequestPost as deleteFeedback } from '../functions/api/admin/feedback-delete.js';
-
-class MemoryR2 {
-  constructor() {
-    this.objects = new Map();
-  }
-
-  async get(key) {
-    if (!this.objects.has(key)) return null;
-    const raw = this.objects.get(key);
-    return { json: async () => JSON.parse(raw) };
-  }
-
-  async put(key, value) {
-    const raw = typeof value === 'string' ? value : await value.text();
-    this.objects.set(key, raw);
-  }
-
-  async delete(keys) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
-  }
-
-  async list({ prefix }) {
-    return {
-      objects: [...this.objects.keys()]
-        .filter(key => key.startsWith(prefix))
-        .map(key => ({ key })),
-      truncated: false,
-    };
-  }
-}
+import { MemoryR2 } from './memory-r2-test-harness.mjs';
 
 function adminRequest(path, body) {
   return new Request(`https://admin.example.test${path}`, {
