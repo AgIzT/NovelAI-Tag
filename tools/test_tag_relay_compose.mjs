@@ -25,7 +25,7 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
   refs.history.hidden = true; refs.lane = { contains: () => false };
   let disk = v4.createRelayState({ planName: 'Original' });
   disk.plans[0].positive.text = 'peer saved'; disk.plans[0].revision = 1;
-  let session, notify = () => {}, timer = 0, storageIssue = globalIssue, reloads = 0, initializations = 0;
+  let current, session, notify = () => {}, timer = 0, storageIssue = globalIssue, reloads = 0, initializations = 0;
   const timers = new Map(), commits = [];
   const windowHandlers = new Map();
   const editor = {
@@ -37,11 +37,11 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
     ...v4, state: { codex: null }, toast() {}, getRelayStorageIssue: () => storageIssue,
     initializeRelay: async () => { initializations += 1; return { ok: storageIssue !== 'rollback' }; },
     window: { location: { reload() { reloads += 1; } }, addEventListener(type, handler) { windowHandlers.set(type, handler); } },
-    relayState: () => disk,
+    relayState: () => current,
     commitRelay: mutator => {
       const gate = deferred(), attempt = { gate, mutator, fail: false };
       commits.push(attempt);
-      return gate.promise.then(() => {
+      return gate.promise.then(async () => {
         if (attempt.fail) {
           const reason = typeof attempt.fail === 'string' ? attempt.fail : 'save';
           if (reason === 'rollback') storageIssue = reason;
@@ -49,7 +49,9 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
         }
         const next = structuredClone(disk), result = mutator(next);
         if (result?.ok === false) return { ok: false, reason: result.reason };
-        disk = v4.normalizeRelayState(next); storageIssue = null; notify(disk, { source: 'local' });
+        disk = v4.normalizeRelayState(next);
+        if (attempt.afterWrite) await attempt.afterWrite.promise;
+        current = v4.normalizeRelayState(next); storageIssue = null; notify(current, { source: 'local' });
         return { ok: true, result };
       });
     },
@@ -72,6 +74,7 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
     v4.createPlan(disk, 'Peer replacement');
     disk.plans = disk.plans.filter(plan => plan.id !== local.id);
   }
+  current = structuredClone(disk);
   harness.seed(refs, editor, local, issue); harness.renderSaveState();
   harness.bindUnload();
   const copyButton = () => refs.saveState.children.find(item => item.textContent === '另存副本');
@@ -79,11 +82,21 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
   return {
     refs, harness, local, commits, timers, copyButton,
     disk: () => disk, session: () => session,
+    restored: () => v4.getActivePlan(v4.normalizeRelayState(JSON.parse(JSON.stringify(disk)))),
     storageIssue: () => storageIssue,
     setStorageIssue(value) { storageIssue = value; harness.renderSaveState(); },
     peerUpdate(positive) {
       const saved = disk.plans.find(plan => plan.id === local.id);
-      saved.positive.text = positive; saved.revision += 1; notify(disk, { source: 'storage' });
+      saved.positive.text = positive; saved.revision += 1; current = structuredClone(disk); notify(current, { source: 'storage' });
+    },
+    peerSelect(name = 'Third page selection') {
+      const selected = v4.createPlan(disk, name);
+      current = structuredClone(disk); notify(current, { source: 'storage' }); return selected.id;
+    },
+    peerDelete() {
+      v4.createPlan(disk, 'Peer replacement after deletion');
+      v4.deletePlan(disk, local.id);
+      current = structuredClone(disk); notify(current, { source: 'storage' }); return disk.activePlanId;
     },
     beforeUnload() {
       const event = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
@@ -106,6 +119,8 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
   assert.equal(f.session().positive.text, 'local first');
   assert.equal(f.harness.draft(f.local.id), undefined);
   assert.notEqual(f.harness.active(), f.local.id);
+  assert.equal(f.disk().activePlanId, f.harness.active(), '普通另存必须持久选择新副本');
+  assert.equal(f.restored().id, f.harness.active(), '刷新必须恢复普通另存后的副本');
 }
 
 // 等锁时多次输入：保存点击快照后仍保留最新双通道草稿和未保存提示。
@@ -143,15 +158,19 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
 // 保存失败后保留完整草稿，且下一次点击可重新尝试。
 {
   const f = fixture(), action = f.copyButton().onclick();
-  f.commits[0].fail = true; f.input('local first, failure tail');
+  f.commits[0].fail = true; f.input('local first, failure tail', 'failure negative');
   f.release(); await action;
   assert.equal(f.disk().plans.length, 1);
+  assert.equal(f.disk().activePlanId, f.local.id, '失败不能修改持久 active');
   assert.equal(f.session().positive.text, 'local first, failure tail');
+  assert.equal(f.session().negative.text, 'failure negative');
   assert.equal(f.harness.draft(f.local.id)?.dirty, true);
   assert.equal(f.refs.saveState.hidden, false);
+  assert.equal(f.beforeUnload().prevented, true);
   const retry = f.copyButton().onclick();
   f.release(1); await retry;
   assert.equal(f.disk().plans[1].positive.text, 'local first, failure tail');
+  assert.equal(f.restored().negative.text, 'failure negative');
 }
 
 const issueCases = [
@@ -169,6 +188,7 @@ const issueCases = [
     assert.equal(f.refs.saveState.hidden, false, '仅全局 issue 清除后，新尾段必须仍有未保存提示');
     assert.equal(f.timers.size, 1, '副本完成后必须恢复已耗尽的自动保存');
     assert.equal(f.disk().plans[0].positive.text, 'peer saved');
+    assert.equal(f.disk().activePlanId, f.local.id, '尾段保留时，点击快照副本不能抢走原 active');
     assert.equal(f.disk().plans[1].positive.text, 'local first');
     // 副本完成后再一次输入应替换补排的 debounce，以最新双通道内容保存。
     f.input('local first, NEW-TAIL, AFTER-COPY', 'negative tail after copy');
@@ -181,6 +201,9 @@ const issueCases = [
     assert.equal(f.harness.draft(f.local.id)?.dirty, false);
     assert.equal(f.beforeUnload().prevented, false, '双通道落盘成功后解除离页确认');
     assert.equal(f.refs.saveState.hidden, true);
+    assert.equal(f.restored().positive.text, f.session().positive.text, 'dirty 清除后，刷新恢复必须包含最新正向尾段');
+    assert.equal(f.restored().negative.text, f.session().negative.text, 'dirty 清除后，刷新恢复必须包含最新负向尾段');
+    assert.equal(f.disk().activePlanId, f.harness.active(), '自动保存后持久 active 必须与本页完整方案一致');
   }],
   ['conflict and consumed debounce', async () => {
     const f = fixture(), copy = f.copyButton().onclick();
@@ -194,6 +217,9 @@ const issueCases = [
     assert.equal(await f.harness.flushCompose(), false);
     assert.equal(f.commits.length, 1);
     assert.equal(f.disk().plans[0].positive.text, 'peer saved');
+    assert.equal(f.disk().activePlanId, f.local.id, '冲突尾段保留时，点击快照副本不能抢走原 active');
+    assert.equal(f.session().negative.text, 'negative conflict tail');
+    assert.equal(f.beforeUnload().prevented, true);
   }],
   ['existing save finishes newest generation before copy', async () => {
     const f = fixture({ issue: '', globalIssue: 'storage', localRevision: 1 });
@@ -212,6 +238,77 @@ const issueCases = [
     assert.equal(f.harness.draft(f.local.id)?.issue, '', '新 generation 已被已有保存写完时不能误报未保存');
     assert.equal(f.timers.size, 0);
     assert.equal(f.refs.saveState.hidden, true);
+    assert.equal(f.restored().positive.text, f.session().positive.text, '已有保存已完成尾段也不能让刷新落到旧副本');
+    assert.equal(f.restored().negative.text, f.session().negative.text);
+  }],
+  ['later third-page selection while copy waits', async () => {
+    const f = fixture({ issue: '', globalIssue: 'storage', localRevision: 1 }), copy = f.copyButton().onclick();
+    const selectedId = f.peerSelect();
+    f.input('local first, third-page tail', 'third-page negative');
+    const consumed = f.runTimer();
+    f.release(); await Promise.all([copy, consumed]);
+    assert.equal(f.disk().activePlanId, selectedId, '另存不能覆盖等锁时第三页更晚的方案选择');
+    const resumed = f.runTimer(); f.release(1); await resumed;
+    assert.equal(f.disk().activePlanId, selectedId, '保存尾段不能无条件把第三页 active 改回本页');
+    assert.equal(f.beforeUnload().prevented, false);
+    assert.equal(f.session().positive.text, 'local first, third-page tail');
+    assert.equal(f.session().negative.text, 'third-page negative');
+  }],
+  ['input after copy bytes are written before completion', async () => {
+    const f = fixture({ issue: '', globalIssue: 'storage', localRevision: 1 }), copy = f.copyButton().onclick();
+    const completion = deferred(); f.commits[0].afterWrite = completion;
+    f.release(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.disk().plans.length, 2, '夹具必须先写出点击快照，再暂停提交完成');
+    f.input('local first, after-write tail', 'after-write negative');
+    const consumed = f.runTimer(); completion.resolve(); await Promise.all([copy, consumed]);
+    assert.equal(f.beforeUnload().prevented, true);
+    const resumed = f.runTimer(); f.release(1); await resumed;
+    assert.equal(f.beforeUnload().prevented, false);
+    assert.equal(f.restored().positive.text, f.session().positive.text, '字节写出后的尾段也必须随刷新恢复');
+    assert.equal(f.restored().negative.text, f.session().negative.text);
+    assert.equal(f.disk().activePlanId, f.harness.active());
+  }],
+  ['later selection before queued tail save', async () => {
+    const f = fixture({ issue: '', globalIssue: 'storage', localRevision: 1 }), copy = f.copyButton().onclick();
+    const completion = deferred(); f.commits[0].afterWrite = completion;
+    f.release(); await new Promise(resolve => setImmediate(resolve));
+    f.input('local first, queued tail', 'queued negative');
+    const consumed = f.runTimer(); completion.resolve(); await Promise.all([copy, consumed]);
+    const resumed = f.runTimer();
+    assert.equal(f.commits.length, 2, '尾段保存必须先进入提交等待');
+    const selectedId = f.peerSelect('Third page later selection');
+    f.release(1); await resumed;
+    assert.equal(f.disk().activePlanId, selectedId, '尾段与 active 提交持锁时应保留第三页更晚选择');
+    assert.equal(f.disk().plans.find(plan => plan.id === f.local.id).positive.text, 'local first, queued tail');
+    assert.equal(f.disk().plans.find(plan => plan.id === f.local.id).negative.text, 'queued negative');
+    assert.equal(f.harness.draft(f.local.id).dirty, false);
+    assert.equal(f.beforeUnload().prevented, false);
+  }],
+  ['tail save fails before active restoration', async () => {
+    const f = fixture({ issue: '', globalIssue: 'storage', localRevision: 1 }), copy = f.copyButton().onclick();
+    const completion = deferred(); f.commits[0].afterWrite = completion;
+    f.release(); await new Promise(resolve => setImmediate(resolve));
+    const copyId = f.disk().activePlanId;
+    f.input('local first, retry tail', 'retry negative');
+    const consumed = f.runTimer(); completion.resolve(); await Promise.all([copy, consumed]);
+    const failed = f.runTimer(); f.commits[1].fail = true; f.release(1); await failed;
+    assert.equal(f.disk().activePlanId, copyId, '正文未成功保存不能提前改 active 或清 dirty');
+    assert.equal(f.harness.draft(f.local.id).dirty, true);
+    assert.equal(f.refs.saveState.hidden, false);
+    assert.equal(f.beforeUnload().prevented, true);
+    const retry = f.harness.flushCompose(); f.release(2); await retry;
+    assert.equal(f.disk().activePlanId, f.local.id);
+    assert.equal(f.restored().positive.text, 'local first, retry tail');
+    assert.equal(f.restored().negative.text, 'retry negative');
+    assert.equal(f.beforeUnload().prevented, false);
+  }],
+  ['normal copy preserves later third-page selection', async () => {
+    const f = fixture(), copy = f.copyButton().onclick(), selectedId = f.peerSelect();
+    f.release(); await copy;
+    assert.equal(f.disk().activePlanId, selectedId, '未新增输入也不能覆盖第三页等待期间的更晚选择');
+    assert.equal(f.session().positive.text, 'local first', '本页仍可以查看用户刚另存的完整副本');
+    assert.equal(f.harness.draft(f.local.id), undefined);
+    assert.equal(f.beforeUnload().prevented, false);
   }],
   ['missing plan and consumed debounce', async () => {
     const f = fixture({ issue: 'missing-plan' }), copy = f.copyButton().onclick();
@@ -221,6 +318,28 @@ const issueCases = [
     assert.equal(f.timers.size, 0);
     assert.equal(await f.harness.flushCompose(), false);
     assert.equal(f.commits.length, 1);
+    assert.equal(f.harness.draft(f.local.id).dirty, true);
+    assert.equal(f.refs.saveState.hidden, false);
+    assert.equal(f.beforeUnload().prevented, true);
+    assert.notEqual(f.disk().activePlanId, f.disk().plans.at(-1).id, '原方案已删除时保留替代方案 active，不选缺尾段的副本');
+  }],
+  ['original plan disappears while copy waits', async () => {
+    const f = fixture({ issue: '', globalIssue: 'storage', localRevision: 1 }), copy = f.copyButton().onclick();
+    f.input('local first, removed original tail', 'removed original negative');
+    const consumed = f.runTimer(), replacementId = f.peerDelete();
+    f.release(); await Promise.all([copy, consumed]);
+    assert.equal(f.harness.draft(f.local.id).issue, 'missing-plan');
+    assert.equal(f.harness.draft(f.local.id).dirty, true);
+    assert.equal(f.disk().activePlanId, replacementId);
+    assert.equal(f.timers.size, 0);
+    assert.equal(f.refs.saveState.hidden, false);
+    assert.equal(f.beforeUnload().prevented, true);
+    assert.equal(f.session().positive.text, 'local first, removed original tail');
+    assert.equal(f.session().negative.text, 'removed original negative');
+    const again = f.copyButton().onclick(); f.release(1); await again;
+    assert.equal(f.restored().positive.text, 'local first, removed original tail');
+    assert.equal(f.restored().negative.text, 'removed original negative');
+    assert.equal(f.beforeUnload().prevented, false);
   }],
   ['peer update while copy waits', async () => {
     const f = fixture({ issue: '', globalIssue: 'storage', localRevision: 1 }), copy = f.copyButton().onclick();

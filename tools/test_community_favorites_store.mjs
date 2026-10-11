@@ -17,6 +17,68 @@ const quota = () => Object.assign(new Error('quota'), { name: 'QuotaExceededErro
 const make = storage => createCommunityFavoritesStore({ getStorage: () => storage, getLocks: () => null, eventTarget: null });
 const entry = id => ({ id });
 
+// 旧版 loader 把数字 ID 转成字符串；读取仅归一内存，下次锁内提交才写规范数组。
+{
+  const raw = '[ 123, "123", 0, "0", 456, "legacy", 456 ]';
+  const disk = new MemoryStorage({ [KEY]: raw });
+  const store = make(disk);
+  assert.equal(store.getFavoritesIssue(), null);
+  assert.deepEqual([...store.reloadFavorites()], ['123', '0', '456', 'legacy']);
+  assert.equal(store.isFavorite(entry(123)), true);
+  assert.equal(store.isFavorite(entry('0')), true);
+  assert.equal(disk.getItem(KEY), raw, '读取不能提前改写旧收藏原字节');
+  assert.deepEqual(disk.writes, []);
+  assert.equal((await store.toggleFavorite(entry(123))).active, false);
+  assert.deepEqual(JSON.parse(disk.getItem(KEY)), ['0', '456', 'legacy']);
+  assert.equal((await store.toggleFavorite(entry('new'))).active, true);
+  assert.deepEqual(JSON.parse(disk.getItem(KEY)), ['0', '456', 'legacy', 'new']);
+}
+
+// 旧数字的规范化与新星标属于同一事务；任何失败保留旧数组及信号原字节。
+for (const failureKey of [KEY, SIGNAL]) {
+  for (const silent of [false, true]) {
+    const raw = '[ 123, "123", 0, "old" ]';
+    const disk = new MemoryStorage({ [KEY]: raw, [SIGNAL]: 'previous-signal' });
+    const store = make(disk);
+    const actualSet = disk.setItem.bind(disk);
+    disk.setItem = (key, value) => {
+      if (key === failureKey) {
+        if (silent) return;
+        throw quota();
+      }
+      actualSet(key, value);
+    };
+    assert.equal((await store.toggleFavorite(entry('new'))).ok, false);
+    assert.equal(store.isFavorite(entry('new')), false);
+    assert.equal(store.isFavorite(entry('123')), true);
+    assert.equal(disk.getItem(KEY), raw);
+    assert.equal(disk.getItem(SIGNAL), 'previous-signal');
+    disk.setItem = actualSet;
+    assert.equal((await store.toggleFavorite(entry('new'))).ok, true);
+    assert.deepEqual(JSON.parse(disk.getItem(KEY)), ['123', '0', 'old', 'new']);
+  }
+}
+// 最新底本读取、事务原值读取、写后回读的异常均不得留下半规范化的旧数据。
+for (const failureKey of [KEY, SIGNAL]) {
+  for (const readNumber of [1, 2, 3]) {
+    const raw = '[ 123, "123", 0, "old" ]';
+    const disk = new MemoryStorage({ [KEY]: raw, [SIGNAL]: 'previous-signal' });
+    const store = make(disk);
+    let reads = 0;
+    disk.beforeRead = key => {
+      if (key === failureKey && ++reads === readNumber) throw new DOMException('blocked', 'SecurityError');
+    };
+    assert.equal((await store.toggleFavorite(entry('new'))).ok, false);
+    assert.equal(store.isFavorite(entry('new')), false);
+    assert.equal(store.isFavorite(entry('123')), true);
+    assert.equal(disk.values.get(KEY), raw);
+    assert.equal(disk.values.get(SIGNAL), 'previous-signal');
+    disk.beforeRead = null;
+    assert.equal((await store.toggleFavorite(entry('new'))).ok, true);
+    assert.deepEqual(JSON.parse(disk.getItem(KEY)), ['123', '0', 'old', 'new']);
+  }
+}
+
 // 闭包过时也只能修改当前盘中一个星标；社区操作不改主图鉴库。
 const shared = new MemoryStorage({ [KEY]: '["original"]' });
 const a = make(shared), b = make(shared);
@@ -24,6 +86,11 @@ assert.equal((await a.toggleFavorite(entry('A'))).ok, true);
 assert.equal((await b.toggleFavorite(entry('B'))).ok, true);
 assert.deepEqual(JSON.parse(shared.getItem(KEY)), ['original', 'A', 'B']);
 assert.ok(!shared.writes.includes(LIBRARY));
+const legacyLatest = new MemoryStorage({ [KEY]: '[123,"old"]' });
+const staleLegacy = make(legacyLatest);
+legacyLatest.setItem(KEY, '[ 123, "123", 456, "later" ]');
+assert.equal((await staleLegacy.toggleFavorite(entry('new'))).ok, true);
+assert.deepEqual(JSON.parse(legacyLatest.getItem(KEY)), ['123', '456', 'later', 'new'], '规范化必须基于锁内最新底本');
 
 // 配额、静默丢写和信号失败均不能发布假成功，且原数据按字节保留。
 for (const failureKey of [KEY, SIGNAL]) {
@@ -60,7 +127,7 @@ for (const initiallyBlocked of [false, true]) {
   assert.equal((await store.toggleFavorite(entry('new'))).ok, true);
   assert.deepEqual(JSON.parse(disk.getItem(KEY)), ['original', 'new']);
 }
-for (const raw of ['{broken', '{"version":2,"favorites":["old"]}', '["old",null]']) {
+for (const raw of ['{broken', '{"version":2,"favorites":["old"]}', '["old",null]', '[123,{}]', '[123,[]]', '[123,true]', '[1e400]']) {
   const disk = new MemoryStorage({ [KEY]: raw });
   assert.equal((await make(disk).toggleFavorite(entry('new'))).reason, 'corrupt');
   assert.equal(disk.getItem(KEY), raw);
@@ -83,7 +150,7 @@ class Events {
   addEventListener(name, handler) { this.handlers.set(name, [...(this.handlers.get(name) || []), handler]); }
   fire(name, event) { for (const handler of this.handlers.get(name) || []) handler(event); }
 }
-const locks = new Locks(), disk = new Map([[KEY, '["original"]']]), caches = [], events = [];
+const locks = new Locks(), disk = new Map([[KEY, '[123,"123","original"]']]), caches = [], events = [];
 function renderer() {
   const storage = new MemoryStorage(Object.fromEntries(disk));
   caches.push(storage);
@@ -98,7 +165,7 @@ function renderer() {
 const rendererA = renderer(), rendererB = renderer();
 const pageA = createCommunityFavoritesStore(rendererA), pageB = createCommunityFavoritesStore(rendererB);
 assert.ok((await Promise.all([pageA.toggleFavorite(entry('A')), pageB.toggleFavorite(entry('B'))])).every(result => result.ok));
-assert.deepEqual(JSON.parse(disk.get(KEY)), ['original', 'A', 'B']);
+assert.deepEqual(JSON.parse(disk.get(KEY)), ['123', 'original', 'A', 'B']);
 await new Promise(resolve => setTimeout(resolve, 45));
 // 备份恢复的社区副写与社区按钮同锁：并发合并不丢任一来源，单星标仍不写atlas。
 const { store: libraryStore, library } = await loadFavoritesTestModules();
@@ -110,7 +177,7 @@ assert.ok((await Promise.all([
   }] }),
   pageA.toggleFavorite(entry('during-backup')),
 ])).every(result => result.ok));
-assert.deepEqual(JSON.parse(disk.get(KEY)), ['original', 'A', 'B', 'backup', 'during-backup']);
+assert.deepEqual(JSON.parse(disk.get(KEY)), ['123', 'original', 'A', 'B', 'backup', 'during-backup']);
 for (const target of events) target.fire('pagehide', {});
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(locks.held.size, 0);
@@ -143,4 +210,4 @@ const retry = ui.handleToggleFavorite(entry('x'));
 release({ ok: true, active: true }); await retry;
 assert.equal(messages.at(-1)[0], '已收藏'); assert.equal(redraws, 2); assert.equal(histories, 1);
 delete globalThis.__communityFavoriteUI;
-console.log('community favorites: latest-base, renderer fence, backup coordination, failures, read protection and UI passed');
+console.log('community favorites: legacy scalar IDs, atomic normalization, latest-base, renderer fence, backup coordination, failures, read protection and UI passed');

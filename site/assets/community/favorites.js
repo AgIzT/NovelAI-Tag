@@ -30,8 +30,10 @@ export function createCommunityFavoritesStore({
       let values;
       try { values = raw === null ? [] : JSON.parse(raw); }
       catch (error) { return { ok: false, reason: 'corrupt', error }; }
-      if (!Array.isArray(values) || values.some(value => typeof value !== 'string')) return { ok: false, reason: 'corrupt' };
-      return { ok: true, next: new Set(values) };
+      // 旧版收藏允许数字 ID；只兼容有效标量，不能把对象等坏数据强转后写回。
+      if (!Array.isArray(values) || values.some(value => typeof value !== 'string'
+          && !(typeof value === 'number' && Number.isFinite(value)))) return { ok: false, reason: 'corrupt' };
+      return { ok: true, next: new Set(values.map(String)) };
     } catch (error) { return { ok: false, reason: 'storage', error }; }
   }
   function reloadFavorites() {
