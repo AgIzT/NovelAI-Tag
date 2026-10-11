@@ -1,4 +1,5 @@
 import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
+import { recordSiteEvent } from './site-analytics.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -71,6 +72,7 @@ function downloadJson(text, { recovery = false } = {}) {
   link.hidden = true;
   document.body.appendChild(link);
   link.click();
+  recordSiteEvent('export_success', recovery ? 'favorites_recovery' : 'favorites_json');
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
@@ -542,6 +544,7 @@ export function setupFavoritesBackup(options = {}) {
         : `备份已导出：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条，收藏夹 ${current.library.folders.length} 个。`;
       setStatus(`${exported}${skippedStatus(current.skippedCount)}`);
     } catch (error) {
+      recordSiteEvent('frontend_error', 'export');
       setError(friendlyError(error));
     } finally {
       setBusy(false);
@@ -576,12 +579,16 @@ export function setupFavoritesBackup(options = {}) {
       const { transfer } = built;
       const result = await writeClipboardText(transfer);
       if (!result.ok) {
+        recordSiteEvent('frontend_error', 'clipboard');
         const shown = showClipboardFallback(transfer, { trigger: exportTextButton });
         setStatus(shown ? '自动复制未成功，已打开手动复制面板。' : '自动复制未成功，改用 JSON 文件。');
         return;
       }
+      recordSiteEvent('copy_success', 'text');
+      recordSiteEvent('export_success', 'favorites_text');
       setStatus(`${transfer.length > 10_000 ? '迁移文本较长，聊天工具可能截断；建议同时保留 JSON 文件。' : '迁移文本已复制，可发送给自己并在另一台设备粘贴恢复。'}${skippedStatus(built.current.skippedCount)}`);
     } catch (error) {
+      recordSiteEvent('frontend_error', 'export');
       setError(friendlyError(error));
     } finally {
       setBusy(false);

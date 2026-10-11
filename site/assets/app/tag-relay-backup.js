@@ -1,4 +1,5 @@
 import { toast } from './feedback.js';
+import { recordSiteEvent } from './site-analytics.js';
 import { requestRelayAction } from './tag-relay-action.js';
 import { exportRelayBackup, importRelayBackup, validateRelayBackup } from './tag-relay-v4.js';
 import { commitRelay, getRelayStorageIssue, relayState } from './tag-relay-store.js';
@@ -95,8 +96,10 @@ export function setupRelayBackup(scope, { beforeAction = async () => true, after
       link.hidden = true;
       scope.append(link);
       link.click();
+      recordSiteEvent('export_success', 'relay_json');
       toast('已导出中转站方案备份', '✓');
     } catch {
+      recordSiteEvent('frontend_error', 'export');
       toast('备份导出失败，重试一次', '!');
     } finally {
       link?.remove();

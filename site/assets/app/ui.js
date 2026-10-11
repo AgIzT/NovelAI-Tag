@@ -46,6 +46,7 @@ const uiActions = {
   exitSiteSearchView: () => {},
   applyFilter: () => {},
   applySearch: async () => {},
+  cancelSearchObservation: () => {},
   openRelatedDirectory: async () => {},
   refreshAccessView: () => {},
 };
@@ -216,6 +217,7 @@ export function bindUI() {
     return plan;
   };
   const applySearchConditions = async ({ query = state.query, filterValues = state.searchFilterValues } = {}, { canonicalize = true } = {}) => {
+    uiActions.cancelSearchObservation();
     const parentScrollY = Math.max(0, window.scrollY || 0);
     const previous = searchIsActive();
     const plan = compileSearchState(query, filterValues, { canonicalize });

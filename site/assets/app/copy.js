@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { toast } from './feedback.js';
+import { recordSiteEvent } from './site-analytics.js';
 import { recordRecentEntry, saveBrowseStateNow } from './history.js';
 import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
@@ -173,6 +174,7 @@ export async function copyText(text, message, node, options = {}) {
       showAccessBlocked();
       return result;
     }
+    recordSiteEvent('frontend_error', 'clipboard');
     let manualFallbackShown = false;
     if (options.manualFallback !== false && accessAllowed()) {
       try {
@@ -195,6 +197,8 @@ export async function copyText(text, message, node, options = {}) {
     return { ...result, converted: formatted.converted, manualFallbackShown };
   }
 
+  recordSiteEvent('copy_success', options.promptCopy === true || options.entry || options.accessEntry || options.relaySnapshot
+    || options.fragment || options.expectRelayIntake ? 'prompt' : 'text');
   if (node) {
     replayCopiedClass(node);
   }

@@ -279,7 +279,7 @@ async function copyOutput(channel, trigger) {
   const plan = safeSnapshot(livePlan(), channels), sources = planFolds(plan);
   const label = channel === 'both' ? '全部提示词' : channel === 'positive' ? '正向提示词' : '负面提示词';
   const output = { positive: channels.includes('positive') ? latest.positive : '', negative: channels.includes('negative') ? latest.negative : '' };
-  const copied = await copyText(text, `已复制${label}`, trigger, { convert: false, sampleLabel: `已复制${label}`,
+  const copied = await copyText(text, `已复制${label}`, trigger, { convert: false, promptCopy: true, sampleLabel: `已复制${label}`,
     accessGuard: () => sources.every(fold => !snapshotLocked(fold)), onAccessBlocked: () => toast('方案中有内容已因权限变化锁定', '!') });
   if (copied?.ok && sources.every(fold => !snapshotLocked(fold))) {
     await commitRelay(next => recordCopyHistory(next, { plan, output, target: outputFormat, joinMode, channel }), { changed: 'history' });
@@ -308,7 +308,7 @@ function renderHistory() {
     const copy = element('button', '', '再次复制'); copy.type = 'button';
     copy.onclick = async () => {
       if (historyLocked(record)) { refreshComposeAccess(); return; }
-      await copyText(historyText(record), '已复制成品记录', copy, { convert: false,
+      await copyText(historyText(record), '已复制成品记录', copy, { convert: false, promptCopy: true,
         accessGuard: () => !historyLocked(record), onAccessBlocked: () => refreshComposeAccess() });
     };
     const restore = element('button', '', '恢复为新方案'); restore.type = 'button';

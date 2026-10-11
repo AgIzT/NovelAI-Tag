@@ -1,5 +1,6 @@
 import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
+import { setupSiteAnalytics, recordSiteEvent, beginSiteSearchObservation, cancelSiteSearchObservation } from './app/site-analytics.js';
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
 import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
@@ -174,7 +175,7 @@ function renderCodexView(codex, seq, {
   renderTree();
   if (!state.favoritesView) renderCodexHeader({ keepIdentity });
   if (options.saveBrowse === false) suppressBrowseStateSave(2000);
-  applyFilter({ resetScroll: true });
+  applyFilter({ resetScroll: true, onSearchSettled: options.onSearchSettled });
   syncUrlState({
     historyMode: historyModeFor(options),
     transition: options.transition || 'route',
@@ -216,6 +217,7 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
 }
 
 export async function init() {
+  setupSiteAnalytics();
   const initSkeletonToken = 'init';
   try {
     /* 开场脚本先起跑，不等任何网络请求：牌堆切牌就是数据加载期的等待画面 */
@@ -387,6 +389,7 @@ function showCodexIdentity(c) {
 }
 
 export async function loadCodex(id, options = {}) {
+  if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (id === FAVORITES_CODEX_ID) return openFavoritesView(options);
   if (id === SITE_SEARCH_CODEX_ID) return openSiteSearchView(options);
@@ -511,6 +514,7 @@ function snapshotCodexIdentity() {
 }
 
 export async function openFavoritesView(options = {}) {
+  if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   cancelCodexSwitch();
   const baseCodex = state.codex && !virtualView()
@@ -574,6 +578,7 @@ export async function openFavoritesView(options = {}) {
 }
 
 export async function openSiteSearchView(options = {}) {
+  if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   cancelCodexSwitch();
   const baseCodex = state.codex && !virtualView()
@@ -627,6 +632,7 @@ export async function openSiteSearchView(options = {}) {
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
+      recordSiteEvent('frontend_error', 'search_data');
       setLoading('全站搜索加载失败，刷新页面重试');
     }
   } finally {
@@ -635,6 +641,7 @@ export async function openSiteSearchView(options = {}) {
 }
 
 export function exitSiteSearchView(options = {}) {
+  if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (!state.siteSearchView) {
     applyFilter(options);
@@ -702,7 +709,13 @@ export async function openRelatedDirectory(item, options = {}) {
   });
 }
 
+async function applyObservedSearch(options = {}) {
+  const onSearchSettled = beginSiteSearchObservation();
+  return applySearch({ ...options, onSearchSettled });
+}
+
 export async function applySearch(options = {}) {
+  if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   if (state.favoritesView) {
     applyFilter(options);
@@ -799,6 +812,7 @@ function renderSearchExperience(plan, directoryOptions) {
 }
 
 export function applyFilter(options = {}) {
+  if (!options.onSearchSettled) cancelSiteSearchObservation();
   const plan = compileSearchState();
   const sourceEntries = isCodexLocked(state.codex) ? [] : state.codex?.entries || [];
   const visibleEntries = sourceEntries.filter(entry => !isEntryAccessBlocked(entry));
@@ -857,11 +871,17 @@ export function applyFilter(options = {}) {
   }
   renderList(options);
   updateBlockingSummary(blockedCount);
+  options.onSearchSettled?.({
+    active: plan.hasActiveSearch, valid: !plan.hasErrors,
+    hasResults: state.list.length > 0,
+    scope: state.favoritesView ? 'favorites' : state.siteSearchView ? 'site' : 'codex',
+  });
 }
 
 /* 取消、撤销和远端恢复后从活法典重新合成，不能在旧 entries 上做破坏性过滤：
    已取消的项可能立刻被撤销补回。请求代次阻止过期结果覆盖已切换的视图。 */
 async function refreshFavoritesView(options = {}) {
+  if (!options.onSearchSettled) cancelSiteSearchObservation();
   if (!state.favoritesView || !state.codex) { applyFilter(options); return; }
   /* 取消收藏、移出、撤销都不会引入合成时没有的条目：现有条目对象仍在 state.codex 里，
      只需重算列表，走「不想看」同一条原地移除/插回路径，后面的卡补上来、滚动位置不动。
@@ -1097,7 +1117,7 @@ setMasonryActions({
 
 setIntroActions({ settleCardEntry });
 
-setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory, refreshAccessView });
+setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch: applyObservedSearch, cancelSearchObservation: cancelSiteSearchObservation, openRelatedDirectory, refreshAccessView });
 
 /* 更新时间线的行点击：换书 + 落到该批次的筛选，等于替用户按了一次结果栏里的
    「NEW x.xx更新」。换书时把批次当作路由状态交给 loadCodex（换书本身会重置 updateFilter），

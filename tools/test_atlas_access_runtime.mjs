@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { cancelSiteSearchObservation } from '../site/assets/app/site-analytics.js';
 
 // 加载实际模块，以轻量 DOM/网络替身控制「已发起、尚未完成」的异步边界。
 const read = path => readFile(new URL(`../site/assets/${path}`, import.meta.url), 'utf8');
@@ -212,6 +213,7 @@ for (const animated of [false, true]) {
   state.siteSearchView = false;
   const dependencies = {
     state, window, isCodexLocked, findCodexMeta,
+    cancelSiteSearchObservation,
     FAVORITES_CODEX_ID: 'favorites', SITE_SEARCH_CODEX_ID: 'search',
     firstUnlockedCodex: () => safeBook, showNsfwLockedHint() {},
     invalidateOrganizeRequest() {}, canAnimateSwitch: () => animated,

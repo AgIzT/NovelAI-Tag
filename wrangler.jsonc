@@ -7,6 +7,7 @@
     "preview": {
       "vars": {
         "ATLAS_DATA_HOSTS": "*",
+        "SITE_METRICS_ENABLED": "false",
         "ATLAS_DATA_PREFIX": "data"
       },
       "r2_buckets": [
@@ -19,6 +20,7 @@
     "production": {
       "vars": {
         "STRINGS_PUBLIC_BASE": "https://novelai-strings.quicktagcloud.com",
+        "SITE_METRICS_ENABLED": "false",
         "COMMUNITY_LIKES_ENABLED": "true",
         "FAVORITES_PICKUP_ENABLED": "true",
         "ATLAS_DATA_HOSTS": "novelai.quicktagcloud.com",

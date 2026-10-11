@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { formatCopyText } from '../site/assets/app/nai-sd.js';
+import { recordSiteEvent } from '../site/assets/app/site-analytics.js';
 
 // Run the production copy pipeline with in-memory clipboard/storage boundaries.
 const source = (await readFile(new URL('../site/assets/app/copy.js', import.meta.url), 'utf8'))
@@ -23,6 +24,7 @@ const prepareCopiedFragment = (entry, fragment) => ({
 });
 const dependencies = {
   state,
+  recordSiteEvent,
   toast: (...args) => messages.push(args),
   recordRecentEntry() {}, saveBrowseStateNow() {},
   writeClipboardText: async (text, options) => {

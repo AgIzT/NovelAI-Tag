@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { recordSiteEvent } from './site-analytics.js';
 import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
@@ -1336,12 +1337,15 @@ export function renderLightbox() {
       if (canUseNativeShare()) {
         try {
           await navigator.share({ title: e.title, url: shareUrl });
+          recordSiteEvent('share_success', 'native');
           return;
         } catch (error) {
           if (error?.name === 'AbortError') return;
+          recordSiteEvent('frontend_error', 'share');
         }
       }
-      await copyText(shareUrl, '已复制分享链接', shareBtn, { convert: false, sampleCount: false });
+      const result = await copyText(shareUrl, '已复制分享链接', shareBtn, { convert: false, sampleCount: false });
+      if (result.ok) recordSiteEvent('share_success', 'link');
     };
   }
   const reportBtn = $('#reportLightbox');

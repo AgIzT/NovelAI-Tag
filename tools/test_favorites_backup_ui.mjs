@@ -6,6 +6,7 @@ import { onRequestPost as pickupCreatePost } from '../functions/api/favorites-pi
 import { onRequestPost as pickupRedeemPost } from '../functions/api/favorites-pickup/redeem.js';
 import * as pickupModule from '../site/assets/app/favorites-pickup.js';
 import * as transferModule from '../site/assets/app/favorites-transfer.js';
+import * as siteAnalytics from '../site/assets/app/site-analytics.js';
 const modules = await loadFavoritesTestModules();
 const { core, library, store, backupStore } = modules;
 const codexes = [{ id: 'alpha' }];
@@ -67,6 +68,7 @@ async function setup(initialLibrary, localEdition = false) {
   const libraryStore = store.createLibraryStore({ getStorage: () => storage, getLocks: () => null, eventTarget: null, getCodexes: () => codexes });
   const adapter = backupStore.createFavoritesBackupStore(libraryStore);
   globalThis.__backupUiModules = {
+    './site-analytics.js': siteAnalytics,
     './favorites-backup-core.js': core,
     './favorites-library-core.js': library,
     './favorites-backup-store.js': { ...backupStore, readLibraryFavorites: options => adapter.readCurrent({ ...options, storage }), restoreLibraryFavorites: options => adapter.restore({ ...options, storage }) },
