@@ -36,6 +36,11 @@ export async function onRequestPost({ request, env }) {
   if (contentLength > LIMITS.totalBytes + multipartAllowance) {
     return err('图片总体积过大', 413);
   }
+  // 待审区容量保险丝，防恶意灌水撑爆存储。放在读表单、解析原图之前：队列已满时不再花力气处理上传内容
+  const pend = await env.STRINGS_BUCKET.list({ prefix: 'community/pending/', limit: 1000 });
+  const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
+  if (pendCount >= LIMITS.pendingMax) return err('待审投稿已满，请过几天再来', 429);
+
   let form;
   try { form = await request.formData(); } catch { return err('请求格式错误'); }
 
@@ -106,11 +111,6 @@ export async function onRequestPost({ request, env }) {
     }
     images.push(image);
   }
-
-  // 待审区容量保险丝，防恶意灌水撑爆存储
-  const pend = await env.STRINGS_BUCKET.list({ prefix: 'community/pending/', limit: 1000 });
-  const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
-  if (pendCount >= LIMITS.pendingMax) return err('待审投稿已满，请过几天再来', 429);
 
   // 写入 R2
   const id = crypto.randomUUID();
