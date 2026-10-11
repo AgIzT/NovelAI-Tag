@@ -1,5 +1,6 @@
 import { fetchDataJson } from '../data-source.js';
 import { renderHighlightedText } from './search.js';
+import { writePreference } from './preferences-storage.js';
 import {
   TAG_ZH_SOURCE_LABELS,
   danbooruWikiUrl,
@@ -38,10 +39,11 @@ export function isTagZhEnabled() {
 
 export function setTagZhEnabled(on) {
   const next = Boolean(on);
-  try { globalThis.localStorage?.setItem(TAG_ZH_STORAGE_KEY, next ? '1' : '0'); } catch { /* 无痕模式等写不进也照常切换 */ }
-  if (next === enabled) return;
+  if (!writePreference(TAG_ZH_STORAGE_KEY, next ? '1' : '0')) return false;
+  if (next === enabled) return true;
   enabled = next;
   for (const listener of listeners) listener(enabled);
+  return true;
 }
 
 export function onTagZhChange(listener) {

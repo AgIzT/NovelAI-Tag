@@ -10,7 +10,7 @@ import {
   FAVORITES_BACKUP_LIMITS,
   FavoritesBackupError,
 } from './favorites-backup-core.js';
-import { readLibraryFavorites, readFavoritesRecovery, restoreLibraryFavorites, serializeLibraryFavorites } from './favorites-backup-store.js';
+import { createReplaceReview, readLibraryFavorites, readFavoritesRecovery, restoreLibraryFavorites, serializeLibraryFavorites } from './favorites-backup-store.js';
 import { FAVORITES_LIBRARY_STORAGE_KEY, createLibraryRestorePlan, parseLibraryBackup } from './favorites-library-core.js';
 import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
 import { fetchDataJson } from '../data-source.js';
@@ -178,6 +178,7 @@ export function setupFavoritesBackup(options = {}) {
   let corruptRecovery = null;
   let exportedCorruptRaw = null;
   let pendingReplace = null;
+  let replaceNeedsConfirmation = false;
 
   const setStatus = message => {
     if (!status) return;
@@ -299,7 +300,7 @@ export function setupFavoritesBackup(options = {}) {
       setError(friendlyError(planErrors[mode]));
       return;
     }
-    if (!corruptRecovery) setError('');
+    if (!corruptRecovery && !replaceNeedsConfirmation) setError('');
 
     const meta = document.createElement('div');
     meta.className = 'favorites-backup-file';
@@ -347,6 +348,7 @@ export function setupFavoritesBackup(options = {}) {
     plans = null;
     planErrors = {};
     pendingReplace = null;
+    replaceNeedsConfirmation = false;
     if (preview) preview.hidden = true;
     showReplaceConfirm(false, { historyMode: 'forget' });
     if (summary) summary.replaceChildren();
@@ -368,13 +370,39 @@ export function setupFavoritesBackup(options = {}) {
     plans = {};
     planErrors = {};
     for (const mode of ['merge', 'replace']) {
-      try { plans[mode] = createLibraryRestorePlan({ ...common, mode }); }
+      try {
+        const plan = createLibraryRestorePlan({ ...common, mode });
+        if (mode === 'replace') plan.replaceReview = createReplaceReview({ plan, currentLibrary: current.library });
+        plans[mode] = plan;
+      }
       catch (error) { planErrors[mode] = error; }
     }
     if (corruptRecovery) {
       modeInputs.forEach(input => { input.checked = input.value === 'replace'; });
     }
     renderPlan(selectedMode());
+  };
+
+  const presentReplacePlan = (plan, backup = parsedBackup, recoveryRaw = corruptRecovery?.libraryRaw,
+    { historyMode = 'push' } = {}) => {
+    pendingReplace = { plan, backup, recoveryRaw };
+    if (replaceMessage) {
+      const willClearVisible = localEdition
+        ? plan.stats.atlas.current > 0 && plan.stats.atlas.total === 0
+        : plan.stats.willClearAll;
+      replaceMessage.textContent = localEdition
+        ? (willClearVisible
+            ? '备份为空，覆盖后会清空全部本地法典收藏。建议先导出当前备份。'
+            : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条本地法典收藏。建议先导出当前备份。`)
+        : (willClearVisible
+            ? '备份为空，覆盖后会清空法典图鉴与共创广场的全部收藏。建议先导出当前备份。'
+            : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条法典收藏和 ${plan.stats.community.removed} 条共创收藏。建议先导出当前备份。`);
+      replaceMessage.textContent = recoveryRaw !== undefined
+        ? '当前收藏数据无法读取。确认覆盖后，将用选中的备份替换当前收藏、收藏夹、归类和备注。'
+        : replaceMessage.textContent + ' 收藏夹、归类和备注将按备份恢复。';
+    }
+    showReplaceConfirm(true, { historyMode });
+    replaceBack?.focus();
   };
 
   const prepareImportText = async (text, label) => {
@@ -427,6 +455,7 @@ export function setupFavoritesBackup(options = {}) {
       setError('当前原始数据尚未导出，使用「导出当前原始数据」保存后再恢复。');
       return;
     }
+    replaceNeedsConfirmation = false;
     setBusy(true);
     setError('');
     try {
@@ -436,6 +465,7 @@ export function setupFavoritesBackup(options = {}) {
         codexes: await resolveCodexes(),
         preserveCommunity: localEdition,
         ...(recoveryRaw === undefined ? {} : { expectedCorruptRaw: recoveryRaw }),
+        ...(previewPlan.mode === 'replace' ? { expectedReplaceReview: previewPlan.replaceReview } : {}),
       });
       corruptRecovery = null;
       exportedCorruptRaw = null;
@@ -454,6 +484,13 @@ export function setupFavoritesBackup(options = {}) {
       }
       closeButton?.focus();
     } catch (error) {
+      if (error.code === 'REPLACE_PLAN_CHANGED' && error.details?.current) {
+        replaceNeedsConfirmation = true;
+        parsedBackup = incomingBackup;
+        buildPlans(error.details.current, await resolveCodexes());
+        // 本次确认已被拒绝；只更新原确认层，下一次点击才会尝试提交。
+        presentReplacePlan(plans.replace, incomingBackup, recoveryRaw, { historyMode: 'none' });
+      }
       setError(friendlyError(error));
     } finally {
       setBusy(false);
@@ -649,6 +686,7 @@ export function setupFavoritesBackup(options = {}) {
 
   modeInputs.forEach(input => input.addEventListener('change', () => {
     if (!input.checked || !plans) return;
+    replaceNeedsConfirmation = false;
     showReplaceConfirm(false);
     renderPlan(selectedMode());
   }));
@@ -657,27 +695,7 @@ export function setupFavoritesBackup(options = {}) {
     if (!plans || restoreButton.disabled) return;
     const mode = selectedMode();
     if (mode === 'replace') {
-      const plan = plans.replace;
-      pendingReplace = { plan, backup: parsedBackup, recoveryRaw: corruptRecovery?.libraryRaw };
-      if (replaceMessage) {
-        const willClearVisible = localEdition
-          ? plan.stats.atlas.current > 0 && plan.stats.atlas.total === 0
-          : plan.stats.willClearAll;
-        replaceMessage.textContent = localEdition
-          ? (willClearVisible
-              ? '备份为空，覆盖后会清空全部本地法典收藏。建议先导出当前备份。'
-              : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条本地法典收藏。建议先导出当前备份。`)
-          : (willClearVisible
-              ? '备份为空，覆盖后会清空法典图鉴与共创广场的全部收藏。建议先导出当前备份。'
-              : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条法典收藏和 ${plan.stats.community.removed} 条共创收藏。建议先导出当前备份。`);
-      }
-      if (replaceMessage) {
-        replaceMessage.textContent = corruptRecovery
-          ? '当前收藏数据无法读取。确认覆盖后，将用选中的备份替换当前收藏、收藏夹、归类和备注。'
-          : replaceMessage.textContent + ' 收藏夹、归类和备注将按备份恢复。';
-      }
-      showReplaceConfirm(true);
-      replaceBack?.focus();
+      presentReplacePlan(plans.replace);
       return;
     }
     restore(plans.merge);

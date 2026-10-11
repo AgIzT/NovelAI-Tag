@@ -1437,8 +1437,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(indexSource, /id="sdPositivePreview"[^>]*aria-pressed="false"[^>]*hidden/);
   assert.match(indexSource, /id="sdNegativePreview"[^>]*aria-pressed="false"[^>]*hidden/);
   assert.match(lightboxSource, /renderPromptBlock\(pre, naiToSd\(source\)\)/);
-  assert.match(appSource, /state\.allowNsfw = localStorage\.getItem\(NSFW_STORAGE_KEY\) === '1';[\s\S]*if \(state\.allowNsfw\) localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
-  assert.match(uiSource, /localStorage\.setItem\(ADULT_CONFIRMATION_STORAGE_KEY, '1'\)/);
+  assert.match(appSource, /state\.allowNsfw = readPreference\(NSFW_STORAGE_KEY\) === '1';[\s\S]*if \(state\.allowNsfw\) writePreference\(ADULT_CONFIRMATION_STORAGE_KEY, '1'/);
+  assert.match(uiSource, /key: ADULT_CONFIRMATION_STORAGE_KEY, value: '1'/);
   assert.match(indexSource, /class="search-match-chip" hidden/);
   assert.match(masonrySource, /hiddenSearchMatch\(e, highlightTerms\)/);
   assert.match(indexSource, /class="zoom-btn(?: [^"]+)?"[^>]*type="button"[^>]*aria-label="放大查看"/);
@@ -1524,7 +1524,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(indexSource, /id="sidebar"[\s\S]*id="sidebarBackdrop"[\s\S]*id="main"/);
   assert.match(stylesSource, /\.sidebar:not\(\.closed\)\+\.sidebar-backdrop\{[\s\S]*z-index:24[\s\S]*touch-action:none/);
   assert.match(stylesSource, /\.tree\{overscroll-behavior:contain\}/);
-  assert.match(uiSource, /sidebarBackdrop\?\.addEventListener\('click', \(\) => \{\s*if \(closeHistoryLayer\('mobile-sidebar'\)\) return;/);
+  assert.match(uiSource, /sidebarBackdrop\?\.addEventListener\('click', \(\) => \{\s*if \(!writePreference\('fadian-sidebar', 'closed'\)\) return;\s*if \(closeHistoryLayer\('mobile-sidebar'\)\) return;/);
   assert.match(indexSource, /id="densityQuickBtn"/);
   assert.match(uiSource, /densityQuickBtn\.onclick = \(\) => applyDensity\(nextDensity\(state\.density\), \{ render: true, announce: true \}\)/);
   const railActiveSource = codexUiSource.match(/export function updateRailActive\(\) \{[\s\S]*?\n\}/)?.[0] || '';

@@ -106,6 +106,38 @@ const v1 = { version: 1, plans: [legacyPlan], inbox: [{ ...source, entryId: 'old
 const v1Storage = memory({ [v4.TAG_RELAY_OLDER_STORAGE_KEY]: JSON.stringify(v1) });
 assert.equal(v4.loadRelayStateStatus(v1Storage, options).state.inbox[0].entryId, source.entryId);
 
+// localStorage 属性 getter 可在方法执行前抛错；默认访问必须在保护范围内。
+{
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  let propertyReads = 0;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { propertyReads += 1; throw new DOMException('storage denied', 'SecurityError'); },
+  });
+  try {
+    let status;
+    assert.doesNotThrow(() => { status = v4.loadRelayStateStatus(undefined, options); }, '默认 Storage 属性拒绝应返回状态，而非中断整页初始化');
+    assert.equal(status.ok, false);
+    assert.equal(status.reason, 'storage');
+    assert.equal(status.state.version, 4);
+    assert.doesNotThrow(() => v4.loadRelayState(undefined, options));
+    assert.equal(v4.loadRelayState(undefined, options).version, 4);
+    assert.equal(v4.saveRelayState(migrated, undefined, options), false);
+    const beforeExplicit = propertyReads;
+    const explicit = memory();
+    assert.equal(v4.saveRelayState(migrated, explicit, options), true);
+    assert.deepEqual(v4.loadRelayStateStatus(explicit, options).state, migrated);
+    assert.deepEqual(v4.loadRelayState(explicit, options), migrated);
+    assert.equal(v4.loadRelayStateStatus(null, options).ok, true, '显式 null 保留不访问存储的空候选语义');
+    assert.equal(v4.loadRelayState(null, options).version, 4);
+    assert.equal(v4.saveRelayState(migrated, null, options), false);
+    assert.equal(propertyReads, beforeExplicit, '显式 Storage 或 null 均不能回退访问被拒绝的默认属性');
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+    else delete globalThis.localStorage;
+  }
+}
+
 const session = { dedupe: false, positive: { text: `${ZW}#book${ZW}, loose, unfinished `,
   folds: new Map([['book', { ...source, body: 'gloves, beanie', characters: source.characterPrompts }],
     ['unused', { body: 'must be collected', access }]]) }, negative: { text: 'fog', folds: {} } };

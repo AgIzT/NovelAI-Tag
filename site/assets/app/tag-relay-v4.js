@@ -338,22 +338,24 @@ function parseStoredState(payload, options = {}) {
   }
   return normalizeRelayState(source, options);
 }
-export function loadRelayStateStatus(storage = globalThis.localStorage, options = {}) {
+export function loadRelayStateStatus(storage, options = {}) {
   try {
+    const target = storage === undefined ? globalThis.localStorage : storage;
     for (const key of options.key ? [options.key] : [TAG_RELAY_STORAGE_KEY, ...TAG_RELAY_LEGACY_STORAGE_KEYS]) {
-      const payload = storage?.getItem?.(key);
+      const payload = target?.getItem?.(key);
       if (payload !== null && payload !== undefined) return { ok: true, state: parseStoredState(payload, options),
         migrated: !options.key && key !== TAG_RELAY_STORAGE_KEY, sourceKey: key };
     }
     return { ok: true, state: createRelayState(options), migrated: false, sourceKey: '' };
   } catch (error) { return { ok: false, state: createRelayState(options), reason: error.reason || 'storage', error }; }
 }
-export function loadRelayState(storage = globalThis.localStorage, options = {}) { return loadRelayStateStatus(storage, options).state; }
-export function saveRelayState(state, storage = globalThis.localStorage, options = {}) {
+export function loadRelayState(storage, options = {}) { return loadRelayStateStatus(storage, options).state; }
+export function saveRelayState(state, storage, options = {}) {
   try {
-    if (!loadRelayStateStatus(storage, options).ok) return false;
+    const target = storage === undefined ? globalThis.localStorage : storage;
+    if (!loadRelayStateStatus(target, options).ok) return false;
     const key = options.key || TAG_RELAY_STORAGE_KEY, payload = serializeRelayState(state, options);
-    storage?.setItem?.(key, payload); return storage?.getItem?.(key) === payload;
+    target?.setItem?.(key, payload); return target?.getItem?.(key) === payload;
   } catch { return false; }
 }
 export function trimStateToBudget(state, maxChars, options = {}) {
