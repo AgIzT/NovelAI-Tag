@@ -2310,6 +2310,7 @@ body.dark .lightbox-info{border-color:rgba(255,255,255,.12)}
 }
 .lb-fold:hover{color:var(--accent);border-color:var(--accent)}
 .lightbox.folded .lb-fold{right:18px}
+.lightbox.no-image .lb-fold{display:none}
 .lb-fold svg{width:15px;height:15px;stroke:currentColor;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s}
 /* 桌面用「侧栏」图形，免得和紧挨着的「下一张」› 撞形：展开时右格填色，收起后留空。手机仍用上下箭头。 */
 .lb-fold-arrow{display:none}

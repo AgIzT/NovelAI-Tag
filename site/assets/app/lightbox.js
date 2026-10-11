@@ -291,6 +291,17 @@ export function flyIn(sourceEl) {
   window.setTimeout(finish, 480);
 }
 
+/* 用户「收起信息栏」的偏好只对有图词条生效：无图词条只有信息栏可看，收起就只剩一层遮罩。
+   无图时强制展开并藏起收起按钮，偏好本身不改，下次打开有图词条照旧。 */
+function lightboxInfoFoldedPreference() {
+  try { return localStorage.getItem('fadian-lbinfo') === 'folded'; } catch { return false; }
+}
+
+function syncLightboxInfoFold(lbEl, emptyImage) {
+  lbEl.classList.toggle('no-image', emptyImage);
+  lbEl.classList.toggle('folded', !emptyImage && lightboxInfoFoldedPreference());
+}
+
 export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   const parentScrollY = Math.max(0, window.scrollY || 0);
   if (isR18gBlocked(entry)) { showR18gLockedHint(); return; }  // 深链/最近记录等绕过路径的兜底拦截
@@ -329,7 +340,7 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   clearTimeout(lbCloseTimer);
   clearFlyClones();
   lb.classList.remove('flying');
-  lb.classList.toggle('folded', localStorage.getItem('fadian-lbinfo') === 'folded');
+  syncLightboxInfoFold(lb, images.every(item => item._editPlaceholder === true));
   lb.classList.toggle('has-thumbs', images.length > 1);
   lb.classList.toggle('page-zoomed', isPageZoomed());
   lb.hidden = false;
@@ -1100,6 +1111,7 @@ export function renderLightbox() {
   const stage = $('#lightboxStage');
   $('#lightbox').classList.toggle('has-thumbs', lb.images.length > 1);
   stage.classList.toggle('edit-empty', emptyImage);
+  syncLightboxInfoFold($('#lightbox'), emptyImage);
   img.hidden = emptyImage;
   const thumbSrc = emptyImage ? '' : imageItemUrl('image', e, item);
   const sourceAllowsOriginal = !emptyImage && sourceSupportsReadableOriginal(e);

@@ -685,22 +685,22 @@ function isPackEntry(e) {
   return state.codex?.type === 'pack' || e._srcType === 'pack';   // 收藏墙里的图包词条保持「点卡看图」行为
 }
 
-/* 点卡片：手机一律开详情；电脑上有图的图包、或开了「点击卡片放大」的有图卡开大图，其余复制。
-   无图卡没有可放大的，开关不管它（电脑灯箱空图时详情栏可能是收起的，点开只剩遮罩）。
-   点击时现读设置，切换后不用重建卡片。 */
+/* 点卡片：手机一律开详情；电脑上无图卡开详情（没有图可看，要复制角色词等只能进详情），
+   有图的图包、或开了「点击卡片放大」的有图卡开大图，其余复制。
+   无图词条打开时详情栏强制展开，见 lightbox.js 的 syncLightboxInfoFold。点击时现读设置，切换后不用重建卡片。 */
 function cardOpensImage(e) {
   return hasEntryImage(e) && (state.cardZoom || isPackEntry(e));
 }
 
 function cardClickOpensDetail(e) {
-  return densityConfig().mobile || cardOpensImage(e);
+  return densityConfig().mobile || !hasEntryImage(e) || cardOpensImage(e);
 }
 
 function syncCopyHint(node, e) {
   const hint = node.querySelector('.copy-hint');
   if (!hint) return;
-  const view = cardOpensImage(e);
-  hint.textContent = view ? '点击查看' : isPackEntry(e) ? '暂无图片' : '点击复制';
+  const view = cardOpensImage(e) || !hasEntryImage(e);
+  hint.textContent = view ? '点击查看' : '点击复制';
   hint.classList.toggle('is-view', view);
 }
 
