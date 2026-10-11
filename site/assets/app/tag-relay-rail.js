@@ -70,7 +70,7 @@ function flush() {
   }
 }
 
-function setOpenDirect(open, trigger = null) {
+function setOpenDirect(open, trigger = null, focusEditor = false) {
   if (!rail) return;
   /* ⚠ inert 会立刻把焦点踢到 <body>，所以「关栏前焦点在不在栏里」必须先算好 */
   const heldFocus = !open && rail.contains(document.activeElement);
@@ -97,6 +97,10 @@ function setOpenDirect(open, trigger = null) {
     /* 浮层态是模态语义：焦点必须进去，否则读屏与键盘用户还停在页面底下 */
     if (overlayQuery.matches) {
       (rail.querySelector('#tagRelayRailClose') || rail).focus?.();
+    } else if (focusEditor) {
+      // 键盘主动开栏后直接进入当前编排；停靠栏仍允许 Tab 返回页面。
+      (rail.querySelector('.relay-editor-surface:not([hidden]) .relay-editor-input') ||
+        rail.querySelector('#tagRelayRailClose'))?.focus({ preventScroll: true });
     }
   } else {
     rail.dispatchEvent(new CustomEvent('relayclose'));
@@ -113,9 +117,9 @@ function setOpenDirect(open, trigger = null) {
   }
 }
 
-export function openRelayRail(trigger = null) {
+export function openRelayRail(trigger = null, { focusEditor = false } = {}) {
   if (!isClosed()) return;
-  setOpenDirect(true, trigger);
+  setOpenDirect(true, trigger, focusEditor);
   if (overlayQuery.matches) openHistoryLayer(RAIL_LAYER_ID);
 }
 
@@ -126,8 +130,8 @@ export function closeRelayRail() {
   forgetHistoryLayer(RAIL_LAYER_ID);
 }
 
-export function toggleRelayRail(trigger = null) {
-  if (isClosed()) openRelayRail(trigger);
+export function toggleRelayRail(trigger = null, options = {}) {
+  if (isClosed()) openRelayRail(trigger, options);
   else closeRelayRail();
 }
 
@@ -176,11 +180,12 @@ function bindRail() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') settleRelayMotion();
   });
-  document.querySelector('#tagRelayBtn')?.addEventListener('click', event => toggleRelayRail(event.currentTarget));
-  document.querySelector('#tagRelayMenuLink')?.addEventListener('click', () => {
+  document.querySelector('#tagRelayBtn')?.addEventListener('click', event =>
+    toggleRelayRail(event.currentTarget, { focusEditor: event.detail === 0 }));
+  document.querySelector('#tagRelayMenuLink')?.addEventListener('click', event => {
     const moreButton = document.querySelector('#moreBtn');
     moreButton?.click();   // 更多菜单点完自己收起，别把栏压在它下面
-    openRelayRail(moreButton);
+    openRelayRail(moreButton, { focusEditor: event.detail === 0 });
   });
   document.querySelector('#tagRelayRailClose')?.addEventListener('click', closeRelayRail);
   backdrop?.addEventListener('click', closeRelayRail);

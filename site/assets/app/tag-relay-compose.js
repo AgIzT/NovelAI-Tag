@@ -196,7 +196,7 @@ async function switchPlan(id) {
 export async function addSourceToPlan(entry, options = {}) {
   if (ready) await ready;
   if (!editor || !entry || snapshotLocked(entry)) { toast('该素材当前无法加入方案', '!'); return null; }
-  if (entry.channel === 'character-negative') { toast('角色负向请复制到对应角色槽，不能加入全局负向', '!'); return null; }
+  if (entry.channel === 'character-negative') { toast('角色负面不能加入方案，复制后粘贴到对应角色的负面栏', '!'); return null; }
   const result = editor.insertSource(entry, options);
   if (result) { warmTranslations(entry.codexId); await flushCompose(); }
   return result;
@@ -263,7 +263,7 @@ async function copyOutput(channel, trigger) {
   const text = channel === 'both' ? [latest.positive, latest.negative && `Negative:\n${latest.negative}`].filter(Boolean).join('\n\n') : latest[channel];
   if (!text) return;
   const plan = safeSnapshot(livePlan(), channels), sources = planFolds(plan);
-  const label = channel === 'both' ? '全部提示词' : channel === 'positive' ? '正向提示词' : '负向';
+  const label = channel === 'both' ? '全部提示词' : channel === 'positive' ? '正向提示词' : '负面提示词';
   const output = { positive: channels.includes('positive') ? latest.positive : '', negative: channels.includes('negative') ? latest.negative : '' };
   const copied = await copyText(text, `已复制${label}`, trigger, { convert: false, sampleLabel: `已复制${label}`,
     accessGuard: () => sources.every(fold => !snapshotLocked(fold)), onAccessBlocked: () => toast('方案中有内容已因权限变化锁定', '!') });

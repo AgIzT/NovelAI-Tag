@@ -38,6 +38,7 @@ let warehouseRoot = null;
 let sourceMode = 'inbox';
 let favorites = null;
 let favoritesLoading = false;
+let favoritesFailed = false;   // 加载失败时空态要说失败，不能说「还没有收藏」
 let favoritesGeneration = 0;
 let favoritesReloadPending = false;
 let favoritesReloadQueued = false;
@@ -120,7 +121,7 @@ function relayScope() {
       每次加入后的 toast 都提供撤销。 */
 function sourceItem(entry, { removable = true } = {}) {
   const locked = snapshotLocked(entry);
-  const suffix = entry.scope === 'selection' ? ' · 选段' : entry.channel?.endsWith('negative') ? ' · 负向' : '';
+  const suffix = entry.scope === 'selection' ? ' · 选段' : entry.channel?.endsWith('negative') ? ' · 负面' : '';
   const visibleTitle = locked ? '已锁定的成人内容' : entry.title + suffix;
   const hasNegative = !locked && Boolean(String(entry.negative || '').trim());
 
@@ -170,8 +171,8 @@ function sourceItem(entry, { removable = true } = {}) {
     negative.type = 'button';
     negative.className = 'tag-relay-chip-negative ui-press';
     negative.textContent = '负';
-    negative.title = '仅把这条的负向内容加入方案';
-    negative.setAttribute('aria-label', `仅将${visibleTitle}的负向内容加入方案`);
+    negative.title = '只把这条的负面提示词加入方案';
+    negative.setAttribute('aria-label', `只把${visibleTitle}的负面提示词加入方案`);
     negative.onclick = () => addSourceToPlan(entry, { negativeOnly: true });
     chip.append(negative);
   }
@@ -241,12 +242,13 @@ async function loadFavorites() {
         access: { nsfw: meta?.nsfw === true || isEntryNsfw(entry), r18g: isR18gEntry({ ...entry, path }) },
       });
     });
-    if (generation === favoritesGeneration) favorites = loaded;
+    if (generation === favoritesGeneration) { favorites = loaded; favoritesFailed = false; }
   } catch (error) {
     console.warn('[tag-relay] 收藏素材加载失败', error);
     if (generation === favoritesGeneration) {
       favorites = [];
-      toast('收藏加载失败，请稍后重试', '!');
+      favoritesFailed = true;
+      toast('收藏加载失败，刷新页面重试', '!');
     }
   } finally {
     favoritesLoading = false;
@@ -313,7 +315,7 @@ function renderWarehouse({ motion = true } = {}) {
   empty.hidden = items.length !== 0 || (fav && favoritesLoading);
   /* 空态一屏化后压成一行纯文本（原先是 b + small 两行，占地方）。 */
   empty.textContent = fav
-    ? '还没有收藏。点卡片标题旁的星标，词条会出现在这里。'
+    ? (favoritesFailed ? '收藏加载失败，刷新页面重试。' : '还没有收藏。点卡片标题旁的 ☆ 收藏词条。')
     : '还没有复制过词条。复制的提示词会自动出现在这里。';
   /* 条数长在页签徽标上（说的就是那一格里有多少条）；这行只留"正在读取"这类真状态，
      空着就不占位（CSS :empty）。原先它和栏头那份「N 条」是同一个数字的第二遍。 */

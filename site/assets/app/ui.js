@@ -520,7 +520,7 @@ export function bindUI() {
     return t;
   };
   for (const b of document.querySelectorAll('#themeControl [data-theme]'))
-    b.onclick = () => { const selected = applySkin(b.dataset.theme); if (selected) toast(`已切换主题：${selected.name}`); };
+    b.onclick = () => { const selected = applySkin(b.dataset.theme); if (selected) toast(`界面风格：${selected.name}`); };
   applySkin(readPreference(THEME_STORAGE_KEY, ''), { persist: false });
 
   /* 界面字体（换嗓子）：与配色、深浅色同样正交；默认=不加类。
@@ -535,7 +535,7 @@ export function bindUI() {
     return f;
   };
   for (const b of document.querySelectorAll('#fontControl [data-font]'))
-    b.onclick = () => { const selected = applyFont(b.dataset.font); if (selected) toast(`界面字体：${selected.name}`); };
+    b.onclick = () => { const selected = applyFont(b.dataset.font); if (selected) toast(`站内字体：${selected.name}`); };
   applyFont(readPreference(FONT_STORAGE_KEY, ''), { persist: false });
 
   /* SD 复制模式：设置里的开关 + 顶栏常驻角标（开着才显示，点角标可关），状态存 localStorage */
@@ -903,18 +903,18 @@ export function bindUI() {
   const R18G_STEPS = [
     {
       title: '⚠ 重口 / R18G 内容警告',
-      text: '你正要解锁「R18G / 重口」内容。这类内容与普通 R18 完全不是一个级别——它包含血腥、暴力、猎奇等极端画面，绝大多数人看了会强烈不适。确定要继续吗？',
+      text: '即将开启「R18G / 重口」内容。它与普通 R18 不同，包含血腥、暴力、猎奇等极端画面，多数人会感到强烈不适。',
       next: '我已年满 18 岁，继续',
     },
     {
-      title: '⚠⚠ 最后机会：强烈生理与心理不适',
-      text: '再次严重警告：内含杀害、肢解、人棍、刑罚、内脏、排泄物等极端猎奇画面，可能引起恶心、呕吐、心理阴影，且一旦看到便无法消除。能接受 R18 不代表能接受这些。你真的要看？',
-      next: '我自愿承担后果，继续',
+      title: '⚠⚠ 第二次确认：可能引起强烈不适',
+      text: '内容包括杀害、肢解、人棍、刑罚、内脏、排泄物等极端猎奇画面，可能引起恶心或长期的心理不适。能接受 R18 不代表能接受这些。',
+      next: '我已了解，继续',
     },
     {
-      title: '⚠⚠⚠ 终极确认',
-      text: '这些内容非娱乐向。点击开启即代表你完全自愿、并自行承担观看后果，与本站及法典作者无关。确认开启？',
-      next: '我清楚后果，确认开启',
+      title: '⚠⚠⚠ 最后确认',
+      text: '这类内容不以娱乐为目的。开启即表示你自愿观看并自行承担后果，与本站及法典作者无关。',
+      next: '确认开启',
     },
   ];
   let r18gStep = 0;
@@ -927,7 +927,7 @@ export function bindUI() {
     if (titleEl) titleEl.textContent = s.title;
     if (textEl) textEl.textContent = s.text;
     if (nextBtn) nextBtn.textContent = s.next;
-    if (backBtn) backBtn.textContent = r18gStep === 0 ? '我点错了，退出' : '上一步';
+    if (backBtn) backBtn.textContent = r18gStep === 0 ? '退出' : '上一步';
   };
   const openR18gConfirm = () => { r18gStep = 0; renderR18gStep(); openMask(r18gMask, r18gToggle); };
   const cancelR18gConfirm = () => { if (r18gToggle) r18gToggle.checked = false; closeMask(r18gMask); };
@@ -957,7 +957,7 @@ export function bindUI() {
   if (r18gToggle) {
     r18gToggle.checked = state.allowR18g;
     r18gToggle.onchange = e => {
-      if (!state.allowNsfw) { e.target.checked = false; toast('请先开启「允许 NSFW 法典展示」', '!'); return; }
+      if (!state.allowNsfw) { e.target.checked = false; toast('先开启「显示 NSFW 内容」', '!'); return; }
       if (e.target.checked) {
         e.target.checked = false;
         openR18gConfirm();

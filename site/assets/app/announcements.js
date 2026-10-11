@@ -215,7 +215,7 @@ function renderAnnouncements() {
   if (!list) return;
   const items = activeAnnouncements();
   if (!items.length) {
-    list.innerHTML = '<div class="announcement-empty">暂无公告。</div>';
+    list.innerHTML = '<div class="announcement-empty">暂无公告</div>';
     return;
   }
   list.innerHTML = items.map(item => `

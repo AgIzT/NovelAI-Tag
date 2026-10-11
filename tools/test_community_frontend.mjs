@@ -132,8 +132,8 @@ ${source}
   const render = await import(asDataModule(source));
 
   render.renderEmptyState({ onSubmit: () => { submits += 1; } });
-  assert.match(empty.innerHTML, /还没有人投稿/);
-  assert.equal(buttons[0]?.textContent, '分享你的作品');
+  assert.match(empty.innerHTML, /暂无投稿/);
+  assert.equal(buttons[0]?.textContent, '投稿');
   buttons[0].click();
   assert.equal(submits, 1);
 
@@ -141,9 +141,9 @@ ${source}
   render.renderResultBar();
   render.renderEmptyState({ onSubmit: () => { submits += 1; } });
   assert.equal(result.textContent, '共创广场加载失败');
-  assert.match(empty.innerHTML, /暂时无法取得投稿数据/);
+  assert.match(empty.innerHTML, /投稿数据加载失败/);
   assert.equal(buttons[0]?.textContent, '刷新重试');
-  assert.doesNotMatch(empty.innerHTML, /分享你的作品/);
+  assert.doesNotMatch(empty.innerHTML, />投稿</);
   buttons[0].click();
   assert.equal(reloads, 1);
   assert.equal(submits, 1, '错误空态不能继续引导投稿');

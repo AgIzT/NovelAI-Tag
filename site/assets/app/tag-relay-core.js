@@ -409,7 +409,7 @@ export function normalizeRelayState(raw, options = {}) {
   if (!isObject(raw)) return createRelayState(options);
   const now = nowIso(options);
   if (Number(raw.version) > TAG_RELAY_SCHEMA_VERSION) {
-    throw new RelayDataError('future-version', '中转站数据来自更新版本，请更新页面后重试');
+    throw new RelayDataError('future-version', '中转站数据来自更新版本，刷新页面后重试');
   }
 
   const inbox = [];
@@ -481,7 +481,7 @@ function parseStoredState(raw, options = {}) {
     throw new RelayDataError('corrupt-data', '中转站数据损坏，原始内容已保留');
   }
   if (isObject(parsed) && Number(parsed.version) > TAG_RELAY_SCHEMA_VERSION) {
-    throw new RelayDataError('future-version', '中转站数据来自更新版本，请更新页面后重试');
+    throw new RelayDataError('future-version', '中转站数据来自更新版本，刷新页面后重试');
   }
   if (!isObject(parsed) || !Array.isArray(parsed.plans)
     || parsed.plans.some(plan => !isObject(plan) || !Array.isArray(plan.items)
@@ -1110,10 +1110,10 @@ export function validateRelayBackup(value) {
     }
   }
   if (!isObject(backup) || backup.format !== 'fadian-tag-relay' || !isObject(backup.state)) {
-    throw new RelayDataError('invalid-backup', '请选择中转站导出的备份文件');
+    throw new RelayDataError('invalid-backup', '选择中转站导出的备份文件');
   }
   if (Number(backup.version) > TAG_RELAY_SCHEMA_VERSION) {
-    throw new RelayDataError('future-version', '备份来自更新版本，请更新页面后恢复');
+    throw new RelayDataError('future-version', '备份来自更新版本，刷新页面后再恢复');
   }
   try { return parseStoredState(JSON.stringify(backup.state)); } catch (error) {
     if (error.reason === 'future-version') throw error;

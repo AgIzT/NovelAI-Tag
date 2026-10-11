@@ -227,6 +227,53 @@ export function setupCodexPicker() {
   };
   const mobileLayout = window.matchMedia('(max-width: 600px)');
   const isMobile = () => mobileLayout.matches;
+  let renderedMobile = isMobile();
+  let renderingMenu = false;
+  const pickerScroll = new Map();
+  const scrollContainers = () => [menu, ...menu.querySelectorAll('.vol-grid')];
+  const scrollKey = element => element === menu ? (renderedMobile ? 'metro' : 'volumes')
+    : `volume:${element.closest('.codex-vol').querySelector('.codex-type').dataset.type}`;
+  // offsetTop 不含书卡的入场 translate；恢复浏览位置不能跟着动画中间帧偏移。
+  const layoutTop = element => {
+    let top = 0;
+    for (let node = element; node; node = node.offsetParent) top += node.offsetTop;
+    return top;
+  };
+  const bookOffset = (book, container) => {
+    let top = layoutTop(book) - layoutTop(container) - container.clientTop - container.scrollTop;
+    for (let node = book.parentElement; node && node !== container; node = node.parentElement) top -= node.scrollTop;
+    return top;
+  };
+  const scrollPosition = container => {
+    const bounds = container.getBoundingClientRect();
+    const book = [...container.querySelectorAll('.codex-item[data-id], .n5-launch-book[data-id]')]
+      .filter(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.bottom > bounds.top + container.clientTop && rect.top < bounds.top + container.clientHeight;
+      })
+      .sort((a, b) => bookOffset(a, container) - bookOffset(b, container))[0];
+    return { top: container.scrollTop, left: container.scrollLeft,
+      anchor: book ? { id: book.dataset.id, launch: book.classList.contains('n5-launch-book'), offset: bookOffset(book, container) } : null };
+  };
+  const rememberPickerScroll = () => {
+    // 媒体查询已变、旧 DOM 尚未重排时，CSS 可能先把旧 scrollTop 夹成 0，不能覆盖检查点。
+    if (menu.hidden || renderingMenu || renderedMobile !== isMobile()) return;
+    scrollContainers().forEach(element => pickerScroll.set(scrollKey(element), scrollPosition(element)));
+  };
+  const restoreScrollPosition = (container, position) => {
+    if (!position) return;
+    const anchor = position.anchor;
+    const book = anchor && [...container.querySelectorAll('.codex-item[data-id], .n5-launch-book[data-id]')]
+      .find(element => element.dataset.id === anchor.id && element.classList.contains('n5-launch-book') === anchor.launch);
+    const top = book ? container.scrollTop + bookOffset(book, container) - anchor.offset : position.top;
+    container.scrollTop = Math.max(0, Math.min(top, container.scrollHeight - container.clientHeight));
+    container.scrollLeft = Math.max(0, Math.min(position.left, container.scrollWidth - container.clientWidth));
+  };
+  const restorePickerScroll = fallback => {
+    scrollContainers().forEach(element => restoreScrollPosition(element,
+      pickerScroll.get(scrollKey(element)) || (fallback && { top: 0, left: 0, anchor: fallback.anchor })));
+  };
+  menu.addEventListener('scroll', rememberPickerScroll, { capture: true, passive: true });
   /* 四卷比按钮宽得多：窄桌面上「按钮左沿 + 菜单宽」会超出视口，往左收回来。手机端走 fixed，不处理。 */
   const placeMenu = () => {
     menu.style.left = '';
@@ -244,7 +291,8 @@ export function setupCodexPicker() {
     ensureUpdates();
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
-    if (focus) requestAnimationFrame(() => focusPreferredItem());
+    rememberPickerScroll();
+    if (focus) requestAnimationFrame(() => { focusPreferredItem(); rememberPickerScroll(); });
   };
   const closeDirect = ({ focusButton = false } = {}) => {
     menu.inert = true;
@@ -564,12 +612,12 @@ export function setupCodexPicker() {
     const a = document.createElement('a');
     a.className = 'codex-door';
     a.href = '/strings.html';
-    a.setAttribute('aria-label', '前往社区共建，投稿你的图片与提示词作品');
+    a.setAttribute('aria-label', '前往共创广场投稿图片与提示词');
     a.innerHTML =
       `<span class="cd-ico">${DOOR_PLUS_ICON}</span>` +
       `<span class="cd-main">` +
-      `<span class="cd-name">社区共建 · 去投稿</span>` +
-      `<span class="cd-sub">浏览大家的图片与提示词作品，也加入你的一份</span>` +
+      `<span class="cd-name">共创广场 · 投稿</span>` +
+      `<span class="cd-sub">社区投稿的图片与提示词作品</span>` +
       `</span>` +
       `<span class="cd-out">${DOOR_OUT_ICON}</span>`;
     wrap.appendChild(a);
@@ -671,6 +719,7 @@ export function setupCodexPicker() {
       body.replaceChildren(head, ...(t.soon ? [makeSoonBanner(t)] : []), grid);
     };
     const setActive = (id, { fromSpine = null } = {}) => {
+      rememberPickerScroll();
       activeType = id;
       // 首次打开时卷内跟着书脊入场；换卷时等宽度过渡走一段再浮入
       vols.classList.toggle('is-switching', Boolean(fromSpine));
@@ -684,10 +733,12 @@ export function setupCodexPicker() {
         if (open) fillVolume(v);
         else v.body.replaceChildren();
       });
+      restorePickerScroll();
       // 键盘换卷：被按的书脊随即藏到卷体后面，焦点交给新卷的第一本
       if (fromSpine && document.activeElement === fromSpine) {
         menu.querySelector('.codex-vol.is-open .codex-item')?.focus({ preventScroll: true });
       }
+      rememberPickerScroll();
     };
     vols.addEventListener('click', ev => {
       const recent = ev.target.closest('[data-recent-batch]');
@@ -723,11 +774,14 @@ export function setupCodexPicker() {
   };
 
   const renderMenu = () => {
+    renderedMobile = isMobile();
+    renderingMenu = true;
     if (isMobile()) renderMetro(buildTypes());
     else renderVolumes(buildTypes());
     const launchPanel = makeN5LaunchPanel();
     if (launchPanel) menu.prepend(launchPanel);
     menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
+    renderingMenu = false;
   };
   refreshPickerContent = () => {
     if (menu.hidden) {
@@ -736,17 +790,17 @@ export function setupCodexPicker() {
       return;
     }
     const focused = menu.contains(document.activeElement) ? document.activeElement : null;
-    const { scrollTop, scrollLeft } = menu;
+    rememberPickerScroll();
     renderMenu();
     placeMenu();
-    menu.scrollTop = scrollTop;
-    menu.scrollLeft = scrollLeft;
+    restorePickerScroll();
     if (focused) {
       const target = [...menu.querySelectorAll('button')].find(element =>
         element.className === focused.className &&
         ['id', 'type', 'recentCodex', 'recentBatch'].every(key => element.dataset[key] === focused.dataset[key]));
       (target || menu.querySelector('.codex-item.active') || focusableItems()[0])?.focus({ preventScroll: true });
     }
+    rememberPickerScroll();
   };
 
   const setupN5LaunchNotice = () => {
@@ -794,7 +848,7 @@ export function setupCodexPicker() {
         `<p class="n5-notice-sub">${n5BooksLabel(featured.length)}新法典 · ` +
         `<b>${entries.toLocaleString()}</b> 条词条</p>` +
         `<div class="n5-notice-actions">` +
-        `<button class="n5-btn solid n5-notice-open" type="button">看看新法典</button>` +
+        `<button class="n5-btn solid n5-notice-open" type="button">查看新法典</button>` +
         `<button class="n5-btn ghost n5-notice-later" type="button">以后再说</button>` +
         `</div>` +
         `<span class="n5-stamp">${esc(n5LaunchStamp(featured))}</span>` +
@@ -869,6 +923,8 @@ export function setupCodexPicker() {
     if (menu.hidden) return;
     // 只在跨断点时重排；手机地址栏/软键盘改变高度不应重建书卡或重置滚动。
     const focused = document.activeElement;
+    const departingScroll = pickerScroll.get(renderedMobile ? 'metro' : `volume:${activeType}`)
+      || pickerScroll.get('volumes');
     const restoreFocus = menu.contains(focused);
     const focusedBook = state.codexes.find(c => c.id === focused?.dataset.id);
     if (focusedBook) activeType = codexType(focusedBook);
@@ -877,6 +933,7 @@ export function setupCodexPicker() {
       focused?.classList.contains('codex-door') ? '.codex-door' : '.codex-type';
     renderMenu();
     placeMenu();
+    restorePickerScroll(departingScroll);
     if (isMobile() && !getManagedHistoryEntry()?.layers.some(layer => layer.id === 'codex-menu')) {
       openHistoryLayer('codex-menu', { mode: topHistoryLayerId() === 'banner-about' ? 'replace' : 'push' });
     }
@@ -886,6 +943,7 @@ export function setupCodexPicker() {
       if (target) target.focus({ preventScroll: true });
       else focusPreferredItem({ preventScroll: true });
     }
+    rememberPickerScroll();
   });
   window.addEventListener('resize', () => {
     if (!menu.hidden) placeMenu();
@@ -1009,6 +1067,21 @@ function setTreeBranchExpanded(item, expanded, { animate = true } = {}) {
   if (animate) refreshTreeSpy();
 }
 
+function bindTreeSelection(row, action) {
+  const name = row.querySelector('.tw-name');
+  name.setAttribute('role', 'button');
+  name.setAttribute('aria-label', `选择目录：${name.textContent}`);
+  name.setAttribute('aria-disabled', row.getAttribute('aria-disabled') || 'false');
+  name.tabIndex = 0;
+  row.onclick = action;
+  name.onkeydown = event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) action();
+  };
+}
+
 export function renderTree() {
   if (state.favoritesView) return;
   const nav = $('#tree');
@@ -1025,7 +1098,7 @@ export function renderTree() {
   all.className = 'tree-row' + (allActive ? ' active' : '');
   all.dataset.path = '';
   all.innerHTML = `<span class="tw-arrow"></span><span class="tw-name">全部</span><span class="tw-count">${visibleEntryCount()}</span>`;
-  all.onclick = () => selectPath([], all);
+  bindTreeSelection(all, () => selectPath([], all));
   nav.appendChild(all);
   buildNodes(visibleTree(), nav, [], 0);
   if (shouldAnimate) {
@@ -1256,7 +1329,7 @@ export function buildNodes(nodes, parent, prefix, depth) {
         if (!event.repeat) toggle();
       };
     }
-    row.onclick = () => {
+    bindTreeSelection(row, () => {
       if (locked) {
         showNsfwLockedHint();
         if (hasKids) setTreeBranchExpanded(item, true);
@@ -1265,7 +1338,7 @@ export function buildNodes(nodes, parent, prefix, depth) {
       selectPath(path, row);
       if (hasKids) setTreeBranchExpanded(item, true);
       refreshTreeSpy();   // 展开后行可见性变了，指示条重解析
-    };
+    });
     item.appendChild(row);
     if (hasKids) {
       const kids = document.createElement('div');

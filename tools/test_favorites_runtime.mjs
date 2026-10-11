@@ -27,7 +27,7 @@ const { library, store: stores } = await loadFavoritesTestModules();
 const store = stores.createLibraryStore({ getStorage: () => storage, getCodexes: () => state.codexes,
   getLocks: () => ({ request: async (_name, _options, fn) => fn({}) }), notify: (...args) => messages.push(args) });
 await store.ensureLibrary();
-globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments, emittedChanges, messages, library, store };
+globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments, emittedChanges, messages, library, store, stores };
 
 const coreImport = /import \{\s*atlasFavoriteStorageKeys,\s*createCodexLookup,\s*\} from '\.\/favorites-backup-core\.js';/;
 const favoritesSource = (await readFile(favoritesUrl, 'utf8'))
@@ -35,8 +35,9 @@ const favoritesSource = (await readFile(favoritesUrl, 'utf8'))
   .replace("import { toast } from './feedback.js';", 'const toast = (...args) => globalThis.__favoritesRuntimeTest.messages.push(args);')
   .replace("import { addLibraryItem, libraryKeys, removeLibraryItems } from './favorites-library-core.js';",
     'const { addLibraryItem, libraryKeys, removeLibraryItems } = globalThis.__favoritesRuntimeTest.library;')
-  .replace("import { commitLibrary, librarySnapshot } from './favorites-library-store.js';",
-    'const { commitLibrary, librarySnapshot } = globalThis.__favoritesRuntimeTest.store;')
+  .replace("import { commitLibrary, librarySnapshot, undoFailureMessage } from './favorites-library-store.js';",
+    'const { commitLibrary, librarySnapshot } = globalThis.__favoritesRuntimeTest.store; '
+      + 'const { undoFailureMessage } = globalThis.__favoritesRuntimeTest.stores;')
   .replace(
     "import { emitFavoritesChanged } from './favorites-backup.js';",
     'const emitFavoritesChanged = (scopes, reason) => globalThis.__favoritesRuntimeTest.emittedChanges.push({ scopes, reason });',
@@ -136,7 +137,7 @@ assert.deepEqual([...state.favs], before);
 assert.equal(emittedChanges.length, eventCount);
 assert.equal(buttonTouched, false);
 assert.equal(messages.some(([message]) => message.startsWith('已收藏')), false);
-assert.equal(messages.at(-1)[0], '收藏没能保存：浏览器存储已满');
+assert.match(messages.at(-1)[0], /^收藏未保存：浏览器存储已满。/);
 assert.equal((await favorites.saveFavs()).ok, false);
 delete globalThis.__favoritesRuntimeTest;
 

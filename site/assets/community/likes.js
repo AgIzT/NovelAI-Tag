@@ -111,7 +111,7 @@ export async function toggleCommunityLike(entry) {
     entry.liked = previous.liked;
     entry.likeCount = previous.likeCount;
     console.warn('共创广场喜欢操作失败', error);
-    toast('暂时无法点赞，请稍后再试', '!');
+    toast('喜欢操作未完成，稍后重试', '!');
   } finally {
     pendingEntries.delete(key);
     patchLikeControls(entry);

@@ -34,8 +34,8 @@ export function renderCommunityDetail(item) {
         ${field('标题', 'editTitle', 'input', item.title || '', '不填自动生成')}
         ${field('投稿人', 'editSubmitter', 'input', item.submitter || '', '匿名')}
       </div>
-      ${field('Prompt', 'editPrompt', 'textarea-mono', item.prompt || '')}
-      ${field('负面 Prompt', 'editNegative', 'textarea-mono', item.negative || '')}
+      ${field('正向提示词', 'editPrompt', 'textarea-mono', item.prompt || '')}
+      ${field('负面提示词', 'editNegative', 'textarea-mono', item.negative || '')}
       <div class="field-row">
         <label class="field"><span class="field-label">分类</span>${categorySelect(item.category)}</label>
         ${field('标签（逗号分隔）', 'editTags', 'input', tags)}
@@ -115,7 +115,7 @@ export function renderFeedbackDetail(item) {
         <div class="feedback-workflow-head">
           <div>
             <b id="feedbackWorkflowTitle">反馈者可见进度、回复与公开设置</b>
-            <span>是否公开由维护者决定；开启后主站会展示反馈内容、进度与回复，后台归档自动同步。</span>
+            <span>开启后主站会展示反馈内容、进度与回复，后台归档自动同步。</span>
           </div>
           <small>最近更新：${escHtml(formatDate(updatedAt))}</small>
         </div>
@@ -123,7 +123,7 @@ export function renderFeedbackDetail(item) {
           <input id="feedbackPublicVisible" type="checkbox"${item.publicVisible ? ' checked' : ''} aria-describedby="feedbackPublicHint">
           <span>
             <b>公开到主站「处理进度」</b>
-            <small id="feedbackPublicHint">由维护者决定是否公开；联系方式、页面地址和其他非必要信息始终不会公开。</small>
+            <small id="feedbackPublicHint">联系方式、页面地址和其他非必要信息始终不会公开。</small>
           </span>
         </label>
         <div class="field-row">

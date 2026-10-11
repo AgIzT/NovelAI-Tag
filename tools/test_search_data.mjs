@@ -338,7 +338,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
   assert.equal(hiddenSearchMatch({ title: 'Blue dress', tags: 'lace' }, ['blue']), null);
   assert.deepEqual(
     hiddenSearchMatch({ title: 'A', tags: 'B', negative: 'low quality, blurry' }, ['blurry']),
-    { label: '负面词', excerpt: 'low quality, blurry' },
+    { label: '负面提示词', excerpt: 'low quality, blurry' },
   );
   assert.equal(hiddenSearchMatch({ title: 'red', tags: '', note: 'blue detail' }, ['red', 'blue']).label, '备注');
   assert.equal(hiddenSearchMatch({
@@ -350,7 +350,7 @@ const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(
     title: 'A',
     tags: '',
     characterPrompts: [{ label: 'girl', prompt: 'green eyes', negative: 'bad hand' }],
-  }, ['bad']).label, '负面词');
+  }, ['bad']).label, '负面提示词');
   assert.equal(hiddenSearchMatch({ title: 'A', tags: '', note: 'hidden' }, []), null);
 }
 

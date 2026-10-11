@@ -71,7 +71,7 @@ export function renderDashboard() {
           ${todoItem('待审投稿', counts.pending || 0)}
           ${todoItem('反馈进行中', state.feedbackStatus === 'pending' ? state.feedbackItems.length : '-')}
           ${todoItem('NSFW 内容', stats.nsfw || 0)}
-          ${todoItem('软删除留档', counts.deleted || 0)}
+          ${todoItem('已删除留档', counts.deleted || 0)}
         </div>
       </section>
     </div>
@@ -113,7 +113,7 @@ function renderLikesOverview(rawLikes) {
       <div class="like-stat-grid">
         ${statCard('总喜欢', likes.total)}
         ${statCard('独立设备', likes.uniqueDevices)}
-        ${statCard('获赞投稿', likes.likedEntries)}
+        ${statCard('获得喜欢的投稿', likes.likedEntries)}
       </div>
       <div class="likes-split">
         <section class="dash-box like-trend-box">

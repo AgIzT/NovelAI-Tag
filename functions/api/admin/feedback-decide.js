@@ -51,7 +51,7 @@ export async function onRequestPost(context) {
   if (progressStatusRaw && !requestedProgressStatus) return err('反馈展示进度无效');
 
   const found = await findFeedbackRecord(env.STRINGS_BUCKET, id, sourceStatus);
-  if (!found) return err('该反馈不存在或状态不匹配', 404);
+  if (!found) return err('这条反馈不存在或状态已变化，点「刷新反馈」重新加载', 404);
 
   const now = new Date();
   const nowMs = now.getTime();

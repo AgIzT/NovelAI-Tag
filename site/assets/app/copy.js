@@ -66,6 +66,7 @@ export async function copyEntry(e, node) {
   const message = `${negative ? '已复制正向' : '已复制'}${charNote}：${e.title}`;
   return copyText(entryPromptText(e), message, node, {
     entry: e,
+    sampleLabel: '已复制正向',
     fragment: { text: entryPromptText(e), channel: 'positive', scope: 'merged-positive' },
     followUp: negative ? {
       label: '再复制负面',
@@ -104,6 +105,13 @@ function probeLocked(probe) {
   } catch {
     return true;
   }
+}
+
+/* 芯片默认取 toast 的前半句：「已复制正向（含 2 组角色词）：标题」→「已复制正向」，
+   各入口不必再各传一份标签；拿不到就只写「已复制」，不冒充正向。 */
+function sampleLabelFrom(message) {
+  const head = String(message || '').split('：')[0].split('（')[0].trim();
+  return head.startsWith('已复制') ? head : '已复制';
 }
 
 export async function copyText(text, message, node, options = {}) {
@@ -181,7 +189,7 @@ export async function copyText(text, message, node, options = {}) {
     toast(
       manualFallbackShown
         ? '自动复制未成功，已打开手动复制面板'
-        : '自动复制未成功，请长按/手动选择文本',
+        : '自动复制未成功，长按或手动选中文本复制',
       '!',
     );
     return { ...result, converted: formatted.converted, manualFallbackShown };
@@ -197,8 +205,9 @@ export async function copyText(text, message, node, options = {}) {
      ③ 排在 playCopySample **之前** —— 芯片要不要抛向中转站，取决于这次到底存没存进去，
         存失败了还演一遍「收走了」就是撒谎。写盘代价是 50 条快照的 stringify，约 1ms，可以忍。 */
   const intake = relaySnapshot ? await recordPreparedCopiedEntry(relaySnapshot) : false;
-  playCopySample(node, formatted.text, options.sampleLabel, {
+  playCopySample(node, formatted.text, options.sampleLabel || sampleLabelFrom(message), {
     flyTo: intake ? relayTossTarget() : null,
+    count: options.sampleCount !== false,
   });
   const followUp = options.followUp;
   const action = followUp?.label && String(followUp.text || '').trim()
@@ -217,7 +226,7 @@ export async function copyText(text, message, node, options = {}) {
      用户点的是词条复制，中转站里却什么都没多，这件事必须说出来。 */
   const intakeFailed = Boolean(options.entry || options.relaySnapshot || options.expectRelayIntake) && !intake;
   toast(
-    `${message}${formatted.converted ? '（SD 格式）' : ''}${intakeFailed ? '；中转站未保存，请重试' : ''}`,
+    `${message}${formatted.converted ? '（SD 格式）' : ''}${intakeFailed ? '；未存入中转站，再复制一次重试' : ''}`,
     intakeFailed ? '!' : '✓',
     action,
   );

@@ -7,7 +7,7 @@ import {
 } from './favorites-backup-core.js';
 import { emitFavoritesChanged } from './favorites-backup.js';
 import { addLibraryItem, libraryKeys, removeLibraryItems } from './favorites-library-core.js';
-import { commitLibrary, librarySnapshot } from './favorites-library-store.js';
+import { commitLibrary, librarySnapshot, undoFailureMessage } from './favorites-library-store.js';
 
 const favoriteActions = {
   applyFilter: () => {}, refreshFavoritesView: () => {}, openOrganize: () => {},
@@ -129,7 +129,7 @@ export async function toggleFav(e, btn, options = {}) {
     ? { label: '整理', onClick: () => favoriteActions.openOrganize([k], btn) }
     : { label: '撤销', onClick: async () => {
       const restored = await commitLibrary(draft => favoriteActions.restoreRemoved(draft, outcome.result.removed), { changed: 'items', silent: true });
-      if (!restored.ok) { toast('撤销没能完成', '!'); return false; }
+      if (!restored.ok) { toast(undoFailureMessage(restored), '!'); return false; }
       state.favs = new Set(libraryKeys(librarySnapshot()));
       const active = isFav(e);
       setFavoriteButtonState(btn, active);

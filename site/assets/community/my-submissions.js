@@ -75,7 +75,7 @@ export function renderMySubmissions() {
         <span><b>${escHtml(record.title || '未命名投稿')}</b><small>提交于 ${escHtml(formatDate(record.createdAt))}</small></span>
         <em class="${published ? 'is-published' : 'is-pending'}">${published ? '已发布' : '尚未公开'}</em>
       </button>`;
-  }).join('') + '<p class="my-submissions-footnote">“尚未公开”可能表示仍在审核或未通过；本站不会在无鉴权页面公开内部审核备注。</p>';
+  }).join('') + '<p class="my-submissions-footnote">「尚未公开」表示没在公开列表中找到：可能待审、未通过或已下架。</p>';
 }
 
 export function openMySubmissions(trigger = document.activeElement) {

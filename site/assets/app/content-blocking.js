@@ -99,7 +99,8 @@ async function save(apply) {
     const error = typeof result.error === 'string' ? result.error
       : result.reason === 'lock' ? '另一标签页正在修改屏蔽清单，重试一次'
         : result.reason === 'rollback' ? '屏蔽清单未能保存，重新加载页面检查清单后重试'
-          : '无法保存屏蔽清单，清空最近浏览或复制历史后重试';
+          : result.reason === 'quota' ? '屏蔽清单未保存：浏览器存储已满。在「浏览记录」里清空最近浏览，或在中转站清空「成品记录」后重试'
+            : '屏蔽清单未保存：浏览器不允许本站保存数据';
     return { ...result, error };
   }
   return { ok: true, ...(result.key ? { key: result.key } : {}) };

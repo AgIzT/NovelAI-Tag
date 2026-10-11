@@ -939,6 +939,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .tw-arrow{width:14px;text-align:center;color:var(--muted);font-size:10px;transition:transform .15s}
 .tree-item.collapsed>.tree-row .tw-arrow{transform:rotate(-90deg)}
 .tw-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tw-name[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 .tw-count{color:var(--muted);font-size:11px}
 /* 整本无原图时单节保留原图的标记：与书卡「含原图」签同一套中性填充，小一号以免抢目录名 */
 .tw-orig{
@@ -1395,7 +1396,17 @@ body.dark .badge-char{
   backdrop-filter:blur(8px);
 }
 .badge-count svg{width:12px;height:12px}
-.card-detail-btn{display:none}
+/* 原生详情入口不占正文高度：手机与桌面无图卡均能 Tab 到，聚焦时才显形。 */
+.card-detail-btn{
+  display:none;position:absolute;top:6px;left:6px;z-index:10;
+  padding:5px 7px;border:1px solid var(--line);border-radius:7px;
+  background:var(--card);color:var(--accent);font-size:11px;
+  opacity:0;pointer-events:none;
+}
+.card.no-img .card-detail-btn{display:block}
+.card-detail-btn:focus-visible{
+  opacity:1;pointer-events:auto;outline:2px solid var(--accent);outline-offset:2px;
+}
 .card-body{padding:10px 11px 10px}
 .card-title-row{display:flex;align-items:center;gap:7px;margin-bottom:7px}
 .card-title{
@@ -2655,13 +2666,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .skeleton-card:nth-child(3n+2) .skeleton-thumb{height:178px}
   /* 手机：单列大图、双列摘要、紧凑图墙最多三列。紧凑沿原图比例排布并沿用原版裁切。 */
   /* 原生按钮保留键盘 / 读屏入口；键盘聚焦才显示，不占卡片正文高度。 */
-  .masonry .card-detail-btn{
-    display:block;position:absolute;top:6px;left:6px;z-index:10;
-    padding:5px 7px;border:1px solid var(--line);border-radius:7px;
-    background:var(--card);color:var(--accent);font-size:11px;
-    opacity:0;pointer-events:none;
-  }
-  .masonry .card-detail-btn:focus-visible{opacity:1;pointer-events:auto}
+  .masonry .card-detail-btn{display:block}
   .masonry .card-img{object-fit:contain}
   body .masonry .card-title-row{flex-wrap:nowrap;gap:6px;margin-bottom:6px}
   .masonry .card-title{flex:1;min-width:0}

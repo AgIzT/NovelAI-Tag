@@ -735,8 +735,8 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   if (channel === 'character-negative') {
     const note = document.createElement('span');
     note.className = 'prompt-selection-note';
-    note.textContent = '角色负向请复制到对应角色槽；不会加入全局负向。';
-    add.title = '当前方案尚不编辑角色负向槽';
+    note.textContent = '角色负面复制后粘贴到对应角色的负面栏；不会加入全局负面。';
+    add.title = '角色负面不能加入方案';
     bar.append(note);
   }
   pre.after(bar);
@@ -793,7 +793,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
       const { addSourceToPlan } = await import('./tag-relay-compose.js');
       if (!snapshotLocked(snapshot)) await addSourceToPlan(snapshot, { focus: false });
     } catch {
-      toast('未能加入方案，请重试', '!');
+      toast('未能加入方案，再点一次重试', '!');
     } finally {
       updateSelectionControls(selection);
       if (restoreFocus && add.isConnected && selection.active && sameLightboxEntry(state.lightbox?.entry, entry)) add.focus({ preventScroll: true });
@@ -841,7 +841,7 @@ function entryHasPromptText(entry) {
     .some(item => String(item?.prompt || '').trim() || String(item?.negative || '').trim());
 }
 
-/* 开关只放在「正向 tags」标题栏，一处开关全部提示词框一起变。对照表第一次要下载，
+/* 开关只放在「正向提示词」标题栏，一处开关全部提示词框一起变。对照表第一次要下载，
    先按原文出、到货再原位换成对照排版；这期间换了词条就丢弃这次结果。 */
 function syncTagZhForEntry(entry, seq) {
   const toggle = $('#tagZhToggle');
@@ -1289,7 +1289,7 @@ export function renderLightbox() {
     if (!refreshLightboxAccess(e)) return;
     /* raw tag 不能回流到最近复制，但仍属于当前词条，必须把权限快照交给
        copyText，以覆盖剪贴板请求期间发生的撤权。 */
-    copyText(item.rawTag, `已复制当前图 raw tag：${e.title}`, ev.currentTarget, { accessEntry: e });
+    copyText(item.rawTag, `已复制当前图原始提示词：${e.title}`, ev.currentTarget, { accessEntry: e });
   };
   const favoriteBtn = $('#favoriteLightbox');
   if (favoriteBtn) {
@@ -1329,7 +1329,7 @@ export function renderLightbox() {
           if (error?.name === 'AbortError') return;
         }
       }
-      await copyText(shareUrl, '已复制分享链接', shareBtn, { convert: false });
+      await copyText(shareUrl, '已复制分享链接', shareBtn, { convert: false, sampleCount: false });
     };
   }
   const reportBtn = $('#reportLightbox');

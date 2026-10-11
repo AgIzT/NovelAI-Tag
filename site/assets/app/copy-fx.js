@@ -113,12 +113,13 @@ function anchorFor(node) {
  * 播一次「采样」反馈。
  * @param {HTMLElement|null} node  触发复制的节点（卡片或卡片内的按钮）
  * @param {string} text            实际写进剪贴板的文本，用来数 tag 数
- * @param {string} label           芯片主文案，区分正面 / 负面
+ * @param {string} label           芯片主文案，写清复制了什么（正向 / 负面 / 分享链接…）
  * @param {object} [options]
  * @param {Element|null} [options.flyTo] 给了就把芯片抛向它（复制即入库时指向中转站），
  *                                       芯片不再原地悬停淡出——「这条被收走了」比「复制成功了」信息量大
+ * @param {boolean} [options.count] 是否附 tag 数；复制链接这类非提示词内容传 false
  */
-export function playCopySample(node, text, label = '已复制正面', options = {}) {
+export function playCopySample(node, text, label = '已复制', options = {}) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const now = performance.now();
   const combo = lastAt > 0 && now - lastAt < COMBO_MS; // 首次点击不能因页面刚加载而误判成连点
@@ -151,7 +152,7 @@ export function playCopySample(node, text, label = '已复制正面', options = 
   clearChipTimers();
   resetChipAnimations(chip);
   setChipClearState(chip, false);
-  const target = `✓ ${label} · ${countTags(text)} tags`;
+  const target = options.count === false ? `✓ ${label}` : `✓ ${label} · ${countTags(text)} tags`;
   const { x, y } = anchorFor(node);
   chip.style.left = `${Math.round(x)}px`;
   chip.style.top = `${Math.round(y - 14)}px`;

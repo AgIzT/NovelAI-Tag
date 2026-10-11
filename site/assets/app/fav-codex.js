@@ -114,7 +114,7 @@ export async function buildFavoritesCodex() {
 
   const notices = [];
   if (lockedCount) notices.push(`另有 ${lockedCount} 条收藏在 NSFW 法典中，开启 NSFW 后可见`);
-  if (failedCount) notices.push(`${failedCount} 条收藏所在的法典加载失败，稍后再试`);
+  if (failedCount) notices.push(`${failedCount} 条收藏所在的法典加载失败，刷新页面重试`);
   if (missingCount) notices.push(`${missingCount} 条收藏的源词条已不存在`);
 
   return {

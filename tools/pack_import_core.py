@@ -320,6 +320,21 @@ def build_tree(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return serialize(root)
 
 
+def tree_counts(tree: list[dict[str, Any]], prefix: tuple[str, ...] = ()) -> dict[tuple[str, ...], Any]:
+    """Compare maintained tree order independently, but never lose counts."""
+    result: dict[tuple[str, ...], Any] = {}
+    for node in tree:
+        path = (*prefix, str(node.get("name") or ""))
+        if path in result:
+            raise ValueError(f"duplicate category: {path}")
+        result[path] = node.get("count")
+        children = tree_counts(node.get("children") or [], path)
+        if result.keys() & children.keys():
+            raise ValueError(f"duplicate category below: {path}")
+        result.update(children)
+    return result
+
+
 def _thumbnail(source: Path, destination: Path) -> tuple[int, int]:
     with Image.open(source) as opened:
         image = ImageOps.exif_transpose(opened)

@@ -13,38 +13,7 @@ import {
   FEEDBACK_PROGRESS as FRONTEND_FEEDBACK_PROGRESS,
 } from '../site/assets/app/feedback-progress.js';
 import { renderFeedbackDetail } from '../site/assets/admin/editor.js';
-
-class MemoryR2 {
-  constructor() {
-    this.objects = new Map();
-    this.listCalls = 0;
-  }
-
-  async get(key) {
-    if (!this.objects.has(key)) return null;
-    const raw = this.objects.get(key);
-    return { json: async () => JSON.parse(raw) };
-  }
-
-  async put(key, value) {
-    const raw = typeof value === 'string' ? value : await value.text();
-    this.objects.set(key, raw);
-  }
-
-  async delete(keys) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
-  }
-
-  async list({ prefix }) {
-    this.listCalls += 1;
-    return {
-      objects: [...this.objects.keys()]
-        .filter(key => key.startsWith(prefix))
-        .map(key => ({ key })),
-      truncated: false,
-    };
-  }
-}
+import { MemoryR2 } from './memory-r2-test-harness.mjs';
 
 const bucket = new MemoryR2();
 const env = {
@@ -80,7 +49,7 @@ for (const [progressStatus, bucketStatus] of Object.entries(EXPECTED_PROGRESS_BU
   );
 }
 assert.equal(BACKEND_FEEDBACK_PROGRESS.unread.description, '维护者尚未查看这条反馈。');
-assert.equal(BACKEND_FEEDBACK_PROGRESS.declined.description, '评估后暂不采纳，具体原因请查看回复。');
+assert.equal(BACKEND_FEEDBACK_PROGRESS.declined.description, '评估后暂不采纳，原因见维护者回复。');
 const legacyOptOutDetail = renderFeedbackDetail({
   id: 'legacy-opt-out',
   status: 'pending',
@@ -94,7 +63,7 @@ const legacyOptOutDetail = renderFeedbackDetail({
 });
 assert.match(legacyOptOutDetail, /id="feedbackPublicVisible" type="checkbox"/);
 assert.doesNotMatch(legacyOptOutDetail, /feedbackPublicVisible"[^>]*disabled/);
-assert.match(legacyOptOutDetail, /是否公开由维护者决定/);
+assert.match(legacyOptOutDetail, /开启后主站会展示反馈内容、进度与回复/);
 assert.doesNotMatch(legacyOptOutDetail, /反馈者已选择不公开|反馈者未选择不公开/);
 
 function request(method, path, body) {

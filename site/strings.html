@@ -69,7 +69,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <span>权重</span>
       <i aria-hidden="true">×</i>
     </button>
-    <button id="submitOpenBtn" class="ui-press submit-top-btn" type="button" data-open-submit title="分享你的作品">
+    <button id="submitOpenBtn" class="ui-press submit-top-btn" type="button" data-open-submit title="投稿">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       <span>投稿</span>
     </button>
@@ -105,7 +105,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="hero-actions">
         <button class="ui-press primary-btn" type="button" data-open-submit>
           <span aria-hidden="true">＋</span>
-          分享你的作品
+          投稿
         </button>
         <button class="ui-press ghost-btn" type="button" data-focus-search>
           浏览投稿
@@ -139,7 +139,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
     <button class="ui-press submit-inline" type="button" data-open-submit>
       <span class="plus" aria-hidden="true">＋</span>
-      分享你的作品
+      投稿
     </button>
 
     <div id="communityGrid" class="community-grid" aria-live="polite"></div>
@@ -162,7 +162,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div id="subDrop" class="sub-drop ui-press" role="button" tabindex="0">
         <div>
           <strong>拖入图片，或点击选择</strong>
-          <span>1-6 张；PNG 原图若含参数会自动读取 Prompt</span>
+          <span>1-6 张；PNG 原图带参数时会自动读取正向提示词</span>
         </div>
       </div>
       <input id="subFile" type="file" accept="image/*" multiple hidden>
@@ -171,7 +171,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 
     <div class="sub-field">
       <div class="sub-label-row">
-        <label for="subPrompt">Prompt * <span id="subPromptSrc" class="sub-source sub-source-manual">手动填写</span></label>
+        <label for="subPrompt">正向提示词 * <span id="subPromptSrc" class="sub-source sub-source-manual">手动填写</span></label>
         <label class="sub-inline-check"><input id="subNsfw" type="checkbox">包含 NSFW 内容</label>
       </div>
       <textarea id="subPrompt" class="mono" maxlength="2000" required placeholder="artist:xxx, cinematic lighting, dynamic pose, ..."></textarea>
@@ -189,16 +189,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <input id="subTitle" type="text" maxlength="60" placeholder="不填会自动生成">
       </div>
       <div class="sub-field">
-        <label for="subName">投稿者名</label>
+        <label for="subName">投稿人名称</label>
         <input id="subName" type="text" maxlength="20" placeholder="匿名">
       </div>
     </div>
 
     <details id="subMore" class="sub-more">
-      <summary class="ui-press">更多（可选）<span>负面 prompt · 说明 · 标签</span></summary>
+      <summary class="ui-press">更多（可选）<span>负面提示词 · 说明 · 标签</span></summary>
       <div class="sub-more-body">
         <div class="sub-field">
-          <label for="subNegative">负面 Prompt</label>
+          <label for="subNegative">负面提示词</label>
           <textarea id="subNegative" class="mono" maxlength="2000" placeholder="lowres, bad anatomy, extra fingers, ..."></textarea>
         </div>
         <div class="sub-field">
@@ -219,7 +219,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     <section id="subSuccess" class="submit-success" aria-live="polite" hidden>
       <span aria-hidden="true">✓</span>
       <h3>投稿已提交</h3>
-      <p>维护者审核通过后，作品会出现在共创广场。你可以在当前浏览器的“我的投稿”里查看是否已经公开。</p>
+      <p>维护者审核通过后，作品会出现在共创广场。可以在当前浏览器的「我的投稿」里查看是否已经公开。</p>
       <div>
         <button class="ui-press primary-btn" type="button" data-my-submissions-open>查看我的投稿</button>
         <button class="ui-press ghost-btn" type="button" data-submit-another>再投一条</button>
@@ -300,7 +300,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <label class="favorites-backup-file" for="favoritesImportFile">
           <span aria-hidden="true">＋</span>
           <b>选择 JSON 备份文件</b>
-          <small>最大 2 MiB，仅在浏览器中读取</small>
+          <small>最大 2 MB，仅在浏览器中读取</small>
         </label>
         <input id="favoritesImportFile" class="favorites-backup-file-input" type="file" accept=".json,application/json">
 

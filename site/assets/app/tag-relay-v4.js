@@ -279,7 +279,7 @@ function assertMigratedOutput(before, after) {
     const separator = joinMode === 'comma' ? ', ' : ',\n';
     const actual = compilePlan(after, { target, joinMode });
     if (expected.positiveTokens.join(separator) !== actual.positive || expected.negativeTokens.join(separator) !== actual.negative) {
-      throw new legacy.RelayDataError('migration-mismatch', '旧方案无法无损转换，原始数据已保留，请导出备份后重试');
+      throw new legacy.RelayDataError('migration-mismatch', '旧方案无法无损转换，原始数据已保留，导出备份后重试');
     }
   }
 }
@@ -315,7 +315,7 @@ function normalizeHistory(source, options) {
 }
 export function normalizeRelayState(source, options = {}) {
   if (!object(source)) return createRelayState(options);
-  if (Number(source.version) > 4) throw new legacy.RelayDataError('future-version', '中转站数据来自更新版本，请更新页面后重试');
+  if (Number(source.version) > 4) throw new legacy.RelayDataError('future-version', '中转站数据来自更新版本，刷新页面后重试');
   if (Number(source.version) !== 4) return migrateRelayState(source, options);
   const plans = [];
   for (const item of Array.isArray(source.plans) ? source.plans : []) {
@@ -332,7 +332,7 @@ export function serializeRelayState(state, options = {}) { return JSON.stringify
 function parseStoredState(payload, options = {}) {
   let source;
   try { source = JSON.parse(payload); } catch { throw new legacy.RelayDataError('corrupt-data', '中转站数据损坏，原始内容已保留'); }
-  if (Number(source?.version) > 4) throw new legacy.RelayDataError('future-version', '中转站数据来自更新版本，请更新页面后重试');
+  if (Number(source?.version) > 4) throw new legacy.RelayDataError('future-version', '中转站数据来自更新版本，刷新页面后重试');
   const validChannel = value => object(value) && typeof value.text === 'string' && object(value.folds)
     && Object.values(value.folds).every(fold => object(fold) && typeof fold.body === 'string');
   if (!object(source) || !Array.isArray(source.plans)
@@ -399,8 +399,8 @@ export function exportRelayBackup(state, options = {}) {
 export function validateRelayBackup(value) {
   let backup = value;
   if (typeof value === 'string') { try { backup = JSON.parse(value); } catch { throw new legacy.RelayDataError('invalid-backup', '文件不是有效的中转站 JSON 备份'); } }
-  if (!object(backup) || backup.format !== 'fadian-tag-relay' || !object(backup.state)) throw new legacy.RelayDataError('invalid-backup', '请选择中转站导出的备份文件');
-  if (Number(backup.version) > 4) throw new legacy.RelayDataError('future-version', '备份来自更新版本，请更新页面后恢复');
+  if (!object(backup) || backup.format !== 'fadian-tag-relay' || !object(backup.state)) throw new legacy.RelayDataError('invalid-backup', '选择中转站导出的备份文件');
+  if (Number(backup.version) > 4) throw new legacy.RelayDataError('future-version', '备份来自更新版本，刷新页面后再恢复');
   try { return parseStoredState(JSON.stringify(backup.state)); } catch (error) {
     if (error.reason === 'future-version' || error.reason === 'migration-mismatch') throw error;
     throw new legacy.RelayDataError('invalid-backup', '备份结构不完整，现有方案保持原样');

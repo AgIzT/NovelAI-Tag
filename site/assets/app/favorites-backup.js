@@ -62,7 +62,7 @@ function localDateStamp(now = new Date()) {
 function downloadJson(text, { recovery = false } = {}) {
   const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
   if (!recovery && blob.size > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
-    throw new FavoritesBackupError('FILE_TOO_LARGE', '生成的备份超过 2 MiB，无法导出');
+    throw new FavoritesBackupError('FILE_TOO_LARGE', '生成的备份超过 2 MB，无法导出。取消一部分收藏后重试');
   }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -91,7 +91,7 @@ function friendlyError(error) {
     INVALID_ATLAS_ITEM: '备份中包含无效的法典收藏标识，未进行恢复。',
     INVALID_COMMUNITY_ITEM: '备份中包含无效的共创广场收藏标识，未进行恢复。',
     TOO_MANY_ITEMS: '备份中的收藏数量超过 30,000 条，未进行恢复。',
-    FILE_TOO_LARGE: '文件超过 2 MiB，无法作为收藏备份处理。',
+    FILE_TOO_LARGE: '文件超过 2 MB，无法作为收藏备份处理。',
     STORAGE_READ_FAILED: '无法读取当前浏览器收藏，未进行恢复。',
     STORAGE_WRITE_FAILED: '浏览器存储空间不足或不可用，收藏未发生变化。',
     STORAGE_ROLLBACK_FAILED: '收藏写入失败，且无法完整恢复原数据；重新导出当前收藏进行核对。',
@@ -408,7 +408,7 @@ export function setupFavoritesBackup(options = {}) {
   const prepareImportText = async (text, label) => {
     const bytes = new TextEncoder().encode(String(text || '')).byteLength;
     if (bytes > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
-      throw new FavoritesBackupError('FILE_TOO_LARGE', '备份文本超过 2 MiB，无法处理');
+      throw new FavoritesBackupError('FILE_TOO_LARGE', '备份文本超过 2 MB，无法处理');
     }
     selectedFileName = label;
     const codexes = await resolveCodexes();
@@ -528,7 +528,7 @@ export function setupFavoritesBackup(options = {}) {
       if (!current.atlasKeys.length && !current.library.folders.length && (localEdition || !current.communityIds.length)) {
         setStatus(current.skippedCount
           ? `暂无有效收藏可备份。${skippedStatus(current.skippedCount)}`
-          : '暂无收藏可备份。');
+          : '暂无收藏可备份');
         return;
       }
       downloadJson(serializeLibraryFavorites({
@@ -554,7 +554,7 @@ export function setupFavoritesBackup(options = {}) {
     const current = await readCurrent();
     if (corruptRecovery) { setError('当前收藏数据无法读取，使用「导出当前原始数据」保存。'); return null; }
     if (!current.atlasKeys.length && !current.library.folders.length && (localEdition || !current.communityIds.length)) {
-      setStatus('暂无收藏可备份。');
+      setStatus('暂无收藏可备份');
       return null;
     }
     const json = serializeLibraryFavorites({
@@ -653,7 +653,7 @@ export function setupFavoritesBackup(options = {}) {
     resetImport();
     selectedFileName = file.name;
     if (file.size > FAVORITES_BACKUP_LIMITS.maxFileBytes) {
-      setError('文件超过 2 MiB，无法作为收藏备份读取。');
+      setError('文件超过 2 MB，无法作为收藏备份读取。');
       return;
     }
     setBusy(true);

@@ -496,7 +496,7 @@ function execDocument(result) {
   ]);
   assert.match(copySource, /label: '再复制负面'/);
   assert.match(copySource, /const message = `\$\{negative \? '已复制正向' : '已复制'\}\$\{charNote\}：\$\{e\.title\}`/);
-  assert.match(copySource, /playCopySample\(node, formatted\.text, options\.sampleLabel, \{[\s\S]*flyTo:/);
+  assert.match(copySource, /playCopySample\(node, formatted\.text, options\.sampleLabel \|\| sampleLabelFrom\(message\), \{[\s\S]*flyTo:/);
   /* 入库必须排在动效之前：芯片抛不抛向中转站取决于这次到底存没存进去 */
   assert.match(copySource, /const relaySnapshot = [^;]*prepareCopiedEntry\(options\.entry\)[^;]*;[\s\S]*await writeClipboardText/);
   assert.match(copySource, /const accessSnapshot = relaySnapshot[\s\S]*options\.accessEntry \? prepareCopiedEntry\(options\.accessEntry\)[\s\S]*options\.accessSnapshot[\s\S]*snapshotLocked\(accessSnapshot\)/);
@@ -507,7 +507,7 @@ function execDocument(result) {
   assert.match(copySource, /onClick: \(\) => copyText\(followUp\.text[\s\S]*accessSnapshot/);
   /* opt-in：不传 entry 的复制不得入库 */
   assert.doesNotMatch(copySource, /recordPreparedCopiedEntry\(\s*\)/);
-  assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false \}\)/);
+  assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false, sampleCount: false \}\)/);
   assert.match(lightboxSource, /copyText\(negative[\s\S]*sampleLabel: '已复制负面'/);
   assert.match(lightboxSource, /#copyRawTag[\s\S]*copyText\(item\.rawTag[\s\S]*accessEntry: e/);
   assert.match(masonrySource, /copyText\(e\.negative[\s\S]*sampleLabel: '已复制负面'/);

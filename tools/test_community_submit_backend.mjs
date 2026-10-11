@@ -5,7 +5,8 @@ import { readFile } from 'node:fs/promises';
 import { onRequestPost as submitPost } from '../functions/api/submit.js';
 import { onRequestGet as communityGet } from '../functions/api/community.js';
 import { onRequestGet as adminGet, onRequestPost as adminPost } from '../functions/api/admin/community/[[path]].js';
-import { toEntry, normalizeCommunityRecord } from '../functions/_lib.js';
+import { toEntry, normalizeCommunityRecord, LIMITS } from '../functions/_lib.js';
+import { readPngTextChunks, PARAMS_INFLATE_LIMITS } from '../functions/_params_core.js';
 
 // ---- 防漂移：functions/_params_core.js 必须与 site 端字节一致（Pages 构建不跨目录 import 的保守复制方案） ----
 {
@@ -123,7 +124,7 @@ const env = {
   });
   const data = await res.json();
   assert.equal(res.status, 413, JSON.stringify(data));
-  assert.match(data.error, /总体积过大/);
+  assert.match(data.error, /总体积超过 \d+ MB/);
   assert.equal(bucket.objects.size, 0, '请求体预检失败不得写入 R2');
 }
 
@@ -291,6 +292,69 @@ function adminContext(method, path, body, query = '') {
   assert.equal(entry.images[0].params, undefined);
   assert.equal(entry.images[0].label, 'gallery');
   console.log('  ok  legacy: 旧记录零迁移兼容');
+}
+
+// ---- 8. 压缩文本块解压有上限：单块超限整块跳过，同图合计超限后续块跳过，正常块照常读取 ----
+{
+  const enc = new TextEncoder();
+  const deflate = async bytes => new Uint8Array(await new Response(
+    new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate')),
+  ).arrayBuffer());
+  const ztxt = async (keyword, text) => {
+    const body = await deflate(enc.encode(text));
+    const data = new Uint8Array(keyword.length + 2 + body.length);
+    data.set(enc.encode(keyword), 0); // keyword \0 method(0) compressed-text
+    data.set(body, keyword.length + 2);
+    return pngChunk('zTXt', data);
+  };
+  const withChunks = (base, chunks) => {
+    const iend = base.length - 12; // makePng 以空 IEND 结尾
+    const parts = [base.subarray(0, iend), ...chunks, base.subarray(iend)];
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const p of parts) { out.set(p, at); at += p.length; }
+    return out;
+  };
+  const { chunkBytes, totalBytes } = PARAMS_INFLATE_LIMITS;
+
+  const small = withChunks(makePng({ texts: { Software: 'NovelAI' } }), [await ztxt('Comment', '{"prompt":"zipped"}')]);
+  const smallChunks = await readPngTextChunks(small.buffer);
+  assert.equal(smallChunks.find(c => c.keyword === 'Comment')?.text, '{"prompt":"zipped"}', '正常压缩块照常解压');
+
+  const oversized = withChunks(makePng({ texts: { Software: 'NovelAI' } }), [await ztxt('Comment', 'a'.repeat(chunkBytes + 1))]);
+  const oversizedChunks = await readPngTextChunks(oversized.buffer);
+  assert.equal(oversizedChunks.some(c => c.keyword === 'Comment'), false, '单块解压超过上限时整块跳过');
+  assert.equal(oversizedChunks.find(c => c.keyword === 'Software')?.text, 'NovelAI', '同图其它块不受影响');
+
+  const slice = Math.floor(chunkBytes * 0.75);
+  assert.ok(slice * 3 > totalBytes && slice * 2 <= totalBytes, '夹具要让第三块越过合计上限');
+  const many = withChunks(makePng(), [
+    await ztxt('one', 'b'.repeat(slice)), await ztxt('two', 'c'.repeat(slice)), await ztxt('three', 'd'.repeat(slice)),
+  ]);
+  const manyChunks = await readPngTextChunks(many.buffer);
+  assert.deepEqual(manyChunks.map(c => c.keyword), ['one', 'two'], '合计超过上限后，后续压缩块不再解压');
+  console.log('  ok  params: 压缩文本块解压上限');
+}
+
+// ---- 9. 待审区已满时，在读表单、解析原图之前就拒绝 ----
+{
+  const fullBucket = new MemoryR2();
+  for (let i = 0; i < LIMITS.pendingMax; i++) {
+    await fullBucket.put(`community/pending/full-${i}.json`, '{}');
+  }
+  const before = fullBucket.objects.size;
+  const fd = new FormData();
+  fd.append('prompt', 'queue full');
+  fd.append('images', new File([new Uint8Array([1, 2, 3, 4])], '1.jpg', { type: 'image/jpeg' }));
+  const res = await submitPost({
+    env: { ...env, STRINGS_BUCKET: fullBucket },
+    request: new Request('https://example.test/api/submit', { method: 'POST', body: fd }),
+  });
+  const data = await res.json();
+  assert.equal(res.status, 429, JSON.stringify(data));
+  assert.match(data.error, /待审投稿已满/, '队列已满应先于图片校验返回，而不是报「不是有效图片」');
+  assert.equal(fullBucket.objects.size, before, '队列已满时不得写入任何对象');
+  console.log('  ok  submit: 队列已满先于解析拒绝');
 }
 
 console.log('community submit backend: PASS');

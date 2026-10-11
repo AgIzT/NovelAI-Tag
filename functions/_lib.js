@@ -98,8 +98,8 @@ export function publicBase(env) {
 
 // 存储相关配置齐全则返回 null，否则返回应直接回给客户端的错误 Response
 export function requireStorage(env) {
-  if (!env.STRINGS_BUCKET) return err('服务端未绑定存储桶 STRINGS_BUCKET（见配置指南第 3 步）', 503);
-  if (!publicBase(env)) return err('服务端未配置 STRINGS_PUBLIC_BASE（新存储桶的公开地址，见配置指南第 4 步）', 503);
+  if (!env.STRINGS_BUCKET) return err('服务暂不可用，稍后重试（服务端未绑定存储桶 STRINGS_BUCKET）', 503);
+  if (!publicBase(env)) return err('服务暂不可用，稍后重试（服务端未配置 STRINGS_PUBLIC_BASE）', 503);
   return null;
 }
 
@@ -147,16 +147,16 @@ function equalAdminTokenDigests(left, right) {
 // 管理接口口令校验；通过返回 null，失败返回应直接回给客户端的 Response
 export async function requireAdmin(context) {
   const token = String(context.env.ADMIN_TOKEN || '').trim();
-  if (!token) return err('服务端未配置 ADMIN_TOKEN（见配置指南）', 503);
+  if (!token) return err('后台未配置管理口令：在 Cloudflare Pages 环境变量中设置 ADMIN_TOKEN', 503);
   const auth = context.request.headers.get('authorization') || '';
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) return err('管理口令错误或未提供', 401);
+  if (!m) return err('管理口令无效，重新填写后点「进入后台」', 401);
   const [providedDigest, expectedDigest] = await Promise.all([
     digestAdminToken(m[1].trim()),
     digestAdminToken(token),
   ]);
   if (!equalAdminTokenDigests(providedDigest, expectedDigest)) {
-    return err('管理口令错误或未提供', 401);
+    return err('管理口令无效，重新填写后点「进入后台」', 401);
   }
   return null;
 }

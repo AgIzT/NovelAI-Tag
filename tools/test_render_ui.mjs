@@ -1459,15 +1459,15 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(onboardingSource, /function finishOnboarding\(\) \{\s*try \{\s*localStorage\.setItem/);
   assert.match(onboardingSource, /export function openOnboarding\(\{ trigger = document\.activeElement, historyMode = 'push' \} = \{\}\)/);
   assert.equal((onboardingSource.match(/cls: 'obs-[1-4]'/g) || []).length, 4);
-  assert.match(onboardingSource, /十本法典随时切，也能全站搜/);
-  assert.match(onboardingSource, /点顶栏书名可在十本法典间切换/);
+  assert.match(onboardingSource, /多本法典随时切，也能全站搜/);
+  assert.match(onboardingSource, /点顶栏书名切换法典/);
   assert.match(onboardingSource, /社区整理的 NovelAI 提示词法典图鉴/);
   assert.match(indexSource, /id="onboardingStep"[^>]*>1 \/ 4</);
   assert.equal((indexSource.match(/class="onboarding-dot(?: active)?"/g) || []).length, 4);
   assert.match(indexSource, /id="onboardingBtn"/);
   assert.match(uiSource, /onboardingBtn\.onclick = \(\) => \{[\s\S]*openOnboarding\(\{/);
   assert.match(indexSource, /id="communityBrowseLink"[^>]*href="\/strings\.html"/);
-  assert.match(codexUiSource, /<span class="cd-name">社区共建 · 去投稿<\/span>/);
+  assert.match(codexUiSource, /<span class="cd-name">共创广场 · 投稿<\/span>/);
   assert.match(codexUiSource, /图片与提示词作品/);
   assert.doesNotMatch(codexUiSource, /这里是大家的画风串/);
   assert.match(localEditionBuilderSource, /body\.local-edition #communityBrowseLink,/);

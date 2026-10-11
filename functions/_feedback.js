@@ -45,7 +45,7 @@ export const FEEDBACK_PROGRESS = Object.freeze({
   }),
   declined: Object.freeze({
     label: '暂不采纳',
-    description: '评估后暂不采纳，具体原因请查看回复。',
+    description: '评估后暂不采纳，原因见维护者回复。',
     status: 'ignored',
   }),
 });
@@ -206,49 +206,73 @@ export function sanitizePublicFeedbackProjection(value) {
   };
 }
 
+/* 公开快照是「读整份 → 内存里改一条 → 写回整份」。两个后台操作同时进行时，后写的一方会用自己读到的旧快照
+   把另一方刚做的修改（例如撤回公开）整份盖回去。所以写回只在快照仍是刚读到的那个版本时才写（etag 条件写），
+   版本变了就重读、重做这次修改再写。快照还不存在时只能直接写，这只会在第一次生成时发生。 */
+const PUBLIC_INDEX_WRITE_ATTEMPTS = 5;
+
+async function readPublicFeedbackIndex(bucket) {
+  const object = await bucket.get(FEEDBACK_PUBLIC_INDEX_KEY);
+  if (!object) return { index: null, etag: null };
+  try { return { index: await object.json(), etag: object.etag }; } catch { return { index: null, etag: object.etag }; }
+}
+
+function publicIndexConflict() {
+  return new Error('公开反馈列表同时有其它修改，重新保存这条反馈');
+}
+
 export async function updatePublicFeedbackIndex(
   bucket,
   { upsertRecord = null, upsertStatus = '', removeIds = [] } = {},
 ) {
-  const index = await readJson(bucket, FEEDBACK_PUBLIC_INDEX_KEY);
-  const byId = publicFeedbackMap(index?.items);
-  const sizeBeforeRemoval = byId.size;
-  let removedFromIndex = false;
-  for (const id of removeIds || []) {
-    removedFromIndex = byId.delete(String(id || '')) || removedFromIndex;
+  for (let attempt = 0; attempt < PUBLIC_INDEX_WRITE_ATTEMPTS; attempt += 1) {
+    const { index, etag } = await readPublicFeedbackIndex(bucket);
+    const byId = publicFeedbackMap(index?.items);
+    const sizeBeforeRemoval = byId.size;
+    let removedFromIndex = false;
+    for (const id of removeIds || []) {
+      removedFromIndex = byId.delete(String(id || '')) || removedFromIndex;
+    }
+    if (
+      removedFromIndex
+      && sizeBeforeRemoval >= FEEDBACK_PUBLIC_LIMIT
+      && !upsertRecord
+    ) {
+      return rebuildPublicFeedbackIndex(bucket, { excludeIds: removeIds });
+    }
+    if (upsertRecord && typeof upsertRecord === 'object') {
+      const id = String(upsertRecord.id || '');
+      const item = sanitizePublicFeedbackRecord(upsertRecord, upsertStatus);
+      if (item) byId.set(item.id, item);
+      else if (id) byId.delete(id);
+    }
+    const written = await writePublicFeedbackIndex(bucket, byId.values(), etag);
+    if (written) return written;
   }
-  if (
-    removedFromIndex
-    && sizeBeforeRemoval >= FEEDBACK_PUBLIC_LIMIT
-    && !upsertRecord
-  ) {
-    return rebuildPublicFeedbackIndex(bucket, { excludeIds: removeIds });
-  }
-  if (upsertRecord && typeof upsertRecord === 'object') {
-    const id = String(upsertRecord.id || '');
-    const item = sanitizePublicFeedbackRecord(upsertRecord, upsertStatus);
-    if (item) byId.set(item.id, item);
-    else if (id) byId.delete(id);
-  }
-  return writePublicFeedbackIndex(bucket, byId.values());
+  throw publicIndexConflict();
 }
 
 export async function rebuildPublicFeedbackIndex(bucket, { excludeIds = [] } = {}) {
   const excluded = new Set(Array.from(excludeIds || [], value => String(value || '')));
-  const groups = await Promise.all(FEEDBACK_STATUSES.map(async status => {
-    const keys = (await listAll(bucket, `feedback/${status}/`))
-      .filter(key => key.endsWith('.json'));
-    const records = await readJsonBatch(bucket, keys);
-    return records
-      .map(record => sanitizePublicFeedbackRecord(record, status))
-      .filter(item => item && !excluded.has(item.id));
-  }));
-  const byId = new Map();
-  for (const item of groups.flat()) {
-    const current = byId.get(item.id);
-    if (!current || item.updatedAt >= current.updatedAt) byId.set(item.id, item);
+  for (let attempt = 0; attempt < PUBLIC_INDEX_WRITE_ATTEMPTS; attempt += 1) {
+    const { etag } = await readPublicFeedbackIndex(bucket);
+    const groups = await Promise.all(FEEDBACK_STATUSES.map(async status => {
+      const keys = (await listAll(bucket, `feedback/${status}/`))
+        .filter(key => key.endsWith('.json'));
+      const records = await readJsonBatch(bucket, keys);
+      return records
+        .map(record => sanitizePublicFeedbackRecord(record, status))
+        .filter(item => item && !excluded.has(item.id));
+    }));
+    const byId = new Map();
+    for (const item of groups.flat()) {
+      const current = byId.get(item.id);
+      if (!current || item.updatedAt >= current.updatedAt) byId.set(item.id, item);
+    }
+    const written = await writePublicFeedbackIndex(bucket, byId.values(), etag);
+    if (written) return written;
   }
-  return writePublicFeedbackIndex(bucket, byId.values());
+  throw publicIndexConflict();
 }
 
 function publicFeedbackMap(items) {
@@ -262,7 +286,8 @@ function publicFeedbackMap(items) {
   return byId;
 }
 
-async function writePublicFeedbackIndex(bucket, items) {
+// etag 为 null 表示快照原本不存在，直接写；否则只在版本未变时写，版本变了返回 null 交给调用方重试。
+async function writePublicFeedbackIndex(bucket, items, etag) {
   const now = new Date();
   const payload = {
     version: 1,
@@ -272,10 +297,11 @@ async function writePublicFeedbackIndex(bucket, items) {
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, FEEDBACK_PUBLIC_LIMIT),
   };
-  await bucket.put(FEEDBACK_PUBLIC_INDEX_KEY, JSON.stringify(payload), {
+  const written = await bucket.put(FEEDBACK_PUBLIC_INDEX_KEY, JSON.stringify(payload), {
     httpMetadata: { contentType: 'application/json; charset=utf-8' },
+    ...(etag ? { onlyIf: { etagMatches: etag } } : {}),
   });
-  return payload;
+  return written ? payload : null;
 }
 
 function sanitizePublicContext(value) {

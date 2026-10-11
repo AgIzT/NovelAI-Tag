@@ -21,7 +21,7 @@ export async function onRequestPost(context) {
   const keys = (await listAll(env.STRINGS_BUCKET, `feedback/${status}/`))
     .filter(key => key.endsWith(`/${id}.json`));
   const recordKey = keys[0] || '';
-  if (!recordKey) return err('该反馈不存在或已被删除', 404);
+  if (!recordKey) return err('这条反馈不存在或已被删除，点「刷新反馈」重新加载', 404);
 
   const record = await readJson(env.STRINGS_BUCKET, recordKey);
   if (record?.publicVisible === true) {

@@ -81,6 +81,25 @@ const original = JSON.stringify({ version: 1, enabled: false, words: ['old-word'
 storage.set(BLOCKING_STORAGE_KEY, original);
 assert.equal(loadContentBlocking().ok, true);
 const known = getBlockingPreferences();
+// 合并后的失败提示仍须走事务保存：正文写入失败时保留清单、信号及内存。
+for (const [name, reason, message] of [
+  ['QuotaExceededError', 'quota', '浏览器存储已满'],
+  ['NS_ERROR_DOM_QUOTA_REACHED', 'quota', '浏览器存储已满'],
+  ['SecurityError', 'storage', '浏览器不允许本站保存数据'],
+]) {
+  const signalBefore = storage.get(BLOCKING_SIGNAL_KEY);
+  localStorage.setItem = (key, value) => {
+    if (key === BLOCKING_STORAGE_KEY) throw new DOMException('body write denied', name);
+    return write(key, value);
+  };
+  const failed = await addBlockedWords('write-failed-word');
+  assert.equal(failed.reason, reason);
+  assert.ok(failed.error.includes(message), `${name} 提供对应的恢复提示`);
+  assert.equal(storage.get(BLOCKING_STORAGE_KEY), original, `${name} 保留正文原字节`);
+  assert.equal(storage.get(BLOCKING_SIGNAL_KEY), signalBefore, `${name} 不发布新信号`);
+  assert.deepEqual(getBlockingPreferences(), known, `${name} 不安装未保存清单`);
+}
+localStorage.setItem = write;
 localStorage.getItem = key => {
   if (key === BLOCKING_STORAGE_KEY) throw new Error('temporarily unavailable');
   return read(key);

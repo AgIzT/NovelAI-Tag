@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import sys
 import unittest
+import copy
+import json
+import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -26,6 +33,7 @@ from import_nai5_community_pack import (  # noqa: E402
     suozhang_batch_path,
     suozhang_entry_title,
 )
+import import_nai5_community_pack as importer  # noqa: E402
 
 
 def row(entry_id: str, index: int, *, accepted: bool, reason: str, prompt: str) -> dict:
@@ -257,6 +265,231 @@ class SuozhangSerialNumberTests(unittest.TestCase):
             {"title": "未编号的名字·无编号"},
         ]
         self.assertEqual(_maximum_suozhang_title(entries), 40)
+
+
+class CurrentDreamValidationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        evidence = Path(__file__).resolve().parents[1] / "output" / "codex-review-20261011" / "05-导入器校验与真机走查"
+        evidence.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(prefix="B-test-", dir=evidence)
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.thumbs = self.root / "site" / "images" / CODEX_ID
+        self.originals = self.root / "originals" / CODEX_ID
+        self.thumbs.mkdir(parents=True)
+        self.originals.mkdir(parents=True)
+        self.addCleanup(mock.patch.stopall)
+        mock.patch.multiple(importer, ROOT=self.root, IMAGE_ROOT=self.thumbs.parent, ORIGINAL_ROOT=self.originals.parent).start()
+        mock.patch.object(importer, "dream_takedown_state", return_value=(set(), set())).start()
+        mock.patch.object(importer, "extract_image_metadata", return_value=SimpleNamespace(
+            prompt="1girl, outdoors", negative="bad quality", character_prompts=[],
+        )).start()
+        self.entry = self.make_entry(f"{CODEX_ID}_mengshen_0006", DREAM_SAFE_PATH, "red")
+        self.rows = [self.source_row(self.entry)]
+        self.book = {
+            "id": CODEX_ID, "type": "pack", "title": "Book", "version": "2026.10.8",
+            "entryCount": 1, "imagedCount": 1, "cover": self.entry["image"], "coverRev": "cover-rev",
+            "tree": importer.build_tree([self.entry]), "entries": [self.entry],
+        }
+        self.index = [{**importer.index_meta(self.book), "selectorTitle": "人工选择器标题"}]
+        self.suspension = {"entries": [], "assets": []}
+
+    def make_entry(self, entry_id: str, path: tuple[str, ...], color: str) -> dict:
+        Image.new("RGB", (64, 64), color).save(self.thumbs / f"{entry_id}.jpg")
+        Image.new("RGB", (64, 64), color).save(self.originals / f"{entry_id}.png")
+        return {
+            "id": entry_id, "title": "人工译名", "serialTitle": "社区精选 006",
+            "path": list(path), "rating": "safe", "tags": "1girl, outdoors", "negative": "bad quality",
+            "image": f"{entry_id}.jpg", "original": f"{entry_id}.png", "imageWidth": 64, "imageHeight": 64,
+            "images": [{"path": f"{entry_id}.jpg", "original": f"{entry_id}.png"}], "assetRev": "rev",
+        }
+
+    def source_row(self, entry: dict) -> dict:
+        return {"accepted": True, "sha256": importer.sha256_file(self.originals / entry["original"]), "relativePath": "6.png", "sourceNumber": 6}
+
+    def validate(self) -> dict:
+        return importer.validate_current_dream_payload(self.book, self.rows, {"blockers": []}, self.index, self.suspension)
+
+    def test_current_version_manual_title_and_index_only_fields_are_valid(self) -> None:
+        result = self.validate()
+        self.assertEqual(result["issues"], [])
+        self.assertTrue(result["ok"])
+
+    def test_whole_book_nsfw_is_rejected_even_when_index_matches(self) -> None:
+        self.book["nsfw"] = True
+        self.index[0]["nsfw"] = True
+        result = self.validate()
+        self.assertIn("unexpected_codex_nsfw", result["issues"])
+        self.assertFalse(result["ok"])
+
+    def test_missing_or_blank_version_is_rejected_even_when_index_matches(self) -> None:
+        for value in (None, "", "   "):
+            with self.subTest(value=value):
+                if value is None:
+                    self.book.pop("version", None)
+                    self.index[0].pop("version", None)
+                else:
+                    self.book["version"] = self.index[0]["version"] = value
+                result = self.validate()
+                self.assertIn("version_missing", result["issues"])
+                self.assertFalse(result["ok"])
+
+    def test_prompt_negative_and_character_tampering_is_reported(self) -> None:
+        for field, value, issue in (
+            ("tags", "tampered", "original_prompt"),
+            ("negative", "tampered", "original_negative"),
+            ("characterPrompts", [{"label": "char1", "prompt": "tampered"}], "original_character_prompts"),
+        ):
+            with self.subTest(field=field):
+                changed = copy.deepcopy(self.book)
+                changed["entries"][0][field] = value
+                result = importer.validate_current_dream_payload(changed, self.rows, {"blockers": []}, self.index, self.suspension)
+                self.assertIn(f"{self.entry['id']}:{issue}", result["issues"])
+
+    def test_missing_media_and_index_count_fail(self) -> None:
+        (self.thumbs / self.entry["image"]).unlink()
+        self.index[0]["entryCount"] = 2
+        result = self.validate()
+        self.assertIn(f"{self.entry['id']}:missing_thumb", result["issues"])
+        self.assertIn("index_metadata:entryCount", result["issues"])
+        self.assertIn("index_cover_asset_missing", result["issues"])
+
+    def test_asset_names_are_unique_per_owner_across_entries(self) -> None:
+        other = self.make_entry(f"{CODEX_ID}_mengshen_korean_0001", (importer.DREAM_ROOT_LABEL, "韩网整理", "常规"), "blue")
+        other["image"] = other["images"][0]["path"] = self.entry["image"]
+        self.book.update({"entries": [self.entry, other], "entryCount": 2, "imagedCount": 2})
+        self.book["tree"] = importer.build_tree(self.book["entries"])
+        self.index = [importer.index_meta(self.book)]
+        result = self.validate()
+        self.assertTrue(any("cross_entry_thumb_name_duplicate" in issue for issue in result["issues"]))
+
+        owner = "another-asset-owner"
+        owner_thumbs, owner_originals = self.thumbs.parent / owner, self.originals.parent / owner
+        owner_thumbs.mkdir()
+        owner_originals.mkdir()
+        (owner_thumbs / self.entry["image"]).write_bytes((self.thumbs / self.entry["image"]).read_bytes())
+        (owner_originals / self.entry["original"]).write_bytes((self.originals / other["original"]).read_bytes())
+        other["assetCodexId"] = owner
+        other["original"] = other["images"][0]["original"] = self.entry["original"]
+        self.assertEqual(self.validate()["issues"], [])
+
+    def test_unknown_accepted_source_is_never_silently_exempted(self) -> None:
+        self.rows.append({"accepted": True, "relativePath": "unknown.png", "sha256": "f" * 64})
+        result = self.validate()
+        self.assertEqual(result["sourceCoverage"]["unknownMissingSourceImages"][0]["source"], "unknown.png")
+        self.assertFalse(result["ok"])
+
+    def test_current_original_missing_from_source_fails(self) -> None:
+        self.rows.clear()
+        result = self.validate()
+        self.assertEqual(len(result["sourceCoverage"]["currentDreamHashesAbsentFromSource"]), 1)
+        self.assertFalse(result["ok"])
+
+    def test_explicit_empty_categories_and_maintained_tree_order_are_valid(self) -> None:
+        self.book["emptyCategories"] = [["手工空分类"]]
+        self.book["tree"].insert(0, {"name": "手工空分类", "count": 0, "children": []})
+        self.index = [importer.index_meta(self.book)]
+        self.assertEqual(self.validate()["issues"], [])
+        self.book["tree"][1]["count"] = 999
+        self.assertIn("tree", self.validate()["issues"])
+
+    def test_private_active_takedown_requires_exact_registered_original_hash(self) -> None:
+        path = self.root / "tools" / "data" / "image_takedowns.json"
+        path.parent.mkdir(parents=True)
+        removed_id = f"{CODEX_ID}_mengshen_0224"
+        registered_hash = "f" * 64
+        path.write_text(json.dumps({"schemaVersion": 1, "cases": [{
+            "caseId": "confirmed-removal", "status": "active", "members": [{
+                "scope": "entry", "entryId": removed_id,
+                "assets": [{"kind": "original", "r2Key": f"originals/{CODEX_ID}/{removed_id}.png", "sha256": registered_hash}],
+            }],
+        }]}), encoding="utf-8")
+        self.rows.append({"accepted": True, "relativePath": "224.png", "sha256": registered_hash})
+        result = self.validate()
+        self.assertEqual(result["issues"], [])
+        self.assertEqual(result["sourceCoverage"]["registeredTakedownMatches"][0]["entryId"], removed_id)
+        self.rows[-1]["sha256"] = "a" * 64
+        self.assertFalse(self.validate()["ok"])
+
+    def suspend_entry(self) -> None:
+        self.suspension = {
+            "entries": [copy.deepcopy(self.entry)],
+            "assets": [
+                {"entryId": self.entry["id"], "kind": kind, "local": f"{folder}/{CODEX_ID}/{name}", "sha256": importer.sha256_file(directory / name)}
+                for kind, folder, directory, name in (
+                    ("image", "site/images", self.thumbs, self.entry["image"]),
+                    ("original", "originals", self.originals, self.entry["original"]),
+                )
+            ],
+        }
+        cover = self.make_entry(f"{CODEX_ID}_mengshen_korean_0001", (importer.DREAM_ROOT_LABEL, "韩网整理", "常规"), "blue")
+        self.book.update({"entries": [cover], "tree": importer.build_tree([cover]), "cover": cover["image"]})
+        self.index = [{**importer.index_meta(self.book), "selectorTitle": "人工选择器标题"}]
+
+    def test_exact_suspension_hashes_and_replacement_cover_are_valid(self) -> None:
+        self.suspend_entry()
+        result = self.validate()
+        self.assertEqual(result["issues"], [])
+        self.assertEqual(result["sourceCoverage"]["suspendedHashMatches"], 1)
+        self.assertEqual(result["unreferencedAssetFiles"], [])
+
+    def test_retained_original_alias_needs_exact_hash_and_registered_target(self) -> None:
+        self.suspend_entry()
+        alias = self.make_entry(f"{CODEX_ID}_mengshen_0388", DREAM_SAFE_PATH, "green")
+        self.suspension["aliases"] = {alias["id"]: self.entry["id"]}
+        self.index = [importer.index_meta(self.book)]
+        self.rows.append(self.source_row(alias))
+        result = self.validate()
+        self.assertEqual(result["issues"], [])
+        self.assertEqual(result["sourceCoverage"]["registeredAliasMatches"][0]["targetEntryId"], self.entry["id"])
+        self.rows[-1]["sha256"] = "f" * 64
+        self.assertFalse(self.validate()["ok"])
+
+    def test_registered_suspended_media_cannot_be_corrupted_or_republished(self) -> None:
+        self.suspend_entry()
+        (self.originals / self.entry["original"]).write_bytes(b"changed")
+        result = self.validate()
+        self.assertIn(f"{self.entry['id']}:original:suspended_asset_hash", result["issues"])
+        self.book["entries"].append(self.entry)
+        result = self.validate()
+        self.assertIn(f"{self.entry['id']}:registered_removed_entry_is_public", result["issues"])
+
+    def test_suspension_registry_requires_complete_precise_asset_set(self) -> None:
+        self.suspend_entry()
+        report = self.root / "suspension.json"
+        payload = {
+            "status": "temporary_suspension", "mediaPolicy": "retain_local_and_r2_no_delete",
+            "codexId": CODEX_ID, "pathPrefix": [importer.DREAM_ROOT_LABEL, "社区整理"],
+            "entryCount": 1, "imageCount": 1, "removedEntries": self.suspension["entries"], "assets": self.suspension["assets"],
+        }
+        mock.patch.object(importer, "DREAM_SUSPENSION_REPORT", report).start()
+        before = report.parent / "before-data" / f"{CODEX_ID}.json"
+        before.parent.mkdir()
+        before.write_text(json.dumps({"id": CODEX_ID, "entries": self.suspension["entries"], "entryAliases": {
+            f"{CODEX_ID}_mengshen_0388": self.entry["id"],
+            f"{CODEX_ID}_mengshen_0999": "unknown-target",
+        }}), encoding="utf-8")
+        report.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        state = importer.dream_suspension_state()
+        self.assertEqual(len(state["assets"]), 2)
+        self.assertEqual(state["aliases"], {f"{CODEX_ID}_mengshen_0388": self.entry["id"]})
+        payload["assets"].pop()
+        report.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            importer.dream_suspension_state()
+
+    def test_validation_writes_failure_report_and_returns_nonzero(self) -> None:
+        (self.root / "data").mkdir()
+        (self.root / "data" / f"{CODEX_ID}.json").write_text(json.dumps(self.book), encoding="utf-8")
+        (self.root / "data" / "codexes.json").write_text(json.dumps(self.index), encoding="utf-8")
+        self.rows.append({"accepted": True, "relativePath": "unknown.png", "sha256": "f" * 64})
+        with mock.patch.multiple(importer, DATA_DIR=self.root / "data", DREAM_OUTPUT_DIR=self.root / "reports"), \
+             mock.patch.object(importer, "audit_dream_update_source", return_value=(self.rows, [], {"blockers": []})), \
+             mock.patch.object(importer, "dream_suspension_state", return_value=self.suspension):
+            with self.assertRaisesRegex(RuntimeError, "source_missing_from_current"):
+                importer.validate_dream_install(self.root, 1)
+        saved = json.loads((self.root / "reports" / "validation.json").read_text(encoding="utf-8"))
+        self.assertFalse(saved["ok"])
 
 
 if __name__ == "__main__":

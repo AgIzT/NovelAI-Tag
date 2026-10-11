@@ -299,7 +299,7 @@ export async function init() {
     console.error(ex);
     markIntroDataReady();
     hideSkeleton(initSkeletonToken);
-    setLoading('加载失败，请刷新页面重试');
+    setLoading('加载失败，刷新页面重试');
   }
 }
 
@@ -397,7 +397,7 @@ export async function loadCodex(id, options = {}) {
     if (fallback && fallback.id !== meta.id) {
       return loadCodex(fallback.id, { ...options, urlState: null, historyMode: 'replace' });
     }
-    setLoading('需要在设置中开启 NSFW 法典展示后才能查看');
+    setLoading('在设置中开启「显示 NSFW 内容」后可查看这本法典');
     return;
   }
   invalidateOrganizeRequest();
@@ -419,7 +419,7 @@ export async function loadCodex(id, options = {}) {
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
-      setLoading('加载失败，请刷新页面重试');
+      setLoading('加载失败，刷新页面重试');
     }
   } finally {
     if (pendingCodexLoad?.seq === seq) pendingCodexLoad = null;
@@ -461,7 +461,7 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
     if (!isCurrent()) return;
     console.error(ex);
     sw.abort();   // 横幅、标题、按钮退回仍在显示的那本（snapshotCodexIdentity）
-    setLoading('加载失败，请刷新页面重试');
+    setLoading('加载失败，刷新页面重试');
   } finally {
     if (pendingCodexLoad?.seq === seq) pendingCodexLoad = null;
   }
@@ -566,7 +566,7 @@ export async function openFavoritesView(options = {}) {
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
-      setLoading('加载失败，请刷新页面重试');
+      setLoading('加载失败，刷新页面重试');
     }
   } finally {
     hideSkeleton(seq);
@@ -627,7 +627,7 @@ export async function openSiteSearchView(options = {}) {
   } catch (ex) {
     if (seq === codexLoadSeq) {
       console.error(ex);
-      setLoading('全站搜索加载失败，请稍后重试');
+      setLoading('全站搜索加载失败，刷新页面重试');
     }
   } finally {
     hideSkeleton(seq);
@@ -776,7 +776,7 @@ function renderSearchExperience(plan, directoryOptions) {
   if (plan?.hasErrors) {
     renderSearchStatus({
       kind: 'error',
-      message: '查询条件有误，未执行宽泛搜索。',
+      message: '查询条件有误。',
       detail: state.searchIssues.map(issue => issue.message).filter(Boolean).join('；'),
       actions: [{ id: 'clear-all', label: '清空整个搜索', primary: true }],
     });

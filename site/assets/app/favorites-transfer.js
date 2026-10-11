@@ -51,7 +51,7 @@ async function streamBytes(stream, maxBytes) {
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel();
-      throw transferError('TRANSFER_TOO_LARGE', '迁移文本解压后超过 2 MiB');
+      throw transferError('TRANSFER_TOO_LARGE', '迁移文本解压后超过 2 MB，无法导入');
     }
     chunks.push(value);
   }
@@ -70,7 +70,7 @@ export async function encodeFavoritesTransfer(json, {
   const source = String(json || '').trim();
   const input = new TextEncoder().encode(source);
   if (input.byteLength > FAVORITES_TRANSFER_MAX_BYTES) {
-    throw transferError('TRANSFER_TOO_LARGE', '收藏数据超过文本迁移的 2 MiB 上限，请改用 JSON 文件');
+    throw transferError('TRANSFER_TOO_LARGE', '收藏数据超过 2 MB，无法生成迁移文本。取消一部分收藏后重试');
   }
   if (!Compression) return source;
   const compressed = new Blob([input]).stream().pipeThrough(new Compression('gzip'));
@@ -85,12 +85,12 @@ export async function decodeFavoritesTransfer(text, {
   const source = String(text || '').trim();
   if (!source.startsWith(FAVORITES_TRANSFER_PREFIX)) {
     if (new TextEncoder().encode(source).byteLength > maxBytes) {
-      throw transferError('TRANSFER_TOO_LARGE', '收藏数据超过文本迁移的 2 MiB 上限，请改用 JSON 文件');
+      throw transferError('TRANSFER_TOO_LARGE', '迁移文本超过 2 MB，无法导入');
     }
     return source;
   }
   if (!Decompression) {
-    throw transferError('DECOMPRESSION_UNSUPPORTED', '当前浏览器不能解压迁移文本，请改用 JSON 文件');
+    throw transferError('DECOMPRESSION_UNSUPPORTED', '当前浏览器不能解压迁移文本，改用 JSON 备份文件');
   }
   const compressed = base64UrlToBytes(
     source.slice(FAVORITES_TRANSFER_PREFIX.length),

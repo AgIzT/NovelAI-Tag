@@ -6,6 +6,7 @@ import {
   normImageParams,
 } from '../_lib.js';
 import { sniffImageKind, readPngSize, extractTextParams } from '../_params_core.js';
+import { reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
 
 // POST /api/submit — 游客投稿（multipart 表单）
 // 流程：字段/图片校验 → 压缩图 + 原图写入 R2 待审区
@@ -34,10 +35,15 @@ export async function onRequestPost({ request, env }) {
   const contentLength = Number(request.headers.get('content-length') || 0);
   const multipartAllowance = 8 * 1024 * 1024;
   if (contentLength > LIMITS.totalBytes + multipartAllowance) {
-    return err('图片总体积过大', 413);
+    return err(`图片总体积超过 ${Math.round(LIMITS.totalBytes / 1024 / 1024)} MB，减少图片后重新提交`, 413);
   }
+  // 待审区容量保险丝，防恶意灌水撑爆存储。放在读表单、解析原图之前：队列已满时不再花力气处理上传内容
+  const pend = await env.STRINGS_BUCKET.list({ prefix: 'community/pending/', limit: 1000 });
+  const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
+  if (pendCount >= LIMITS.pendingMax) return err('待审投稿已满，过几天再投稿', 429);
+
   let form;
-  try { form = await request.formData(); } catch { return err('请求格式错误'); }
+  try { form = await request.formData(); } catch { return err('投稿请求格式无效，重新打开投稿表单后提交'); }
 
   // 文本字段
   const prompt = cleanText(form.get('prompt'), LIMITS.prompt);
@@ -49,7 +55,7 @@ export async function onRequestPost({ request, env }) {
   const tags = normTags(form.get('tags'));
   const nsfw = ['1', 'true', 'on'].includes(String(form.get('nsfw') || '').toLowerCase());
 
-  if (!prompt) return err('Prompt 不能为空');
+  if (!prompt) return err('正向提示词不能为空');
 
   // 压缩图（必需，瀑布流展示）
   const files = form.getAll('images').filter(f => f && typeof f.arrayBuffer === 'function');
@@ -71,12 +77,12 @@ export async function onRequestPost({ request, env }) {
   const images = [];
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
-    if (f.size > LIMITS.imageBytes) return err(`第 ${i + 1} 张图超过 ${Math.round(LIMITS.imageBytes / 1024 / 1024)}MB`, 413);
+    if (f.size > LIMITS.imageBytes) return err(`第 ${i + 1} 张图超过 ${Math.round(LIMITS.imageBytes / 1024 / 1024)} MB，移除这张图或换用较小的图片`, 413);
     total += f.size;
-    if (total > LIMITS.totalBytes) return err('图片总体积过大', 413);
+    if (total > LIMITS.totalBytes) return err(`图片总体积超过 ${Math.round(LIMITS.totalBytes / 1024 / 1024)} MB，减少图片后重新提交`, 413);
     const buf = new Uint8Array(await f.arrayBuffer());
     const ext = sniffImageKind(buf);
-    if (!ext) return err(`第 ${i + 1} 张图不是有效的 JPEG/PNG/WebP 图片`);
+    if (!ext) return err(`第 ${i + 1} 张图不是有效的 JPEG/PNG/WebP 图片，重新选择这张图`);
 
     const image = { buf, ext, width: clampDim(metas[i].width), height: clampDim(metas[i].height) };
 
@@ -107,41 +113,46 @@ export async function onRequestPost({ request, env }) {
     images.push(image);
   }
 
-  // 待审区容量保险丝，防恶意灌水撑爆存储
-  const pend = await env.STRINGS_BUCKET.list({ prefix: 'community/pending/', limit: 1000 });
-  const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
-  if (pendCount >= LIMITS.pendingMax) return err('待审投稿已满，请过几天再来', 429);
+  // 并发保险：前面的 R2 计数只负责尽早拒绝；真正的上限在写入前用 D1 原子占位守住。
+  // 放在所有校验和解析之后，无效上传不会白占名额；D1 不可用时 slot 为 null，退回只看 R2 计数。
+  const slot = await reservePendingSlot(env, { queue: 'community', pendingCount: pendCount, max: LIMITS.pendingMax });
+  if (slot && !slot.reserved) return err('待审投稿已满，过几天再投稿', 429);
 
   // 写入 R2
   const id = crypto.randomUUID();
-  const stored = [];
-  for (let i = 0; i < images.length; i++) {
-    const im = images[i];
-    const key = `community/img/${id}/${i + 1}.${im.ext}`;
-    await env.STRINGS_BUCKET.put(key, im.buf, {
-      httpMetadata: { contentType: CONTENT_TYPES[im.ext], cacheControl: 'public, max-age=31536000, immutable' },
-    });
-    const record = { key };
-    if (im.origBuf) {
-      const origKey = `community/img/${id}/${i + 1}.orig.${im.origExt}`;
-      await env.STRINGS_BUCKET.put(origKey, im.origBuf, {
-        httpMetadata: { contentType: CONTENT_TYPES[im.origExt], cacheControl: 'public, max-age=31536000, immutable' },
+  try {
+    const stored = [];
+    for (let i = 0; i < images.length; i++) {
+      const im = images[i];
+      const key = `community/img/${id}/${i + 1}.${im.ext}`;
+      await env.STRINGS_BUCKET.put(key, im.buf, {
+        httpMetadata: { contentType: CONTENT_TYPES[im.ext], cacheControl: 'public, max-age=31536000, immutable' },
       });
-      record.origKey = origKey;
+      const record = { key };
+      if (im.origBuf) {
+        const origKey = `community/img/${id}/${i + 1}.orig.${im.origExt}`;
+        await env.STRINGS_BUCKET.put(origKey, im.origBuf, {
+          httpMetadata: { contentType: CONTENT_TYPES[im.origExt], cacheControl: 'public, max-age=31536000, immutable' },
+        });
+        record.origKey = origKey;
+      }
+      if (im.width && im.height) { record.width = im.width; record.height = im.height; }
+      if (im.params) record.params = im.params;
+      stored.push(record);
     }
-    if (im.width && im.height) { record.width = im.width; record.height = im.height; }
-    if (im.params) record.params = im.params;
-    stored.push(record);
-  }
 
-  const record = {
-    id, title, prompt, negative, comment, tags, category, nsfw, submitter,
-    images: stored,
-    createdAt: Date.now(),
-  };
-  await env.STRINGS_BUCKET.put(`community/pending/${id}.json`, JSON.stringify(record), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
+    const record = {
+      id, title, prompt, negative, comment, tags, category, nsfw, submitter,
+      images: stored,
+      createdAt: Date.now(),
+    };
+    await env.STRINGS_BUCKET.put(`community/pending/${id}.json`, JSON.stringify(record), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+    });
+  } catch (error) {
+    await releasePendingSlot(env, { queue: 'community', id: slot?.id });
+    throw error;
+  }
 
   return json({ ok: true, id }, 201);
 }

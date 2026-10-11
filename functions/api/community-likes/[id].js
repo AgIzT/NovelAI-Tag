@@ -37,7 +37,7 @@ async function handleLikeWrite(context, targetLiked) {
     const rate = await consumeCommunityLikeRateLimit(env, request, actorId);
     if (!rate.allowed) {
       return json(
-        { ok: false, error: '操作过于频繁，请稍后再试' },
+        { ok: false, error: '操作太频繁，稍后再试' },
         429,
         { 'retry-after': String(rate.retryAfter) },
       );

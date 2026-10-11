@@ -19,7 +19,7 @@ export async function onRequestPost(context) {
   if (typeof payload === 'string' && payload.length > PICKUP_MAX_PAYLOAD_CHARS) {
     return err('收藏数据超过取件码上限', 413);
   }
-  if (!validPickupPayload(payload)) return err('迁移文本格式无效');
+  if (!validPickupPayload(payload)) return err('收藏数据格式无效，重新点「生成取件码」');
 
   try {
     const rate = await consumePickupRateLimit(env, request, 'create');

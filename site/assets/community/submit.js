@@ -166,7 +166,7 @@ function setCategory(category) {
 const SOURCE_LABELS = {
   manual: '手动填写',
   read: '已从图片读出',
-  none: '图中未含参数',
+  none: '未读出生成参数',
 };
 
 function setPromptSource(type) {
@@ -193,7 +193,7 @@ export function addFiles(list) {
   addQueue = job.catch(error => {
     if (generation !== dialogGeneration) return;
     console.error('图片处理队列失败', error);
-    showError(error?.message || '图片处理失败');
+    showError(error?.message || '图片处理失败，重新选择这张图片');
   });
   return job;
 }
@@ -236,7 +236,7 @@ async function addFilesInner(list, generation) {
       if (file.size > LIMITS.origBytes) {
         item.noOriginal = true;
         item.params = null;
-        toast(`第 ${files.length + 1} 张原图超过 ${Math.round(LIMITS.origBytes / 1024 / 1024)}MB，将只收录压缩图`, '!');
+        toast(`第 ${files.length + 1} 张原图超过 ${Math.round(LIMITS.origBytes / 1024 / 1024)} MB，将只收录压缩图`, '!');
       } else if (totalUploadBytes() + blob.size + file.size > LIMITS.totalBytes) {
         item.noOriginal = true;
         item.params = null;
@@ -246,7 +246,7 @@ async function addFilesInner(list, generation) {
       clearError();
     } catch (error) {
       if (generation !== dialogGeneration) return;
-      showError(error.message || '图片处理失败');
+      showError(error.message || '图片处理失败，重新选择这张图片');
     }
   }
   if (generation === dialogGeneration) renderPreviews();
@@ -277,7 +277,7 @@ async function compressImage(file) {
   try {
     bitmap = await createImageBitmap(file);
   } catch {
-    throw new Error('无法读取图片：' + (file.name || ''));
+    throw new Error(`无法读取图片：${file.name || ''}，改选 JPEG、PNG 或 WebP 文件`);
   }
 
   const sourceWidth = bitmap.width;
@@ -295,8 +295,8 @@ async function compressImage(file) {
   bitmap.close?.();
 
   const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-  if (!blob) throw new Error('图片压缩失败');
-  if (blob.size > LIMITS.imageBytes) throw new Error('图片压缩后仍过大');
+  if (!blob) throw new Error('图片压缩失败，改选其他图片');
+  if (blob.size > LIMITS.imageBytes) throw new Error(`图片压缩后仍超过 ${Math.round(LIMITS.imageBytes / 1024 / 1024)} MB，移除这张图或换用尺寸较小的图片`);
   return { blob, width: sourceWidth, height: sourceHeight };
 }
 
@@ -350,11 +350,11 @@ async function submitCommunity(event) {
 
   const prompt = $('#subPrompt').value.trim();
   if (!files.length) {
-    showError('请至少添加 1 张图');
+    showError('至少添加 1 张图');
     return;
   }
   if (!prompt) {
-    showError('请填写 Prompt');
+    showError('填写正向提示词');
     return;
   }
   const generation = dialogGeneration;
@@ -394,7 +394,7 @@ async function submitCommunity(event) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) {
       if (generation === dialogGeneration) {
-        showError(data.error || `提交失败（HTTP ${response.status}）`);
+        showError(data.error || `投稿提交失败（HTTP ${response.status}），稍后点「提交投稿」重试`);
       }
       return;
     }
@@ -413,7 +413,7 @@ async function submitCommunity(event) {
     toast('投稿已提交，审核通过后会公开');
     onSubmitted?.({ id: data.id || '', title: submittedTitle, createdAt: submittedAt });
   } catch {
-    if (generation === dialogGeneration) showError('网络错误，请稍后重试');
+    if (generation === dialogGeneration) showError('网络错误，稍后点「提交投稿」重试');
   } finally {
     busy = false;
     submit.disabled = false;

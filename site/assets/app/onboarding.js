@@ -12,26 +12,26 @@ const STEPS = [
     title: '看图，点一下就复制',
     mobileTitle: '点卡片查看，点星星收藏',
     mobileBody: '点卡片打开详情，在详情里复制提示词、查看原图或反馈问题。标题旁的星星用于收藏。',
-    body: '这里是社区整理的 NovelAI 提示词法典图鉴。看中哪张例图，点卡片即复制它的法典提示词，直接粘进 NovelAI。',
+    body: '这里是社区整理的 NovelAI 提示词法典图鉴。看中哪张例图，点卡片就复制它的正向提示词，直接粘进 NovelAI。',
   },
   {
     cls: 'obs-3',
     scene: `<div class="ob-searchbox"><b>本书</b><i></i><span></span></div><div class="ob-searchscope"><i>本书</i><b>全站</b></div>${CUR}`,
-    title: '十本法典随时切，也能全站搜',
-    body: '点顶栏书名可在十本法典间切换；搜索栏左侧还能在“本书”和“全站”间切换，并用 path:、has:image、fav:true 等高级语法精确筛选。',
+    title: '多本法典随时切，也能全站搜',
+    body: '点顶栏书名切换法典；搜索栏左侧可在「本书」和「全站」间切换，也能用 path:、has:image、fav:true 等语法筛选。',
   },
   {
     cls: 'obs-2',
     scene: `<div class="ob-dim"></div><div class="ob-card"><span class="ob-pic"></span><span class="ob-zoom"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5 20 20"/></svg></span></div><div class="ob-info"><u></u><u></u><u></u></div><div class="ob-nai"><i>NAI</i><s></s></div><div class="ob-big"></div>${CUR}`,
     title: '要原参数？放大获取原图拖进 NAI',
-    mobileBody: '点卡片打开详情，再点「查看原图」。列表缩略图不含生成参数。',
-    body: '列表是缩略图不含参数。点图右上角放大成原图，再把大图拖进 NovelAI，多数能直接读出生成参数。',
+    mobileBody: '有原图的词条，点卡片打开详情，再点「查看原图」。列表缩略图不含生成参数。',
+    body: '列表是缩略图，不含参数。有原图的词条，点图右上角放大加载原图，再把大图拖进 NovelAI，多数能读出生成参数。',
   },
   {
     cls: 'obs-4',
     scene: `<div class="ob-card"><b></b></div><div class="ob-panel"><u></u><u></u></div><div class="ob-fb">!</div>${CUR}`,
     title: '有问题，点反馈',
-    body: '海量词条配对难免出错，如遇词条卡片有错、图打不开、复制不对，点反馈说一声，我们会尽快修复更正。',
+    body: '词条有错、图打不开或复制不对，点卡片上的反馈按钮。',
   },
 ];
 

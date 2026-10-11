@@ -126,6 +126,7 @@
 - Python · 中转站文本内核：`verify_relay_editor.py`（独立 Chrome profile、回环临时端口只服务内存夹具与真实 `site/assets`，断言镜像 CSS / 几何 / 实际字符落点、原生撤销、选区和拖放；`--only` 筛选用例）。写 `output/relay-plana-editor-20260921/browser-acceptance/` 截图及结果，`--out-dir` 可指定；不接用户浏览器、不写方案库，不替代真实系统输入法或实体手机验收。
 - Node · 收藏夹 V2：`test_favorites_library_core.mjs`、`test_favorites_library_store.mjs`、`test_favorites_backup_store.mjs`、`test_favorites_backup_v2.mjs`、`test_favorites_backup_ui.mjs`、`test_favorites_view.mjs`、`test_favorites_route.mjs`；浏览器模块测试加载器为 `favorites-library-test-loader.mjs`。
 - Node · 收藏取件码：`test_favorites_pickup_backend.mjs`（后端路由、限流、一次性与前后端防漂移）；D1 用 `sqlite-d1-test-harness.mjs` 以 `node:sqlite` 模拟，喜欢后端测试共用。
+- Node · 投稿 / 反馈防护：`test_submission_guards.mjs`（D1 原子限额与待审名额、D1 不可用时退回、公开反馈快照与推送回写的条件写）；R2 用 `memory-r2-test-harness.mjs`（etag、`onlyIf` 条件写、可选模拟延迟与读后插入钩子），反馈后台测试共用。
 
 `__pycache__/` 是 Python 缓存，忽略。
 
