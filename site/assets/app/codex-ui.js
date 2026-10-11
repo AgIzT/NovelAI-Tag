@@ -171,6 +171,7 @@ const hasActiveSearch = () => Boolean(state.searchPlan?.hasActiveSearch || state
 const EMPTY_ACCESS_ENTRIES = Object.freeze([]);
 const EMPTY_ACCESS_PATHS = Object.freeze([]);
 let accessViewMemo = null;
+let refreshPickerContent = () => {};
 
 const codexUiActions = {
   loadCodex: async () => {},
@@ -728,6 +729,25 @@ export function setupCodexPicker() {
     if (launchPanel) menu.prepend(launchPanel);
     menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
   };
+  refreshPickerContent = () => {
+    if (menu.hidden) {
+      // 关着的菜单也不能留旧样图；下次打开由 renderMenu 按最新权限重建。
+      menu.querySelectorAll('.vol-recent, .vb-strip').forEach(element => element.remove());
+      return;
+    }
+    const focused = menu.contains(document.activeElement) ? document.activeElement : null;
+    const { scrollTop, scrollLeft } = menu;
+    renderMenu();
+    placeMenu();
+    menu.scrollTop = scrollTop;
+    menu.scrollLeft = scrollLeft;
+    if (focused) {
+      const target = [...menu.querySelectorAll('button')].find(element =>
+        element.className === focused.className &&
+        ['id', 'type', 'recentCodex', 'recentBatch'].every(key => element.dataset[key] === focused.dataset[key]));
+      (target || menu.querySelector('.codex-item.active') || focusableItems()[0])?.focus({ preventScroll: true });
+    }
+  };
 
   const setupN5LaunchNotice = () => {
     if (!n5LaunchActive) return;
@@ -874,9 +894,10 @@ export function setupCodexPicker() {
   setupN5LaunchNotice();
 }
 
-/* 解锁状态变了就地更新，不重建菜单（重建会让封面图重新淡入、也会丢掉滚动位置）。
+/* 当前书和锁态通常就地更新；权限变化额外重建样图，保留展开卷、滚动位置和键盘焦点。
    R18 小标的解锁/未解锁两态、封面模糊与锁蒙版全部挂在 .locked 类上，由 CSS 切换。 */
-export function updateCodexPickerState() {
+export function updateCodexPickerState({ refreshContent = false } = {}) {
+  if (refreshContent) refreshPickerContent();
   document.querySelectorAll('#codexMenu .codex-item').forEach(it => {
     if (!it.dataset.id) return;  // 跳过占位条目
     const c = state.codexes.find(item => item.id === it.dataset.id);
@@ -1133,11 +1154,13 @@ export function visibleTree() {
 function accessViewSnapshot() {
   const entries = state.codex?.entries || EMPTY_ACCESS_ENTRIES;
   const emptyPaths = state.codex?.emptyCategories || EMPTY_ACCESS_PATHS;
+  const locked = isCodexLocked(state.codex);
   const allowNsfw = state.allowNsfw;
   const allowR18g = state.allowR18g;
   if (
     accessViewMemo?.entries === entries &&
     accessViewMemo.emptyPaths === emptyPaths &&
+    accessViewMemo.locked === locked &&
     accessViewMemo.allowNsfw === allowNsfw &&
     accessViewMemo.allowR18g === allowR18g
   ) return accessViewMemo;
@@ -1145,9 +1168,10 @@ function accessViewSnapshot() {
   accessViewMemo = {
     entries,
     emptyPaths,
+    locked,
     allowNsfw,
     allowR18g,
-    ...buildAccessView(entries, emptyPaths),
+    ...(locked ? { tree: [], hiddenCount: entries.length } : buildAccessView(entries, emptyPaths)),
   };
   return accessViewMemo;
 }

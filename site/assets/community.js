@@ -2,10 +2,11 @@ import { COMMUNITY_CATEGORIES, DEFAULT_COMMUNITY_CATEGORY } from './community/co
 import { loadCommunityData } from './community/api.js';
 import { closeCommunityDetail, openCommunityDetail, initDetailDialog } from './community/detail.js';
 import { initSubmitDialog, openSubmitDialog } from './community/submit.js';
-import { state } from './community/state.js';
+import { hasAdultNsfwConfirmation, state } from './community/state.js';
 import {
   applyCommunityFilters,
   applyCommunityRoute,
+  deferCommunityNsfwDetail,
   initCommunityUI,
   requestShowCommunityNsfw,
   syncAfterLoad,
@@ -103,14 +104,24 @@ async function init() {
     if (initialDeepLink.entry && !linkedEntry) {
       toast('这条投稿不存在或已下架', '!');
     } else if (linkedEntry?.nsfw) {
-      requestShowCommunityNsfw({
-        onEnabled: ({ consumeLayer }) => {
-          openCommunityDetail(linkedEntry, initialDeepLink.imageIndex, {
-            historyMode: 'replace',
-            consumeLayer,
-          });
-        },
+      // 分享入口不能替用户覆盖已关闭的混显偏好；记下这条，用户在本页明确开启后再打开。
+      deferCommunityNsfwDetail(({ consumeLayer }) => {
+        openCommunityDetail(linkedEntry, initialDeepLink.imageIndex, {
+          historyMode: 'replace',
+          consumeLayer,
+        });
       });
+      if (hasAdultNsfwConfirmation()) {
+        // 混显是用户自己关的：只给开启入口，开启时复用成年凭据。
+        toast('这条投稿含 NSFW 内容', '!', {
+          label: '开启 NSFW 混显',
+          duration: 10_000,
+          onClick: () => requestShowCommunityNsfw(),
+        });
+      } else {
+        // 从没确认过成年：直接弹确认框，点「我已成年，开启混显」就是明确开启。
+        requestShowCommunityNsfw();
+      }
     }
   }
 }

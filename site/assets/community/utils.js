@@ -67,11 +67,20 @@ export function imageUrl(file) {
 }
 
 export async function copyText(text, options = {}) {
+  const canCopy = () => typeof options.canCopy !== 'function' || options.canCopy();
+  if (!canCopy()) return { ok: false, blocked: true };
   const formatted = formatCopyText(text, {
     sdMode: isCommunitySdModeEnabled(),
     convert: options.convert !== false,
   });
-  const result = await writeClipboardText(formatted.text, options.clipboardOptions);
+  const clipboardOptions = options.clipboardOptions || {};
+  const result = await writeClipboardText(formatted.text, {
+    ...clipboardOptions,
+    canWrite: () => canCopy()
+      && (typeof clipboardOptions.canWrite !== 'function' || clipboardOptions.canWrite()),
+  });
+  // 在途复制失败后不能在撤权的页面重新挂出手动复制原文。
+  if (!canCopy() || result.blocked) return { ok: false, blocked: true };
   if (result.ok) return { ...result, converted: formatted.converted };
 
   let manualFallbackShown = false;

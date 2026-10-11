@@ -1,14 +1,18 @@
 import { updateScrollProgress } from '../app/utils.js';
-import { toast } from '../app/feedback.js';
-import { goBackFrom, scheduleHistoryScrollCheckpoint } from '../app/browser-history.js';
+import { dismissToast, toast } from '../app/feedback.js';
+import { scrubClipboardFallback } from '../app/clipboard-fallback.js';
+import { closeMask } from '../app/modal.js';
+import { forgetHistoryLayer, goBackFrom, scheduleHistoryScrollCheckpoint } from '../app/browser-history.js';
 import { COMMUNITY_CATEGORIES } from './constants.js';
 import { favoriteCountForEntries, isFavorite, toggleFavorite } from './favorites.js';
 import { currentCommunityHistorySession, syncCommunityHistory } from './router.js';
 import { requestCommunityNsfwAccess } from './nsfw-confirm.js';
+import { revokeCommunityDetailAccess } from './detail.js';
 import { ADULT_CONFIRMATION_STORAGE_KEY } from '../app/state.js';
 import {
   COMMUNITY_NSFW_PREFERENCE_KEY,
   hasAdultNsfwConfirmation,
+  shouldRestoreCommunityNsfw,
   state,
 } from './state.js';
 import { $, $$, safeStorageSet } from './utils.js';
@@ -16,6 +20,8 @@ import { renderCategoryRail, renderEmptyState, renderGrid, renderResultBar } fro
 
 let openDetail = null;
 let openSubmit = null;
+let nsfwRequestSeq = 0;
+let deferredNsfwDetail = null;
 const nextSearchSessionId = () => `community-search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 export function initCommunityUI(handlers = {}) {
@@ -63,7 +69,7 @@ export function applyCommunityFilters({ scrollTop = false } = {}) {
   state.filtered = list;
   renderCategoryRail(selectCategory);
   renderResultBar();
-  renderGrid(state.filtered, { onOpenDetail: openDetail, onToggleFavorite: handleToggleFavorite });
+  renderGrid(state.filtered, { onOpenDetail: openDetail && openDetailFromGrid, onToggleFavorite: handleToggleFavorite });
   renderEmptyState({
     onSubmit: () => openSubmit?.(),
     onClearSearch: clearSearch,
@@ -175,12 +181,50 @@ function bindNsfw() {
       requestShowCommunityNsfw({ trigger: event.currentTarget });
       return;
     }
-    state.showNSFW = false;
-    safeStorageSet(COMMUNITY_NSFW_PREFERENCE_KEY, false);
+    hideCommunityNsfw({ scrollTop: true });
+  });
+  window.addEventListener('storage', event => {
+    if (event.key !== COMMUNITY_NSFW_PREFERENCE_KEY && event.key !== null) return;
+    if (event.newValue !== 'true' || !shouldRestoreCommunityNsfw()) {
+      hideCommunityNsfw({ persist: false });
+      return;
+    }
+    // 别的标签页开启不算本页的明确动作：不替用户打开分享链接那条，卡片已经回到列表里。
+    deferredNsfwDetail = null;
+    state.showNSFW = true;
     updateNSFWButton();
-    applyCommunityFilters({ scrollTop: true });
+    applyCommunityFilters();
     syncCommunityHistory({ historyMode: 'replace' });
   });
+}
+
+function hideCommunityNsfw({ persist = true, scrollTop = false } = {}) {
+  state.showNSFW = false;
+  nsfwRequestSeq += 1;
+  if (persist) safeStorageSet(COMMUNITY_NSFW_PREFERENCE_KEY, false);
+  const confirmation = $('#communityNsfwConfirm');
+  if (confirmation) closeMask(confirmation, { historyMode: 'none' });
+  forgetHistoryLayer('communityNsfwConfirm');
+  revokeCommunityDetailAccess();
+  scrubClipboardFallback({ historyMode: 'none' });
+  // 直接收起还要移除托管浮层，否则 Forward 会恢复失效确认框或空复制框。
+  forgetHistoryLayer('clipboardFallback');
+  dismissToast({ clear: true });
+  updateNSFWButton();
+  applyCommunityFilters({ scrollTop });
+  syncCommunityHistory({ historyMode: 'replace' });
+}
+
+/* 分享链接指向 NSFW 投稿但混显关着：先记下这条，用户在本页明确开启混显（提示、顶栏开关、
+   空状态按钮）时再打开；提示消失后仍能回到它。 */
+export function deferCommunityNsfwDetail(open) {
+  deferredNsfwDetail = typeof open === 'function' ? open : null;
+}
+
+// 用户已经点开别的投稿，就不再在开启混显时跳回分享链接那条。
+function openDetailFromGrid(...args) {
+  deferredNsfwDetail = null;
+  return openDetail?.(...args);
 }
 
 export function requestShowCommunityNsfw({ trigger = document.activeElement, onEnabled } = {}) {
@@ -188,13 +232,17 @@ export function requestShowCommunityNsfw({ trigger = document.activeElement, onE
     onEnabled?.({ consumeLayer: false });
     return;
   }
+  const seq = ++nsfwRequestSeq;
   const enable = ({ consumeLayer = false } = {}) => {
+    if (seq !== nsfwRequestSeq) return;
+    const next = onEnabled || deferredNsfwDetail;
+    deferredNsfwDetail = null;
     state.showNSFW = true;
     safeStorageSet(COMMUNITY_NSFW_PREFERENCE_KEY, true);
     safeStorageSet(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     updateNSFWButton();
     applyCommunityFilters({ scrollTop: true });
-    if (onEnabled) onEnabled({ consumeLayer });
+    if (next) next({ consumeLayer });
     else syncCommunityHistory({ historyMode: 'replace', consumeLayer });
   };
   // 主站已经完成过同一份成人确认时，不重复打扰；只恢复广场偏好。

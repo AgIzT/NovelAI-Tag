@@ -106,9 +106,17 @@ def entry_rating(entry: dict) -> str:
     return str(entry.get("rating") or entry.get("level") or "").strip().lower()
 
 
+def is_r18g_entry(entry: dict) -> bool:
+    """对齐 access.js：R18G 既可由评级声明，也可由目录名声明。"""
+    return entry_rating(entry) == "r18g" or any(
+        "r18g" in segment.lower() or "重口" in segment
+        for segment in entry_segments(entry)
+    )
+
+
 def is_safe_entry(entry: dict) -> bool:
     """成人档 rating（对齐 access.js）或目录里有名为 NSFW 的一级，都算未解锁访客看不到。"""
-    if entry_rating(entry) in NSFW_RATINGS:
+    if entry_rating(entry) in NSFW_RATINGS or is_r18g_entry(entry):
         return False
     return not any(segment.lower() == "nsfw" for segment in entry_segments(entry))
 
@@ -129,7 +137,7 @@ def pick_auto_samples(meta: dict, entries: list[dict], limit: int, *, exclude_im
     pool = [
         entry for entry in entries
         if isinstance(entry, dict) and entry.get("image") and str(entry["image"]) != exclude_image
-        and (entry_rating(entry) != "r18g" if nsfw_book else is_safe_entry(entry))
+        and (not is_r18g_entry(entry) if nsfw_book else is_safe_entry(entry))
     ]
     if not pool:
         return []
@@ -152,7 +160,7 @@ def pick_samples(meta: dict, entries: list[dict], pinned: list[str] = ()) -> tup
         chosen, missing = [], []
         for name in pinned:
             entry = by_image.get(name)
-            if entry is None or entry_rating(entry) == "r18g":
+            if entry is None or is_r18g_entry(entry):
                 missing.append(name)
             else:
                 chosen.append(entry)
@@ -184,7 +192,7 @@ def pick_previews(meta: dict, entries: list[dict]) -> tuple[list[dict], list[str
         chosen, missing = [], []
         for name in (str(item) for item in pinned if item):
             entry = by_image.get(name)
-            if entry is None or entry_rating(entry) == "r18g":
+            if entry is None or is_r18g_entry(entry):
                 missing.append(name)
             else:
                 chosen.append(entry)

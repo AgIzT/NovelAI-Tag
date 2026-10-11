@@ -78,7 +78,8 @@ export function isEntryAccessBlocked(e) {
   const sourceId = String(e?._srcCodexId || '').trim();
   if (sourceId && lockedSourceCodexIds().has(sourceId)) return true;
   if (isR18gBlocked(e)) return true;
-  return isEntryNsfw(e) && !state.allowNsfw;
+  const nsfwPath = Array.isArray(e?.path) && e.path.some(isNsfwPathSegment);
+  return (isEntryNsfw(e) || nsfwPath) && !state.allowNsfw;
 }
 
 export function showR18gLockedHint() {

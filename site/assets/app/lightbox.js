@@ -55,6 +55,7 @@ let lbOriginalStatusTimer = 0;
 let lbRecentTimer = 0;
 let lbNoticeTimer = 0;
 let lbOriginalState = { status: '', readable: false };
+let lbOriginalPreload = null;
 const lbPreloadCache = new Map();
 const LB_PRELOAD_CACHE_LIMIT = 300;
 
@@ -351,15 +352,117 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
 
 /* 权限开关改的是共享内存 state；已打开的灯箱不会自动重渲染，因此由 ui.js 在
    开关变化时调用这里，立刻撤掉明文、图片和复制入口。 */
-export function refreshLightboxAccess(entry = state.lightbox?.entry) {
-  if (!entry || !isLightboxEntryAccessBlocked(entry)) return true;
+export function refreshLightboxAccess(entry = state.lightbox?.entry, { scrub = false } = {}) {
+  const blocked = Boolean(entry) && isLightboxEntryAccessBlocked(entry);
+  if (scrub) {
+    // 当前词条仍可看时保留它的原图下载，否则状态会停在「加载中」；邻图预载不分来源，一律撤掉。
+    cancelLightboxPreloads({ keepOriginal: Boolean(entry) && !blocked });
+    if (!entry) clearLightboxContent();
+  }
+  if (!blocked) return true;
   if (state.lightbox?.entry) closeLightbox({ historyMode: 'none', immediate: true });
   return false;
+}
+
+export function refreshLightboxNavigation(navigation = null) {
+  const lb = state.lightbox;
+  const entry = lb?.entry;
+  if (!entry || $('#lightbox').hidden || isLightboxEntryAccessBlocked(entry)) return;
+  const nav = navigation || lightboxNavigationContext(entry, state.list);
+  const emptyImage = lb.images[lb.index]?._editPlaceholder === true;
+  const entryPosition = nav.index >= 0 ? ` · 第 ${nav.position} / ${nav.total} 条` : '';
+  $('#lightboxMeta').textContent = emptyImage
+    ? `暂无图片 · ${entry.path.join(' › ')}`
+    : `${lb.index + 1} / ${lb.images.length}${entryPosition} · ${entry.path.join(' › ')}`;
+  const configureNavButton = (button, target, direction) => {
+    button.hidden = !target;
+    if (!target) {
+      button.removeAttribute('data-nav-label');
+      button.removeAttribute('title');
+      button.removeAttribute('aria-label');
+      return;
+    }
+    const word = direction < 0 ? '上一' : '下一';
+    const label = target.crossEntry ? `${word}条：${target.entry.title}` : `${word}张`;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    if (target.crossEntry) button.dataset.navLabel = label;
+    else button.removeAttribute('data-nav-label');
+  };
+  configureNavButton($('#lightboxPrev'), getLightboxStepTarget(-1, lb, state.list, nav), -1);
+  configureNavButton($('#lightboxNext'), getLightboxStepTarget(1, lb, state.list, nav), 1);
+}
+
+function cancelLightboxPreloads({ keepOriginal = false } = {}) {
+  for (const token of lbPreloadCache.values()) {
+    if (!token.image) continue;
+    token.image.onload = null;
+    token.image.onerror = null;
+    token.image.removeAttribute('src');
+  }
+  lbPreloadCache.clear();
+  if (lbOriginalPreload && !keepOriginal) {
+    lbOriginalPreload.onload = null;
+    lbOriginalPreload.onerror = null;
+    lbOriginalPreload.removeAttribute('src');
+    lbOriginalPreload = null;
+  }
+}
+
+function clearLightboxContent() {
+  resetArtistStrip();
+  clearTagZhDetails($('#lightboxInfo'));
+  for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');
+  for (const id of ['lightboxTitle', 'lightboxMeta', 'lightboxCharacterPrompts', 'lightboxThumbs',
+    'artistStrip', 'artistStripMissing', 'artistStripCount', 'artistPeekName', 'artistPeekSource']) {
+    const element = $(`#${id}`);
+    if (element) element.replaceChildren();
+  }
+  for (const id of ['lightboxThumbs', 'artistStripBlock', 'characterPromptsBlock']) {
+    const element = $(`#${id}`);
+    if (element) element.hidden = true;
+  }
+  for (const id of ['copyPositive', 'copyNegative', 'copyAll', 'copyRawTag', 'viewOriginal',
+    'shareLightbox', 'favoriteLightbox', 'reportLightbox', 'hideLightbox', 'sdPositivePreview', 'sdNegativePreview', 'artistPeekOpen']) {
+    const button = $(`#${id}`);
+    if (button) button.onclick = null;
+  }
+  for (const id of ['lightboxPrev', 'lightboxNext']) {
+    const button = $(`#${id}`);
+    button?.removeAttribute('data-nav-label');
+    button?.removeAttribute('title');
+    button?.removeAttribute('aria-label');
+  }
+  const credit = $('#lightboxCredit');
+  if (credit) {
+    credit.replaceChildren();
+    credit.removeAttribute('href');
+    credit.hidden = true;
+  }
+  lbThumbEntry = null;
+  lbThumbImages = null;
+  lbThumbState = null;
 }
 
 export function closeLightbox(options = {}) {
   const lb = $('#lightbox');
   if (lb.hidden) {
+    lbSeq += 1;
+    clearTimeout(lbCloseTimer);
+    clearLightboxEntryTimers();
+    clearFlyClones();
+    const img = $('#lightboxImg');
+    img.onload = null;
+    img.onerror = null;
+    img.removeAttribute('src');
+    state.lightbox = { entry: null, images: [], index: 0 };
+    cancelLightboxPreloads();
+    clearLightboxContent();
+    lbSourceImg = null;
+    lbFocusReturn = null;
+    lbOriginalState = { status: '', readable: false };
+    hideLightboxNotice({ immediate: true });
+    lb.dataset.original = '';
     setLightboxScrollLocked(false);
     flushDeferredFavoritesViewRefresh();
     return;
@@ -385,6 +488,8 @@ export function closeLightbox(options = {}) {
     img.onerror = null;
     img.removeAttribute('src');
     state.lightbox = { entry: null, images: [], index: 0 };
+    cancelLightboxPreloads();
+    clearLightboxContent();
     lbSourceImg = null;
     lbOriginalState = { status: '', readable: false };
     hideLightboxNotice({ immediate: true });
@@ -476,11 +581,12 @@ export function preloadImage(url) {
   while (lbPreloadCache.size >= LB_PRELOAD_CACHE_LIMIT) {
     lbPreloadCache.delete(lbPreloadCache.keys().next().value);
   }
-  const token = {};
-  lbPreloadCache.set(url, token);
   const img = new Image();
+  const token = { image: img };
+  lbPreloadCache.set(url, token);
   img.decoding = 'async';
   img.onload = () => {
+    token.image = null;
     img.onload = null;
     img.onerror = null;
   };
@@ -508,13 +614,14 @@ function shouldWarmNeighborOriginals() {
 export function preloadLightboxNeighbors(navigation = null) {
   const lb = state.lightbox;
   const e = lb.entry;
-  if (!e) return;
+  if (!e || isLightboxEntryAccessBlocked(e)) return;
   const targets = [-1, 1]
     .map(delta => getLightboxStepTarget(delta, lb, state.list, navigation))
     .filter(Boolean);
   const warmOriginals = shouldWarmNeighborOriginals();
   const seen = new Set();
   for (const target of targets) {
+    if (isLightboxEntryAccessBlocked(target.entry)) continue;
     const item = target.images[target.index];
     const thumb = imageItemUrl('image', target.entry, item);
     const original = warmOriginals && lightboxItemHasOriginal(target.entry, item)
@@ -978,6 +1085,12 @@ export function renderLightbox() {
   }
   const emptyImage = item._editPlaceholder === true;
   const seq = ++lbSeq;
+  if (lbOriginalPreload) {
+    lbOriginalPreload.onload = null;
+    lbOriginalPreload.onerror = null;
+    lbOriginalPreload.removeAttribute('src');
+    lbOriginalPreload = null;
+  }
   clearTimeout(lbOriginalStatusTimer);
   lbOriginalStatusTimer = 0;
   lbOriginalState = { status: '', readable: false };
@@ -1017,13 +1130,16 @@ export function renderLightbox() {
     img.src = thumbSrc || origSrc;
     if (hasOriginal && origSrc !== thumbSrc) {
       const pre = new Image();
+      lbOriginalPreload = pre;
       pre.decoding = 'async';
       pre.onload = () => {
+        if (lbOriginalPreload === pre) lbOriginalPreload = null;
         pre.onload = null;
         pre.onerror = null;
         if (seq === lbSeq && state.lightbox.entry === e) img.src = origSrc;
       };
       pre.onerror = () => {
+        if (lbOriginalPreload === pre) lbOriginalPreload = null;
         pre.onload = null;
         pre.onerror = null;
         applyOriginalPresentation(seq, 'failed', readableOriginal, exampleModel);
@@ -1051,10 +1167,7 @@ export function renderLightbox() {
     hideButton.onclick = () => hideCard(e);
   }
   const nav = lightboxNavigationContext(e, state.list);
-  const entryPosition = nav.index >= 0 ? ` · 第 ${nav.position} / ${nav.total} 条` : '';
-  $('#lightboxMeta').textContent = emptyImage
-    ? `暂无图片 · ${e.path.join(' › ')}`
-    : `${lb.index + 1} / ${lb.images.length}${entryPosition} · ${e.path.join(' › ')}`;
+  refreshLightboxNavigation(nav);
   const tip = $('#lightboxTip') || document.querySelector('.lightbox-tip');
   if (tip) tip.hidden = emptyImage;
 
@@ -1242,25 +1355,6 @@ export function renderLightbox() {
       .every(button => button.hidden);
   }
 
-  const prev = $('#lightboxPrev');
-  const next = $('#lightboxNext');
-  const prevTarget = getLightboxStepTarget(-1, lb, state.list, nav);
-  const nextTarget = getLightboxStepTarget(1, lb, state.list, nav);
-  const configureNavButton = (button, target, direction) => {
-    button.hidden = !target;
-    if (!target) {
-      button.removeAttribute('data-nav-label');
-      return;
-    }
-    const word = direction < 0 ? '上一' : '下一';
-    const label = target.crossEntry ? `${word}条：${target.entry.title}` : `${word}张`;
-    button.setAttribute('aria-label', label);
-    button.title = label;
-    if (target.crossEntry) button.dataset.navLabel = label;
-    else button.removeAttribute('data-nav-label');
-  };
-  configureNavButton(prev, prevTarget, -1);
-  configureNavButton(next, nextTarget, 1);
   const thumbs = $('#lightboxThumbs');
   const reuseThumbs = lbThumbEntry === e
     && lbThumbImages === lb.images

@@ -3,20 +3,20 @@ import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.j
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
 import { animateUi } from './ui-motion.js';
-import { firstUnlockedCodex, isNsfwCodex, isNsfwPathSegment, isR18gName } from './access.js';
-import { closeBannerAbout, renderCodexArchive, renderTree, renderCodexHeader, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
+import { firstUnlockedCodex, isNsfwPathSegment, isR18gName } from './access.js';
+import { closeBannerAbout, renderCodexArchive, renderTree, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter, splitSearchPhrases } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
 import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, refreshCardPrompts, refreshCopyHints, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
-import { bindLightboxControls, refreshLightboxAccess } from './lightbox.js';
+import { bindLightboxControls, refreshLightboxAccess, refreshLightboxNavigation } from './lightbox.js';
 import { isTagZhEnabled, onTagZhChange, setTagZhEnabled } from './tag-zh.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
 import { bindBackdropDismiss, bindOutsideDismiss, openMask, closeMask, registerMaskHistory, trapFocus, topInteractionLayer, isGlobalShortcutBlocked } from './modal.js';
 import { setupAnnouncements, openAnnouncementsPanel, updateAnnouncementBadge } from './announcements.js';
 import { loadUpdates, renderUpdatesDigest, handleUpdateRowClick } from './updates.js';
-import { setupReport, openReportDialog } from './report.js';
+import { setupReport, openReportDialog, refreshReportAccess } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
 import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
 import { refreshRelayAccess } from './tag-relay.js';
@@ -46,6 +46,7 @@ const uiActions = {
   applyFilter: () => {},
   applySearch: async () => {},
   openRelatedDirectory: async () => {},
+  refreshAccessView: () => {},
 };
 
 export function setUiActions(actions = {}) {
@@ -815,31 +816,26 @@ export function bindUI() {
     scrubClipboardFallback();
     dismissToast({ clear: true });
   };
+  // 本页设置和跨标签页 storage 都走同一轮撤权，先清已打开的内容，再刷新列表和选择器。
+  const refreshContentAccess = ({ revoked = false } = {}) => {
+    refreshLightboxAccess(undefined, { scrub: revoked });
+    refreshReportAccess();
+    refreshRelayAccess();
+    uiActions.refreshAccessView({ revoked });
+    refreshLightboxNavigation();
+    updateCodexPickerState({ refreshContent: true });
+    if (revoked) scrubRestrictedSurfaces();
+  };
   const setNsfwAccess = (on, { announce = false, persist = true } = {}) => {
     state.allowNsfw = Boolean(on);
     document.body.classList.toggle('nsfw-unlocked', state.allowNsfw);
     if (persist) localStorage.setItem(NSFW_STORAGE_KEY, state.allowNsfw ? '1' : '0');
     if (persist && state.allowNsfw) localStorage.setItem(ADULT_CONFIRMATION_STORAGE_KEY, '1');
     if (nsfwToggle) nsfwToggle.checked = state.allowNsfw;
-    if (!state.allowNsfw) setR18gAccess(false, { persist, scrub: false });  // R18G 依赖 NSFW，关掉 NSFW 一并强制关闭 R18G
+    if (!state.allowNsfw) setR18gAccess(false, { persist, refresh: false });  // 两档一起关闭后只清场一次
     if (!state.allowNsfw && (state.activePath || []).some(isNsfwPathSegment)) state.activePath = [];
     updateR18gToggleState();
-    updateCodexPickerState();
-    if (!state.allowNsfw && isNsfwCodex(state.codex)) {
-      const fallback = firstUnlockedCodex();
-      if (fallback) uiActions.loadCodex(fallback.id, { historyMode: 'replace' });
-    } else if (state.siteSearchView) {
-      uiActions.openSiteSearchView({ historyMode: 'replace' });   // 全站搜索按整本锁态构建：NSFW 开关后重建索引
-    } else if (state.favoritesView) {
-      uiActions.openFavoritesView({ historyMode: 'replace' });   // 收藏视图按锁态构建：开关 NSFW 后重建，让 NSFW 法典的收藏浮现/隐藏
-    } else if (state.codex) {
-      renderTree();
-      renderCodexHeader();
-      uiActions.applyFilter({ resetScroll: true });
-    }
-    refreshRelayAccess();   // 侧栏只订阅自己的 store，分级是内存 state，必须显式通知，否则锁后仍有可选中的残留文本
-    refreshLightboxAccess();
-    if (!state.allowNsfw) scrubRestrictedSurfaces();
+    refreshContentAccess({ revoked: !state.allowNsfw });
     if (announce) toast(state.allowNsfw ? 'NSFW 法典已解锁' : 'NSFW 法典已锁定');
   };
   const cancelNsfwConfirm = () => {
@@ -900,20 +896,15 @@ export function bindUI() {
   };
   const openR18gConfirm = () => { r18gStep = 0; renderR18gStep(); openMask(r18gMask, r18gToggle); };
   const cancelR18gConfirm = () => { if (r18gToggle) r18gToggle.checked = false; closeMask(r18gMask); };
-  const setR18gAccess = (on, { announce = false, persist = true, scrub = true } = {}) => {
+  const setR18gAccess = (on, { announce = false, persist = true, refresh = true } = {}) => {
+    const wasAllowed = state.allowR18g;
     state.allowR18g = Boolean(on) && state.allowNsfw;
-    refreshRelayAccess();
-    refreshLightboxAccess();
     document.body.classList.toggle('r18g-unlocked', state.allowR18g);
     if (persist) localStorage.setItem(R18G_STORAGE_KEY, state.allowR18g ? '1' : '0');
     if (r18gToggle) r18gToggle.checked = state.allowR18g;
     if (!state.allowR18g && (state.activePath || []).some(isR18gName)) state.activePath = [];  // 关闭时若停在 r18g 分类则退回全部
-    if (state.codex) {
-      renderTree();
-      renderCodexHeader();
-      uiActions.applyFilter({ resetScroll: true });
-    }
-    if (!state.allowR18g && scrub) scrubRestrictedSurfaces();
+    // 本来就关着（如别的标签页开 NSFW 时补读 R18G）不算撤权，不清场。
+    if (refresh) refreshContentAccess({ revoked: wasAllowed && !state.allowR18g });
     if (announce) toast(state.allowR18g ? '已开启 R18G / 重口' : 'R18G / 重口内容已隐藏');
   };
   const updateR18gToggleState = () => {

@@ -11,6 +11,24 @@ let detailBody;
 let activeEntry = null;
 let activeImageIndex = 0;
 let detailSeq = 0; // 原图垫底加载的换图守卫（对齐主站灯箱做法）
+let detailPreloader = null;
+let detailClearTimer = 0;
+// 比共享模态的退场（modal.js 240ms，CSS 淡出 .2s）稍长
+const DETAIL_CLEAR_DELAY_MS = 260;
+
+function clearDetailBody() {
+  detailBody?.querySelectorAll('img').forEach(image => image.removeAttribute('src'));
+  if (detailBody) detailBody.innerHTML = '';
+}
+
+function stopDetailImageLoad() {
+  detailSeq += 1;
+  if (!detailPreloader) return;
+  detailPreloader.onload = null;
+  detailPreloader.onerror = null;
+  detailPreloader.removeAttribute('src');
+  detailPreloader = null;
+}
 
 export function initDetailDialog() {
   detailMask = $('#detailMask');
@@ -74,7 +92,21 @@ export function closeCommunityDetail(options = {}) {
   if (!detailMask) return;
   const historyMode = options.historyMode || 'back';
   if (historyMode !== 'none' && goBackFrom('detail')) return;
-  if (isMaskOpen(detailMask)) closeMask(detailMask, { historyMode: 'none' });
+  const wasOpen = isMaskOpen(detailMask);
+  if (wasOpen) closeMask(detailMask, { historyMode: 'none' });
+  stopDetailImageLoad();
+  window.clearTimeout(detailClearTimer);
+  if (options.scrub || !wasOpen) {
+    // 撤权：面板立刻收起并清空，不留淡出那一下。
+    if (options.scrub) detailMask.hidden = true;
+    clearDetailBody();
+  } else {
+    // 面板淡出时保留内容，收起后再清，免得关闭时闪一下空面板；复制等动作已随 activeEntry 失效。
+    const seq = detailSeq;
+    detailClearTimer = window.setTimeout(() => {
+      if (seq === detailSeq) clearDetailBody();
+    }, DETAIL_CLEAR_DELAY_MS);
+  }
   activeEntry = null;
   activeImageIndex = 0;
   state.activeEntryId = '';
@@ -84,7 +116,16 @@ export function closeCommunityDetail(options = {}) {
   }
 }
 
+export function revokeCommunityDetailAccess() {
+  // 安全详情保留；刚关上、还在淡出的成人详情也一并立刻清掉。
+  if (activeEntry && !activeEntry.nsfw) return false;
+  const restricted = Boolean(activeEntry);
+  closeCommunityDetail({ historyMode: 'none', scrub: true });
+  return restricted;
+}
+
 function renderDetail() {
+  stopDetailImageLoad();
   const entry = activeEntry;
   const category = entry.category?.[0] || '随手分享';
   const images = entry.images || [];
@@ -148,12 +189,16 @@ function renderDetail() {
   }
 
   // 垫底加载：压缩图先上屏，原图加载完成后无缝替换（与主站灯箱同思路）
-  const seq = ++detailSeq;
+  const seq = detailSeq;
+  const canCopy = () => seq === detailSeq && activeEntry === entry
+    && (!entry.nsfw || canShowCommunityEntry(entry));
   const stageImg = detailBody.querySelector('#detailImage');
   if (stageImg && originalUrl && originalUrl !== currentUrl) {
-    const pre = new Image();
+    const pre = detailPreloader = new Image();
     pre.onload = () => {
-      if (seq === detailSeq && stageImg.isConnected) stageImg.src = originalUrl;
+      if (seq === detailSeq && stageImg.isConnected && canShowCommunityEntry(entry)) {
+        stageImg.src = originalUrl;
+      }
     };
     pre.src = originalUrl;
   }
@@ -161,6 +206,7 @@ function renderDetail() {
   detailBody.querySelector('[data-close-detail]')?.addEventListener('click', closeCommunityDetail);
   detailBody.querySelectorAll('[data-image-index]').forEach(button => {
     button.addEventListener('click', () => {
+      if (!canCopy()) return;
       activeImageIndex = Number(button.dataset.imageIndex) || 0;
       state.activeImageIndex = activeImageIndex;
       renderDetail();
@@ -175,23 +221,29 @@ function renderDetail() {
   });
   detailBody.querySelectorAll('[data-copy]').forEach(button => {
     button.addEventListener('click', async () => {
+      if (!canCopy()) return;
       const type = button.dataset.copy;
       try {
         const result = await copyText(type === 'negative' ? entry.negative : entry.prompt, {
           trigger: button,
+          canCopy,
         });
+        if (!canCopy() || result?.blocked) return;
         const action = type !== 'negative' && String(entry.negative || '').trim()
           ? {
             label: '再复制负面',
             duration: 5_000,
             onClick: async () => {
+              if (!canCopy()) return;
               try {
-                const negativeResult = await copyText(entry.negative, { trigger: button });
+                const negativeResult = await copyText(entry.negative, { trigger: button, canCopy });
+                if (!canCopy() || negativeResult?.blocked) return;
                 toast(
                   `已复制负面 Prompt${negativeResult?.converted ? '（SD 格式）' : ''}`,
                   '✓',
                 );
               } catch (error) {
+                if (!canCopy()) return;
                 toast(
                   error?.copyResult?.manualFallbackShown
                     ? '自动复制未成功，请在弹窗中手动复制'
@@ -208,6 +260,7 @@ function renderDetail() {
           action,
         );
       } catch (error) {
+        if (!canCopy()) return;
         toast(
           error?.copyResult?.manualFallbackShown
             ? '自动复制未成功，请在弹窗中手动复制'
@@ -218,10 +271,13 @@ function renderDetail() {
     });
   });
   detailBody.querySelector('[data-copy-link]')?.addEventListener('click', async event => {
+    if (!canCopy()) return;
     try {
-      await copyText(shareUrl, { convert: false, trigger: event.currentTarget });
+      const result = await copyText(shareUrl, { convert: false, trigger: event.currentTarget, canCopy });
+      if (!canCopy() || result?.blocked) return;
       toast('投稿链接已复制');
     } catch (error) {
+      if (!canCopy()) return;
       toast(error?.copyResult?.manualFallbackShown ? '请在弹窗中手动复制链接' : '链接复制失败', '!');
     }
   });

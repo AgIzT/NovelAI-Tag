@@ -75,6 +75,37 @@ class UpdateSamplesTest(unittest.TestCase):
         self.assertEqual(previews, samples)
         self.assertEqual(len(previews), 3)
 
+    def test_r18g_paths_are_excluded_from_every_sample_route(self):
+        entries = [
+            entry("safe", rating="safe"),
+            entry("old-r18g", path=["r18g/重口", "分类"]),
+            entry("safe-rated-r18g", rating="safe", path=["Examples", "R18G"]),
+            entry("heavy", rating="safe", path=["Examples", "重口"]),
+            entry("rated-r18g", rating="r18g"),
+        ]
+        pinned = [item["image"] for item in entries[1:]] + ["safe.webp"]
+        for nsfw in (False, True):
+            meta = {"nsfw": nsfw}
+            for choose in (
+                lambda: bui.pick_samples(meta, entries),
+                lambda: bui.pick_samples(meta, entries, pinned),
+                lambda: bui.pick_previews(meta, entries),
+                lambda: bui.pick_previews({**meta, "previews": pinned}, entries),
+            ):
+                with self.subTest(nsfw=nsfw, choose=choose):
+                    samples, _ = choose()
+                    self.assertEqual([sample["id"] for sample in samples], ["safe"])
+                    self.assertEqual(samples[0].get("nsfw", False), nsfw)
+
+    def test_r18g_only_pins_fall_back_without_reintroducing_r18g(self):
+        entries = [entry("r18g", path=["重口"]), entry("ordinary", rating="r18")]
+        samples, notes = bui.pick_samples({"nsfw": True}, entries, ["r18g.webp"])
+        self.assertEqual(samples, [{"id": "ordinary", "image": "ordinary.webp", "nsfw": True}])
+        self.assertEqual(len(notes), 2)
+        previews, notes = bui.pick_previews({"nsfw": True, "previews": ["r18g.webp"]}, entries)
+        self.assertEqual(previews, samples)
+        self.assertEqual(len(notes), 2)
+
     def test_build_keeps_adult_counts_hidden_but_generates_gated_samples(self):
         meta = {"id": "book", "nsfw": True, "updateFilters": [{"id": "2026.10.9", "label": "10.9", "latest": True}]}
         entries = [entry("adult", rating="nsfw", updateBatches=["2026.10.9"]), entry("excluded", rating="r18g", isNew=True)]

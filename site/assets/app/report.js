@@ -1,4 +1,6 @@
 import { state } from './state.js';
+import { isCodexLocked, isEntryAccessBlocked } from './access.js';
+import { findCodexMeta } from './data.js';
 import { $, clamp, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
@@ -13,6 +15,7 @@ import {
 import { ownedRecordIds, readOwnedRecords, rememberOwnedRecord } from './local-ownership.js';
 import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
+import { forgetHistoryLayer } from './browser-history.js';
 
 export function feedbackTimeoutSignal(timeout = 20_000, signalApi = globalThis.AbortSignal) {
   return signalApi?.timeout?.(timeout);
@@ -34,6 +37,9 @@ const MAX_SNIPPET = 420;
 const OWNED_FEEDBACK_KEY = 'fadian-feedback-owned-v1';
 
 let currentPayload = null;
+let currentAccessEntry = null;
+let currentAccessCodex = null;
+let reportSeq = 0;
 let currentTrigger = null;
 let publicFeedbackItems = [];
 let publicFeedbackLoaded = false;
@@ -87,6 +93,10 @@ export function setupReport() {
 export function openReportDialog({ source = 'global', entry = null, imageIndex = 0, defaultType = '', imageError = false, tab = 'submit', trigger = document.activeElement, historyMode = 'push' } = {}) {
   const mask = $('#feedbackPanel');
   if (!mask) return;
+  currentAccessEntry = entry;
+  currentAccessCodex = findCodexMeta(entry?._srcCodexId || state.codex?.id) || state.codex;
+  if (!refreshReportAccess()) return;
+  reportSeq += 1;
   cancelFeedbackTabMotion();
   currentTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
   const type = TYPE_VALUES.includes(defaultType)
@@ -99,6 +109,36 @@ export function openReportDialog({ source = 'global', entry = null, imageIndex =
   openMask(mask, currentTrigger, { historyMode });
   /* 无论停在哪个 tab 都预取一次公开进度，让「处理进度」tab 的计数尽早出现（本会话仅拉一次）。 */
   loadPublicFeedback();
+}
+
+export function refreshReportAccess() {
+  if (!isCodexLocked(currentAccessCodex) && !isEntryAccessBlocked(currentAccessEntry)) return true;
+  reportSeq += 1;
+  currentPayload = null;
+  currentAccessEntry = null;
+  currentAccessCodex = null;
+  currentTrigger = null;
+  cancelFeedbackTabMotion();
+  const mask = $('#feedbackPanel');
+  if (mask) {
+    closeMask(mask, { historyMode: 'none' });
+    mask.classList.remove('show');
+    mask.hidden = true;
+    mask.inert = true;
+    forgetHistoryLayer(mask.id);
+  }
+  $('#feedbackForm')?.reset();
+  const submit = $('#feedbackSubmit');
+  if (submit) submit.disabled = false;
+  for (const id of ['feedbackContextPreview', 'feedbackStatus']) {
+    const element = $(`#${id}`);
+    if (element) element.textContent = '';
+  }
+  const fallback = $('#feedbackFallback');
+  if (fallback) fallback.hidden = true;
+  const text = $('#feedbackFallbackText');
+  if (text) text.value = '';
+  return false;
 }
 
 export function buildFeedbackContext({ source = 'global', entry = null, imageIndex = 0, imageError = false } = {}) {
@@ -170,6 +210,8 @@ export function buildFeedbackContext({ source = 'global', entry = null, imageInd
 function resetFeedbackForm(type, context) {
   const form = $('#feedbackForm');
   if (form) form.reset();
+  const submit = $('#feedbackSubmit');
+  if (submit) submit.disabled = false;
   $('#feedbackType').value = type;
   $('#feedbackDesc').value = '';
   $('#feedbackContact').value = '';
@@ -202,7 +244,8 @@ function renderContextPreview(context) {
 
 async function submitFeedback(ev) {
   ev.preventDefault();
-  if (!currentPayload) return;
+  if (!currentPayload || !refreshReportAccess()) return;
+  const seq = reportSeq;
   const submit = $('#feedbackSubmit');
   const status = $('#feedbackStatus');
   const type = $('#feedbackType')?.value || 'site_bug';
@@ -247,13 +290,15 @@ async function submitFeedback(ev) {
       signal: feedbackTimeoutSignal(),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) throw new Error(data.error || `提交失败（${res.status}）`);
-    if (data.id) {
+    // 服务端已经收下的反馈，面板失效（撤权、关掉重开）也照样记到本设备；记录只有 ID 和时间。
+    if (res.ok && data.ok && data.id) {
       rememberOwnedRecord(OWNED_FEEDBACK_KEY, {
         id: data.id,
         createdAt: Date.now(),
       });
     }
+    if (seq !== reportSeq) return;
+    if (!res.ok || !data.ok) throw new Error(data.error || `提交失败（${res.status}）`);
     toast('反馈已提交，感谢你帮忙把这里修得更好');
     $('#feedbackDesc').value = '';
     $('#feedbackContact').value = '';
@@ -267,11 +312,12 @@ async function submitFeedback(ev) {
     };
     showStatus('反馈已提交。维护者确认公开后，会出现在「处理进度」中。', false, true);
   } catch (err) {
+    if (seq !== reportSeq) return;
     console.warn(err);
     showFallback(fallbackText);
     showStatus('提交失败，下面已生成可复制的反馈文本。', true);
   } finally {
-    if (submit) submit.disabled = false;
+    if (submit && seq === reportSeq) submit.disabled = false;
   }
 }
 
@@ -291,10 +337,14 @@ function showFallback(text) {
 }
 
 async function copyFallbackText() {
+  if (!refreshReportAccess()) return;
+  const seq = reportSeq;
   const text = $('#feedbackFallbackText')?.value || '';
   if (!text) return;
   const trigger = $('#feedbackCopyFallback');
-  const result = await writeClipboardText(text);
+  const canWrite = () => seq === reportSeq && refreshReportAccess();
+  const result = await writeClipboardText(text, { canWrite });
+  if (!canWrite() || result.blocked) return;
   if (result.ok) {
     toast('反馈文本已复制');
     return;

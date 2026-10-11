@@ -1540,7 +1540,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(announcementsSource, /function markVisibleAnnouncementsRead\(\) \{[\s\S]*try \{\s*localStorage\.setItem/);
   assert.equal((announcementsSource.match(/loaded = true/g) || []).length, 1);
   assert.equal((reportSource.match(/signal: feedbackTimeoutSignal\(\)/g) || []).length, 2);
-  assert.match(reportSource, /const result = await writeClipboardText\(text\)/);
+  assert.match(reportSource, /const result = await writeClipboardText\(text, \{ canWrite \}\)/);
   assert.match(reportSource, /showClipboardFallback\(text, \{ trigger \}\)/);
   assert.doesNotMatch(reportSource, /document\.execCommand\('copy'\)/);
   assert.equal((editSource.match(/syncCodexPickerCounts\(\);/g) || []).length, 2);

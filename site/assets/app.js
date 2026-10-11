@@ -36,6 +36,7 @@ import { loadContentBlocking, isContentBlocked } from './app/content-blocking.js
 import { setupContentBlocking, hideCard, setBlockingUiActions, updateBlockingSummary } from './app/content-blocking-ui.js';
 
 let codexLoadSeq = 0;
+let pendingCodexLoad = null;
 let favoritesBackupBound = false;
 let favoritesFolderHistoryActive = false;
 let favoritesRefreshSeq = 0;
@@ -139,7 +140,7 @@ function renderCodexView(codex, seq, {
   resolveFilters = urlState => searchFilterValues(urlState),
   keepIdentity = false,
 }) {
-  if (seq !== codexLoadSeq) return;
+  if (seq !== codexLoadSeq || isCodexLocked(codex)) return;
   primeResourceHints({ codexes: primeCodexes });
   enterView(codex);
   state.codex = codex;
@@ -400,6 +401,7 @@ export async function loadCodex(id, options = {}) {
   }
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
+  pendingCodexLoad = { seq, meta };
   if (state.codex && options.transition !== 'none' && canAnimateSwitch()) {
     return switchCodexAnimated(meta, seq, options, parentScrollY);
   }
@@ -409,7 +411,7 @@ export async function loadCodex(id, options = {}) {
   clearMasonry();
   try {
     const codex = await fetchCodex(meta);
-    if (seq !== codexLoadSeq) return;
+    if (seq !== codexLoadSeq || isCodexLocked(meta) || isCodexLocked(codex)) return;
     const wasSwitching = Boolean(state.codex);
     const render = () => renderCodexView(codex, seq, codexViewArgs(options, parentScrollY));
     await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
@@ -419,6 +421,7 @@ export async function loadCodex(id, options = {}) {
       setLoading('加载失败，请刷新页面重试');
     }
   } finally {
+    if (pendingCodexLoad?.seq === seq) pendingCodexLoad = null;
     hideSkeleton(seq);
   }
 }
@@ -426,7 +429,7 @@ export async function loadCodex(id, options = {}) {
 /* 换书接力：点下即起飞、旧内容加噪 → 回顶换身份 → 数据到了显影落地；编排与时长在 app/codex-switch.js。
    与原路的区别：不先清空瀑布流、不出骨架屏、不再固定空等菜单退场，取数据与过渡同时起跑。 */
 async function switchCodexAnimated(meta, seq, options, parentScrollY) {
-  const isCurrent = () => seq === codexLoadSeq;
+  const isCurrent = () => seq === codexLoadSeq && !isCodexLocked(meta);
   setLoading('');
   const loading = fetchCodex(meta);
   const sw = beginCodexSwitch({
@@ -443,7 +446,10 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   });
   try {
     const codex = await loading;
-    if (!isCurrent()) return;
+    if (!isCurrent() || isCodexLocked(codex)) {
+      if (seq === codexLoadSeq) sw.abort();
+      return;
+    }
     await sw.land(() => {
       /* 等数据时从「随机」等入口打开的旧书灯箱，落地前收起：灯箱里的收藏按当前法典记键，
          留着它会在新书落地后把旧书词条记到新书名下（PR #37 审查） */
@@ -455,6 +461,32 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
     console.error(ex);
     sw.abort();   // 横幅、标题、按钮退回仍在显示的那本（snapshotCodexIdentity）
     setLoading('加载失败，请刷新页面重试');
+  } finally {
+    if (pendingCodexLoad?.seq === seq) pendingCodexLoad = null;
+  }
+}
+
+function refreshAccessView({ revoked = false } = {}) {
+  if (revoked && pendingCodexLoad?.seq === codexLoadSeq && isCodexLocked(pendingCodexLoad.meta)) {
+    const seq = pendingCodexLoad.seq;
+    pendingCodexLoad = null;
+    codexLoadSeq += 1;
+    cancelCodexSwitch();
+    void replaceSkeleton(seq, () => {});
+    setLoading('');
+  }
+  if (!state.codex) return;
+  // 异步收藏/搜索重建之前也必须同步撤掉失权词条，不能等待新数据落地。
+  renderTree();
+  if (!state.favoritesView) renderCodexHeader();
+  applyFilter({ resetScroll: true });
+  if (isCodexLocked(state.codex)) {
+    const fallback = firstUnlockedCodex();
+    if (fallback) void loadCodex(fallback.id, { historyMode: 'replace', transition: 'none' });
+  } else if (state.siteSearchView) {
+    void openSiteSearchView({ historyMode: 'replace' });
+  } else if (state.favoritesView) {
+    void openFavoritesView({ historyMode: 'replace' });
   }
 }
 
@@ -767,7 +799,7 @@ function renderSearchExperience(plan, directoryOptions) {
 
 export function applyFilter(options = {}) {
   const plan = compileSearchState();
-  const sourceEntries = state.codex?.entries || [];
+  const sourceEntries = isCodexLocked(state.codex) ? [] : state.codex?.entries || [];
   const visibleEntries = sourceEntries.filter(entry => !isEntryAccessBlocked(entry));
   // 目录节点与查询词无关，按法典 entries 引用和权限态缓存；一轮过滤内同时复用于
   // 精确目录构造器与相关目录，避免全站 3 万余词条每次输入都重复扫两遍。
@@ -1064,7 +1096,7 @@ setMasonryActions({
 
 setIntroActions({ settleCardEntry });
 
-setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory });
+setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch, openRelatedDirectory, refreshAccessView });
 
 /* 更新时间线的行点击：换书 + 落到该批次的筛选，等于替用户按了一次结果栏里的
    「NEW x.xx更新」。换书时把批次当作路由状态交给 loadCodex（换书本身会重置 updateFilter），
