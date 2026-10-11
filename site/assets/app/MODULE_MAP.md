@@ -28,7 +28,7 @@
 | `path-code.js` | `encodePathCode`、`pathFromCode`；目录路径与地址栏短码互转 | — | — | 编码是纯函数；解码需要法典树，分类改名后旧短码回退到可解析位置 |
 | `codex-route-compat.js` | `normalizeRoutePath`、`normalizeCodexRoutePath`；并册、改名、迁移后的旧路径兼容 | — | — | 保留只读迁移表；加载、历史恢复与最近浏览共用同一归一逻辑 |
 | `access.js` | 法典级与词条级 NSFW / R18G 判定、锁定提示 | — | `state.js`、`feedback.js` | 所有内容分级入口的单一判断层；调用方不得自行拼另一套门控 |
-| `storage-coordinator.js` | `createStorageCoordinator`、`writeStorageTransaction`；本地文档互斥、renderer 传播屏障与原字节补偿 | 最近提交标记锁 | — | 注入 storage / LockManager / 生命周期；回调同步且锁内重读，主键后写 signal；无完整 Web Locks 时仅短锁或互斥兜底，不承诺跨页新鲜度 |
+| `storage-coordinator.js` | `createStorageCoordinator`、`writeStorageTransaction`；本地文档互斥、renderer 传播屏障与原字节补偿 | 最近提交标记锁与缺键信号观察 | — | UUID 读取/调用异常退回随机 token；回调同步且锁内重读，主键后写 signal；本页 signal 严格缺键才释放自身标记，storage 事件、锁内检查及持标记时的观察覆盖清空；读失败不释放，pagehide 停止观察；无完整 Web Locks 时不承诺跨页新鲜度 |
 | `preferences-storage.js` | `readPreference` 安全读；`writePreference` / `writePreferences` 单键与多键保存，返回 bool | — | `feedback.js`、`storage-coordinator.js` | 复用回读和补偿事务；区分配额、访问及补偿失败反馈。调用方保存成功后更新 UI；瞬时历史/跨页事件不反写偏好 |
 | `content-blocking-core.js` | 个人屏蔽清单规范化、字面整词/短语匹配、正向字段投影 | — | — | 负面、目录、备注不参与；逐图 rawTag 按现有正向契约读取 |
 | `content-blocking.js` | 本地屏蔽清单、稳定身份匹配、缓存与跨标签页同步 | 独立 localStorage、关键词匹配 WeakMap、变更订阅 | `state.js`、`data.js`、`favorites-backup-core.js`、`content-blocking-core.js`、`storage-coordinator.js` | 增删/暂停均异步锁内重读，读失败保留已知清单且拒写；保存成功才提交内存；编辑后失效词条缓存 |

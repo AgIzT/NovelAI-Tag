@@ -390,6 +390,11 @@ export async function setupRelayStore() {
       return;
     }
     if (event.key === RELAY_SIGNAL_KEY) {
+      if (event.newValue === null) {
+        clearTimeout(pendingReload); pendingReload = 0; pendingChange = null;
+        reloadFromStorage('storage', 'all');
+        return;
+      }
       const changed = readChangeKind(event.newValue);
       let signal;
       try { signal = JSON.parse(event.newValue || 'null'); } catch { signal = null; }

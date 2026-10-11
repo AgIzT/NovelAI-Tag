@@ -25,7 +25,13 @@ const historyLimit = value => Number.isFinite(Number.parseInt(value, 10))
   ? Math.max(1, Number.parseInt(value, 10)) : legacy.TAG_RELAY_HISTORY_LIMIT;
 function uniqueId(values, requested, prefix) {
   const used = new Set(values.map(value => value.id));
-  const base = text(requested) || `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`}`;
+  let base = text(requested);
+  if (!base) {
+    let uuid;
+    try { uuid = globalThis.crypto?.randomUUID?.(); }
+    catch { /* 本地方案身份在 UUID 读取或调用被拒绝时仍可生成。 */ }
+    base = `${prefix}-${uuid || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`}`;
+  }
   let id = base, index = 2;
   while (used.has(id)) id = `${base}-${index++}`;
   return id;

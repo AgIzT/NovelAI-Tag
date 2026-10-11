@@ -2,9 +2,14 @@
 const LOCK_TTL = 2000;
 const LOCK_WAIT = 48;
 const FENCE_WAIT = 3000;
+const FENCE_CHECK = 250;
 
 function token() {
-  return globalThis.crypto?.randomUUID?.() || 'local-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  try {
+    const uuid = globalThis.crypto?.randomUUID?.();
+    if (uuid) return uuid;
+  } catch { /* 受限环境可能暴露 UUID 方法却拒绝读取或调用。 */ }
+  return 'local-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
 }
 function isQuotaError(error) {
   return error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED'
@@ -46,8 +51,33 @@ export function createStorageCoordinator({
   eventTarget = globalThis.window,
 } = {}) {
   let heldFence = null;
-  function release() { heldFence?.release(); heldFence = null; }
+  let fenceCheck = null;
+  function release() {
+    clearTimeout(fenceCheck); fenceCheck = null;
+    heldFence?.release(); heldFence = null;
+  }
   eventTarget?.addEventListener?.('pagehide', release);
+  function releaseMissingFence(storage) {
+    // 本页已回读过自己的 signal；严格缺键才表示删除，读取失败仍须拒绝提交。
+    // 只释放自己的标记，不能绕过另一 renderer 尚未传播的提交。
+    if (heldFence && storage.getItem(signalKey) === null) release();
+  }
+  function watchFence(storage) {
+    // 同页外部清空不派发本页事件；持有者空闲时也要让其它页能够继续提交。
+    fenceCheck = setTimeout(() => {
+      fenceCheck = null;
+      try { releaseMissingFence(storage); } catch { /* 读取失败仍保留传播屏障。 */ }
+      if (heldFence) watchFence(storage);
+    }, FENCE_CHECK);
+    fenceCheck?.unref?.();
+  }
+  eventTarget?.addEventListener?.('storage', event => {
+    if (event.key !== null && !(event.key === signalKey && event.newValue === null)) return;
+    try {
+      const storage = getStorage();
+      if (event.storageArea === storage) releaseMissingFence(storage);
+    } catch { /* 存储访问失败不能被当成删除；下次提交仍会检查。 */ }
+  });
 
   // 旧浏览器短锁只能降低碰撞概率，localStorage 没有原子互斥能力。
   function shortLock(storage, callback) {
@@ -94,6 +124,8 @@ export function createStorageCoordinator({
   async function waitForFence(storage, locks) {
     const deadline = Date.now() + FENCE_WAIT;
     do {
+      // 同页 clear/removeItem 不派发本页 storage 事件，锁内再次检查自己的标记。
+      releaseMissingFence(storage);
       // Web Locks 的互斥 IPC 不刷新 localStorage 缓存。锁服务标记独立于 renderer，
       // 后置信号可见后，同次提交更早写入的主键才可作为下一笔修改的依据。
       const state = await locks.query();
@@ -156,6 +188,7 @@ export function createStorageCoordinator({
             release();
             heldFence = nextFence;
             nextFence = null;
+            watchFence(storage);
           }
           return result;
         } finally { nextFence?.release(); }
