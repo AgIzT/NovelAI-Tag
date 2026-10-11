@@ -230,9 +230,12 @@ function renderContextPreview(context) {
   const preview = $('#feedbackContextPreview');
   if (!preview) return;
   const entry = context.entry;
+  const codex = entry?.sourceCodexId
+    ? (findCodexMeta(entry.sourceCodexId) || { id: entry.sourceCodexId })
+    : context.codex;
   const bits = [
     `页面：${context.page.url}`,
-    `法典：${context.codex.title || context.codex.id || '未加载'}`,
+    `法典：${codex.title || codex.id || '未加载'}`,
   ];
   if (entry) {
     bits.push(`词条：${entry.title || entry.id}`);

@@ -1,6 +1,7 @@
 'use strict';
 
 import { json, err, LIMITS, cleanLine, cleanText, readJson, listAll } from '../_lib.js';
+import { consumeSubmissionRate, reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
 
 const TYPES = new Set(['site_bug', 'card_content', 'image_error', 'copy_error', 'suggestion']);
 const LIMIT = {
@@ -39,13 +40,20 @@ export async function onRequestPost(context) {
   const contactRaw = cleanLine(body?.contact, LIMIT.contact + 1);
   if (contactRaw.length > LIMIT.contact) return err(`联系方式最多 ${LIMIT.contact} 个字`);
 
+  // 限额走 D1 原子计数；D1 不可用（未绑定 / 0004 迁移未跑）时退回原来的 R2 软限额
   const ipHash = await hashIp(request, env);
-  const limited = await applySoftRateLimit(env.STRINGS_BUCKET, ipHash);
+  const rate = await consumeSubmissionRate(env, {
+    scope: 'feedback', identifierHash: ipHash, limit: LIMIT.perWindow, windowMs: LIMIT.windowMs,
+  });
+  const limited = rate ? !rate.allowed : await applySoftRateLimit(env.STRINGS_BUCKET, ipHash);
   if (limited) return err('反馈太频繁，10 分钟后再试', 429);
 
   const pend = await env.STRINGS_BUCKET.list({ prefix: 'feedback/pending/', limit: 1000 });
   const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
   if (pendCount >= LIMITS.pendingMax) return err('反馈队列已满，过几天再试', 429);
+  // 并发保险：上面的计数只负责尽早拒绝，写入前再用 D1 原子占位守住上限
+  const slot = await reservePendingSlot(env, { queue: 'feedback', pendingCount: pendCount, max: LIMITS.pendingMax });
+  if (slot && !slot.reserved) return err('反馈队列已满，过几天再试', 429);
 
   const now = new Date();
   const id = crypto.randomUUID();
@@ -75,9 +83,14 @@ export async function onRequestPost(context) {
     notification: initialNotificationState(env),
   };
 
-  await env.STRINGS_BUCKET.put(key, JSON.stringify(record), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
+  try {
+    await env.STRINGS_BUCKET.put(key, JSON.stringify(record), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+    });
+  } catch (error) {
+    await releasePendingSlot(env, { queue: 'feedback', id: slot?.id });
+    throw error;
+  }
 
   if (hasNotificationChannel(env)) {
     context.waitUntil(deliverFeedbackNotification(env.STRINGS_BUCKET, key, env, record));
@@ -184,23 +197,7 @@ async function deliverFeedbackNotification(bucket, recordKey, env, record) {
   }
 
   try {
-    const currentKey = await findFeedbackRecordKey(bucket, record.id, recordKey);
-    if (!currentKey) {
-      console.log(JSON.stringify({
-        event: 'feedback_notification_status_skipped',
-        feedbackId: record.id,
-        reason: 'record_no_longer_exists',
-      }));
-      return;
-    }
-    const currentRecord = await readJson(bucket, currentKey);
-    if (!currentRecord) return;
-    await bucket.put(currentKey, JSON.stringify({
-      ...currentRecord,
-      notification: record.notification,
-    }), {
-      httpMetadata: { contentType: 'application/json; charset=utf-8' },
-    });
+    await writeNotificationStatus(bucket, record, recordKey);
   } catch (ex) {
     console.error(JSON.stringify({
       event: 'feedback_notification_status_write_failed',
@@ -208,6 +205,42 @@ async function deliverFeedbackNotification(bucket, recordKey, env, record) {
       message: cleanLine(ex?.message || ex, 300),
     }));
   }
+}
+
+/* 推送结果回写到当前记录。推送要等几秒，这期间维护者可能已经改过、移动或删除了这条反馈：
+   回写只在记录仍是刚读到的那个版本时才写（etag 条件写），版本变了就重新定位、重读再合并；
+   记录已不存在就放弃，绝不把删掉的反馈（含联系方式）重新写回来。 */
+const NOTIFICATION_WRITE_ATTEMPTS = 3;
+
+async function writeNotificationStatus(bucket, record, recordKey) {
+  for (let attempt = 0; attempt < NOTIFICATION_WRITE_ATTEMPTS; attempt += 1) {
+    const currentKey = await findFeedbackRecordKey(bucket, record.id, recordKey);
+    const object = currentKey ? await bucket.get(currentKey) : null;
+    if (!object) {
+      console.log(JSON.stringify({
+        event: 'feedback_notification_status_skipped',
+        feedbackId: record.id,
+        reason: 'record_no_longer_exists',
+      }));
+      return;
+    }
+    let currentRecord;
+    try { currentRecord = await object.json(); } catch { return; }
+    if (!currentRecord || typeof currentRecord !== 'object') return;
+    const written = await bucket.put(currentKey, JSON.stringify({
+      ...currentRecord,
+      notification: record.notification,
+    }), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+      onlyIf: { etagMatches: object.etag },
+    });
+    if (written) return;
+  }
+  console.warn(JSON.stringify({
+    event: 'feedback_notification_status_conflict',
+    feedbackId: record.id,
+    attempts: NOTIFICATION_WRITE_ATTEMPTS,
+  }));
 }
 
 async function pushServerChan(key, record) {

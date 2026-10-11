@@ -13,38 +13,7 @@ import {
   FEEDBACK_PROGRESS as FRONTEND_FEEDBACK_PROGRESS,
 } from '../site/assets/app/feedback-progress.js';
 import { renderFeedbackDetail } from '../site/assets/admin/editor.js';
-
-class MemoryR2 {
-  constructor() {
-    this.objects = new Map();
-    this.listCalls = 0;
-  }
-
-  async get(key) {
-    if (!this.objects.has(key)) return null;
-    const raw = this.objects.get(key);
-    return { json: async () => JSON.parse(raw) };
-  }
-
-  async put(key, value) {
-    const raw = typeof value === 'string' ? value : await value.text();
-    this.objects.set(key, raw);
-  }
-
-  async delete(keys) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
-  }
-
-  async list({ prefix }) {
-    this.listCalls += 1;
-    return {
-      objects: [...this.objects.keys()]
-        .filter(key => key.startsWith(prefix))
-        .map(key => ({ key })),
-      truncated: false,
-    };
-  }
-}
+import { MemoryR2 } from './memory-r2-test-harness.mjs';
 
 const bucket = new MemoryR2();
 const env = {

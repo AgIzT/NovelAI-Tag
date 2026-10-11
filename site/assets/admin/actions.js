@@ -56,6 +56,9 @@ function bindTopbar() {
   $('#loginBtn').addEventListener('click', () => {
     const value = $('#tokenInput').value.trim();
     if (!value) return;
+    /* 口令只留在会话存储里：输入框一读完就清空，否则退出后同一台电脑上别人不用输入就能再点进后台。
+       不放进 showLogin：首次打开页面也走那里，会把浏览器自动填好的口令清掉。 */
+    $('#tokenInput').value = '';
     setToken(value);
     resetParamsRecheckMemo();
     enter();
@@ -67,6 +70,7 @@ function bindTopbar() {
     if (state.busy || !confirmDiscardChanges()) return;
     clearDirty(false);
     clearToken();
+    $('#tokenInput').value = '';
     showLogin();
   });
   $('#reloadBtn').addEventListener('click', () => {

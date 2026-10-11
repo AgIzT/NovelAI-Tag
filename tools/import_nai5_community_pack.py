@@ -143,6 +143,7 @@ from pack_import_core import (  # noqa: E402
     serial_title,
     set_prompt_note,
     sha256_file,
+    tree_counts,
     validate_asset,
     write_asset_bundle_from_paths,
     write_json,
@@ -1848,6 +1849,7 @@ DREAM_MANUAL_TAKEDOWN_HASHES = {
     "8aa33515da4814fc9ddc90e21586da1f6c38147deacade86e9cf2a891f6b0ede",
 }
 DREAM_TAKEDOWN_REPORT = ROOT / "output" / "takedown-20260901-011504-nai5_community_pack" / "takedown.json"
+DREAM_SUSPENSION_REPORT = ROOT / "output" / "suspension-20260919-mengshen-community" / "suspension.json"
 
 
 def dream_takedown_state() -> tuple[set[str], set[str]]:
@@ -2574,31 +2576,290 @@ def apply_dream_update(
         index_temp.unlink(missing_ok=True)
 
 
-def validate_dream_install(source: Path, workers: int) -> dict[str, Any]:
-    _rows, groups, source_info, _state, plan, context = run_dream_update_plan(source, workers)
-    if source_info.get("blockers"):
-        raise RuntimeError("dream validation blockers:\n" + "\n".join(source_info["blockers"][:100]))
-    if plan.get("wouldChange"):
-        raise RuntimeError("dream update is not idempotent:\n" + json.dumps(plan, ensure_ascii=False, indent=2))
-    codex = context["codex"]
-    validation = validate_dream_payload(codex, groups)
-    index = json.loads((DATA_DIR / "codexes.json").read_text(encoding="utf-8"))
-    meta = next((item for item in index if item.get("id") == CODEX_ID), None)
-    if meta != index_meta(codex):
-        raise RuntimeError("codex index metadata differs from installed book")
-    result = {
-        **validation,
-        "dreamPaths": plan["pathSummary"],
-        "rejectedImageReasons": source_info["rejectedImageReasons"],
-        "idempotentChanges": 0,
-        "indexMetadataMismatches": 0,
-        "reports": context["files"],
+def dream_suspension_state() -> dict[str, Any]:
+    """Read the precise retained-media registry; missing evidence grants no exemption."""
+    if not DREAM_SUSPENSION_REPORT.is_file():
+        return {"entries": [], "assets": []}
+    payload = json.loads(DREAM_SUSPENSION_REPORT.read_text(encoding="utf-8"))
+    if (
+        payload.get("status") != "temporary_suspension"
+        or payload.get("mediaPolicy") != "retain_local_and_r2_no_delete"
+        or payload.get("codexId") != CODEX_ID
+        or payload.get("pathPrefix") != [DREAM_ROOT_LABEL, "社区整理"]
+    ):
+        raise RuntimeError("invalid dream temporary-suspension registry")
+    entries = list(payload.get("removedEntries") or [])
+    assets = list(payload.get("assets") or [])
+    ids = {str(entry.get("id") or "") for entry in entries}
+    expected = {
+        (str(entry["id"]), kind, f"{folder}/{CODEX_ID}/{image[field]}")
+        for entry in entries for image in entry.get("images") or []
+        for kind, folder, field in (("image", "site/images", "path"), ("original", "originals", "original"))
     }
+    actual = {(str(item.get("entryId") or ""), item.get("kind"), item.get("local")) for item in assets}
+    if (
+        not entries or len(ids) != len(entries) or "" in ids
+        or payload.get("entryCount") != len(entries)
+        or payload.get("imageCount") != sum(len(entry.get("images") or []) for entry in entries)
+        or any(tuple(entry.get("path") or ()) not in {DREAM_SAFE_PATH, DREAM_NSFW_PATH} for entry in entries)
+        or len(actual) != len(assets) or actual != expected
+        or any(not re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256") or "")) for item in assets)
+        or any(not (ROOT / str(item.get("local") or "")).resolve().is_relative_to(ROOT.resolve()) for item in assets)
+    ):
+        raise RuntimeError("incomplete dream temporary-suspension registry")
+    # Aliases to removed entries are pruned from the public book. Their frozen
+    # before-data mapping remains the evidence for retained pre-merge originals.
+    aliases: dict[str, str] = {}
+    before_path = DREAM_SUSPENSION_REPORT.parent / "before-data" / f"{CODEX_ID}.json"
+    if before_path.is_file():
+        before = json.loads(before_path.read_text(encoding="utf-8"))
+        if before.get("id") != CODEX_ID:
+            raise RuntimeError("invalid dream suspension before-data book")
+        before_ids = {str(entry.get("id") or "") for entry in before.get("entries") or []}
+        aliases = {
+            str(alias): str(target)
+            for alias, target in (before.get("entryAliases") or {}).items()
+            if _dream_id_number(str(alias)) is not None and str(target) in ids & before_ids
+        }
+    return {"entries": entries, "assets": assets, "aliases": aliases}
+
+
+def dream_registered_takedowns() -> list[dict[str, str]]:
+    """Use active private registrations only for the read-only installed audit."""
+    registry_path = ROOT / "tools" / "data" / "image_takedowns.json"
+    if not registry_path.is_file():
+        return []
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    if registry.get("schemaVersion") != 1 or not isinstance(registry.get("cases"), list):
+        raise RuntimeError("invalid private image-takedown registry")
+    result: list[dict[str, str]] = []
+    for case in registry.get("cases") or []:
+        if case.get("status") != "active":
+            continue
+        for member in case.get("members") or []:
+            entry_id = str(member.get("entryId") or "")
+            if _dream_id_number(entry_id) is None or member.get("scope") != "entry":
+                continue
+            for asset in member.get("assets") or []:
+                key = str(asset.get("r2Key") or "")
+                value = str(asset.get("sha256") or "")
+                if asset.get("kind") != "original":
+                    continue
+                if (
+                    not key.startswith(f"originals/{CODEX_ID}/")
+                    or Path(key).stem != entry_id
+                    or not re.fullmatch(r"[0-9a-f]{64}", value)
+                ):
+                    raise RuntimeError(f"invalid registered dream takedown original: {entry_id}")
+                result.append({"entryId": entry_id, "caseId": str(case.get("caseId") or ""), "sha256": value})
+    return result
+
+
+def validate_current_dream_payload(
+    codex: dict[str, Any], rows: list[dict[str, Any]],
+    source_info: dict[str, Any], index: list[dict[str, Any]], suspension: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate today's JSON and original references without replaying historical updates."""
+    issues = list(source_info.get("blockers") or [])
+    entries = list(codex.get("entries") or [])
+    ids = [str(entry.get("id") or "") for entry in entries]
+    if len(ids) != len(set(ids)) or "" in ids:
+        issues.append("missing_or_duplicate_entry_id")
+    if codex.get("id") != CODEX_ID or codex.get("type") != "pack":
+        issues.append("codex_identity_or_type")
+    if "nsfw" in codex:
+        issues.append("unexpected_codex_nsfw")
+    if not clean_text(codex.get("version")):
+        issues.append("version_missing")
+    imaged_count = sum(bool(entry.get("image") or entry.get("images")) for entry in entries)
+    if codex.get("entryCount") != len(entries) or codex.get("imagedCount") != imaged_count:
+        issues.append("entry_counts")
+    try:
+        expected_tree = tree_counts(build_tree(entries))
+        for path in codex.get("emptyCategories") or []:
+            for length in range(1, len(path) + 1):
+                expected_tree.setdefault(tuple(path[:length]), 0)
+        if tree_counts(codex.get("tree") or []) != expected_tree:
+            issues.append("tree")
+    except (TypeError, ValueError, AttributeError):
+        issues.append("tree_invalid")
+    index_rows = [item for item in index if item.get("id") == CODEX_ID]
+    meta = index_rows[0] if len(index_rows) == 1 else None
+    if meta is None:
+        issues.append("codex_index_missing_or_duplicate")
+    else:
+        for key, value in index_meta(codex).items():
+            if meta.get(key) != value:
+                issues.append(f"index_metadata:{key}")
+        cover = str(meta.get("cover") or "")
+        owner = str(meta.get("coverCodexId") or CODEX_ID)
+        if not cover or not (IMAGE_ROOT / owner / cover).is_file():
+            issues.append("index_cover_asset_missing")
+        cover_entry = next((entry for entry in entries if entry.get("image") == cover), None)
+        if not cover_entry or cover_entry.get("rating") != "safe":
+            issues.append("unsafe_or_unreferenced_cover")
+
+    suspended_ids = {str(entry["id"]) for entry in suspension["entries"]}
+    suspended_hashes = {
+        str(item["sha256"]): str(item["entryId"])
+        for item in suspension["assets"] if item["kind"] == "original"
+    }
+    reserved_ids, permanent_hashes = dream_takedown_state()
+    registered_takedowns = dream_registered_takedowns()
+    registered_takedown_hashes = {item["sha256"]: item for item in registered_takedowns}
+    reserved_ids |= {item["entryId"] for item in registered_takedowns}
+    permanent_hashes |= set(registered_takedown_hashes)
+    hash_refs: dict[str, dict[str, Any]] = {}
+    dream_hashes: set[str] = set()
+    referenced_files: set[str] = set()
+    thumb_refs: set[tuple[str, str]] = set()
+    original_refs: set[tuple[str, str]] = set()
+    image_count = 0
+    dream_count = 0
+    for entry in entries:
+        entry_id = str(entry.get("id") or "")
+        path = tuple(entry.get("path") or ())
+        is_dream = _dream_id_number(entry_id) is not None or path[:2] == (DREAM_ROOT_LABEL, "社区整理")
+        if is_dream:
+            dream_count += 1
+            expected_rating = {**EXPECTED_RATINGS, DREAM_LEGACY_SAFE_PATH: "safe", DREAM_LEGACY_NSFW_PATH: "r18"}.get(path)
+            if expected_rating is None or entry.get("rating") != expected_rating:
+                issues.append(f"{entry_id}:path_or_rating")
+        if entry_id in suspended_ids or entry_id in reserved_ids:
+            issues.append(f"{entry_id}:registered_removed_entry_is_public")
+        asset_id = str(entry.get("assetCodexId") or CODEX_ID)
+        thumb_dir, original_dir = IMAGE_ROOT / asset_id, ORIGINAL_ROOT / asset_id
+        issues.extend(validate_asset(entry, thumb_dir, original_dir))
+        images = list(entry.get("images") or [{"path": entry.get("image"), "original": entry.get("original")}])
+        if is_dream and len(images) != 1:
+            issues.append(f"{entry_id}:dream_image_count")
+        for position, image in enumerate(images, 1):
+            image_count += 1
+            thumb_ref = (asset_id, str(image.get("path") or ""))
+            original_ref = (asset_id, str(image.get("original") or ""))
+            if thumb_ref in thumb_refs:
+                issues.append(f"{entry_id}[{position}]:cross_entry_thumb_name_duplicate:{asset_id}/{thumb_ref[1]}")
+            if original_ref in original_refs:
+                issues.append(f"{entry_id}[{position}]:cross_entry_original_name_duplicate:{asset_id}/{original_ref[1]}")
+            thumb_refs.add(thumb_ref)
+            original_refs.add(original_ref)
+            referenced_files.update((f"site/images/{asset_id}/{image.get('path')}", f"originals/{asset_id}/{image.get('original')}"))
+            original = original_dir / str(image.get("original") or "")
+            if not original.is_file():
+                continue
+            value = sha256_file(original)
+            if value in hash_refs:
+                issues.append(f"{entry_id}[{position}]:duplicate_current_original:{hash_refs[value]['entryId']}")
+            hash_refs[value] = {"entryId": entry_id, "isDream": is_dream}
+            if value in suspended_hashes or value in permanent_hashes:
+                issues.append(f"{entry_id}[{position}]:registered_removed_hash_is_public")
+            if not is_dream:
+                continue
+            dream_hashes.add(value)
+            try:
+                metadata = extract_image_metadata(original)
+            except Exception as exc:
+                issues.append(f"{entry_id}:metadata:{type(exc).__name__}")
+                continue
+            for field, actual, expected_value in (
+                ("prompt", clean_text(entry.get("tags")), clean_text(metadata.prompt)),
+                ("negative", clean_text(entry.get("negative")), clean_text(metadata.negative)),
+                ("character_prompts", clean_character_prompts(entry.get("characterPrompts")), clean_character_prompts(metadata.character_prompts)),
+            ):
+                if actual != expected_value:
+                    issues.append(f"{entry_id}:original_{field}")
+
+    retained_files: set[str] = set()
+    for item in suspension["assets"]:
+        relative = str(item["local"])
+        retained_files.add(relative)
+        asset_path = ROOT / relative
+        if not asset_path.is_file():
+            issues.append(f"{item['entryId']}:{item['kind']}:suspended_asset_missing")
+        elif sha256_file(asset_path) != item["sha256"]:
+            issues.append(f"{item['entryId']}:{item['kind']}:suspended_asset_hash")
+    unknown_source: list[dict[str, Any]] = []
+    active_source_hashes: set[str] = set()
+    suspended_source_hashes: set[str] = set()
+    other_branch_matches: list[dict[str, Any]] = []
+    takedown_matches: list[dict[str, Any]] = []
+    alias_matches: list[dict[str, Any]] = []
+    alias_hash_refs: dict[str, dict[str, str]] = {}
+    aliases = {**(suspension.get("aliases") or {}), **(codex.get("entryAliases") or {})}
+    alias_originals = ORIGINAL_ROOT / CODEX_ID
+    for original in alias_originals.iterdir() if alias_originals.is_dir() else []:
+        alias_id = original.stem
+        if not original.is_file() or _dream_id_number(alias_id) is None or alias_id not in aliases:
+            continue
+        target_id = alias_id
+        seen: set[str] = set()
+        while target_id in aliases and target_id not in seen:
+            seen.add(target_id)
+            target_id = str(aliases[target_id])
+        if target_id in seen or target_id not in set(ids) | suspended_ids:
+            issues.append(f"{alias_id}:unresolved_dream_entry_alias:{target_id}")
+            continue
+        alias_hash_refs[sha256_file(original)] = {"aliasEntryId": alias_id, "targetEntryId": target_id}
+    for row in rows:
+        if not row.get("accepted"):
+            continue
+        value = str(row.get("sha256") or "")
+        ref = hash_refs.get(value)
+        if ref:
+            active_source_hashes.add(value)
+            if not ref["isDream"]:
+                other_branch_matches.append({"source": row.get("relativePath"), "entryId": ref["entryId"], "sha256": value})
+        elif value in suspended_hashes:
+            suspended_source_hashes.add(value)
+        elif value in registered_takedown_hashes:
+            takedown_matches.append({"source": row.get("relativePath"), **registered_takedown_hashes[value]})
+        elif value in alias_hash_refs:
+            alias_matches.append({"source": row.get("relativePath"), "sha256": value, **alias_hash_refs[value]})
+        else:
+            detail = {"source": row.get("relativePath"), "sourceNumber": row.get("sourceNumber"), "sha256": value}
+            unknown_source.append(detail)
+            issues.append(f"source_missing_from_current_or_registered_suspension:{row.get('relativePath')}:{value}")
+    missing_current = sorted(dream_hashes - active_source_hashes)
+    missing_suspended = sorted(set(suspended_hashes) - suspended_source_hashes)
+    issues.extend(f"current_dream_original_missing_from_accepted_source:{value}" for value in missing_current)
+    issues.extend(f"suspended_original_missing_from_accepted_source:{suspended_hashes[value]}:{value}" for value in missing_suspended)
+    unreferenced = sorted(
+        path.relative_to(ROOT).as_posix()
+        for directory in (IMAGE_ROOT / CODEX_ID, ORIGINAL_ROOT / CODEX_ID) if directory.is_dir()
+        for path in directory.iterdir() if path.is_file()
+        and path.relative_to(ROOT).as_posix() not in referenced_files | retained_files
+    )
+    return {
+        "codexId": CODEX_ID, "validationScope": "current-json-and-originals-with-source-coverage",
+        "entries": len(entries), "images": image_count, "dreamEntries": dream_count,
+        "version": codex.get("version"), "registeredSuspendedEntries": len(suspended_ids),
+        "registeredRetainedAssets": len(retained_files), "sourceAudit": source_info,
+        "sourceCoverage": {
+            "acceptedImages": sum(bool(row.get("accepted")) for row in rows),
+            "currentHashMatches": len(active_source_hashes), "suspendedHashMatches": len(suspended_source_hashes),
+            "otherBranchMatches": other_branch_matches, "unknownMissingSourceImages": unknown_source,
+            "registeredTakedownMatches": takedown_matches, "registeredAliasMatches": alias_matches,
+            "currentDreamHashesAbsentFromSource": missing_current, "suspendedHashesAbsentFromSource": missing_suspended,
+        },
+        "unreferencedAssetFiles": unreferenced,
+        "issues": list(dict.fromkeys(issues)), "ok": not issues,
+    }
+
+
+def validate_dream_install(source: Path, workers: int) -> dict[str, Any]:
+    codex = json.loads((DATA_DIR / f"{CODEX_ID}.json").read_text(encoding="utf-8"))
+    index = json.loads((DATA_DIR / "codexes.json").read_text(encoding="utf-8"))
+    rows, _groups, source_info = audit_dream_update_source(source, workers)
+    result = validate_current_dream_payload(codex, rows, source_info, index, dream_suspension_state())
     write_json(DREAM_OUTPUT_DIR / "validation.json", result)
+    write_json(DREAM_OUTPUT_DIR / "source_manifest.json", rows)
+    if result["issues"]:
+        raise RuntimeError("dream current-install validation failed:\n" + "\n".join(result["issues"][:100]) + f"\nFull report: {DREAM_OUTPUT_DIR / 'validation.json'}")
     return result
 
 
 def main() -> int:
+    global OUTPUT_DIR, DREAM_OUTPUT_DIR
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=RAW_ROOT)
     parser.add_argument("--batch-source", type=Path, default=BATCH_RAW_ROOT)
@@ -2613,7 +2874,10 @@ def main() -> int:
     mode.add_argument("--dream-apply", action="store_true")
     mode.add_argument("--dream-validate", action="store_true")
     parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
+    parser.add_argument("--report-dir", type=Path, help="override audit/validation output directory")
     args = parser.parse_args()
+    if args.report_dir is not None:
+        OUTPUT_DIR = DREAM_OUTPUT_DIR = args.report_dir.resolve()
     if args.workers < 1:
         raise SystemExit("--workers must be at least 1")
     if args.dream_plan or args.dream_apply or args.dream_validate:

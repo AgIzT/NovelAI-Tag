@@ -25,12 +25,41 @@ function decodeText(bytes) {
   }
 }
 
+/* 解压上限：投稿接口在服务端对匿名上传的原图跑这套解析，压缩文本块解压后的大小不受上传体积约束，
+   不设上限时一张小图就能要求很大的内存。真实生成参数（含 ComfyUI workflow）远小于这个量级；
+   超限的块整块跳过（截断的 JSON 没有用），不影响同图其它块。tools/sd_metadata_inspector.py 只读本机文件，不需要同步。 */
+export const PARAMS_INFLATE_LIMITS = Object.freeze({
+  chunkBytes: 4 * 1024 * 1024,   // 单个压缩块解压后的上限
+  totalBytes: 8 * 1024 * 1024,   // 一张图所有压缩块解压后的合计上限
+});
+
 // DecompressionStream 老浏览器可能没有：缺失时压缩块静默跳过（tEXt/未压缩 iTXt 仍可用）
-async function inflateBytes(bytes, format) {
+// 边读边计数，超过上限立刻取消流并返回 null；budget 由同一张图的各块共用。
+async function inflateBytes(bytes, format, budget = null) {
   if (typeof DecompressionStream !== 'function') return null;
+  const limit = Math.min(PARAMS_INFLATE_LIMITS.chunkBytes, budget ? budget.remaining : Infinity);
   try {
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format)).getReader();
+    const parts = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      parts.push(value);
+    }
+    if (budget) budget.remaining -= size;
+    const out = new Uint8Array(size);
+    let offset = 0;
+    for (const part of parts) {
+      out.set(part, offset);
+      offset += part.byteLength;
+    }
+    return out;
   } catch {
     return null;
   }
@@ -55,15 +84,15 @@ function parseTextChunk(data) {
   return { keyword: decodeText(data.subarray(0, sep)), text: decodeText(data.subarray(sep + 1)) };
 }
 
-async function parseZtxtChunk(data) {
+async function parseZtxtChunk(data, budget) {
   const sep = data.indexOf(0);
   if (sep < 0 || sep + 2 > data.length) return null;
-  const inflated = await inflateBytes(data.subarray(sep + 2), 'deflate');
+  const inflated = await inflateBytes(data.subarray(sep + 2), 'deflate', budget);
   if (!inflated) return null;
   return { keyword: decodeText(data.subarray(0, sep)), text: decodeText(inflated) };
 }
 
-async function parseItxtChunk(data) {
+async function parseItxtChunk(data, budget) {
   const firstSep = data.indexOf(0);
   if (firstSep < 0 || firstSep + 3 > data.length) return null;
   const keyword = decodeText(data.subarray(0, firstSep));
@@ -77,7 +106,7 @@ async function parseItxtChunk(data) {
   offset = translatedSep + 1;
   const payload = data.subarray(offset);
   if (!compressed) return { keyword, text: decodeText(payload) };
-  const inflated = await inflateBytes(payload, 'deflate');
+  const inflated = await inflateBytes(payload, 'deflate', budget);
   if (!inflated) return null;
   return { keyword, text: decodeText(inflated) };
 }
@@ -88,6 +117,7 @@ export async function readPngTextChunks(buffer) {
   if (sniffImageKind(raw) !== 'png') return [];
   const view = new DataView(buffer instanceof ArrayBuffer ? buffer : raw.buffer, raw.byteOffset);
   const chunks = [];
+  const inflateBudget = { remaining: PARAMS_INFLATE_LIMITS.totalBytes };
   let exifData = null;
   let offset = 8;
 
@@ -101,8 +131,8 @@ export async function readPngTextChunks(buffer) {
     const data = raw.subarray(dataStart, dataEnd);
     let parsed = null;
     if (type === 'tEXt') parsed = parseTextChunk(data);
-    else if (type === 'zTXt') parsed = await parseZtxtChunk(data);
-    else if (type === 'iTXt') parsed = await parseItxtChunk(data);
+    else if (type === 'zTXt') parsed = await parseZtxtChunk(data, inflateBudget);
+    else if (type === 'iTXt') parsed = await parseItxtChunk(data, inflateBudget);
     else if (type === 'eXIf') exifData = data;
     if (parsed?.keyword) chunks.push({ type, ...parsed });
 

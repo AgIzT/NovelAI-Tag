@@ -15,6 +15,7 @@ from pack_import_core import (
     mark_exact_duplicates,
     normalized_suffix,
     sha256_file,
+    tree_counts,
     validate_asset,
     write_asset_bundle_from_paths,
     write_asset_from_path,
@@ -22,6 +23,24 @@ from pack_import_core import (
 
 
 class PackImportCoreTests(unittest.TestCase):
+    def test_tree_counts_preserves_paths_counts_and_empty_categories(self) -> None:
+        tree = [{"name": "root", "count": 1, "children": [
+            {"name": "empty", "count": 0, "children": []},
+            {"name": "active", "count": 1, "children": []},
+        ]}]
+        self.assertEqual(tree_counts(tree), {
+            ("root",): 1, ("root", "empty"): 0, ("root", "active"): 1,
+        })
+        tree[0]["children"].reverse()
+        self.assertEqual(tree_counts(tree)[("root", "active")], 1)
+
+    def test_tree_counts_rejects_duplicate_sibling_paths(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate category"):
+            tree_counts([
+                {"name": "same", "count": 1, "children": []},
+                {"name": "same", "count": 2, "children": []},
+            ])
+
     def test_staging_directory_is_unique_and_renameable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             parent = Path(temp) / "assets"
