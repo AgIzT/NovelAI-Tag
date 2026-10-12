@@ -1,6 +1,6 @@
 import { MAX_SITE_METRIC_EVENTS, validSiteMetric } from '../site-metrics-contract.js';
 
-export const SITE_ANALYTICS_ENABLED = false;
+export const SITE_ANALYTICS_ENABLED = true;
 
 const MINUTE_MS = 60_000;
 const QUEUE_LIMIT = 48;

@@ -106,8 +106,9 @@
 
 测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
-- Node · 匿名产品统计：`test_site_analytics.mjs`（默认关闭、DNT/GPC 零发送、内存队列、限频、超时、无重试/标识/持久化）；`test_site_metrics_backend.mjs`（真实内存 SQLite migration、同源、字节上限、严格字段枚举、未迁移 disabled、原子全站限额、保留期与已认证聚合报表）；`test_site_metrics_hooks.mjs`（实际复制/分享/导出/过滤函数体的内存依赖回放，成功时序与取消/失败排除）；`test_site_search_observation.mjs`（800ms 前清空/历史提前返回、导航及结果更新取消、无效回调、新旧代次与三个作用域的有效完成）。四者只读源码和内存夹具，不联网、不写用户存储或生产；不代替父级集成后的缓存号守卫与真实浏览器验收。
+- Node · 匿名产品统计：`test_site_analytics.mjs`（显式关闭工厂、DNT/GPC 零发送、内存队列、限频、超时、无重试/标识/持久化）；`test_site_metrics_backend.mjs`（真实内存 SQLite migration、同源、字节上限、严格字段枚举、未迁移 disabled、原子全站限额、保留期与已认证聚合报表）；`test_site_metrics_hooks.mjs`（实际复制/分享/导出/过滤函数体的内存依赖回放，成功时序与取消/失败排除）；`test_site_search_observation.mjs`（800ms 前清空/历史提前返回、导航及结果更新取消、无效回调、新旧代次与三个作用域的有效完成）；`test_site_metrics_production.mjs`（独立只读权限/到期、不能进入管理员接口、保留期清理边界及无关表不变）。只读源码和内存夹具，不联网、不写用户存储或生产；不代替真实 Pages Functions 与浏览器验收。
 - SQL · 匿名统计清理：`site_metrics_maintenance.sql` 只删除过期统计日聚合和全站限频桶，不碰互动/投稿/反馈表；执行即改指定 D1，本地/远端必须显式区分，远端需要另行授权。流程见私密运维文档 `docs/运维/匿名产品统计上线与回滚.md`。
+- Worker · `site-metrics-maintenance/worker.js` 与同目录 `wrangler.jsonc`：统计过期清理的独立 Cron Worker；部署会创建或更新具名 Worker/计划，运行会删除目标 D1 的过期统计行，绝不删除社区表；无公开 HTTP 维护接口，不随菜单程序发布自动部署。须核对目标配置并取得生产授权。
 
 - Python · 导入与数据：`test_apply_pack_names.py`、`test_backfill_pack_image_prompts.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang_20260925.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。

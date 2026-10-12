@@ -43,7 +43,7 @@ function fixture(nav = {}) {
   };
 }
 
-assert.equal(SITE_ANALYTICS_ENABLED, false);
+assert.equal(SITE_ANALYTICS_ENABLED, true);
 {
   const f = fixture();
   const analytics = createSiteAnalytics({ host: f.host });

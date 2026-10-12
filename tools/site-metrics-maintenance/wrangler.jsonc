@@ -1,0 +1,16 @@
+{
+  "name": "novelai-tag-metrics-maintenance",
+  "main": "worker.js",
+  "account_id": "a7afb019f147ce05ab8970c734eed6e8",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": { "crons": ["5 0 * * *"] },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "d1_databases": [{
+    "binding": "METRICS_DB",
+    "database_name": "novelai-tag-community",
+    "database_id": "7388e38b-b28d-47f4-85d2-21ce3a3b9131"
+  }]
+}

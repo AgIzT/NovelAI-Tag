@@ -20,7 +20,8 @@
     "production": {
       "vars": {
         "STRINGS_PUBLIC_BASE": "https://novelai-strings.quicktagcloud.com",
-        "SITE_METRICS_ENABLED": "false",
+        "SITE_METRICS_ENABLED": "true",
+        "SITE_METRICS_READ_TOKEN_EXPIRES_AT": "2027-04-12T00:00:00Z",
         "COMMUNITY_LIKES_ENABLED": "true",
         "FAVORITES_PICKUP_ENABLED": "true",
         "ATLAS_DATA_HOSTS": "novelai.quicktagcloud.com",
