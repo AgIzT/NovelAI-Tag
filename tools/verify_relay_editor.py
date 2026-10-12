@@ -868,6 +868,148 @@ return {name:name.className,mult:mult.className,multColor:getComputedStyle(mult)
             self.check(result == {'positive': 'blue sky', 'negative': 'lowres', 'surfaces': 1, 'frames': 1, 'panelHidden': True}, 'channel switching lost text or exposed both editors: ' + repr(result))
             return result
 
+        def fold_color(selector, disabled=False):
+            evidence = self.js('''
+const e=document.querySelector(''' + json.dumps(selector) + ''');
+if(!e)throw Error('missing fold color target');
+const s=getComputedStyle(e),probe=document.createElement('i');
+probe.style.color='var(--h)';e.append(probe);
+const h=getComputedStyle(probe).color;probe.style.color='var(--accent)';
+const accent=getComputedStyle(probe).color;probe.remove();
+return {classes:e.className,fold:e.dataset.fold||'',h,accent,
+ background:s.backgroundColor,shadow:s.boxShadow};''')
+            self.check('is-fold' in evidence['classes'].split(), 'manual fold lost its block class: ' + repr(evidence))
+            self.check(evidence['h'] == evidence['accent'], 'manual fold is not using the theme accent: ' + repr(evidence))
+            if disabled:
+                self.check('is-off' in evidence['classes'].split(), 'disabled fold lost its disabled style: ' + repr(evidence))
+            else:
+                self.check(evidence['background'] != 'rgba(0, 0, 0, 0)' and evidence['accent'] in evidence['shadow'],
+                           'manual fold lost its fill or color spine: ' + repr(evidence))
+            return evidence
+
+        def manual_fold_boundaries(label, value, start, end, complete, dedupe, dark=False):
+            def run():
+                if dark:
+                    self.js("document.body.classList.add('dark');")
+                self.js('qa.editor.setDedupe(' + ('true' if dedupe else 'false') + ');')
+                self.setup_text(value)
+                before, before_output = self.text(), self.output()
+                self.js(f'const i=qa.input();i.focus();i.setSelectionRange({start},{end});')
+                self.panel('折叠为词组')
+                a = value.index(complete)
+                expected = value[:a] + ZW + '#词组' + ZW + value[a + len(complete):]
+                self.check(self.text() == expected, label + ' did not fold complete tag boundaries: ' + repr(self.text()))
+                body = self.js('return qa.folds()["词组"].body;')
+                self.check(body == complete, label + ' dropped a tag part or weight shell: ' + repr(body))
+                self.check(self.output().encode('utf-8') == before_output.encode('utf-8'),
+                           label + ' changed compiled bytes while dedupe=' + str(dedupe))
+                self.select_token('#词组')
+                color = fold_color('.relay-token[data-fold="词组"]')
+                panel_color = fold_color('.relay-token-name')
+                self.assert_geometry(label + ' folded')
+                self.key('z', 2)
+                self.check(self.text() == before and self.output().encode('utf-8') == before_output.encode('utf-8'),
+                           label + ' native Ctrl+Z did not restore original text/output')
+                self.key('z', 10)
+                self.check(self.text() == expected, label + ' native Ctrl+Shift+Z did not restore the fold')
+                self.js('qa.saved=qa.editor.getSnapshot();qa.editor.loadPlan(JSON.parse(JSON.stringify(qa.saved)));')
+                self.select_token('#词组')
+                restored = fold_color('.relay-token[data-fold="词组"]')
+                self.check(self.text() == expected and self.output().encode('utf-8') == before_output.encode('utf-8'),
+                           label + ' save/load changed text or compiled bytes')
+                self.assert_geometry(label + ' restored')
+                shot = 'manual-fold-' + label + ('-dedupe' if dedupe else '-keep-duplicates')
+                self.screenshot(shot)
+                return {'before': before, 'selected': value[start:end], 'body': body,
+                        'after': expected, 'output': self.output(), 'dedupe': dedupe,
+                        'color': color, 'panelColor': panel_color, 'restoredColor': restored,
+                        'screenshot': shot + '.png'}
+            return run
+
+        def legacy_embedded_fold():
+            self.js("document.body.classList.add('dark');")
+            value = 'red ' + ZW + '#旧词组' + ZW + ' hair, forest'
+            plan = {'dedupe': True, 'positive': {'text': value, 'folds': {'旧词组': {
+                'body': 'blue sky', 'title': '旧词组', 'kind': 'block',
+                'accessKnown': True, 'access': {'nsfw': False, 'r18g': False}}}}}
+            self.js('qa.legacy=' + json.dumps(plan, ensure_ascii=False) + ';qa.editor.loadPlan(qa.legacy);')
+            before, output = self.text(), self.output()
+            self.select_token('red ')
+            color = fold_color('.relay-token.is-fold')
+            panel_color = fold_color('.relay-token-name')
+            self.check(self.text() == value and output == 'red blue sky hair, forest',
+                       'legacy embedded fold migration changed original text/output')
+            self.assert_geometry('legacy embedded fold')
+            self.js('qa.saved=qa.editor.getSnapshot();qa.editor.loadPlan(JSON.parse(JSON.stringify(qa.saved)));')
+            self.select_token('red ')
+            restored = fold_color('.relay-token.is-fold')
+            restored_panel = fold_color('.relay-token-name')
+            self.check(self.text() == before and self.output().encode('utf-8') == output.encode('utf-8'),
+                       'legacy embedded fold save/load changed text or compiled bytes')
+            self.check(self.js('return qa.editor.getSnapshot().positive.folds["旧词组"].body;') == 'blue sky',
+                       'legacy embedded fold rendering rewrote stored body')
+            self.assert_geometry('legacy embedded fold restored')
+            self.screenshot('manual-fold-legacy-embedded-dark')
+            return {'before': before, 'after': self.text(), 'output': self.output(),
+                    'color': color, 'panelColor': panel_color, 'restoredColor': restored,
+                    'restoredPanelColor': restored_panel,
+                    'screenshot': 'manual-fold-legacy-embedded-dark.png'}
+
+        def manual_fold_disabled_refuses():
+            self.setup_text('blue sky, forest, smile')
+            self.select_token('blue sky')
+            self.panel('禁用')
+            before, output = self.text(), self.output()
+            results = []
+            for label, start, end in [
+                ('partial-disabled', before.index('sky'), before.index('sky') + 3),
+                ('mixed-disabled-enabled', before.index('blue') + 2, before.index('forest') + 3),
+            ]:
+                self.js(f'const i=qa.input();i.focus();i.setSelectionRange({start},{end});await qa.editor.foldSelection();')
+                self.check(self.text() == before and self.output().encode('utf-8') == output.encode('utf-8'),
+                           label + ' folding enabled a disabled tag or rewrote the selection')
+                self.check(self.js('return Object.keys(qa.folds()).length;') == 0,
+                           label + ' refusal still created a fold record')
+                results.append({'selection': before[start:end], 'text': self.text(), 'output': self.output()})
+            self.assert_geometry('disabled manual fold refusal')
+            self.screenshot('manual-fold-disabled-refuses')
+            return {'before': before, 'output': output, 'attempts': results,
+                    'screenshot': 'manual-fold-disabled-refuses.png'}
+
+        def manual_fold_disabled_source_restore():
+            self.click('#source')
+            self.select_token('#测试素材')
+            self.panel('禁用')
+            folded, output = self.text(), self.output()
+            self.panel('展开')
+            expanded = self.text()
+            self.check(expanded != folded and expanded.startswith(ZW + '~') and expanded.endswith('~' + ZW),
+                       'disabled source expansion lost its disabled shell')
+            self.check(self.output() == output == '', 'disabled source expansion leaked output')
+            self.key('a', 2)
+            self.panel('折叠回 #测试素材')
+            self.check(self.text() == folded and self.output() == output,
+                       'folding an expanded disabled source did not restore the exact original shell')
+            color = fold_color('.relay-token[data-fold="测试素材"]', disabled=True)
+            self.assert_geometry('disabled source folded back')
+            self.screenshot('manual-fold-disabled-source-restore')
+            return {'folded': folded, 'expanded': expanded, 'restored': self.text(),
+                    'output': self.output(), 'color': color,
+                    'screenshot': 'manual-fold-disabled-source-restore.png'}
+
+        def manual_fold_separator_only():
+            self.setup_text('blue sky,  forest')
+            before, output = self.text(), self.output()
+            self.js('const i=qa.input();i.focus();i.setSelectionRange(8,11);await qa.editor.foldSelection();')
+            self.check(self.text() == before and self.output().encode('utf-8') == output.encode('utf-8'),
+                       'separator-only selection rewrote text/output')
+            self.check(self.js('return Object.keys(qa.folds()).length;') == 0,
+                       'separator-only selection created a meaningless fold')
+            self.assert_geometry('separator-only fold refusal')
+            self.screenshot('manual-fold-separator-only')
+            return {'selected': before[8:11], 'text': self.text(), 'output': self.output(),
+                    'screenshot': 'manual-fold-separator-only.png'}
+
         cases = [("01-layout-mixed", mixed_geometry), ("01-layout-long-word", long_geometry),
                  ("01-layout-scroll", scroll_geometry), ("02-type-after-fold", after_fold),
                  ("03-type-between-folds", between_folds), ("05-undo-typing", undo_typing),
@@ -890,6 +1032,26 @@ return {name:name.className,mult:mult.className,multColor:getComputedStyle(mult)
                   ('11-drag-fold-no-expansion', drag_across_fold), ('11-shift-fold-no-expansion', shift_select_fold)]
         cases += [('12-plain-click-selection-fold', plain_click_and_fold_selection),
                   ('12-selected-groups-fold', selected_groups_to_text), ('12-channel-keyboard', channel_keyboard)]
+        boundary_cases = [
+            ('partial-prefix', 'blue sky, forest', 0, 4, 'blue sky', False),
+            ('partial-suffix', 'blue sky, forest', 5, 8, 'blue sky', False),
+            ('partial-middle', 'blue sky, forest', 2, 5, 'blue sky', False),
+            ('trailing-comma', 'blue sky, forest', 0, 10, 'blue sky', False),
+            ('cross-tags', 'red hair, blue eyes, smile', 4, 14, 'red hair, blue eyes', False),
+            ('chinese-space', '黑色 长发, 白色 上衣', 0, 2, '黑色 长发', True),
+            ('numeric-weight', '1.2::red hair, blue eyes::, smile', 5, 8, '1.2::red hair, blue eyes::', False),
+            ('brace-weight', '{{red hair, blue eyes}}, smile', 4, 8, '{{red hair, blue eyes}}', False),
+            ('duplicates', 'blue sky, forest, blue sky, soft lighting', 2, 13, 'blue sky, forest', False),
+        ]
+        for label, value, start, end, complete, dark in boundary_cases:
+            for dedupe in [False, True]:
+                suffix = '-dedupe' if dedupe else '-keep-duplicates'
+                cases.append(('13-manual-fold-' + label + suffix,
+                              manual_fold_boundaries(label, value, start, end, complete, dedupe, dark)))
+        cases.append(('13-manual-fold-legacy-embedded-dark', legacy_embedded_fold))
+        cases += [('14-manual-fold-disabled-refuses', manual_fold_disabled_refuses),
+                  ('14-manual-fold-disabled-source-restore', manual_fold_disabled_source_restore),
+                  ('14-manual-fold-separator-only', manual_fold_separator_only)]
         for name, callback in cases:
             if not only or only in name:
                 self.test(name, callback)
