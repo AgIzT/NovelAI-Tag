@@ -717,7 +717,12 @@ try {
     assert.equal(ref('#relayPositiveOutput').value, '1.2::{sunlight}::, adult-positive');
     assert.equal(ref('#relayNegativeOutput').value, '1.2::blurry::, adult-negative');
     assert.match(allMarkup(), /成人词条/);
-    assert.equal(elementsIn(lane, node => node.tagName === 'IMG').length, 1, '解锁后来源图片恢复，锁定断言不能靠永久隐藏图片通过');
+    const mirrorImages = [...lane.querySelectorAll('.relay-editor-mirror')]
+      .flatMap(mirror => [...mirror.querySelectorAll('.pic')].filter(node => node.tagName === 'IMG'));
+    const stripImages = [...lane.querySelectorAll('.relay-pics')]
+      .flatMap(pics => [...pics.querySelectorAll('.relay-pic-img')].filter(node => node.tagName === 'IMG'));
+    assert.equal(mirrorImages.length, 1, '解锁后镜像来源图片恢复，锁定断言不能靠永久隐藏图片通过');
+    assert.equal(stripImages.length, 1, '解锁后例图条来源图片恢复，锁定断言不能靠永久隐藏图片通过');
 
     /* —— footer 分段控件：真实 scope + 三种格式 + 两种连接 —— */
     const naiOutput = ref('#relayPositiveOutput').value;
