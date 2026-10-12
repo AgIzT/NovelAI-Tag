@@ -144,6 +144,11 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     return tokens(here().text).find(t => at >= t.start && at <= t.end) || null;
   }
 
+  /* 旧方案可能把折叠占位符与普通文字连写，仍按词组块显示，正文和输出保持原样。 */
+  function containsFold(t, folds = here().folds) {
+    return Boolean(folds.get(t.fold)) || foldRanges(t.core).some(range => folds.has(range.name));
+  }
+
   function paint() {
     const v = view();
     if (v.surface.classList.contains('is-composing')) return;
@@ -162,7 +167,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       const fold = folds.get(t.fold), locked = fold && isLocked(fold);
       const span = element('span', 'relay-token', guarded ? body : t.core);
       span.dataset.start = String(t.start);
-      span.classList.toggle('is-fold', Boolean(fold));
+      span.classList.toggle('is-fold', containsFold(t, folds));
       if (fold && !locked) span.dataset.fold = t.fold;
       span.classList.toggle('is-locked', Boolean(locked));
       span.classList.toggle('is-off', t.off);
@@ -344,20 +349,32 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       return true;
     }, failureMessage: '内容已有变化，可选中文本折叠回词组' });
   }
-  function selectedFold() {
-    const input = view().input, text = input.value.slice(input.selectionStart, input.selectionEnd);
+  function selectedFold({ complete = false } = {}) {
+    const input = view().input;
+    let start = input.selectionStart, end = input.selectionEnd;
+    if (complete && start !== end) {
+      /* 折叠以完整 tag 为单位，包含权重外壳；首尾逗号和空白留在正文，避免占位符粘字。 */
+      const selected = tokens(input.value).filter(t => start < t.end && end > t.start);
+      if (selected.length) { start = selected[0].start; end = selected.at(-1).end; }
+      else start = end;
+    }
+    const text = input.value.slice(start, end);
     const expanded = expansions.get(`${session.channel}:${text}`);
     const match = expanded || [...here().folds].map(([name, fold]) => ({ name, fold }))
       .find(item => item.fold.body === text);
-    return { text, start: input.selectionStart, end: input.selectionEnd,
+    return { text, start, end,
       match: match && !isLocked(here().folds.get(match.name)) ? match : null };
   }
   async function foldSelection(event) {
-    const selected = selectedFold(), channel = session.channel, version = editVersion;
+    const selected = selectedFold({ complete: true }), channel = session.channel, version = editVersion;
     if (!selected.text.trim() || foldRanges(selected.text).length) {
       notify('请先选中要折叠的普通文本'); return;
     }
     let { match } = selected;
+    /* 新组的正文会清理零宽守卫，不能把停用项变回启用；折叠回原外壳仍可无损恢复。 */
+    if (!match?.core && tokens(selected.text).some(t => t.off)) {
+      notify('先启用选中的 tag，再折叠为词组'); return;
+    }
     if (!match) {
       const proposed = await requestName({ before: panel, trigger: event?.currentTarget || view().input });
       if (!proposed || version !== editVersion || channel !== session.channel) return;
@@ -414,7 +431,8 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
         }).disabled = foldRanges(selected.text).some(range => isLocked(here().folds.get(range.name)));
         return;
       }
-      const name = selected.match ? `折叠回 #${selected.match.name}` : '折叠为词组';
+      const match = selectedFold({ complete: true }).match;
+      const name = match ? `折叠回 #${match.name}` : '折叠为词组';
       button(name, foldSelection);
       return;
     }
@@ -446,7 +464,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
     /* 面板头是被点中那一个的放大版：同形同色。锁定时只留文字。 */
     if (!locked) {
       name.classList.add('is-token');
-      name.classList.toggle('is-fold', Boolean(fold));
+      name.classList.toggle('is-fold', containsFold(t));
       name.classList.toggle('is-off', t.off);
       name.classList.toggle('is-up', t.mult > 1.001);
       name.classList.toggle('is-down', t.mult < .999);
