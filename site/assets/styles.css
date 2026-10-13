@@ -2519,7 +2519,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   max-width:calc(100% - var(--lb-wide-left) - var(--lb-right));
 }
 .lightbox.lb-wide:not(.folded):not(.lb-wide-tight) .artist-peek{inset:0 72px 0 62px}
-/* 翻词条时栏宽在 600 与 1000 之间切换，图片和栏一起滑到新位置 */
+/* 翻词条时栏宽在单列与两列之间切换，图片和栏一起滑到新位置 */
 .lightbox.lb-wide .lightbox-stage{
   transition:left .3s cubic-bezier(.22,1,.36,1),right .3s cubic-bezier(.22,1,.36,1),
     bottom .3s cubic-bezier(.22,1,.36,1),padding .3s cubic-bezier(.22,1,.36,1);
@@ -2533,7 +2533,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 }
 .lightbox.lb-settling :is(.lightbox-stage,.lightbox-info,.lb-circle,.lb-fold,.lightbox-thumbs){transition:none}
 .lightbox.lb-wide .artist-strip{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}
-/* 有负面或角色词、栏宽够 640px 时分两列：左列正向 + 画师，右列角色 + 负面 + 备注，两列各自滚动。
+/* 有负面或角色词、栏宽够 540px 时分两列：左列正向 + 画师，右列角色 + 负面 + 备注，两列各自滚动。
    其余情况列容器是 display:contents，排版与单栏完全一样；本地编辑面板打开时也退回单栏。 */
 .lightbox-columns,.lightbox-column{display:contents}
 .lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)){display:flex;flex-direction:column;overflow:hidden}

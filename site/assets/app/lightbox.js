@@ -235,22 +235,24 @@ export function fitStageRect(ratio) {
 }
 
 /* 电脑宽屏几何：图片按高度撑满，左右留出翻页键的位置（与 styles.css 舞台内边距一致），横向剩下的全给信息栏。
-   有负面或角色词的词条栏最宽 1000px，宽于 640px 分两列；其余词条最宽 600px。再有剩余就整组居中。
+   有负面或角色词、且能给出 540px 的词条分两列，最宽 1000px；其余单列，最宽 480px。再有剩余就整组居中。
    横图或窄窗口挤到原有栏宽以下时（tight），栏守住原宽度，翻页键照旧盖在图片两侧。 */
 const LB_EDGE = 18;
 const LB_GAP = 18;
 const LB_NAV_LEFT = 62;
 const LB_NAV_RIGHT = 72;
 const LB_THUMBS_HEIGHT = 78;
-const LB_INFO_MAX = { rich: 1000, light: 600 };
-const LB_TWO_COLUMNS = 640;
+const LB_INFO_MAX = 1000;
+const LB_SINGLE_MAX = 480;
+const LB_TWO_COLUMNS = 540;
 const LB_COMPACT_MEDIA = '(max-width:600px), (max-width:760px) and (orientation:portrait)';
 
 export function lightboxWideLayout({ width, height, aspect, rich = false, thumbs = false }) {
   const minInfo = Math.min(340, Math.max(260, width * 0.36));
   const imageWidth = (height - LB_EDGE * 2 - (thumbs ? LB_THUMBS_HEIGHT : 0)) * aspect;
-  const max = rich ? LB_INFO_MAX.rich : LB_INFO_MAX.light;
   let info = width - LB_EDGE * 2 - LB_NAV_LEFT - LB_NAV_RIGHT - LB_GAP - imageWidth;
+  const columns = rich && info >= LB_TWO_COLUMNS ? 2 : 1;
+  const max = columns === 2 ? LB_INFO_MAX : LB_SINGLE_MAX;
   let edge = LB_EDGE;
   if (info > max) {
     edge += (info - max) / 2;
@@ -260,7 +262,7 @@ export function lightboxWideLayout({ width, height, aspect, rich = false, thumbs
   if (tight) info = minInfo;
   info = Math.round(info);
   edge = Math.round(edge);
-  return { edge, info, right: edge + info + LB_GAP, tight, columns: rich && info >= LB_TWO_COLUMNS ? 2 : 1 };
+  return { edge, info, right: edge + info + LB_GAP, tight, columns };
 }
 
 /* 一条词条只用一个比例排版：取各图里最宽的那张，翻套图时栏宽不变，窄一点的图在图片区里居中。 */
