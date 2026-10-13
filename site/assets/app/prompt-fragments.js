@@ -1,7 +1,7 @@
 import { tagZhKey } from './tag-zh-core.js';
 
 /* 展示片段与可复制片段分开：每个 raw 都含完整的外层权重。
-   不猜测调度、交替或损坏语法；不能安全拆开的内容作为一个整体保留。 */
+   不猜测调度、交替或损坏语法；保留已确认的前段，不能安全拆开的尾段作为整体。 */
 const OPEN = { '{': '}', '[': ']', '(': ')' };
 const CLOSE = new Set(Object.values(OPEN));
 const NUMBER_OPEN = /^-?(?:\d+(?:\.\d+)?|\.\d+)::/;
@@ -83,7 +83,14 @@ function flatten(raw, wrap = text => text, depth = 0) {
   if (!text) return [];
   if (depth > 32) return [{ raw: wrap(text), label: text, opaque: true }];
   const scanned = scan(text);
-  if (!scanned.valid) return [{ raw: wrap(text), label: text, opaque: true }];
+  if (!scanned.valid) {
+    // scan 只提交首个异常之前、所有权重与引号都闭合的顶层片段。
+    // 尾段保持整体，不从错误后的逗号猜测权重范围或修补原文。
+    const pieces = scanned.pieces.flatMap(part => flatten(part, wrap, depth + 1));
+    const tail = scanned.tail.trim();
+    if (tail) pieces.push({ raw: wrap(tail), label: tail, opaque: true });
+    return pieces;
+  }
   const parts = [...scanned.pieces, scanned.tail.trim()].filter(Boolean);
   if (!parts.length) return [];
   if (parts.length > 1 || parts[0] !== text) return parts.flatMap(part => flatten(part, wrap, depth + 1));

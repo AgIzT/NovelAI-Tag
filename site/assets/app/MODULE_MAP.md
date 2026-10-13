@@ -101,7 +101,7 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `prompt-fragments.js` | `tokenizePrompt`、`serializeSelection`、`splitDraft` | — | `tag-zh-core.js` | 纯解析；显示词典 key 与可复制原文分离，局部选取保留权重边界，完整选取返回原文；不确定语法保留整体，输入只按顶层分隔符确认 |
+| `prompt-fragments.js` | `tokenizePrompt`、`serializeSelection`、`splitDraft` | — | `tag-zh-core.js` | 纯解析；显示词典 key 与可复制原文分离，局部选取保留权重边界，完整选取返回原文；异常之前已确认的顶层片段继续可选，异常尾段保持整体，输入只按顶层分隔符确认 |
 | `tag-relay-core.js` | 旧 v1–v3 schema、来源 / 片段稳定键、旧编译及迁移基线 | — | `nai-sd.js` | 纯计算；保留旧输出行为供 v4 迁移逐字节比较，不再作为当前方案写入模型 |
 | `tag-relay-v4.js` | 文本方案规范化、CRUD、revision、编译、迁移、历史与备份 | — | `tag-relay-core.js`、`tag-relay-text.js` | 存储 `{text,folds}`，提交前回收未引用 fold；旧语法兼容段仅随未改正文重定位；三格式 × 两连接迁移输出逐字节校验；未来版本拒绝降级 |
 | `tag-relay-snapshot.js` | `snapshotEntry` / `snapshotFragment`、真实来源键与快照锁定判断 | — | `access.js`、`data.js`、`media.js`、`state.js`、`tag-relay-core.js` | 来源身份、片段范围与实例身份分离；复制片段只保存指定通道 / 范围原文；来源属性在收入时冻结，锁定判断读当前内存权限 |

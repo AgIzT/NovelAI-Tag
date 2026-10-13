@@ -139,6 +139,8 @@ function hasNumeric(body) {
    不透明数字语法（交替、调度或损坏输入）时返回 null，让编辑器保留
    原 token（包括其已有外层权重），不以剥壳正文冒充无损降级。 */
 function scaleNumeric(body, weight) {
+  // 选择片段可恢复安全前缀，损坏正文仍不能重新分配外层倍率。
+  if (!scan(body).valid) return null;
   const parts = tokenizePrompt(body).map(part => analyze(part.raw));
   if (parts.some(part => hasNumeric(part.body))) return null;
   return parts.map(part => numericShell(part.body, weight * part.mult)).join(', ');

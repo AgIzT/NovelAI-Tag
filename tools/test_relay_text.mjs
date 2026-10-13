@@ -87,6 +87,21 @@ const opaqueFolds = new Map([['opaque', { body: '[cat|1.3::dog::]' }]]);
 assert.equal(outputOf(`-1::${placeholder('opaque')}::`, opaqueFolds), '-1::[cat|1.3::dog::]::');
 assert.equal(outputOf(`0::${placeholder('opaque')}::`, opaqueFolds), '0::[cat|1.3::dog::]::');
 
+/* 选择解析器恢复安全前缀后，损坏尾段也不能让负数/零倍率被重新分配。 */
+for (const body of ['1.3::cat::, {dog', '1.3::cat::, "dog', '1.3::cat::, ::dog']) {
+  const damagedFolds = new Map([['damaged', { body }]]);
+  for (const weight of [-1, 0]) {
+    assert.equal(wrapWeighted(body, weight), null, `${weight} × ${body}`);
+    const wrapped = `${weight}::${placeholder('damaged')}::`;
+    const expected = `${weight}::${body}::`;
+    assert.equal(outputOf(wrapped, damagedFolds), expected);
+    const output = analyzeOutput(wrapped, damagedFolds);
+    assert.equal(output.text, expected);
+    assert.deepEqual(output.tokens, [expected]);
+  }
+  assert.equal(damagedFolds.get('damaged').body, body);
+}
+
 const repeated = `cat, ${first}, CAT, 1.2::cat::, cat`;
 const result = analyzeOutput(repeated, folds);
 assert.equal(result.text, 'cat, dog, 1.2::cat::');
