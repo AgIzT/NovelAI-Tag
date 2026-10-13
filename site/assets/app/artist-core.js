@@ -30,13 +30,44 @@ export function compactArtistKey(name) {
   return String(name || '').replace(/\s+/g, '');
 }
 
+const LEADING_MARKS = /^[\s{}[\]()]*(?:-?\d+(?:\.\d+)?::[\s{}[\]()]*)*/;
+const WEIGHT_OPEN = /(-?\d+(?:\.\d+)?)::/g;
+
+/* 仅画师提取拆开 NAI 开括号组；原始段的数字权重资格和跨逗号状态仍由共享切段决定。
+   新画师组可带自己的数字前缀，普通段内的 year {2025::} 仍只收组；tag 中文对照不改原文。 */
+function splitArtistPieces(text) {
+  const pieces = [];
+  for (const source of splitPromptPieces(text)) {
+    // artist:[[name]] 这类括号外前缀保留给 artistKey，避免拆开后漏掉画师。
+    const separated = source.text
+      .replace(/(artist\s*:\s*)?([{[](?:\s*[{[])*)/gi, (raw, prefix) => prefix ? raw : `,${raw}`);
+    const prefixEnd = source.text.match(LEADING_MARKS)[0].length;
+    let weight = source.weight;
+    let offset = 0;
+    for (const raw of separated.split(',')) {
+      if (!raw) continue;
+      const marks = raw.match(LEADING_MARKS)[0];
+      const opens = artistKey(raw) ? [...marks.matchAll(WEIGHT_OPEN)] : [];
+      let closeStart = Math.max(0, prefixEnd - offset);
+      if (opens.length) {
+        weight = Number(opens[opens.length - 1][1]);
+        closeStart = marks.length;
+      }
+      pieces.push({ text: raw, weight });
+      if (raw.slice(closeStart).includes('::')) weight = null;
+      offset += raw.length;
+    }
+  }
+  return pieces;
+}
+
 /* 提示词里的画师，按第一次出现的顺序去重。weight 是作用在它身上的倍率：
    NAI 数字权重（1.5::…:: 组也算）× 1.05^花括号层数 ÷ 1.05^方括号层数；括号跨逗号时按所在层数算。 */
 export function promptArtists(text) {
   const found = new Map();
   let curly = 0;
   let square = 0;
-  for (const piece of splitPromptPieces(text)) {
+  for (const piece of splitArtistPieces(text)) {
     const raw = piece.text;
     const opensCurly = countChar(raw, '{');
     const opensSquare = countChar(raw, '[');

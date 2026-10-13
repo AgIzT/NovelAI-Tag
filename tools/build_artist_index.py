@@ -30,7 +30,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_tag_zh import SEPARATOR, bare_tag, split_pieces  # noqa: E402
+from build_tag_zh import SEPARATOR, bare_tag  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,19 +67,21 @@ def compact_key(name: str) -> str:
 
 
 def prompt_artists(text: str) -> list[str]:
-    seen: list[str] = []
-    for piece in split_pieces(text):
-        name = artist_key(piece)
-        if name and name not in seen:
-            seen.append(name)
-    return seen
+    return [name for name, _ in prompt_artist_weights(text)]
 
 
-# 与 tag-zh-core.js 的 splitPromptPieces、artist-core.js 的 promptArtists 逐条一致（全站数据对拍过）
+# 数字权重沿用 tag-zh 的切段规则，画师组边界与 artist-core.js 的 promptArtists 同步。
 LEADING_MARKS = re.compile(r"^[\s{}\[\]()]*(?:-?\d+(?:\.\d+)?::[\s{}\[\]()]*)*")
 WEIGHT_OPEN = re.compile(r"(-?\d+(?:\.\d+)?)::")
 LEAD_SPACE = re.compile(r"^\s*")
 BRACE_STEP = 1.05
+GROUP_OPEN = re.compile(r"(artist\s*:\s*)?([{\[](?:\s*[{\[])*)", re.IGNORECASE)
+
+
+def separate_artist_groups(text: str) -> str:
+    """只为画师提取补分隔：括号状态仍由后面的逐段扫描继承，不改 tag 中文对照的切段规则。"""
+    # artist:[[name]] 这类前缀在括号外的原文保留给 artist_key，避免拆开前缀后漏掉画师。
+    return GROUP_OPEN.sub(lambda match: match.group(0) if match.group(1) else "," + match.group(0), text)
 
 
 def prompt_artist_weights(text: str) -> list[tuple[str, float]]:
@@ -94,21 +96,35 @@ def prompt_artist_weights(text: str) -> list[tuple[str, float]]:
         sep = parts[i + 1] if i + 1 < len(parts) else ""
         if not body and not sep:
             continue
-        piece = body[LEAD_SPACE.match(body).end():]
-        marks = LEADING_MARKS.match(piece).group(0)
+        source = body[LEAD_SPACE.match(body).end():]
+        source_marks = LEADING_MARKS.match(source).group(0)
         weight = open_weight
-        for match in WEIGHT_OPEN.finditer(marks):
+        for match in WEIGHT_OPEN.finditer(source_marks):
             weight = float(match.group(1))
             open_weight = weight
-        if "::" in piece[len(marks):]:
+        if "::" in source[len(source_marks):]:
             open_weight = None
-        opens_curly, opens_square = piece.count("{"), piece.count("[")
-        level = (curly + opens_curly) - (square + opens_square)
-        curly = max(0, curly + opens_curly - piece.count("}"))
-        square = max(0, square + opens_square - piece.count("]"))
-        name = artist_key(piece)
-        if name and name not in found:
-            found[name] = (1 if weight is None else weight) * BRACE_STEP ** level
+        # 先保留原始段的数字权重资格；人工拆段不能把 year {2025::} 提升成开组。
+        offset = 0
+        for piece in separate_artist_groups(source).split(","):
+            if not piece:
+                continue
+            marks = LEADING_MARKS.match(piece).group(0)
+            name = artist_key(piece)
+            opens = list(WEIGHT_OPEN.finditer(marks)) if name else []
+            close_start = max(0, len(source_marks) - offset)
+            if opens:
+                weight = float(opens[-1].group(1))
+                close_start = len(marks)
+            opens_curly, opens_square = piece.count("{"), piece.count("[")
+            level = (curly + opens_curly) - (square + opens_square)
+            curly = max(0, curly + opens_curly - piece.count("}"))
+            square = max(0, square + opens_square - piece.count("]"))
+            if name and name not in found:
+                found[name] = (1 if weight is None else weight) * BRACE_STEP ** level
+            if "::" in piece[close_start:]:
+                weight = None
+            offset += len(piece)
     return list(found.items())
 
 

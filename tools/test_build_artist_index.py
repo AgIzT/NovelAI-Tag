@@ -44,6 +44,68 @@ class ArtistKeyTest(unittest.TestCase):
                          [("a", 1), ("b", 0.4), ("c", 0.4), ("d", 0.91), ("e", 1.05)])
         self.assertEqual(bai.round_weight(0.175), 0.18, "进位要和 JS 的 Math.round 一致")
 
+    def test_prompt_artist_weights_separates_adjacent_groups(self):
+        cases = [
+            ("{{artist:pottsness}}, [[artist:onineko]][[artist:as109]], year 2024",
+             [("pottsness", 1.05 ** 2), ("onineko", 1.05 ** -2), ("as109", 1.05 ** -2)]),
+            ("{{artist:a}}{{artist:b}}", [("a", 1.05 ** 2), ("b", 1.05 ** 2)]),
+            ("[[artist:a]] {{artist:b}}", [("a", 1.05 ** -2), ("b", 1.05 ** 2)]),
+            ("{[[artist:a]][artist:b]}", [("a", 1.05 ** -1), ("b", 1)]),
+            ("0.4::{artist:a, [[artist:b]][artist:c]}::, artist:d",
+             [("a", 0.4 * 1.05), ("b", 0.4 * 1.05 ** -1), ("c", 0.4), ("d", 1)]),
+            ("{{smile}}[[artist:a]]{blush}{artist:b}[[blue sky]]",
+             [("a", 1.05 ** -2), ("b", 1.05)]),
+            ("artist:senji_(tegone_spike){artist:tomose_shunsaku}",
+             [("senji (tegone spike)", 1), ("tomose shunsaku", 1.05)]),
+            ("[[artist:a]]{{artist:a}}{artist:b}", [("a", 1.05 ** -2), ("b", 1.05)]),
+            ("artist:[[a]]{artist:b}", [("[[a", 1.05 ** -2), ("b", 1.05)]),
+            ("artist: [ [a]]{{artist:b}}", [("[ [a", 1.05 ** -2), ("b", 1.05 ** 2)]),
+            ("artist:{{a}}[[artist:b]]", [("{{a", 1.05 ** 2), ("b", 1.05 ** -2)]),
+            ("0.4::{year} 2025::,artist:a", [("a", 1)]),
+            ("0.4::{year} 2025::,[[artist:a]][[artist:b]]",
+             [("a", 1.05 ** -2), ("b", 1.05 ** -2)]),
+            ("0.4::year {2025::},artist:a", [("a", 1)]),
+            ("0.4::year [2025::][[artist:a]][[artist:b]]",
+             [("a", 1.05 ** -2), ("b", 1.05 ** -2)]),
+            ("{{0.5::artist:a::}}{{2::artist:b::}},artist:c",
+             [("a", 0.5 * 1.05 ** 2), ("b", 2 * 1.05 ** 2), ("c", 1)]),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(bai.prompt_artist_weights(text), expected)
+                self.assertEqual(bai.prompt_artists(text), [name for name, _ in expected])
+
+    def test_build_samples_excludes_adjacent_multi_artist_groups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            entries = [
+                {"id": "group", "image": "group.jpg", "tags": "[[artist:onineko]][[artist:as109]]"},
+                {"id": "outside", "image": "outside.jpg",
+                 "tags": "artist:ciloranko, artist:[sho (sho lwlw)], artist:[aya shobon]"},
+                {"id": "solo", "image": "solo.jpg", "tags": "{artist:solo}"},
+            ]
+            (data / "artists.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+            with mock.patch.object(bai, "DATA", data):
+                out = bai.build_samples("artists")
+        self.assertEqual(out["samples"], {"solo": ["solo", "", "", 0]})
+
+    def test_report_resolves_adjacent_groups_to_individual_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            entries = [{"tags": "[[artist:onineko]][[artist:as109]], {artist:missing}"}]
+            (data / "example.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+            versions = {
+                "n45": {"book": "artists45", "samples": {"onineko": []}},
+                "n5": {"book": "artists5", "samples": {"as109": []}},
+            }
+            with mock.patch.object(bai, "DATA", data), mock.patch.object(bai, "REPORT_DIR", data / "report"):
+                bai.write_report([{"id": "example", "title": "NovelAI v5 example"}], versions, 0)
+            report = (data / "report" / "构建报告.md").read_text(encoding="utf-8")
+        self.assertIn("| example | n5 | 1 | 3 | 2 | 67% |", report)
+        self.assertIn("| `artist:missing` | 1 | example 1 |", report)
+        self.assertNotIn("artist:onineko", report)
+        self.assertNotIn("artist:as109", report)
+
     def test_build_strings_dedupes_sets_and_skips_restricted_reps(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)

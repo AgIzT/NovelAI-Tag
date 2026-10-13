@@ -28,6 +28,48 @@ assert.deepEqual(round(promptArtists(
 assert.deepEqual(round(promptArtists('{{1girl, artist:f}}, artist:g')), [['f', 1.1025], ['g', 1]]);
 assert.deepEqual(promptArtists('1girl, solo, smile'), []);
 
+/* 相邻 NAI 括号组只在画师提取时拆开，各组倍率、外层与数字权重分别保留。 */
+assert.deepEqual(round(promptArtists(
+  '{{artist:pottsness}}, [[artist:onineko]][[artist:as109]], year 2024',
+)), [['pottsness', 1.1025], ['onineko', 0.907], ['as109', 0.907]]);
+assert.deepEqual(round(promptArtists('{{artist:a}}{{artist:b}}, artist:c')), [
+  ['a', 1.1025], ['b', 1.1025], ['c', 1],
+]);
+assert.deepEqual(round(promptArtists('{artist:a}[[artist:b]], [{{artist:c}}{{artist:d}}]')), [
+  ['a', 1.05], ['b', 0.907], ['c', 1.05], ['d', 1.05],
+]);
+assert.deepEqual(round(promptArtists('{{1girl,[[artist:a]][[artist:b]],artist:c}},artist:d')), [
+  ['a', 1], ['b', 1], ['c', 1.1025], ['d', 1],
+]);
+assert.deepEqual(round(promptArtists('0.4::{{artist:a}}[[artist:b]]::,artist:c')), [
+  ['a', 0.441], ['b', 0.3628], ['c', 1],
+]);
+assert.deepEqual(round(promptArtists('{{0.5::artist:a::}}{{2::artist:b::}},artist:c')), [
+  ['a', 0.5513], ['b', 2.205], ['c', 1],
+]);
+assert.deepEqual(round(promptArtists('{{smile}}{artist:a}{smile}[[artist:a]]{artist:b}')), [
+  ['a', 1.05], ['b', 1.05],
+]);
+assert.deepEqual(round(promptArtists('artist:senji_(tegone_spike){artist:tomose_shunsaku}')), [
+  ['senji (tegone spike)', 1], ['tomose shunsaku', 1.05],
+]);
+assert.deepEqual(round(promptArtists('[[artist:ie(raarami)]][[artist:382]]')), [
+  ['ie(raarami)', 0.907], ['382', 0.907],
+]);
+assert.deepEqual(round(promptArtists('artist:[ [a]]{{artist:b}}')), [
+  [artistKey('artist:[ [a]]'), 0.907], ['b', 1.1025],
+], '括号外的 artist: 前缀仍按既有 artistKey 归一');
+assert.deepEqual(round(promptArtists('0.4::{year} 2025::,artist:a')), [['a', 1]],
+  '闭括号后的段内数字仍是收组标记，不能被补分隔符提升为开组');
+assert.deepEqual(round(promptArtists('0.4::{year} 2025::,[[artist:a]][[artist:b]]')), [
+  ['a', 0.907], ['b', 0.907],
+]);
+assert.deepEqual(round(promptArtists('0.4::year {2025::},artist:a')), [['a', 1]],
+  '原始段内的数字不能因开括号分组而变成跨逗号数字权重');
+assert.deepEqual(round(promptArtists('0.4::year [2025::][[artist:a]][[artist:b]]')), [
+  ['a', 0.907], ['b', 0.907],
+], '段内数字收组对同段后面的画师组也生效');
+
 assert.equal(formatArtistWeight(1), '');
 assert.equal(formatArtistWeight(1.001), '');
 assert.equal(formatArtistWeight(0.4), '×0.4');

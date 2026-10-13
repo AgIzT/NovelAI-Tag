@@ -19,12 +19,16 @@ for (const text of [
   '1girl,white sweater,{{collared shirt,shirt under sweater}},',
   '1girl,solo,\n\n0.6::artist:chigusa minori::,  0.77::artist:toosaka asagi,\r\n{year 2024},',
   'smile，blush、 open mouth ,, ',
+  ' {{artist:pottsness}},[[artist:onineko]][[artist:as109]],\r\n{{artist:a}}{{artist:b}}， ',
   '',
   ',,,',
 ]) {
   assert.equal(splitPromptPieces(text).map(p => p.lead + p.text + p.sep).join(''), text);
 }
 const pieces = splitPromptPieces('1girl, {{collared shirt,shirt under sweater}}\nsolo');
+assert.deepEqual(splitPromptPieces('[[artist:onineko]][[artist:as109]]'), [
+  { lead: '', text: '[[artist:onineko]][[artist:as109]]', sep: '', key: '', weight: null },
+], '画师专用切分不能改变中文对照的原文段与查表键');
 assert.deepEqual(pieces.map(p => [p.lead, p.text, p.sep, p.key]), [
   ['', '1girl', ',', '1girl'],
   [' ', '{{collared shirt', ',', 'collared shirt'],
