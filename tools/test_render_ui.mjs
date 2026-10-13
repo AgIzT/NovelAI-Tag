@@ -99,12 +99,14 @@ const {
   flyIn,
   getLightboxStepTarget,
   isLightboxKeydownBlocked,
+  lightboxImageAspect,
   lightboxImagePositive,
   lightboxImagePrompts,
   lightboxNavigationContext,
   lightboxOriginalAction,
   lightboxOriginalCopy,
   lightboxOriginalDragHint,
+  lightboxWideLayout,
   preloadImage,
   preloadLightboxNeighbors,
   resolvedUrl,
@@ -737,6 +739,23 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   const legacy = lightboxImagePrompts(unchecked, images, 3);
   assert.deepEqual([legacy.negativeFromCover, legacy.charactersFromCover], [true, true]);
   assert.deepEqual([lightboxImagePrompts(unchecked, images, 1).negativeFromCover], [false], '正向同封面时不标出处');
+}
+
+// 电脑宽屏：图片按高度撑满，剩下的宽度给信息栏；有负面或角色词且够 540 时分两列、最宽 1000，单列最宽 480 并整组居中，横图守住原栏宽。
+{
+  const portrait = 753 / 1100;
+  assert.deepEqual(lightboxWideLayout({ width: 1905, height: 1080, aspect: portrait, rich: true }),
+    { edge: 19, info: 1000, right: 1037, tight: false, columns: 2 });
+  assert.deepEqual(lightboxWideLayout({ width: 1905, height: 1080, aspect: portrait }),
+    { edge: 279, info: 480, right: 777, tight: false, columns: 1 }, '内容少的词条收窄后整组居中');
+  assert.deepEqual(lightboxWideLayout({ width: 1221, height: 800, aspect: portrait, rich: true }),
+    { edge: 33, info: 480, right: 531, tight: false, columns: 1 }, '不够分两列时单列同样最宽 480');
+  assert.deepEqual(lightboxWideLayout({ width: 1905, height: 1080, aspect: 1100 / 753, rich: true }),
+    { edge: 18, info: 340, right: 376, tight: true, columns: 1 }, '横图图片优先，栏宽同现状');
+  assert.equal(lightboxWideLayout({ width: 1905, height: 1080, aspect: 629 / 1100, rich: true, thumbs: true }).edge, 100, '套图扣掉缩略条高度');
+  assert.deepEqual(lightboxWideLayout({ width: 1351, height: 768, aspect: portrait, rich: true }).columns, 2, '1366 宽也能分两列');
+  assert.equal(lightboxImageAspect({ imageWidth: 753, imageHeight: 1100 }, [{ width: 1100, height: 753 }, {}]), 1100 / 753, '套图按最宽的那张排版');
+  assert.equal(lightboxImageAspect({}, [{}]), 0);
 }
 
 // 物理 original 与缩略 fallback 分开；提示是否承诺可读参数还要看来源 hasOriginal。
