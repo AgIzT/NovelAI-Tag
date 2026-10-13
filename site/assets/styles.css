@@ -2505,6 +2505,51 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 .lightbox-next{right:calc(var(--lb-right) + 12px)}
 .lightbox.folded .lightbox-next{right:78px}
 
+/* 电脑宽屏：图片按高度撑满后，横向剩下的空白全给信息栏，再有剩余就把图片和栏整组居中。
+   三个尺寸由 lightbox.js 的 layoutLightboxFrame 写入；舞台左右内边距给翻页键让位，数值与那里的常量一致。
+   lb-wide-tight 是横图或窄窗口：栏守住原有宽度，翻页键照旧盖在图片两侧。 */
+.lightbox.lb-wide{--lb-info-width:var(--lb-wide-info)}
+.lightbox.lb-wide:not(.folded){--lb-right:var(--lb-wide-right)}
+.lightbox.lb-wide:not(.folded) .lightbox-stage{left:var(--lb-wide-left);padding:0 72px 0 62px}
+.lightbox.lb-wide.lb-wide-tight:not(.folded) .lightbox-stage{padding:0}
+.lightbox.lb-wide .lightbox-info{right:var(--lb-wide-left)}
+.lightbox.lb-wide:not(.folded) :is(.lightbox-close,.lightbox-prev){left:var(--lb-wide-left)}
+.lightbox.lb-wide:not(.folded) .lightbox-thumbs{
+  left:calc((var(--lb-wide-left) + 100% - var(--lb-right)) / 2);
+  max-width:calc(100% - var(--lb-wide-left) - var(--lb-right));
+}
+.lightbox.lb-wide:not(.folded):not(.lb-wide-tight) .artist-peek{inset:0 72px 0 62px}
+/* 翻词条时栏宽在 600 与 1000 之间切换，图片和栏一起滑到新位置 */
+.lightbox.lb-wide .lightbox-stage{
+  transition:left .3s cubic-bezier(.22,1,.36,1),right .3s cubic-bezier(.22,1,.36,1),
+    bottom .3s cubic-bezier(.22,1,.36,1),padding .3s cubic-bezier(.22,1,.36,1);
+}
+.lightbox.lb-wide .lightbox-info{
+  transition:transform .3s cubic-bezier(.22,1,.36,1),translate .32s cubic-bezier(.22,1,.36,1),opacity .25s,
+    right .3s cubic-bezier(.22,1,.36,1),width .3s cubic-bezier(.22,1,.36,1);
+}
+.lightbox.lb-wide .lb-circle{
+  transition:border-color .12s,color .12s,left .3s cubic-bezier(.22,1,.36,1),right .3s cubic-bezier(.22,1,.36,1),scale .14s ease;
+}
+.lightbox.lb-settling :is(.lightbox-stage,.lightbox-info,.lb-circle,.lb-fold,.lightbox-thumbs){transition:none}
+.lightbox.lb-wide .artist-strip{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}
+/* 有负面或角色词、栏宽够 640px 时分两列：左列正向 + 画师，右列角色 + 负面 + 备注，两列各自滚动。
+   其余情况列容器是 display:contents，排版与单栏完全一样；本地编辑面板打开时也退回单栏。 */
+.lightbox-columns,.lightbox-column{display:contents}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)){display:flex;flex-direction:column;overflow:hidden}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) > :not(.lightbox-columns){flex:none}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-columns{
+  flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);margin-top:2px;
+}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column{
+  display:block;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column-main{padding-right:16px}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column-side{padding-left:16px;border-left:1px solid var(--line)}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column > .lightbox-section{margin:0 0 14px}
+.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) :is(.lightbox-section pre,.lightbox-section pre.tag-zh-on,.character-prompt pre){max-height:none}
+
 /* 窄竖屏先给图片完整宽度；横屏保留自适应侧栏，避免上下布局压扁图片。 */
 @media (max-width:600px), (max-width:760px) and (orientation:portrait){
   .lightbox{--lb-right:10px;--lb-sheet-height:45vh}

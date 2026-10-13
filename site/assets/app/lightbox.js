@@ -212,7 +212,13 @@ export function removeFlyCloneAfterPaint(clone, onRemove = null) {
 }
 
 export function fitStageRect(ratio) {
-  const box = $('#lightboxStage').getBoundingClientRect();
+  const stage = $('#lightboxStage');
+  const rect = stage.getBoundingClientRect();
+  // 宽屏布局给翻页键留了左右内边距，图片只在内容区里居中
+  const style = getComputedStyle(stage);
+  const padLeft = parseFloat(style.paddingLeft) || 0;
+  const padRight = parseFloat(style.paddingRight) || 0;
+  const box = { left: rect.left + padLeft, top: rect.top, width: rect.width - padLeft - padRight, height: rect.height };
   if (!box.width || !box.height) return { left: 0, top: 0, width: 0, height: 0 };
   let w = box.width;
   let h = ratio > 0 ? w / ratio : box.height;
@@ -226,6 +232,74 @@ export function fitStageRect(ratio) {
     width: w,
     height: h,
   };
+}
+
+/* 电脑宽屏几何：图片按高度撑满，左右留出翻页键的位置（与 styles.css 舞台内边距一致），横向剩下的全给信息栏。
+   有负面或角色词的词条栏最宽 1000px，宽于 640px 分两列；其余词条最宽 600px。再有剩余就整组居中。
+   横图或窄窗口挤到原有栏宽以下时（tight），栏守住原宽度，翻页键照旧盖在图片两侧。 */
+const LB_EDGE = 18;
+const LB_GAP = 18;
+const LB_NAV_LEFT = 62;
+const LB_NAV_RIGHT = 72;
+const LB_THUMBS_HEIGHT = 78;
+const LB_INFO_MAX = { rich: 1000, light: 600 };
+const LB_TWO_COLUMNS = 640;
+const LB_COMPACT_MEDIA = '(max-width:600px), (max-width:760px) and (orientation:portrait)';
+
+export function lightboxWideLayout({ width, height, aspect, rich = false, thumbs = false }) {
+  const minInfo = Math.min(340, Math.max(260, width * 0.36));
+  const imageWidth = (height - LB_EDGE * 2 - (thumbs ? LB_THUMBS_HEIGHT : 0)) * aspect;
+  const max = rich ? LB_INFO_MAX.rich : LB_INFO_MAX.light;
+  let info = width - LB_EDGE * 2 - LB_NAV_LEFT - LB_NAV_RIGHT - LB_GAP - imageWidth;
+  let edge = LB_EDGE;
+  if (info > max) {
+    edge += (info - max) / 2;
+    info = max;
+  }
+  const tight = info < minInfo;
+  if (tight) info = minInfo;
+  info = Math.round(info);
+  edge = Math.round(edge);
+  return { edge, info, right: edge + info + LB_GAP, tight, columns: rich && info >= LB_TWO_COLUMNS ? 2 : 1 };
+}
+
+/* 一条词条只用一个比例排版：取各图里最宽的那张，翻套图时栏宽不变，窄一点的图在图片区里居中。 */
+export function lightboxImageAspect(entry, images = []) {
+  let aspect = 0;
+  const consider = (w, h) => {
+    if (Number(w) > 0 && Number(h) > 0) aspect = Math.max(aspect, Number(w) / Number(h));
+  };
+  for (const item of images) consider(item?.width, item?.height);
+  consider(entry?.imageWidth, entry?.imageHeight);
+  return aspect;
+}
+
+function layoutLightboxFrame() {
+  const lbEl = $('#lightbox');
+  const lb = state.lightbox;
+  const item = lb?.images?.[lb.index];
+  const img = $('#lightboxImg');
+  const aspect = lb?.entry
+    ? (lightboxImageAspect(lb.entry, lb.images) || (img?.naturalHeight ? img.naturalWidth / img.naturalHeight : 0))
+    : 0;
+  if (!lbEl || lbEl.hidden) return;
+  const compact = window.matchMedia?.(LB_COMPACT_MEDIA).matches;
+  // 量灯箱自身：根元素的 scrollbar-gutter 会让它比 innerWidth 窄一条滚动条槽
+  const width = lbEl.clientWidth;
+  const height = lbEl.clientHeight;
+  if (!aspect || compact || !width || !height || item?._editPlaceholder) {
+    lbEl.classList.remove('lb-wide', 'lb-wide-tight', 'lb-two-columns');
+    return;
+  }
+  const prompts = lightboxImagePrompts(lb.entry, lb.images, lb.index);
+  const rich = Boolean(String(prompts.negative || '').trim() || prompts.characterPrompts?.length);
+  const layout = lightboxWideLayout({ width, height, aspect, rich, thumbs: lb.images.length > 1 });
+  lbEl.style.setProperty('--lb-wide-left', `${layout.edge}px`);
+  lbEl.style.setProperty('--lb-wide-info', `${layout.info}px`);
+  lbEl.style.setProperty('--lb-wide-right', `${layout.right}px`);
+  lbEl.classList.add('lb-wide');
+  lbEl.classList.toggle('lb-wide-tight', layout.tight);
+  lbEl.classList.toggle('lb-two-columns', layout.columns === 2);
 }
 
 export function resolvedUrl(url) {
@@ -344,16 +418,20 @@ export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
   syncLightboxInfoFold(lb, images.every(item => item._editPlaceholder === true));
   lb.classList.toggle('has-thumbs', images.length > 1);
   lb.classList.toggle('page-zoomed', isPageZoomed());
+  // 首帧直接落在宽屏几何上：排版期间停掉图片区与信息栏的位置过渡，is-open 那一刻再恢复
+  lb.classList.add('lb-settling');
   lb.hidden = false;
   try {
     renderLightbox();
   } catch (err) {
     console.error('[lightbox] 渲染失败，回退关闭以免整页卡死', err);
+    lb.classList.remove('lb-settling');
     closeLightbox();
     return;
   }
   setLightboxScrollLocked(true);
   void lb.offsetWidth;
+  lb.classList.remove('lb-settling');
   lb.classList.add('is-open');
   // 关闭动画尚未结束就前进重开时，焦点还在灯箱内；保留最初的卡片入口。
   const focused = document.activeElement;
@@ -1113,6 +1191,7 @@ export function renderLightbox() {
   $('#lightbox').classList.toggle('has-thumbs', lb.images.length > 1);
   stage.classList.toggle('edit-empty', emptyImage);
   syncLightboxInfoFold($('#lightbox'), emptyImage);
+  layoutLightboxFrame();
   img.hidden = emptyImage;
   const thumbSrc = emptyImage ? '' : imageItemUrl('image', e, item);
   const sourceAllowsOriginal = !emptyImage && sourceSupportsReadableOriginal(e);
@@ -1461,6 +1540,9 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   // 换图、折叠信息栏、窗口缩放都会改变图片在舞台里的位置，原图状态跟着挪。
   // 图片加载完成时同步摆一次，不等下一帧的尺寸回调。
   $('#lightboxImg').addEventListener('load', placeOriginalStatus);
+  // 缺尺寸数据的词条要等图片到手才知道比例；窗口缩放时宽屏几何整组重算
+  $('#lightboxImg').addEventListener('load', () => { if (!$('#lightbox').hidden) layoutLightboxFrame(); });
+  window.addEventListener('resize', () => { if (!$('#lightbox').hidden) layoutLightboxFrame(); });
   if ('ResizeObserver' in window) {
     const statusObserver = new ResizeObserver(() => placeOriginalStatus());
     statusObserver.observe($('#lightboxImg'));

@@ -1123,41 +1123,47 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <button class="ui-press" id="reportLightbox" type="button">反馈此图</button>
         <button class="ui-press" id="hideLightbox" type="button">不想看</button>
       </div>
-      <div class="lightbox-section">
-        <div class="section-head">
-          <div class="section-label">正向提示词</div>
-          <button id="tagZhToggle" class="tag-zh-toggle ui-press" type="button" aria-pressed="true" title="在每个 tag 下方标注中文译名；复制内容不受影响">中文对照</button>
-          <button id="sdPositivePreview" class="sd-preview-toggle ui-press" type="button" aria-pressed="false" hidden>SD 预览</button>
-          <button class="ui-press" id="copyPositive" type="button">复制正向</button>
-        </div>
-        <pre id="lightboxTags"></pre>
-      </div>
-      <div id="artistStripBlock" class="lightbox-section" hidden>
-        <div class="section-head">
-          <div class="section-label">画师 <span id="artistStripCount" class="artist-strip-count"></span></div>
-          <div id="artistVersion" class="seg-tabs artist-version" role="radiogroup" aria-label="样张版本" hidden>
-            <button type="button" role="radio" data-version="n45" aria-checked="false">v4.5</button>
-            <button type="button" role="radio" data-version="n5" aria-checked="false">v5</button>
+      <div class="lightbox-columns">
+        <div class="lightbox-column lightbox-column-main">
+          <div class="lightbox-section">
+            <div class="section-head">
+              <div class="section-label">正向提示词</div>
+              <button id="tagZhToggle" class="tag-zh-toggle ui-press" type="button" aria-pressed="true" title="在每个 tag 下方标注中文译名；复制内容不受影响">中文对照</button>
+              <button id="sdPositivePreview" class="sd-preview-toggle ui-press" type="button" aria-pressed="false" hidden>SD 预览</button>
+              <button class="ui-press" id="copyPositive" type="button">复制正向</button>
+            </div>
+            <pre id="lightboxTags"></pre>
+          </div>
+          <div id="artistStripBlock" class="lightbox-section" hidden>
+            <div class="section-head">
+              <div class="section-label">画师 <span id="artistStripCount" class="artist-strip-count"></span></div>
+              <div id="artistVersion" class="seg-tabs artist-version" role="radiogroup" aria-label="样张版本" hidden>
+                <button type="button" role="radio" data-version="n45" aria-checked="false">v4.5</button>
+                <button type="button" role="radio" data-version="n5" aria-checked="false">v5</button>
+              </div>
+            </div>
+            <div id="artistStrip" class="artist-strip"></div>
+            <div id="artistStripMissing" class="artist-strip-missing" hidden></div>
           </div>
         </div>
-        <div id="artistStrip" class="artist-strip"></div>
-        <div id="artistStripMissing" class="artist-strip-missing" hidden></div>
-      </div>
-      <div id="characterPromptsBlock" class="lightbox-section" hidden>
-        <div class="section-label">角色提示词</div>
-        <div id="lightboxCharacterPrompts" class="character-prompts"></div>
-      </div>
-      <div id="negativeBlock" class="lightbox-section">
-        <div class="section-head">
-          <div class="section-label">负面提示词</div>
-          <button id="sdNegativePreview" class="sd-preview-toggle ui-press" type="button" aria-pressed="false" hidden>SD 预览</button>
-          <button class="ui-press" id="copyNegative" type="button">复制负面</button>
+        <div class="lightbox-column lightbox-column-side">
+          <div id="characterPromptsBlock" class="lightbox-section" hidden>
+            <div class="section-label">角色提示词</div>
+            <div id="lightboxCharacterPrompts" class="character-prompts"></div>
+          </div>
+          <div id="negativeBlock" class="lightbox-section">
+            <div class="section-head">
+              <div class="section-label">负面提示词</div>
+              <button id="sdNegativePreview" class="sd-preview-toggle ui-press" type="button" aria-pressed="false" hidden>SD 预览</button>
+              <button class="ui-press" id="copyNegative" type="button">复制负面</button>
+            </div>
+            <pre id="lightboxNegative"></pre>
+          </div>
+          <div id="noteBlock" class="lightbox-section">
+            <div class="section-label">备注</div>
+            <pre id="lightboxNote"></pre>
+          </div>
         </div>
-        <pre id="lightboxNegative"></pre>
-      </div>
-      <div id="noteBlock" class="lightbox-section">
-        <div class="section-label">备注</div>
-        <pre id="lightboxNote"></pre>
       </div>
     </aside>
 </div>
