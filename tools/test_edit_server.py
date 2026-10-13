@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from edit_server import EditError, EditStore, build_tree  # noqa: E402
+from edit_server import EditError, EditStore, build_tree, tree_paths  # noqa: E402
 from local_launcher import LocalEditStore  # noqa: E402
 
 
@@ -642,6 +642,225 @@ class CategoryOpsTest(unittest.TestCase):
             fn(*args, **kwargs)
         self.assertEqual((ctx.exception.status, ctx.exception.code), (status, code))
 
+    def category_children(self, path=None):
+        nodes = self.book()["tree"]
+        for name in path or []:
+            nodes = next(node for node in nodes if node["name"] == name)["children"]
+        return [node["name"] for node in nodes]
+
+    # ---- 同级排序 ----
+
+    def test_legacy_category_order_remains_implicit(self):
+        self.store.update_entry("testbook", "testbook-0002", {"note": "普通编辑"})
+        self.store.create_category("testbook", [], "空")
+        self.assertNotIn("categoryOrder", self.book())
+        self.assertEqual(self.category_children(), ["甲", "丙", "空"])
+
+    def test_build_tree_order_hint_does_not_create_ghost_categories(self):
+        entries = self.book()["entries"]
+        tree = build_tree(entries, [["空"]], [["丙"], ["不存在"], ["空"], ["甲"], ["甲", "幽灵"]])
+        self.assertEqual(tree_paths(tree), [["丙"], ["空"], ["甲"], ["甲", "乙"]])
+        self.assertEqual([node["count"] for node in tree], [1, 0, 2])
+
+    def test_reorder_top_level_preserves_entries_media_and_watermark(self):
+        before = self.book()
+        book_path = os.path.join(self.data, "testbook.json")
+        before_text = _read(book_path)
+        index_path = os.path.join(self.data, "codexes.json")
+        index_text = _read(index_path)
+        image_path = os.path.join(self.root, "site", "images", "testbook", "testbook-0001.jpg")
+        original_path = os.path.join(self.root, "originals", "testbook", "testbook-0001.png")
+        _write(image_path, "image stays")
+        _write(original_path, "original stays")
+
+        result = self.store.reorder_category("testbook", ["丙"], "up")
+        book = self.book()
+        self.assertEqual(self.category_children(), ["丙", "甲"])
+        self.assertEqual(book["categoryOrder"], [["丙"], ["甲"], ["甲", "乙"]])
+        self.assertEqual(book["entries"], before["entries"])
+        self.assertEqual((book["entryCount"], book["imagedCount"]), (3, 2))
+        self.assertEqual(book.get("editorMaxSeq"), before.get("editorMaxSeq"))
+        self.assertEqual(_read(index_path), index_text)
+        self.assertEqual(_read(image_path), "image stays")
+        self.assertEqual(_read(original_path), "original stays")
+        self.assertEqual(result["tree"], book["tree"])
+        backup = os.path.join(self.root, result["backupDir"].replace("/", os.sep))
+        self.assertEqual(_read(os.path.join(backup, "testbook.json")), before_text)
+        self.assertEqual(_read(os.path.join(backup, "codexes.json")), index_text)
+        self.store.reorder_category("testbook", ["丙"], "down")
+        self.assertEqual(self.category_children(), ["甲", "丙"])
+
+    def test_reorder_empty_root_and_nested_category(self):
+        self.store.create_category("testbook", [], "空")
+        self.store.create_category("testbook", ["甲"], "空子")
+        registered = self.book()["emptyCategories"]
+        self.store.reorder_category("testbook", ["空"], "up")
+        self.store.reorder_category("testbook", ["空"], "up")
+        self.store.reorder_category("testbook", ["甲", "空子"], "up")
+        book = self.book()
+        self.assertEqual(self.category_children(), ["空", "甲", "丙"])
+        self.assertEqual(self.category_children(["甲"]), ["空子", "乙"])
+        self.assertEqual(book["emptyCategories"], registered)
+        self.assertEqual(book["categoryOrder"], [["空"], ["甲"], ["甲", "空子"], ["甲", "乙"], ["丙"]])
+        self.assertEqual(self.tree_names()["甲/空子"], 0)
+
+    def test_reorder_survives_later_entry_edits_and_new_categories(self):
+        self.store.reorder_category("testbook", ["丙"], "up")
+        self.store.update_entry("testbook", "testbook-0003", {"title": "普通保存"})
+        self.store.create_entry("testbook", {"title": "新词条", "tags": "x", "path": ["甲", "乙"]})
+        self.store.create_category("testbook", [], "新末尾")
+        self.store.create_category("testbook", ["甲"], "新子类")
+        self.assertEqual(self.category_children(), ["丙", "甲", "新末尾"])
+        self.assertEqual(self.category_children(["甲"]), ["乙", "新子类"])
+        self.assertEqual(self.book()["categoryOrder"], tree_paths(self.book()["tree"]))
+
+    def test_order_normalization_prunes_stale_and_invalid_paths(self):
+        path = os.path.join(self.data, "testbook.json")
+        book = self.book()
+        book["categoryOrder"] = [["丙"], ["不存在"], ["丙"], [], [7], "bad"]
+        _write(path, json.dumps(book, ensure_ascii=False))
+        self.store.update_entry("testbook", "testbook-0002", {"note": "清理顺序登记"})
+        self.assertEqual(self.book()["categoryOrder"], [["丙"], ["甲"], ["甲", "乙"]])
+        self.assertNotIn("不存在", self.tree_names())
+
+    def test_reorder_rename_preserves_parent_and_child_positions(self):
+        self.store.create_category("testbook", ["甲"], "空子")
+        self.store.reorder_category("testbook", ["丙"], "up")
+        self.store.reorder_category("testbook", ["甲", "空子"], "up")
+        self.store.rename_category("testbook", ["甲"], "甲改")
+        self.store.rename_category("testbook", ["甲改", "空子"], "空改")
+        book = self.book()
+        self.assertEqual(book["categoryOrder"], [["丙"], ["甲改"], ["甲改", "空改"], ["甲改", "乙"]])
+        self.assertEqual(book["emptyCategories"], [["甲改", "空改"]])
+
+    def test_reorder_move_appends_branch_and_preserves_its_child_order(self):
+        self.store.create_category("testbook", ["甲"], "空子")
+        self.store.create_category("testbook", ["丙"], "已有子")
+        self.store.reorder_category("testbook", ["甲", "空子"], "up")
+        self.store.move_category("testbook", ["甲"], ["丙"])
+        self.assertEqual(self.category_children(["丙"]), ["已有子", "甲"])
+        self.assertEqual(self.category_children(["丙", "甲"]), ["空子", "乙"])
+        self.assertEqual(self.book()["categoryOrder"], [
+            ["丙"], ["丙", "已有子"], ["丙", "甲"], ["丙", "甲", "空子"], ["丙", "甲", "乙"],
+        ])
+        self.store.move_category("testbook", ["丙", "甲"], [])
+        self.assertEqual(self.category_children(), ["丙", "甲"])
+        self.assertEqual(self.category_children(["甲"]), ["空子", "乙"])
+
+    def test_reorder_delete_and_occupy_empty_category_keep_registry_semantics(self):
+        self.store.create_category("testbook", [], "空")
+        self.store.reorder_category("testbook", ["空"], "up")
+        result = self.store.create_entry("testbook", {"title": "占用空类", "tags": "x", "path": ["空"]})
+        self.store.delete_entry("testbook", result["entry"]["id"])
+        self.assertEqual(self.category_children(), ["甲", "空", "丙"])
+        self.assertEqual(self.tree_names()["空"], 0)
+        self.store.delete_category("testbook", ["甲"], with_entries=True)
+        self.assertEqual(self.book()["categoryOrder"], [["空"], ["丙"]])
+        self.store.delete_category("testbook", ["空"])
+        self.assertEqual(self.book()["categoryOrder"], [["丙"]])
+        self.store.delete_category("testbook", ["丙"], with_entries=True)
+        self.assertEqual(self.book()["categoryOrder"], [])
+
+    def test_reorder_bad_requests_and_boundaries_never_write(self):
+        book_path = os.path.join(self.data, "testbook.json")
+        index_path = os.path.join(self.data, "codexes.json")
+        before = (_read(book_path), _read(index_path))
+        cases = [
+            (400, "bad-request", [], "up"),
+            (400, "bad-request", "甲", "up"),
+            (400, "bad-request", [None], "up"),
+            (400, "bad-request", [""], "up"),
+            (400, "bad-request", ["甲"], "left"),
+            (400, "bad-request", ["甲"], ["up"]),
+            (404, "not-found", ["无此分类"], "up"),
+            (404, "not-found", ["无此分类", "子类"], "up"),
+            (404, "not-found", ["甲", "无此分类"], "up"),
+            (409, "category-at-boundary", ["甲"], "up"),
+            (409, "category-at-boundary", ["丙"], "down"),
+            (409, "category-at-boundary", ["甲", "乙"], "down"),
+        ]
+        for status, code, path, direction in cases:
+            with self.subTest(path=path, direction=direction):
+                self.assert_edit_error(status, code, self.store.reorder_category, "testbook", path, direction)
+                self.assertEqual((_read(book_path), _read(index_path)), before)
+        self.assert_edit_error(403, "codex-locked", self.store.reorder_category, "lockbook", ["甲"], "down")
+        self.assertFalse(os.path.exists(self.store.backup_root))
+
+    def test_reorder_visible_neighbor_skips_hidden_category(self):
+        self.store.create_category("testbook", [], "R18G")
+        self.store.create_entry("testbook", {"title": "隐藏词条", "tags": "x", "path": ["R18G"]})
+        self.store.reorder_category("testbook", ["R18G"], "up")
+        before = self.book()
+        self.assertEqual(self.category_children(), ["甲", "R18G", "丙"])
+        self.store.reorder_category("testbook", ["丙"], "up", neighbor_path=["甲"])
+        self.assertEqual(self.category_children(), ["丙", "R18G", "甲"])
+        self.assertEqual(self.book()["entries"], before["entries"])
+        self.assertEqual(self.book()["emptyCategories"], before["emptyCategories"])
+        self.store.reorder_category("testbook", ["丙"], "down", neighbor_path=["甲"])
+        self.assertEqual(self.category_children(), ["甲", "R18G", "丙"])
+
+    def test_reorder_visible_neighbor_scopes_identical_names_to_parent(self):
+        self.store.create_category("testbook", ["甲"], "R18G")
+        self.store.create_category("testbook", ["甲"], "末")
+        self.store.create_category("testbook", ["丙"], "乙")
+        self.store.create_category("testbook", ["丙"], "末")
+        self.store.reorder_category("testbook", ["甲", "末"], "up", neighbor_path=["甲", "乙"])
+        self.assertEqual(self.category_children(["甲"]), ["末", "R18G", "乙"])
+        self.assertEqual(self.category_children(["丙"]), ["乙", "末"])
+
+    def test_reorder_invalid_stale_or_reverse_neighbors_never_write(self):
+        book_path = os.path.join(self.data, "testbook.json")
+        index_path = os.path.join(self.data, "codexes.json")
+        before = (_read(book_path), _read(index_path))
+        cases = [
+            (400, "bad-request", ["丙"], "up", None),
+            (400, "bad-request", ["丙"], "up", []),
+            (400, "bad-request", ["丙"], "up", "甲"),
+            (400, "bad-request", ["丙"], "up", [None]),
+            (400, "bad-request", ["丙"], "up", [""]),
+            (400, "bad-request", ["丙"], "up", ["甲", "乙"]),
+            (400, "bad-request", ["甲", "乙"], "up", ["丙", "乙"]),
+            (400, "bad-request", ["丙"], "up", ["丙"]),
+            (409, "category-order-stale", ["丙"], "up", ["已删除"]),
+            (409, "category-order-stale", ["丙"], "down", ["甲"]),
+            (409, "category-order-stale", ["甲"], "up", ["丙"]),
+        ]
+        for status, code, path, direction, neighbor in cases:
+            with self.subTest(path=path, direction=direction, neighbor=neighbor):
+                self.assert_edit_error(status, code, self.store.reorder_category,
+                                       "testbook", path, direction, neighbor_path=neighbor)
+                self.assertEqual((_read(book_path), _read(index_path)), before)
+        self.assertFalse(os.path.exists(self.store.backup_root))
+
+    def test_reorder_neighbor_deleted_after_ui_snapshot_is_rejected(self):
+        self.store.create_category("testbook", [], "已删除")
+        self.store.delete_category("testbook", ["已删除"])
+        book_path = os.path.join(self.data, "testbook.json")
+        before = _read(book_path)
+        backup_count = len(glob.glob(os.path.join(self.store.backup_root, "*")))
+        self.assert_edit_error(409, "category-order-stale", self.store.reorder_category,
+                               "testbook", ["丙"], "down", neighbor_path=["已删除"])
+        self.assertEqual(_read(book_path), before)
+        self.assertEqual(len(glob.glob(os.path.join(self.store.backup_root, "*"))), backup_count)
+
+    def test_reorder_rolls_back_json_and_index_after_commit_failure(self):
+        book_path = os.path.join(self.data, "testbook.json")
+        index_path = os.path.join(self.data, "codexes.json")
+        before = (_read(book_path), _read(index_path))
+
+        def fail_after_index_write(*_):
+            self.store._atomic_write_text(index_path, "interrupted index write")
+            raise OSError("index failure")
+
+        with mock.patch.object(self.store, "_update_index_counts", side_effect=fail_after_index_write):
+            with self.assertRaises(OSError):
+                self.store.reorder_category("testbook", ["丙"], "up")
+        self.assertEqual((_read(book_path), _read(index_path)), before)
+        backups = glob.glob(os.path.join(self.store.backup_root, "*", "testbook.json"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(_read(backups[0]), before[0])
+        self.assertEqual(glob.glob(os.path.join(self.data, "*.tmp")), [])
+
     # ---- 新建 ----
 
     def test_create_empty_category_appears_in_tree_with_zero_count(self):
@@ -993,6 +1212,40 @@ class HttpSmokeTest(unittest.TestCase):
         self.assertEqual(data["entryCount"], 3)
         on_disk = json.loads(_read(os.path.join(self.root, "site", "data", "testbook.json")))
         self.assertEqual(next(e for e in on_disk["entries"] if e["id"] == "testbook-0002")["title"], "HTTP改")
+
+    def test_category_reorder_roundtrip_and_boundary_error(self):
+        payload = {"codexId": "testbook", "op": "reorder", "path": ["丙"], "direction": "up"}
+        status, data = self.request("/__edit__/category", payload)
+        self.assertEqual(status, 200)
+        self.assertEqual([node["name"] for node in data["tree"]], ["丙", "甲"])
+        path = os.path.join(self.root, "site", "data", "testbook.json")
+        before = _read(path)
+        self.assertEqual(json.loads(before)["categoryOrder"], [["丙"], ["甲"], ["甲", "乙"]])
+        status, data = self.request("/__edit__/category", payload)
+        self.assertEqual((status, data["code"]), (409, "category-at-boundary"))
+        self.assertEqual(_read(path), before)
+        payload["direction"] = None
+        status, data = self.request("/__edit__/category", payload)
+        self.assertEqual((status, data["code"]), (400, "bad-request"))
+        self.assertEqual(_read(path), before)
+
+    def test_category_reorder_with_visible_neighbor_roundtrip(self):
+        self.store.create_category("testbook", [], "R18G")
+        self.store.reorder_category("testbook", ["R18G"], "up")
+        payload = {"codexId": "testbook", "op": "reorder", "path": ["丙"],
+                   "direction": "up", "neighborPath": ["甲"]}
+        status, data = self.request("/__edit__/category", payload)
+        self.assertEqual(status, 200)
+        self.assertEqual([node["name"] for node in data["tree"]], ["丙", "R18G", "甲"])
+        path = os.path.join(self.root, "site", "data", "testbook.json")
+        before = _read(path)
+        status, data = self.request("/__edit__/category", payload)
+        self.assertEqual((status, data["code"]), (409, "category-order-stale"))
+        self.assertEqual(_read(path), before)
+        payload["neighborPath"] = None
+        status, data = self.request("/__edit__/category", payload)
+        self.assertEqual((status, data["code"]), (400, "bad-request"))
+        self.assertEqual(_read(path), before)
 
     def test_metadata_and_atomic_import_roundtrip(self):
         durl = make_nai_png_dataurl()

@@ -3,6 +3,7 @@ import { stripTrailingSlash } from './utils.js';
 import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
 import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource } from '../data-source.js';
+import { normalizeCategoryOrder, sortCategoryTree } from './category-order.js';
 
 const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
 
@@ -207,7 +208,9 @@ export function normalizeCodex(data, meta = {}) {
   codex.entries = (data.entries || []).map((entry, i) => normalizeEntry(entry, codex, i));
   codex.entryCount = Number(codex.entryCount || codex.entries.length);
   codex.imagedCount = Number(codex.imagedCount || codex.entries.filter(hasEntryImage).length);
-  codex.tree = data.tree || buildTreeFromEntries(codex.entries);
+  if (Array.isArray(data.categoryOrder)) codex.categoryOrder = normalizeCategoryOrder(data.categoryOrder);
+  else delete codex.categoryOrder;
+  codex.tree = sortCategoryTree(data.tree || buildTreeFromEntries(codex.entries), codex.categoryOrder);
   return codex;
 }
 

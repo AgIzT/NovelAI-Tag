@@ -62,6 +62,7 @@ body.edit-mode .edit-tree-toolbar{display:block}
 /* 分类行浮出菜单 */
 .edit-menu{
   position:fixed;z-index:1300;min-width:168px;padding:5px;border-radius:10px;
+  max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;box-sizing:border-box;
   background:var(--popover-glass);border:1px solid var(--popover-line);
   box-shadow:var(--popover-shadow);backdrop-filter:blur(14px);
   display:flex;flex-direction:column;gap:1px;
@@ -76,6 +77,7 @@ body.edit-mode .edit-tree-toolbar{display:block}
   color:var(--text);font-size:12.5px;cursor:pointer;font-family:var(--font-ui);
 }
 .edit-menu button:hover{background:var(--accent-soft);color:var(--accent)}
+.edit-menu button:disabled{opacity:.4;cursor:default;background:transparent;color:var(--muted)}
 .edit-menu button.danger{color:var(--new)}
 .edit-menu button.danger:hover{background:var(--new);color:#fff}
 

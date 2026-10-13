@@ -665,9 +665,10 @@ function bindCardClick() {
   }, true);
 }
 
-/* ---------- 目录树行菜单（新增词条 / 新建子分类 / 重命名 / 移动 / 删除） ---------- */
+/* ---------- 目录树行菜单（新增词条 / 新建子分类 / 调序 / 重命名 / 移动 / 删除） ---------- */
 
 let treeAddBtn = null;
+let categoryReordering = false;
 
 function bindTreeAdd() {
   const tree = document.getElementById('tree');
@@ -732,6 +733,14 @@ function closeTreeMenu() {
 function openTreeMenu(row, path) {
   closeTreeMenu();
   const label = path.join(' / ');
+  // 以实际显示的同级行取邻项，隐藏的 R18G 分支不能吞掉一次上移/下移。
+  const siblings = [...(row.closest('.tree-item')?.parentElement?.children || [])]
+    .filter(item => item.classList.contains('tree-item'))
+    .map(item => item.querySelector(':scope > .tree-row'))
+    .filter(Boolean)
+    .map(sibling => splitTreePath(sibling.dataset.path));
+  const index = siblings.findIndex(parts => joinTreePath(parts) === joinTreePath(path));
+  const busy = saving || categoryReordering;
   const menu = document.createElement('div');
   menu.id = 'editTreeMenu';
   menu.className = 'edit-menu';
@@ -739,6 +748,8 @@ function openTreeMenu(row, path) {
     <div class="edit-menu-head">${esc(label)}</div>
     <button type="button" data-act="entry">＋ 在此新增词条</button>
     <button type="button" data-act="sub">＋ 新建子分类</button>
+    <button type="button" data-act="up"${busy || index <= 0 ? ' disabled' : ''}>↑ 上移</button>
+    <button type="button" data-act="down"${busy || index < 0 || index >= siblings.length - 1 ? ' disabled' : ''}>↓ 下移</button>
     <button type="button" data-act="rename">✎ 重命名</button>
     <button type="button" data-act="move">↦ 移动到…</button>
     <button type="button" data-act="delete" class="danger">✕ 删除分类</button>`;
@@ -746,18 +757,54 @@ function openTreeMenu(row, path) {
   menu.style.top = `${Math.round(rect.bottom + 4)}px`;
   menu.style.left = `${Math.round(rect.left)}px`;
   document.body.appendChild(menu);
+  const menuRect = menu.getBoundingClientRect();
+  menu.style.top = `${Math.max(8, Math.min(Math.round(rect.bottom + 4), window.innerHeight - menuRect.height - 8))}px`;
+  menu.style.left = `${Math.max(8, Math.min(Math.round(rect.left), window.innerWidth - menuRect.width - 8))}px`;
   requestAnimationFrame(() => document.addEventListener('click', closeTreeMenu, { once: true }));
   menu.onclick = ev => {
     ev.stopPropagation();
-    const act = ev.target.closest('button')?.dataset.act;
+    const button = ev.target.closest('button');
+    if (button?.disabled) return;
+    const act = button?.dataset.act;
     if (!act) return;
     closeTreeMenu();
     if (act === 'entry') openCreateDialog(path);
     else if (act === 'sub') createSubCategory(path);
+    else if (act === 'up' || act === 'down') reorderCategory(path, act, siblings[index + (act === 'up' ? -1 : 1)]);
     else if (act === 'rename') renameCategory(path);
     else if (act === 'move') moveCategory(path);
     else if (act === 'delete') deleteCategory(path);
   };
+}
+
+async function reorderCategory(path, direction, neighborPath) {
+  if (!canEditContext() || categoryReordering) return;
+  const codexId = currentCodexId();
+  categoryReordering = true;
+  try {
+    const res = await editFetch('/__edit__/category', {
+      codexId, op: 'reorder', path, direction, neighborPath,
+    });
+    if (!res) return;
+    if (currentCodexId() === codexId) {
+      try {
+        const previousCodex = state.codex;
+        await structuralRefresh();
+        // loadCodex 会自行显示读取错误并正常返回；未换成新对象仍视为刷新未完成。
+        if (currentCodexId() === codexId && state.codex === previousCodex) {
+          toast('目录顺序已保存，请重新打开法典查看');
+          return;
+        }
+      } catch (ex) {
+        console.warn('[edit] 目录调序后刷新失败', ex);
+        toast('目录顺序已保存，请重新打开法典查看');
+        return;
+      }
+    }
+    toast(`「${path[path.length - 1]}」已${direction === 'up' ? '上移' : '下移'}`);
+  } finally {
+    categoryReordering = false;
+  }
 }
 
 function createSubCategory(parentPath) {

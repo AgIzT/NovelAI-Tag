@@ -51,6 +51,7 @@ IMAGE_FORMAT_EXTENSIONS = {
     "GIF": "gif",
     "BMP": "bmp",
 }
+_NO_CATEGORY_NEIGHBOR = object()
 
 
 class EditError(Exception):
@@ -63,12 +64,13 @@ class EditError(Exception):
         self.message = message
 
 
-def build_tree(entries, empty_paths=None):
+def build_tree(entries, empty_paths=None, category_order=None):
     """entries 的 path 数组 → 目录树 [{name,count,children[]}]（count=子树累计）。
     词条派生部分移植自 import_community_ai_misc.build_tree，语义不得改动。
 
     `empty_paths` 是显式登记的空分类（编辑器「新建分类」用）：只保证节点存在、不加计数。
-    因为目录树本是 path 派生的，没有这个登记就无法表达"还没有词条的分类"。"""
+    因为目录树本是 path 派生的，没有这个登记就无法表达"还没有词条的分类"。
+    `category_order` 只排序真实节点，不创建目录；未登记的新节点仍按首次出现顺序追加。"""
     root = {}
 
     def ensure(path, counted):
@@ -84,13 +86,28 @@ def build_tree(entries, empty_paths=None):
     for path in (empty_paths or []):
         ensure(path, False)
 
-    def serialize(node):
+    order = category_order if isinstance(category_order, list) else []
+    ranks = {tuple(path): i for i, path in enumerate(normalize_empty_categories(order))}
+
+    def serialize(node, prefix=()):
+        values = sorted(node.values(), key=lambda value: ranks.get(prefix + (value["name"],), len(ranks)))
         return [
-            {"name": value["name"], "count": value["count"], "children": serialize(value["children"])}
-            for value in node.values()
+            {"name": value["name"], "count": value["count"],
+             "children": serialize(value["children"], prefix + (value["name"],))}
+            for value in values
         ]
 
     return serialize(root)
+
+
+def tree_paths(tree, parent=None):
+    """按深度优先顺序登记完整目录路径，父级与同名子分类都保留各自身份。"""
+    out = []
+    for node in tree:
+        path = (parent or []) + [node["name"]]
+        out.append(path)
+        out.extend(tree_paths(node["children"], path))
+    return out
 
 
 def normalize_empty_categories(value):
@@ -545,8 +562,10 @@ class EditStore:
             raise EditError(409, "self-check-failed", "entryCount 与词条数不一致")
         if data.get("imagedCount") != imaged_count:
             raise EditError(409, "self-check-failed", "imagedCount 与配图数不一致")
-        if data.get("tree") != build_tree(entries, data.get("emptyCategories")):
+        if data.get("tree") != build_tree(entries, data.get("emptyCategories"), data.get("categoryOrder")):
             raise EditError(409, "self-check-failed", "tree 与词条 path / 空分类不一致")
+        if "categoryOrder" in data and data["categoryOrder"] != tree_paths(data["tree"]):
+            raise EditError(409, "self-check-failed", "categoryOrder 与目录树不一致")
 
     # ---------- 写管线 ----------
 
@@ -575,7 +594,9 @@ class EditStore:
                 data["emptyCategories"] = empty
             else:
                 data.pop("emptyCategories", None)
-            data["tree"] = build_tree(entries, empty)
+            data["tree"] = build_tree(entries, empty, data.get("categoryOrder"))
+            if "categoryOrder" in data:
+                data["categoryOrder"] = tree_paths(data["tree"])
             self.validate_codex(data)
             protected = [path, self.index_path(), *file_writes]
             backup_dir = self.make_backup(protected)
@@ -667,6 +688,9 @@ class EditStore:
             if clean != old[-1] and tuple(new) in self._all_tree_paths(data):
                 raise EditError(400, "bad-request", "同名分类已存在")
             n = len(old)
+            ordered = None
+            if "categoryOrder" in data:
+                ordered = tree_paths(build_tree(data["entries"], data.get("emptyCategories"), data["categoryOrder"]))
             moved = 0
             for e in data["entries"]:
                 p = e.get("path") or []
@@ -677,6 +701,11 @@ class EditStore:
             for p in normalize_empty_categories(data.get("emptyCategories")):
                 registered.append(new + p[n:] if len(p) >= n and p[:n] == old else p)
             data["emptyCategories"] = registered
+            if ordered is not None:
+                data["categoryOrder"] = [
+                    new + p[n:] if len(p) >= n and p[:n] == old else p
+                    for p in ordered
+                ]
             return {"path": new, "movedEntries": moved}
 
         return self.mutate(cid, mutator)
@@ -704,6 +733,9 @@ class EditStore:
             if tuple(new) in paths:
                 raise EditError(400, "bad-request", "目标位置已有同名分类")
             n = len(old)
+            ordered = None
+            if "categoryOrder" in data:
+                ordered = tree_paths(build_tree(data["entries"], data.get("emptyCategories"), data["categoryOrder"]))
             moved = 0
             for e in data["entries"]:
                 p = e.get("path") or []
@@ -714,6 +746,9 @@ class EditStore:
             for p in normalize_empty_categories(data.get("emptyCategories")):
                 registered.append(new + p[n:] if len(p) >= n and p[:n] == old else p)
             data["emptyCategories"] = registered
+            if ordered is not None:
+                branch = [p for p in ordered if p[:n] == old]
+                data["categoryOrder"] = [p for p in ordered if p[:n] != old] + [new + p[n:] for p in branch]
             return {"path": new, "movedEntries": moved}
 
         return self.mutate(cid, mutator)
@@ -739,7 +774,53 @@ class EditStore:
                 if not (len(p) >= n and p[:n] == target)
             ]
             data["emptyCategories"] = registered
+            if "categoryOrder" in data:
+                order = data["categoryOrder"] if isinstance(data["categoryOrder"], list) else []
+                data["categoryOrder"] = [p for p in normalize_empty_categories(order) if p[:n] != target]
             return {"path": target, "deletedEntries": len(inside)}
+
+        return self.mutate(cid, mutator)
+
+    def reorder_category(self, cid, path, direction, neighbor_path=_NO_CATEGORY_NEIGHBOR):
+        """与同级邻项交换位置；显示树过滤目录时允许指定可见邻项，中间节点位置不变。"""
+        if not isinstance(path, list) or not path or not all(isinstance(p, str) and p for p in path):
+            raise EditError(400, "bad-request", "分类路径非法")
+        if direction not in ("up", "down"):
+            raise EditError(400, "bad-request", "排序方向必须为 up 或 down")
+        target = list(path)
+        explicit_neighbor = neighbor_path is not _NO_CATEGORY_NEIGHBOR
+        if explicit_neighbor:
+            if (not isinstance(neighbor_path, list) or not neighbor_path
+                    or not all(isinstance(p, str) and p for p in neighbor_path)):
+                raise EditError(400, "bad-request", "相邻分类路径非法")
+            if neighbor_path[:-1] != target[:-1] or neighbor_path == target:
+                raise EditError(400, "bad-request", "只能与同级的另一分类交换位置")
+            neighbor = list(neighbor_path)
+
+        def mutator(data):
+            tree = build_tree(data["entries"], data.get("emptyCategories"), data.get("categoryOrder"))
+            siblings = tree
+            for name in target[:-1]:
+                parent = next((node for node in siblings if node["name"] == name), None)
+                if parent is None:
+                    raise EditError(404, "not-found", "分类不存在")
+                siblings = parent["children"]
+            index = next((i for i, node in enumerate(siblings) if node["name"] == target[-1]), None)
+            if index is None:
+                raise EditError(404, "not-found", "分类不存在")
+            if explicit_neighbor:
+                adjacent = next((i for i, node in enumerate(siblings) if node["name"] == neighbor[-1]), None)
+                if adjacent is None:
+                    raise EditError(409, "category-order-stale", "相邻分类已变化，请刷新目录后重试")
+                if (direction == "up" and adjacent >= index) or (direction == "down" and adjacent <= index):
+                    raise EditError(409, "category-order-stale", "目录顺序已变化，请刷新目录后重试")
+            else:
+                adjacent = index + (-1 if direction == "up" else 1)
+                if adjacent < 0 or adjacent >= len(siblings):
+                    raise EditError(409, "category-at-boundary", "分类已在同级目录的最前或最后")
+            siblings[index], siblings[adjacent] = siblings[adjacent], siblings[index]
+            data["categoryOrder"] = tree_paths(tree)
+            return {"path": target, "direction": direction}
 
         return self.mutate(cid, mutator)
 
@@ -1220,6 +1301,9 @@ def make_handler(store):
                 return store.rename_category(cid, body.get("path"), body.get("name"))
             if op == "move":
                 return store.move_category(cid, body.get("path"), body.get("newParentPath") or [])
+            if op == "reorder":
+                return store.reorder_category(cid, body.get("path"), body.get("direction"),
+                                              body.get("neighborPath", _NO_CATEGORY_NEIGHBOR))
             if op == "delete":
                 return store.delete_category(cid, body.get("path"), body.get("withEntries") is True)
             raise EditError(400, "bad-request", f"未知 op：{op}")

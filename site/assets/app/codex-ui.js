@@ -8,6 +8,7 @@ import { bindOutsideDismiss } from './modal.js';
 import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
+import { sortCategoryTree } from './category-order.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -1227,12 +1228,14 @@ export function visibleTree() {
 function accessViewSnapshot() {
   const entries = state.codex?.entries || EMPTY_ACCESS_ENTRIES;
   const emptyPaths = state.codex?.emptyCategories || EMPTY_ACCESS_PATHS;
+  const categoryOrder = state.codex?.categoryOrder || EMPTY_ACCESS_PATHS;
   const locked = isCodexLocked(state.codex);
   const allowNsfw = state.allowNsfw;
   const allowR18g = state.allowR18g;
   if (
     accessViewMemo?.entries === entries &&
     accessViewMemo.emptyPaths === emptyPaths &&
+    accessViewMemo.categoryOrder === categoryOrder &&
     accessViewMemo.locked === locked &&
     accessViewMemo.allowNsfw === allowNsfw &&
     accessViewMemo.allowR18g === allowR18g
@@ -1241,15 +1244,16 @@ function accessViewSnapshot() {
   accessViewMemo = {
     entries,
     emptyPaths,
+    categoryOrder,
     locked,
     allowNsfw,
     allowR18g,
-    ...(locked ? { tree: [], hiddenCount: entries.length } : buildAccessView(entries, emptyPaths)),
+    ...(locked ? { tree: [], hiddenCount: entries.length } : buildAccessView(entries, emptyPaths, categoryOrder)),
   };
   return accessViewMemo;
 }
 
-function buildAccessView(entries, emptyPaths) {
+function buildAccessView(entries, emptyPaths, categoryOrder) {
   const root = new Map();
   let hiddenCount = 0;
   for (const entry of entries) {
@@ -1285,7 +1289,7 @@ function buildAccessView(entries, emptyPaths) {
     locked: Boolean(n.explicitNsfw || (n.count > 0 && n.nsfwCount === n.count)),
     children: toList(n.children),
   }));
-  return { tree: toList(root), hiddenCount };
+  return { tree: sortCategoryTree(toList(root), categoryOrder), hiddenCount };
 }
 
 /* 整本无原图、但书目声明了 originalSections 的一级目录，在目录行上标「含原图」。 */
