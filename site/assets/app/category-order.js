@@ -29,3 +29,21 @@ export function sortCategoryTree(tree, categoryOrder) {
     .map(item => item.node);
   return sortLevel(tree);
 }
+
+/* 浏览列表跟随已排序目录树的深度优先顺序；同一目录内保持原次序，不改原数组或词条。 */
+export function sortCategoryEntries(entries, tree, categoryOrder) {
+  if (!normalizeCategoryOrder(categoryOrder).length) return entries;
+  const ranks = new Map();
+  const walk = (nodes, prefix = []) => {
+    for (const node of nodes || []) {
+      const path = [...prefix, node.name];
+      ranks.set(JSON.stringify(path), ranks.size);
+      walk(node.children, path);
+    }
+  };
+  walk(tree);
+  return entries
+    .map((entry, index) => ({ entry, index, rank: ranks.get(JSON.stringify(entry.path || [])) ?? Infinity }))
+    .sort((a, b) => (a.rank - b.rank) || (a.index - b.index))
+    .map(item => item.entry);
+}

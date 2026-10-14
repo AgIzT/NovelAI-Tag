@@ -4,6 +4,7 @@ import { setupSiteAnalytics, recordSiteEvent, beginSiteSearchObservation, cancel
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
 import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
+import { sortCategoryEntries } from './app/category-order.js';
 import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults, splitSearchPhrases } from './app/search.js';
 import { findRelatedDirectories, listSearchDirectories } from './app/search-directories.js';
 import { renderRelatedDirectories, renderSearchFilters, renderSearchStatus } from './app/search-ui.js';
@@ -845,7 +846,10 @@ export function applyFilter(options = {}) {
   if (state.favoritesView) list = filterFavoritesScope(list);
   const unblocked = list.filter(entry => !isContentBlocked(entry));
   const blockedCount = list.length - unblocked.length;
-  state.list = state.favoritesView ? filterFavoritesEntries(unblocked) : rankSearchResults(unblocked, plan);
+  const ordered = !state.favoritesView && !state.siteSearchView
+    ? sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder)
+    : unblocked;
+  state.list = state.favoritesView ? filterFavoritesEntries(ordered) : rankSearchResults(ordered, plan);
   // 今日画师只在那本书的「全部」视图置顶：有目录、搜索 / 筛选、更新筛选、收藏或全站搜索时保持原顺序
   if (!state.favoritesView && !state.siteSearchView && !plan.hasActiveSearch && !state.activePath.length && !updateFilter) {
     state.list = pinFeatured(state.list, state.codex);

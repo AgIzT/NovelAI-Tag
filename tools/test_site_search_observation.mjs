@@ -117,6 +117,7 @@ function filterDependencies(state, plan, analytics) {
     listSearchDirectories: () => [], searchDirectoryOptions: () => [], virtualView: () => state.siteSearchView || state.favoritesView,
     matchSearchPlan: () => true, codexUpdateFilters: () => [], entryMatchesUpdateFilter: () => true,
     filterFavoritesScope: value => value, isContentBlocked: () => false, filterFavoritesEntries: value => value,
+    sortCategoryEntries: value => value,
     rankSearchResults: value => value, pinFeatured: value => value, findRelatedDirectories: () => [],
     renderSearchExperience() {}, updateResultBar() {}, syncFavoritesView() {}, renderFavoritesRail() {},
     renderFavoritesHeader() {}, refreshFavoriteBadges() {}, renderList() {}, updateBlockingSummary() {},

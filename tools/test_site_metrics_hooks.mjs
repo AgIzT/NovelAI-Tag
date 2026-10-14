@@ -174,6 +174,7 @@ for (const [hasErrors, entries] of [[false, [{}]], [false, []], [true, []]]) {
     listSearchDirectories: () => [], searchDirectoryOptions: () => [], virtualView: () => false,
     matchSearchPlan: () => true, codexUpdateFilters: () => [], entryMatchesUpdateFilter: () => true,
     filterFavoritesScope: value => value, isContentBlocked: () => false, filterFavoritesEntries: value => value,
+    sortCategoryEntries: value => value,
     rankSearchResults: value => value, pinFeatured: value => value, findRelatedDirectories: () => [],
     renderSearchExperience() {}, updateResultBar() {}, syncFavoritesView() {}, renderFavoritesRail() {},
     renderFavoritesHeader() {}, refreshFavoriteBadges() {}, renderList() { trace.push('render'); }, updateBlockingSummary() {},

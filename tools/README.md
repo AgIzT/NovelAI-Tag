@@ -112,7 +112,7 @@
 
 - Python · 导入与数据：`test_apply_pack_names.py`、`test_backfill_pack_image_prompts.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang_20260925.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
-- Node · 本地编辑器目录调序：`test_category_order.mjs`（真实节点排序、空目录、旧书原序、存储树与访问树一致、分级及排序缓存失效；仅内存夹具，不写用户数据）。
+- Node · 本地编辑器目录调序：`test_category_order.mjs`（真实节点与图片列表排序、组内原序、实际过滤链接线、收藏 / 全站搜索排序边界、空目录、旧书原序、分级及缓存失效；仅内存夹具，不写用户数据）。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
 - Python · UI 测试驱动：`test_verify_ui.py`（离开确认与导航响应两种顺序、后续命令继续执行及确认失败诊断；内存协议夹具，不启动浏览器）。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
