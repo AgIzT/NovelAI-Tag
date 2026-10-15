@@ -298,8 +298,10 @@ assert.deepEqual(merged.result, {
     'alpha:alpha-1',
     'alpha:alpha-existing',
     'beta:beta-new-domain',
+    'community:community-existing',
+    'community:community-old',
   ],
-  communityIds: ['community-existing', 'community-old'],
+  communityIds: [],
 });
 assert.deepEqual(merged.plan.stats.all, {
   current: 3,
@@ -429,7 +431,7 @@ const rollbackStorage = new MemoryStorage({
   [ATLAS_FAVORITES_STORAGE_KEY]: originalAtlas,
   [COMMUNITY_FAVORITES_STORAGE_KEY]: originalCommunity,
 });
-rollbackStorage.failOnceFor = COMMUNITY_FAVORITES_STORAGE_KEY;
+rollbackStorage.failOnceFor = 'fadian-favs-v2';
 await expectCode('STORAGE_WRITE_FAILED', () => createFavoritesMigrationRestore({
   message: payload('rollback', {
     atlasKeys: ['beta:beta-old'],
@@ -535,8 +537,9 @@ assert.equal(rollbackStorage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), originalC
   assert.deepEqual(JSON.parse(storage.getItem(ATLAS_FAVORITES_STORAGE_KEY)), [
     'alpha:alpha-current',
     'alpha:alpha-old',
+    'community:community-old',
   ]);
-  assert.deepEqual(JSON.parse(storage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY)), ['community-old']);
+  assert.ok(JSON.parse(storage.getItem('fadian-favs-v2')).items.some(item => item.key === 'community:community-old'));
   assert.equal(changed, 1);
   assert.equal(refreshed, 1);
   assert.equal(readFavoritesMigrationMarker(storage).status, 'migrated');

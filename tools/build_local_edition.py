@@ -37,7 +37,6 @@ PRODUCT_NAME = "法典图鉴本地版"
 LOCAL_CSS = """
 /* 独立本地版：隐藏需要线上后端或公开站点上下文的入口。 */
 body.local-edition #globalReportBtn,
-body.local-edition #communityBrowseLink,
 body.local-edition .more-item[href*="github.com/AgIzT/NovelAI-Tag"],
 body.local-edition #announcementsBtn,
 body.local-edition #announcementsFeedbackLink,
@@ -50,8 +49,7 @@ body.local-edition #shareLightbox,
 body.local-edition .report-card-btn,
 body.local-edition [data-favorites-migration-banner],
 body.local-edition .favorites-migration-section,
-body.local-edition .favorites-pickup-section,
-body.local-edition [data-favorites-community-stat] { display: none !important; }
+body.local-edition .favorites-pickup-section { display: none !important; }
 body.local-edition .favorites-backup-stats { grid-template-columns: minmax(0, 1fr); }
 """.lstrip()
 
@@ -76,9 +74,9 @@ LOCAL_ANNOUNCEMENTS = []
 LOCAL_HTML_REPLACEMENTS = {
     "备份包含收藏、收藏夹、归类和备注。生成取件码、导出 JSON 文件或复制迁移文本，可在另一台设备恢复。":
         "备份包含本地法典收藏、收藏夹、归类和备注。导出 JSON 文件或复制迁移文本，可在另一台设备恢复。",
-    "一份文件会同时包含两处收藏。": "备份文件只包含本地法典收藏。",
-    "这会同时替换法典图鉴与共创广场收藏。": "这会替换当前设备的本地法典收藏。",
-    "用备份同时替换两处收藏，执行前会再次确认。":
+    "包含全部法典收藏、收藏夹、归类与备注。": "包含本地法典收藏、收藏夹、归类与备注。",
+    "这会替换当前收藏、收藏夹、归类和备注。": "这会替换当前设备的本地法典收藏、收藏夹、归类和备注。",
+    "用备份替换当前收藏，执行前会再次确认。":
         "用备份替换本地法典收藏，执行前会再次确认。",
 }
 
@@ -88,6 +86,7 @@ LOCAL_HTML_BLOCKS_TO_REMOVE = (
     ('<section class="favorites-backup-section favorites-migration-section"', "</section>"),
     ('<section class="favorites-backup-section favorites-pickup-section"', "</section>"),
     ('<link rel="manifest"', ">"),
+    ('<link rel="stylesheet" href="assets/community-actions.css"', ">"),
 )
 
 
@@ -95,10 +94,29 @@ LOCAL_ASSET_IGNORE = shutil.ignore_patterns(
     "admin",
     "admin.js",
     "admin.css",
-    "community",
-    "community.js",
-    "community.css",
+    "community*",
 )
+
+
+# 组合根保持同一套 import；发行包只提供离线接口，不携带投稿、喜欢或在线内容源。
+LOCAL_COMMUNITY_MODULES = {
+    "community-codex.js": """export const COMMUNITY_CODEX_ID = 'community';
+export const COMMUNITY_META = Object.freeze({ id: COMMUNITY_CODEX_ID });
+export const COMMUNITY_REFRESH_MS = 30_000;
+export function withCommunityCodex(codexes) {
+  return (Array.isArray(codexes) ? codexes : []).filter(book => book.id !== COMMUNITY_CODEX_ID);
+}
+export const communitySource = Object.freeze({
+  peek: () => null,
+  async load() { throw new Error('本地版不提供在线共创内容'); },
+});
+""",
+    "community-actions.js": """export function initCommunityActions() {}
+export function createCommunityLikeButton() { return null; }
+""",
+    "community-refresh.js": """export function replaceCommunityEntries(view) { return view; }
+""",
+}
 
 
 def _safe_remove_tree(path: Path):
@@ -118,15 +136,15 @@ def _write_json(path: Path, value):
     )
 
 
-def _remove_html_block(text: str, start_marker: str, end_marker: str):
-    """Remove a known, non-nested template block and fail loudly on template drift."""
+def _remove_html_block(text: str, start_marker: str, end_marker: str, *, keep_end=False):
+    """Remove a known block or bounded region; fail loudly on template drift."""
     start = text.find(start_marker)
     if start < 0:
         raise RuntimeError(f"本地版待移除 HTML 块不存在：{start_marker}")
     end = text.find(end_marker, start)
     if end < 0:
         raise RuntimeError(f"本地版 HTML 块缺少结束标记：{start_marker}")
-    return text[:start] + text[end + len(end_marker):]
+    return text[:start] + text[end if keep_end else end + len(end_marker):]
 
 
 def _font(size, bold=False):
@@ -284,6 +302,8 @@ def create_local_site(product: Path):
         site / "assets",
         ignore=LOCAL_ASSET_IGNORE,
     )
+    for name, source in LOCAL_COMMUNITY_MODULES.items():
+        (site / "assets" / "app" / name).write_text(source, encoding="utf-8")
     html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
     html = html.replace(
         "<title>法典图鉴 · NovelAI 提示词</title>",
@@ -306,6 +326,10 @@ def create_local_site(product: Path):
         html = html.replace(source, target)
     for start_marker, end_marker in LOCAL_HTML_BLOCKS_TO_REMOVE:
         html = _remove_html_block(html, start_marker, end_marker)
+    # 工具栏含嵌套 div，用紧随其后的固定主站节点作为边界，保留后者。
+    html = _remove_html_block(
+        html, '<div id="communityCodexActions"', '<div id="chipRail"', keep_end=True,
+    )
     filtered = []
     for line in html.splitlines():
         if any(host in line for host in (

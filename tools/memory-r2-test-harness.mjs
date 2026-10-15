@@ -1,4 +1,4 @@
-// 内存版 R2：get / head / put / delete / list，外加 etag 与 put 的 onlyIf.etagMatches 条件写，行为对齐线上：
+// 内存版 R2：get / head / put / delete / list，以及 ETag / If-None-Match 条件写：
 // 条件不满足（版本变了或对象已不存在）时 put 返回 null、不写入。
 // afterGet(key) 钩子在「已读到内容、还没返回给调用方」时执行，用来在测试里制造两个操作交错。
 // latencyMs > 0 时每次操作先等一会儿，模拟线上网络往返，让并发请求真的能交错。
@@ -34,6 +34,8 @@ export class MemoryR2 {
     await this.wait();
     const expected = options.onlyIf && options.onlyIf.etagMatches;
     if (expected !== undefined && (!this.objects.has(key) || this.etags.get(key) !== expected)) return null;
+    if (options.onlyIf instanceof Headers
+        && options.onlyIf.get('If-None-Match') === '*' && this.objects.has(key)) return null;
     // JSON 记录存字符串，图片等二进制存 Uint8Array
     const raw = typeof value === 'string' ? value
       : value instanceof Uint8Array ? value

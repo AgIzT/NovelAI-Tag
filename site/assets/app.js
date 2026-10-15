@@ -1,9 +1,12 @@
 import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
 import { setupSiteAnalytics, recordSiteEvent, beginSiteSearchObservation, cancelSiteSearchObservation } from './app/site-analytics.js';
-import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
+import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton, toast } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
-import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
+import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter, buildTreeFromEntries, normalizeCodex } from './app/data.js';
+import { COMMUNITY_CODEX_ID, COMMUNITY_META, COMMUNITY_REFRESH_MS, communitySource } from './app/community-codex.js';
+import { initCommunityActions } from './app/community-actions.js';
+import { replaceCommunityEntries } from './app/community-refresh.js';
 import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults, splitSearchPhrases } from './app/search.js';
 import { findRelatedDirectories, listSearchDirectories } from './app/search-directories.js';
 import { renderRelatedDirectories, renderSearchFilters, renderSearchStatus } from './app/search-ui.js';
@@ -14,15 +17,15 @@ import { libraryKeys } from './app/favorites-library-core.js';
 import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibraryStore, subscribeLibrary } from './app/favorites-library-store.js';
 import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesScope, filterFavoritesEntries, decorateFavoriteCard, refreshFavoriteBadges, folderBadges, openOrganize, invalidateOrganizeRequest, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
-import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
+import { buildSiteSearchCodex, invalidateSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions, settleCardEntry } from './app/masonry.js';
-import { openLightbox, closeLightbox } from './app/lightbox.js';
+import { openLightbox, closeLightbox, renderLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { encodePathCode, pathFromCode } from './app/path-code.js';
-import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
+import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, syncCodexPickerCounts, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions } from './app/codex-ui.js';
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
@@ -45,6 +48,7 @@ let favoritesRefreshSeq = 0;
 let favoritesBuiltKeys = new Set();
 let favoritesPreviewEntries = [];
 let favoritesPreviewStamp = '';
+let communityDeferredDeepLink = null;
 const favoriteItemsStamp = () => libraryKeys(librarySnapshot()).join('\n');
 async function prepareFavoritesEntries() {
   const stamp = favoriteItemsStamp();
@@ -146,6 +150,9 @@ function renderCodexView(codex, seq, {
   primeResourceHints({ codexes: primeCodexes });
   enterView(codex);
   state.codex = codex;
+  communityDeferredDeepLink = null;
+  if (codex.id === COMMUNITY_CODEX_ID) syncCodexPickerCounts(codex);
+  syncCommunityActions();
   const c = state.codex;
   const selectId = selectedCodexId(c);
   const codexSelect = $('#codexSelect');
@@ -183,10 +190,19 @@ function renderCodexView(codex, seq, {
     consumeLayer: Boolean(options.consumeLayer),
     parentScrollY,
     entry: urlState?.entry || '',
+    imageIndex: urlState?.imageIndex || 0,
     saveBrowse: options.saveBrowse !== false,
   });
   if (urlState?.entry && options.autoOpenEntry !== false) {
-    window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
+    window.setTimeout(() => {
+      if (seq !== codexLoadSeq) return;
+      const opened = openEntryDeepLink(urlState.entry, { imageIndex: urlState.imageIndex || 0 });
+      if (!opened && c.id === COMMUNITY_CODEX_ID) {
+        const linked = c.entries.find(entry => entry.id === urlState.entry);
+        if (!linked) toast('这条投稿不存在或已下架', '!');
+        else if (isEntryAccessBlocked(linked)) communityDeferredDeepLink = { entry: linked.id, imageIndex: urlState.imageIndex || 0 };
+      }
+    }, 180);
   }
   setLoading('');
   notifyCodexDataStatus(c);
@@ -255,6 +271,7 @@ export async function init() {
     setupAbout();
     setupTreeSpy();
     bindUI();
+    setupCommunityIntegration();
     setupContentBlocking();
     setupFavoritesView();
     bindFavoritesBackup();
@@ -283,7 +300,7 @@ export async function init() {
       /* 首屏真把今日画师放在第一格才让开场的名字行定住；被屏蔽、深链进别处等情况一律让它淡出 */
       setIntroFeatured(isFeaturedEntry(state.list[0], state.codex) ? featuredArtistName(state.list[0]) : null);
       markIntroDataReady();
-      initializeAtlasHistory(captureAtlasRoute(state.pendingUrlState.entry || ''));
+      initializeAtlasHistory({ ...captureAtlasRoute(state.pendingUrlState.entry || ''), imageIndex: state.pendingUrlState.imageIndex || 0 });
       await introSettled();   // 开场落幕再弹引导；没播开场时立即 resolve
       const onboardingShown = maybeShowOnboarding();
       setupResumePrompt({ route: state.pendingUrlState, onboardingShown });
@@ -310,6 +327,133 @@ function bindFavoritesBackup() {
   if (favoritesBackupBound) return;
   favoritesBackupBound = true;
   subscribeFavoritesChanges('atlas', syncAtlasFavoritesFromStorage);
+}
+
+function syncCommunityActions() {
+  const bar = $('#communityCodexActions');
+  if (bar) bar.hidden = state.codex?.id !== COMMUNITY_CODEX_ID || virtualView();
+}
+
+let communityRefreshPending = null;
+function unavailableCommunityCodex() {
+  return { ...COMMUNITY_META, entries: [], tree: [], dataStatus: '暂不可用',
+    communityStamp: 'unavailable', dataNotice: '共创内容暂时无法更新，请稍后重试。' };
+}
+
+function syncCommunityBrowseCodex(snapshot = communitySource.peek()) {
+  if (state.browseCodex?.id !== COMMUNITY_CODEX_ID) return;
+  const fresh = snapshot || unavailableCommunityCodex();
+  if (state.browseCodex.communityStamp !== fresh.communityStamp) {
+    state.browseCodex = normalizeCodex(fresh, findCodexMeta(COMMUNITY_CODEX_ID) || COMMUNITY_META);
+  }
+}
+
+function reconcileCommunityView(view) {
+  if (!['favorites', 'site-search'].includes(view?.view)) return view;
+  const communityKeys = [...state.favs].filter(key => key.startsWith(`${COMMUNITY_CODEX_ID}:`));
+  const hasSource = Boolean(view.communityStamp)
+    || view.entries.some(entry => entry._srcCodexId === COMMUNITY_CODEX_ID)
+    || (view.view === 'favorites' ? communityKeys.length > 0 : Boolean(findCodexMeta(COMMUNITY_CODEX_ID)));
+  if (!hasSource) return view;
+  const snapshot = communitySource.peek() || unavailableCommunityCodex();
+  syncCommunityBrowseCodex(snapshot);
+  if (view.communityStamp === snapshot.communityStamp) return view;
+  const fresh = normalizeCodex(snapshot, findCodexMeta(COMMUNITY_CODEX_ID) || COMMUNITY_META);
+  const updated = replaceCommunityEntries(view, fresh, { isFavorite: isFav });
+  updated.tree = buildTreeFromEntries(updated.entries);
+  updated.entryCount = updated.entries.length;
+  updated.imagedCount = updated.entries.filter(hasEntryImage).length;
+  if (view.view === 'favorites') {
+    // 只更新本次重取的社区收藏键；其它来源仍沿用它们开始构建时的快照。
+    favoritesBuiltKeys = new Set([
+      ...[...favoritesBuiltKeys].filter(key => !key.startsWith(`${COMMUNITY_CODEX_ID}:`)), ...communityKeys,
+    ]);
+  }
+  return updated;
+}
+
+async function refreshCommunityView({ force = true } = {}) {
+  if (communityRefreshPending) return communityRefreshPending;
+  const meta = findCodexMeta(COMMUNITY_CODEX_ID);
+  if (!meta) return;
+  const seq = codexLoadSeq;
+  communityRefreshPending = (async () => {
+    let fresh;
+    let failed = false;
+    try {
+      fresh = await fetchCodex(meta, { force });
+    } catch {
+      failed = true;
+      fresh = unavailableCommunityCodex();
+    }
+    // 搜索/收藏可能先取到新版；即使当前虚拟视图未变，返回书也不能停留在旧审核状态。
+    syncCommunityBrowseCodex(fresh);
+    // 只比较内容并包含喜欢状态；仅用 R2 revision 会漏掉 D1 的互动更新。
+    const changed = state.codex?.communityStamp !== fresh.communityStamp;
+    if (!changed) return fresh.entries;
+    syncCodexPickerCounts(fresh);
+    invalidateSiteSearchCodex();
+    favoritesPreviewStamp = '';
+    favoritesPreviewEntries = [];
+    document.dispatchEvent(new CustomEvent('community:updated'));
+    if (seq !== codexLoadSeq || !state.codex) return fresh.entries;
+    if (state.codex.id !== COMMUNITY_CODEX_ID && !virtualView()) return fresh.entries;
+    const updated = replaceCommunityEntries(state.codex, fresh, { isFavorite: isFav });
+    updated.tree = buildTreeFromEntries(updated.entries);
+    updated.entryCount = updated.entries.length;
+    updated.imagedCount = updated.entries.filter(hasEntryImage).length;
+    state.codex = updated;
+    if (updated.id === COMMUNITY_CODEX_ID) {
+      const metaLabel = $('#codexMeta');
+      if (metaLabel) metaLabel.textContent = codexMetaText(updated);
+    }
+    if (state.favoritesView) favoritesBuiltKeys = new Set(state.favs);
+    const active = state.lightbox.entry;
+    if (active?.communityId) {
+      const replacement = updated.entries.find(entry => entry.communityId === active.communityId);
+      if (!replacement || isEntryAccessBlocked(replacement)) closeLightbox({ historyMode: 'replace', immediate: true });
+      else {
+        state.lightbox.entry = replacement;
+        state.lightbox.images = replacement.images;
+        state.lightbox.index = Math.min(state.lightbox.index, Math.max(0, replacement.images.length - 1));
+        renderLightbox();
+      }
+    }
+    renderTree();
+    if (!state.favoritesView) renderCodexHeader();
+    updateCodexPickerState();
+    syncCommunityActions();
+    applyFilter({ transition: 'none' });
+    setLoading(failed && state.codex.id === COMMUNITY_CODEX_ID ? fresh.dataNotice : '');
+    return fresh.entries;
+  })().finally(() => { communityRefreshPending = null; });
+  return communityRefreshPending;
+}
+
+function setupCommunityIntegration() {
+  if (!findCodexMeta(COMMUNITY_CODEX_ID)) return;
+  initCommunityActions({
+    getEntries: () => communitySource.peek()?.entries || [],
+    refreshEntries: () => refreshCommunityView(),
+    openEntry: async (entry, { consumeLayer = false } = {}) => {
+      if (isEntryAccessBlocked(entry)) { showNsfwLockedHint(); return false; }
+      if (state.codex?.id !== COMMUNITY_CODEX_ID || virtualView()) {
+        await loadCodex(COMMUNITY_CODEX_ID, { transition: 'none', historyMode: 'none', autoOpenEntry: false });
+      }
+      return Boolean(openEntryDeepLink(entry.id, { historyMode: 'replace', consumeLayer }));
+    },
+  });
+  const refreshVisible = () => {
+    if (document.hidden || !state.codex || pendingCodexLoad) return;
+    if (communitySource.peek() || state.codex.id === COMMUNITY_CODEX_ID || state.siteSearchView
+      || (state.favoritesView && [...state.favs].some(key => key.startsWith(`${COMMUNITY_CODEX_ID}:`)))) {
+      void refreshCommunityView();
+    }
+  };
+  window.setInterval(refreshVisible, COMMUNITY_REFRESH_MS);
+  window.addEventListener('focus', refreshVisible);
+  window.addEventListener('pageshow', refreshVisible);
+  document.addEventListener('visibilitychange', refreshVisible);
 }
 
 /* 本地编辑模式探测：只在本机 origin 下、且 /__edit__/ping 有响应（= edit_server 在服务本页）
@@ -352,7 +496,7 @@ async function syncAtlasFavoritesFromStorage(detail = {}) {
   applyFilter({ transition: 'none' });
 }
 
-const codexMetaText = c => `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`;
+const codexMetaText = c => [c.author, c.version, `${c.entryCount} 条`].filter(Boolean).join(' · ');
 
 /* 普通法典视图的渲染参数：原路与换书接力共用 */
 const codexViewArgs = (options, parentScrollY) => ({
@@ -414,7 +558,7 @@ export async function loadCodex(id, options = {}) {
   setLoading('');
   clearMasonry();
   try {
-    const codex = await fetchCodex(meta);
+    const codex = await fetchCodex(meta, { force: meta.id === COMMUNITY_CODEX_ID });
     if (seq !== codexLoadSeq || isCodexLocked(meta) || isCodexLocked(codex)) return;
     const wasSwitching = Boolean(state.codex);
     const render = () => renderCodexView(codex, seq, codexViewArgs(options, parentScrollY));
@@ -435,7 +579,7 @@ export async function loadCodex(id, options = {}) {
 async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   const isCurrent = () => seq === codexLoadSeq && !isCodexLocked(meta);
   setLoading('');
-  const loading = fetchCodex(meta);
+  const loading = fetchCodex(meta, { force: meta.id === COMMUNITY_CODEX_ID });
   const sw = beginCodexSwitch({
     origin: options.origin,
     isCurrent,
@@ -484,6 +628,14 @@ function refreshAccessView({ revoked = false } = {}) {
   renderTree();
   if (!state.favoritesView) renderCodexHeader();
   applyFilter({ resetScroll: true });
+  if (communityDeferredDeepLink && state.codex?.id === COMMUNITY_CODEX_ID && !virtualView()) {
+    const linked = state.codex.entries.find(entry => entry.id === communityDeferredDeepLink.entry);
+    if (linked && !isEntryAccessBlocked(linked)) {
+      const pending = communityDeferredDeepLink;
+      communityDeferredDeepLink = null;
+      openEntryDeepLink(pending.entry, { imageIndex: pending.imageIndex, historyMode: 'replace' });
+    }
+  }
   if (isCodexLocked(state.codex)) {
     const fallback = firstUnlockedCodex();
     if (fallback) void loadCodex(fallback.id, { historyMode: 'replace', transition: 'none' });
@@ -537,9 +689,11 @@ export async function openFavoritesView(options = {}) {
     const builtKeys = new Set(state.favs);   // buildFavoritesCodex 同步读取 state.favs 后才进入 await
     const codex = await buildFavoritesCodex();
     if (seq !== codexLoadSeq) return;
+    syncCommunityBrowseCodex();
     favoritesBuiltKeys = builtKeys;
     const wasSwitching = Boolean(state.codex);
-    const render = () => renderCodexView(codex, seq, {
+    // 其它来源与过渡动画都可能等待；直到真正落地才对齐最新社区审核快照。
+    const render = () => renderCodexView(reconcileCommunityView(codex), seq, {
       options,
       parentScrollY,
       enterView: () => {
@@ -603,8 +757,9 @@ export async function openSiteSearchView(options = {}) {
     const codex = await buildSiteSearchCodex();
     if (seq !== codexLoadSeq) return;
     if (!siteSearchStillWanted(options)) return;
+    syncCommunityBrowseCodex();
     const wasSwitching = Boolean(state.codex);
-    const render = () => siteSearchStillWanted(options) && renderCodexView(codex, seq, {
+    const render = () => siteSearchStillWanted(options) && renderCodexView(reconcileCommunityView(codex), seq, {
       options,
       parentScrollY,
       primeCodexes: state.codexes,
@@ -647,17 +802,19 @@ export function exitSiteSearchView(options = {}) {
     applyFilter(options);
     return;
   }
+  syncCommunityBrowseCodex();
   const codex = state.browseCodex || firstUnlockedCodex();
   if (!codex) return;
   state.siteSearchView = false;
   state.favoritesView = false;
   state.updateFilter = '';
   state.codex = codex;
+  syncCommunityActions();
   const c = state.codex;
   const codexSelect = $('#codexSelect');
   if (codexSelect) codexSelect.value = c.id;
   $('#codexTitle').textContent = c.title;
-  $('#codexMeta').textContent = `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`;
+  $('#codexMeta').textContent = codexMetaText(c);
   const codexBtnText = $('#codexBtnText');
   if (codexBtnText) codexBtnText.textContent = codexPickerTitle(findCodexMeta(c.id)) || c.title;
   updateCodexPickerState();
@@ -897,10 +1054,10 @@ async function refreshFavoritesView(options = {}) {
   const c = await buildFavoritesCodex();
   if (seq !== favoritesRefreshSeq || viewSeq !== codexLoadSeq || !state.favoritesView) return;
   favoritesBuiltKeys = builtKeys;
-  state.codex = c;
+  state.codex = reconcileCommunityView(c);
   state.activePath = [];
   const meta = $('#codexMeta');
-  if (meta) meta.textContent = `${c.version} · ${c.entryCount} 条`;
+  if (meta) meta.textContent = `${state.codex.version} · ${state.codex.entryCount} 条`;
   syncFavoritesView();
   applyFilter(options);
 }

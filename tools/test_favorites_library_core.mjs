@@ -144,9 +144,10 @@ setFolderMembership(original, ['alpha:alpha-set'], one.id, true, { now });
 const backup = createLibraryBackup({ library: original, communityIds: ['community'], codexes, exportedAt: now });
 const parsed = parseLibraryBackup(JSON.stringify(backup), codexes);
 assert.equal(parsed.version, 2);
-assert.equal(parsed.unknownCodexCount, 1);
-assert.deepEqual(parsed.favorites.community, ['community']);
-assert.deepEqual(parsed.library, original, 'V2 元数据与归属 round-trip');
+assert.equal(parsed.unknownCodexCount, 2);
+assert.deepEqual(parsed.favorites.community, []);
+assert.ok(parsed.library.items.some(item => item.key === 'community:community'));
+assert.deepEqual({ ...parsed.library, items: parsed.library.items.filter(item => !item.key.startsWith('community:')) }, original, 'V2 元数据与归属 round-trip');
 const oldBackup = parseLibraryBackup(v1.serializeFavoritesBackup({
   atlasKeys: ['old_alpha:old_alpha-1'], codexes, exportedAt: now,
 }), codexes);

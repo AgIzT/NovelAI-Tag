@@ -130,10 +130,11 @@ async function buildSiteSearchCodexFresh() {
   return {
     // fetchCodex 的“发布回退数据”刻意不进 codexCache，以便下次重试外部源；
     // 全站 memo 也必须尊重这层语义，不能把一次降级冻结成整会话结果。
-    complete: failedSources === 0
+    complete: !openMetas.some(meta => meta.id === 'community') && failedSources === 0
       && sources.every(({ codex }) => codex?.dataStatus !== '发布回退数据'),
     codex: {
       ...siteSearchMeta(),
+      communityStamp: sources.find(source => source.meta.id === 'community')?.codex?.communityStamp || '',
       assetPathMode: 'codex',
       assetBaseUrl: '',
       dataUrl: '',

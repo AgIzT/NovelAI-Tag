@@ -57,6 +57,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/content-blocking.css">
 <link rel="stylesheet" href="assets/favorites-backup.css">
 <link rel="stylesheet" href="assets/favorites-library.css">
+<link rel="stylesheet" href="assets/community-actions.css">
 <link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/app/state.js">
@@ -266,10 +267,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </button>
       <div id="moreMenu" class="more-menu" role="menu" hidden>
         <div class="more-group" role="group" aria-label="内容与工具">
-          <a id="communityBrowseLink" class="more-item" href="/strings.html" role="menuitem">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 17 4.5-4.5 3.2 3.2 2.1-2.1L19 17"/></svg>
-            <span><b>浏览共创广场</b><small>查看图片与提示词作品</small></span>
-          </a>
           <button id="tagRelayMenuLink" class="more-item" type="button" role="menuitem">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4z"/><path d="M8 9.5h8M8 13.5h5"/><path d="m16.5 15 1.5 1.5 2.5-3"/></svg>
             <span><b>Tag 中转站</b><small>打开组合工作台</small></span>
@@ -347,6 +344,11 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </div>
     </aside>
     <div id="codexBanner" class="codex-banner"></div>
+    <div id="communityCodexActions" class="community-codex-actions" hidden>
+      <p>分享作品与提示词，一起写成这本法典。</p>
+      <div><button class="panel-action is-primary ui-press" type="button" data-open-submit>我要投稿</button>
+      <button class="panel-action ui-press" type="button" data-my-submissions-open>我的投稿</button></div>
+    </div>
     <div id="chipRail" class="chip-rail"></div>
     <div class="result-bar">
       <div class="result-bar-head">
@@ -818,7 +820,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div class="favorites-backup-section-heading">
           <div>
             <h3 id="favoritesCurrentTitle">当前收藏</h3>
-            <p>一份文件会同时包含两处收藏。</p>
+            <p>包含全部法典收藏、收藏夹、归类与备注。</p>
           </div>
           <div class="favorites-backup-heading-actions">
             <button id="favoritesExportTextBtn" class="panel-action favorites-backup-secondary" type="button">复制迁移文本</button>
@@ -827,12 +829,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </div>
         <dl class="favorites-backup-stats">
           <div>
-            <dt>法典图鉴</dt>
+            <dt>收藏</dt>
             <dd><strong id="favoritesCurrentAtlas">0</strong><span> 条</span></dd>
-          </div>
-          <div data-favorites-community-stat>
-            <dt>共创广场</dt>
-            <dd><strong id="favoritesCurrentCommunity">0</strong><span> 条</span></dd>
           </div>
         </dl>
       </section>
@@ -871,7 +869,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
           </label>
           <label>
             <input type="radio" name="favoritesRestoreMode" value="replace">
-            <span><b>覆盖当前收藏</b><small>用备份同时替换两处收藏，执行前会再次确认。</small></span>
+            <span><b>覆盖当前收藏</b><small>用备份替换当前收藏，执行前会再次确认。</small></span>
           </label>
         </fieldset>
       </section>
@@ -902,7 +900,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="favorites-replace-card">
         <span class="favorites-replace-mark" aria-hidden="true">!</span>
         <h3 id="favoritesReplaceTitle">确认覆盖当前收藏？</h3>
-        <p id="favoritesReplaceMessage">这会同时替换法典图鉴与共创广场收藏。</p>
+        <p id="favoritesReplaceMessage">这会替换当前收藏、收藏夹、归类和备注。</p>
         <div class="favorites-replace-actions">
           <button id="favoritesReplaceBack" class="panel-action favorites-backup-secondary" type="button">返回检查</button>
           <button id="favoritesReplaceConfirmBtn" class="panel-action is-danger favorites-backup-danger" type="button">确认覆盖</button>

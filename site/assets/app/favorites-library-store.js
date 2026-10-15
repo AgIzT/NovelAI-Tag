@@ -1,16 +1,18 @@
 /* 收藏库唯一写入口。视图能力与法典索引由组合根注入，禁止反向 import 视图。 */
 import { toast } from './feedback.js';
 import { createStorageCoordinator } from './storage-coordinator.js';
-import { ATLAS_FAVORITES_STORAGE_KEY, COMMUNITY_FAVORITES_STORAGE_KEY, readStoredFavorites } from './favorites-backup-core.js';
+import { ATLAS_FAVORITES_STORAGE_KEY, COMMUNITY_FAVORITES_STORAGE_KEY, readStoredFavorites, readLegacyCommunityFavorites } from './favorites-backup-core.js';
 import {
   FAVORITES_LIBRARY_STORAGE_KEY, FAVORITES_LIBRARY_FORMAT, FAVORITES_LIBRARY_LIMITS,
   FavoritesLibraryError, canonicalLibraryKey, libraryKeys,
-  migrateV1Favorites, newLibraryId, normalizeLibrary, seedPresetFolders, trimLibraryToBudget,
+  migrateV1Favorites, mergeCommunityFavorites, newLibraryId, normalizeLibrary, seedPresetFolders, trimLibraryToBudget,
 } from './favorites-library-core.js';
 
 export const LIBRARY_STORAGE_KEY = FAVORITES_LIBRARY_STORAGE_KEY;
 export const LIBRARY_LOCK_KEY = FAVORITES_LIBRARY_STORAGE_KEY + ':lock';
 export const LIBRARY_SIGNAL_KEY = FAVORITES_LIBRARY_STORAGE_KEY + ':signal';
+// 旧版页面规范化 V2 时会丢弃新字段；独立记账只防止旧键再次迁入，不存第二份收藏。
+export const COMMUNITY_MIGRATION_STORAGE_KEY = 'fadian-community-favorites-migrated-v1';
 
 export function isQuotaError(error) {
   return error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED'
@@ -118,12 +120,21 @@ export function createLibraryStore({
     publish(meta);
   }
   function readV1(storage, codexes) {
-    // 收藏库只迁移 atlas。社区条目仍由原有模块拥有，社区坏数据不应阻断 atlas。
+    // V1 图鉴镜像沿用旧校验，社区旧键在同一个持锁事务中单独严格迁移。
     const atlasOnly = {
       getItem: key => key === ATLAS_FAVORITES_STORAGE_KEY ? storage.getItem(key) : null,
       setItem: () => {},
     };
     return migrateV1Favorites(readStoredFavorites(atlasOnly, codexes).atlasKeys, { codexes });
+  }
+  function migrateCommunity(storage, next, codexes) {
+    const recorded = storage.getItem(COMMUNITY_MIGRATION_STORAGE_KEY) === '1';
+    if (next.communityMigrated) return { next, communityMigration: false, markerMigration: !recorded };
+    const keys = recorded
+      ? [] : readLegacyCommunityFavorites(storage);
+    next = mergeCommunityFavorites(next, keys.map(key => key.slice('community:'.length)), { codexes });
+    next.communityMigrated = true;
+    return { next, communityMigration: !recorded };
   }
   function librarySnapshot() {
     if (current) return current;
@@ -150,7 +161,12 @@ export function createLibraryStore({
         if (raw === null) storage.removeItem(key);
         else storage.setItem(key, raw);
         if (storage.getItem(key) !== raw) throw new Error('rollback readback mismatch');
-      } catch (error) { rollbackErrors.push({ key, error }); }
+      } catch (error) {
+        rollbackErrors.push({ key, error });
+        // 独立标记若无法回退，必须保留已含迁移收藏的完整新库；继续回退主键会形成
+        // “标记已完成、收藏未迁入”的矛盾。仍返回 rollback，由用户核对，不发布成功。
+        if (key === COMMUNITY_MIGRATION_STORAGE_KEY) break;
+      }
     }
     return rollbackErrors;
   }
@@ -176,6 +192,12 @@ export function createLibraryStore({
       }
       previous.push([FAVORITES_LIBRARY_STORAGE_KEY, storage.getItem(FAVORITES_LIBRARY_STORAGE_KEY)]);
       writeVerified(storage, FAVORITES_LIBRARY_STORAGE_KEY, JSON.stringify(normalized));
+      // 先写含记账的完整库，再补跨版本记账；任一步失败都和主键、信号一起补偿。
+      // 崩溃若停在两次写之间，完整库内的标记仍能阻止重迁。
+      if (normalized.communityMigrated && storage.getItem(COMMUNITY_MIGRATION_STORAGE_KEY) !== '1') {
+        previous.push([COMMUNITY_MIGRATION_STORAGE_KEY, storage.getItem(COMMUNITY_MIGRATION_STORAGE_KEY)]);
+        writeVerified(storage, COMMUNITY_MIGRATION_STORAGE_KEY, '1');
+      }
       // 信号是传播屏障，不是第二份收藏真相。失败必须连同主键和社区原字节一起回滚。
       previous.push([LIBRARY_SIGNAL_KEY, storage.getItem(LIBRARY_SIGNAL_KEY)]);
       writeVerified(storage, LIBRARY_SIGNAL_KEY, JSON.stringify({
@@ -207,14 +229,15 @@ export function createLibraryStore({
       if (raw !== null) {
         const next = validDocument(raw, codexes);
         // 兼容早期未标记 V2，只补标记，绝不重读旧镜像。
-        return { ok: true, next, migration: next.migratedFrom !== 'v1' };
+        return { ok: true, ...migrateCommunity(storage, next, codexes), migration: next.migratedFrom !== 'v1' };
       }
       // 此页面已经采用过 V2 后，删除主键不能使旧镜像复活。
-      return { ok: true, next: initialized ? normalizeLibrary({
-        libraryId: current?.libraryId, items: [], folders: [], memberships: [],
-      }, { codexes }) : readV1(storage, codexes), migration: !initialized };
+      const next = initialized ? normalizeLibrary({
+        libraryId: current?.libraryId, items: [], folders: [], memberships: [], communityMigrated: true,
+      }, { codexes }) : readV1(storage, codexes);
+      return { ok: true, ...migrateCommunity(storage, next, codexes), migration: !initialized };
     } catch (error) {
-      return { ok: false, reason: error instanceof FavoritesLibraryError ? 'corrupt' : 'storage', error };
+      return { ok: false, reason: error instanceof FavoritesLibraryError || error?.code === 'CORRUPT' ? 'corrupt' : 'storage', error };
     }
   }
   function readForCorruptReplacement(storage, codexes, expectedRaw) {
@@ -223,18 +246,19 @@ export function createLibraryStore({
       return { ok: false, reason: 'storage', error };
     }
     // 只有备份面板明确确认覆盖的那一份原文可替换；不能覆盖别页已修好的库。
-    if (typeof expectedRaw !== 'string' || raw !== expectedRaw) return { ok: false, reason: 'stale' };
+    if ((expectedRaw !== null && typeof expectedRaw !== 'string') || raw !== expectedRaw) return { ok: false, reason: 'stale' };
     try {
-      validDocument(raw, codexes);
+      const next = validDocument(raw, codexes);
+      if (!next.communityMigrated && storage.getItem(COMMUNITY_MIGRATION_STORAGE_KEY) !== '1') readLegacyCommunityFavorites(storage);
       return { ok: false, reason: 'stale' };
     } catch (error) {
-      if (!(error instanceof FavoritesLibraryError)) return { ok: false, reason: 'storage', error };
+      if (!(error instanceof FavoritesLibraryError) && error?.code !== 'CORRUPT') return { ok: false, reason: 'storage', error };
     }
     let libraryId;
     try { libraryId = JSON.parse(raw)?.libraryId; } catch { /* 无法读取原库身份时生成新的本地身份。 */ }
     return {
       ok: true, migration: false,
-      next: normalizeLibrary({ libraryId, migratedFrom: 'v1' }, { codexes }),
+      next: normalizeLibrary({ libraryId, migratedFrom: 'v1', communityMigrated: true }, { codexes }),
     };
   }
   async function ensureLibrary(options = {}) {
@@ -255,7 +279,7 @@ export function createLibraryStore({
           return { ok: false, reason: error instanceof FavoritesLibraryError ? 'validation' : 'mutator', error };
         }
       }
-      const needsWrite = read.migration || unseeded;
+      const needsWrite = read.migration || read.communityMigration || read.markerMigration || unseeded;
       const saved = needsWrite
         ? writeTransaction(storage, next, { migration: read.migration, fence })
         : { ok: true, next };
@@ -322,7 +346,7 @@ export function createLibraryStore({
     if (!access.ok) return;
     const read = transactionRead(access.storage, codexIndex());
     if (!read.ok) { reportFailure(read); return; }
-    if (read.migration) return;
+    if (read.migration || read.communityMigration) return;
     initialized = true;
     adopt(read.next, { changed: 'all', source });
   }

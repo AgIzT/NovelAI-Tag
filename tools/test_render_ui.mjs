@@ -1466,11 +1466,11 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal((indexSource.match(/class="onboarding-dot(?: active)?"/g) || []).length, 4);
   assert.match(indexSource, /id="onboardingBtn"/);
   assert.match(uiSource, /onboardingBtn\.onclick = \(\) => \{[\s\S]*openOnboarding\(\{/);
-  assert.match(indexSource, /id="communityBrowseLink"[^>]*href="\/strings\.html"/);
-  assert.match(codexUiSource, /<span class="cd-name">共创广场 · 投稿<\/span>/);
-  assert.match(codexUiSource, /图片与提示词作品/);
+  assert.doesNotMatch(indexSource, /id="communityBrowseLink"|href="\/strings\.html"/);
+  assert.match(indexSource, /id="communityCodexActions"[\s\S]*data-open-submit[\s\S]*data-my-submissions-open/);
+  assert.match(codexUiSource, /if \(codexUiActions\.decorateDoor\) menu\.appendChild\(makeSubmitDoor\(\)\)/);
   assert.doesNotMatch(codexUiSource, /这里是大家的画风串/);
-  assert.match(localEditionBuilderSource, /body\.local-edition #communityBrowseLink,/);
+  assert.match(localEditionBuilderSource, /html, '<div id="communityCodexActions"', '<div id="chipRail"', keep_end=True/);
   assert.match(localEditionBuilderSource, /body\.local-edition #onboardingBtn,/);
   assert.match(codexUiSource, /const hiddenCount = \(!state\.siteSearchView && !state\.favoritesView\) \? accessHiddenCount\(\) : 0;/);
   assert.match(codexUiSource, /另有 \$\{hiddenCount\} 条受限内容/);
@@ -1626,10 +1626,10 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   // ---- 界面基件（ui-kit.css）防漂移 ----
   const uiKitSource = await readFile(new URL('../site/assets/ui-kit.css', import.meta.url), 'utf8');
   const stringsSource = await readFile(new URL('../site/strings.html', import.meta.url), 'utf8');
-  // 结果栏按钮、面板动作按钮、分段页签各只有一份定义，两个页面都要加载得到。
-  for (const source of [indexSource, stringsSource]) {
-    assert.match(source, /<link rel="stylesheet" href="assets\/ui-kit\.css">/, '两个页面都必须加载 ui-kit.css');
-  }
+  // 共创投稿已挂在主站；旧页只负责链接兼容，不再承载浏览系统。
+  assert.match(indexSource, /<link rel="stylesheet" href="assets\/ui-kit\.css">/);
+  assert.match(stringsSource, /legacy-route\.js/);
+  assert.doesNotMatch(stringsSource, /assets\/community\.js|id="communityGrid"/);
   assert.match(uiKitSource, /\.bar-btn\{[\s\S]*border-radius:999px[\s\S]*font:700 12px/);
   assert.match(uiKitSource, /\.panel-action,\.nsfw-actions button\{[\s\S]*border-radius:999px[\s\S]*font:800 13px/);
   // 底色必须单独给 .panel-action：写进上面那条共用规则会盖掉 .nsfw-primary 的语义红。

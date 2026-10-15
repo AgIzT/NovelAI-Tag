@@ -32,10 +32,8 @@ async function setup(value, communityIds = [], locks = null) {
   return { storage, emitted, libraryStore, adapter, current };
 }
 function confirmation(current, backup, preserveCommunity = false) {
-  const incoming = preserveCommunity
-    ? { ...backup, favorites: { ...backup.favorites, community: current.communityIds } } : backup;
-  const plan = library.createLibraryRestorePlan({ backup: incoming, currentLibrary: current.library,
-    currentCommunityIds: current.communityIds, mode: 'replace', codexes });
+  const plan = library.createLibraryRestorePlan({ backup, currentLibrary: current.library,
+    currentCommunityIds: current.communityIds, mode: 'replace', codexes, preserveCommunity });
   return { plan, review: backupStore.createReplaceReview({ plan, currentLibrary: current.library }) };
 }
 async function rejectStale(ctx, backup, review, extra = {}) {
@@ -132,7 +130,10 @@ for (const ids of [['community-old', 'community-new'], ['community-replacement']
   const ctx = await setup(make(['alpha:keep']), ['community-old']);
   const backup = makeBackup(make(['alpha:keep']));
   const { review } = confirmation(ctx.current, backup);
-  ctx.storage.setItem(core.COMMUNITY_FAVORITES_STORAGE_KEY, JSON.stringify(ids));
+  await otherCommit(ctx, draft => {
+    library.removeLibraryItems(draft, draft.items.filter(item => item.key.startsWith('community:')).map(item => item.key));
+    ids.forEach(id => library.addLibraryItem(draft, 'community:' + id));
+  });
   await rejectStale(ctx, backup, review);
 }
 
@@ -183,13 +184,12 @@ for (const ids of [['community-old', 'community-new'], ['community-replacement']
   assert.equal(ctx.storage.getItem(core.COMMUNITY_FAVORITES_STORAGE_KEY), '[ "community-new" ]');
 }
 
-// 损坏库恢复仍按精确原文字节挡住改变；其共创损失计划变化也能安全重确认。
+// 损坏库恢复仍按精确原文字节挡住改变；旧共创键保留原文且不参与覆盖。
 {
   const ctx = await setup('{original-broken', ['community-old']);
   const backup = makeBackup(make(['alpha:recovered']));
   const { review } = confirmation(ctx.current, backup);
   ctx.storage.setItem(core.COMMUNITY_FAVORITES_STORAGE_KEY, '["community-new"]');
-  await rejectStale(ctx, backup, review, { expectedCorruptRaw: '{original-broken' });
   ctx.storage.setItem(library.FAVORITES_LIBRARY_STORAGE_KEY, '{new-broken');
   const before = [...ctx.storage.values];
   await assert.rejects(() => ctx.adapter.restore({ backup, mode: 'replace', storage: ctx.storage, codexes,

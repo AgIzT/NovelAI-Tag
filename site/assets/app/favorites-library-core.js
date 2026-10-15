@@ -4,6 +4,7 @@ import {
   FAVORITES_BACKUP_LIMITS,
   FavoritesBackupError,
   canonicalizeAtlasStorageKey,
+  communityFavoriteKeys,
   createCodexLookup,
   createFavoritesBackup,
   createFavoritesRestorePlan,
@@ -131,6 +132,7 @@ export function normalizeLibrary(value, { codexes = [], now = new Date() } = {})
     folders: [], items: [], memberships: [],
   };
   if (source.migratedFrom === 'v1') result.migratedFrom = 'v1';
+  if (source.communityMigrated === true) result.communityMigrated = true;
   if (Number.isInteger(source.presetsSeeded) && source.presetsSeeded > 0) result.presetsSeeded = source.presetsSeeded;
   const itemMap = new Map();
   for (const raw of Array.isArray(source.items) ? source.items : []) {
@@ -216,6 +218,24 @@ export function migrateV1Favorites(atlasKeys = [], { codexes = [], now = new Dat
     libraryId, updatedAt: iso(now),
     items: [...atlasKeys].map(key => ({ key, addedAt: null, importedAt: iso(now), note: '' })),
   }, { codexes, now });
+}
+
+export function mergeCommunityFavorites(library, communityIds = [], { codexes = [], now = new Date() } = {}) {
+  const existing = new Set(libraryKeys(library));
+  const items = communityFavoriteKeys(communityIds).filter(key => !existing.has(key))
+    .map(key => ({ key, addedAt: null, importedAt: iso(now), note: '' }));
+  return normalizeLibrary({ ...library, items: [...library.items, ...items] }, { codexes, now });
+}
+
+function unifiedBackup(backup, codexes) {
+  // 先沿用旧格式校验；新旧两处都记过同一投稿时只保留一个收藏身份。
+  const legacy = createFavoritesRestorePlan({ backup, codexes, mode: 'replace' }).next;
+  const refs = new Map(legacy.atlas.map(item => [item.codexId + ':' + item.entryId, item]));
+  for (const key of communityFavoriteKeys(legacy.community)) {
+    const entryId = key.slice('community:'.length);
+    refs.set(key, { codexId: 'community', entryId });
+  }
+  return { ...backup, favorites: { atlas: [...refs.values()], community: [] } };
 }
 
 export function createFolder(library, name, { id = 'fd_' + newLibraryId(), now = new Date() } = {}) {
@@ -324,8 +344,8 @@ export function trimLibraryToBudget(library, maxBytes = FAVORITES_LIBRARY_LIMITS
 }
 
 export function createLibraryBackup({ library, communityIds = [], codexes = [], exportedAt = new Date() } = {}) {
-  const normalized = normalizeLibrary(library, { codexes });
-  const backup = createFavoritesBackup({ atlasKeys: libraryKeys(normalized), communityIds, codexes, exportedAt });
+  const normalized = mergeCommunityFavorites(normalizeLibrary(library, { codexes }), communityIds, { codexes });
+  const backup = createFavoritesBackup({ atlasKeys: libraryKeys(normalized), codexes, exportedAt });
   const byKey = new Map(normalized.items.map(item => [item.key, item]));
   return {
     ...backup, version: 2, libraryId: normalized.libraryId, updatedAt: normalized.updatedAt,
@@ -350,7 +370,7 @@ export function parseLibraryBackup(value, codexes = []) {
     throw new FavoritesBackupError('INVALID_JSON', '无法解析收藏备份 JSON');
   }
   const isV2 = raw?.version === 2 && raw?.format === FAVORITES_BACKUP_FORMAT;
-  const base = parseFavoritesBackup(isV2 ? JSON.stringify({ ...raw, version: 1 }) : value, codexes);
+  const base = unifiedBackup(parseFavoritesBackup(isV2 ? JSON.stringify({ ...raw, version: 1 }) : value, codexes), codexes);
   if (!isV2) return {
     ...base, library: migrateV1Favorites(base.favorites.atlas.map(item => item.codexId + ':' + item.entryId), { codexes }),
   };
@@ -365,6 +385,11 @@ export function parseLibraryBackup(value, codexes = []) {
   const sourceItems = raw.favorites.atlas.map(item => ({
     ...item, key: item.codexId + ':' + item.entryId,
   }));
+  const originalKeys = new Set(sourceItems.map(item => canonicalLibraryKey(item.key, codexes)));
+  for (const ref of base.favorites.atlas) {
+    const key = ref.codexId + ':' + ref.entryId;
+    if (!originalKeys.has(key)) sourceItems.push({ key, addedAt: null, note: '' });
+  }
   const rawKeys = new Set(sourceItems.map(item => canonicalLibraryKey(item.key, codexes)));
   const rawFolderIds = new Set(raw.folders.map(folder => folder.id));
   if (rawFolderIds.size !== raw.folders.length) throw new FavoritesBackupError('INVALID_FOLDER', '备份中的收藏夹标识重复');
@@ -381,15 +406,30 @@ export function parseLibraryBackup(value, codexes = []) {
 }
 
 export function createLibraryRestorePlan({
-  backup, currentLibrary, currentCommunityIds = [], mode = 'merge', codexes = [],
+  backup, currentLibrary, currentCommunityIds = [], mode = 'merge', codexes = [], preserveCommunity = false,
 } = {}) {
-  const current = normalizeLibrary(currentLibrary, { codexes });
+  const current = mergeCommunityFavorites(normalizeLibrary(currentLibrary, { codexes }), currentCommunityIds, { codexes });
+  const legacyIds = backup?.favorites?.community;
+  backup = unifiedBackup(backup, codexes);
+  if (preserveCommunity) backup = {
+    ...backup,
+    favorites: { atlas: [
+      ...backup.favorites.atlas.filter(item => item.codexId !== 'community'),
+      ...current.items.filter(item => item.key.startsWith('community:')).map(item => ({ codexId: 'community', entryId: item.key.slice(10) })),
+    ], community: [] },
+  };
   const base = createFavoritesRestorePlan({
-    backup, currentAtlasKeys: libraryKeys(current), currentCommunityIds, mode, codexes,
+    backup, currentAtlasKeys: libraryKeys(current), mode, codexes,
   });
-  const incoming = backup.library
-    ? normalizeLibrary(backup.library, { codexes })
+  let incoming = backup.library
+    ? mergeCommunityFavorites(normalizeLibrary(backup.library, { codexes }), legacyIds, { codexes })
     : migrateV1Favorites(base.incoming.atlas.map(item => item.codexId + ':' + item.entryId), { codexes });
+  if (preserveCommunity) incoming = normalizeLibrary({
+    ...incoming,
+    items: [...incoming.items.filter(item => !item.key.startsWith('community:')), ...current.items.filter(item => item.key.startsWith('community:'))],
+    memberships: [...incoming.memberships.filter(item => !item.itemKey.startsWith('community:')), ...current.memberships.filter(item => item.itemKey.startsWith('community:'))],
+    folders: [...incoming.folders, ...current.folders.filter(folder => current.memberships.some(item => item.folderId === folder.id && item.itemKey.startsWith('community:')))],
+  }, { codexes });
   let nextLibrary;
   if (mode === 'replace') {
     nextLibrary = { ...incoming, libraryId: current.libraryId, updatedAt: current.updatedAt };
@@ -429,6 +469,8 @@ export function createLibraryRestorePlan({
     }
     nextLibrary = normalizeLibrary(nextLibrary, { codexes });
   }
+  // 本地迁移记账属于当前设备；导入旧备份不能使旧键再次参与自动迁移。
+  if (current.communityMigrated) nextLibrary.communityMigrated = true;
   const folderNames = new Set(current.folders.map(folder => folder.name));
   const nextNames = new Set(nextLibrary.folders.map(folder => folder.name));
   const incomingNames = new Set(incoming.folders.map(folder => folder.name));

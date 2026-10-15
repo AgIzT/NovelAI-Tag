@@ -214,7 +214,7 @@ for (const animated of [false, true]) {
   const dependencies = {
     state, window, isCodexLocked, findCodexMeta,
     cancelSiteSearchObservation,
-    FAVORITES_CODEX_ID: 'favorites', SITE_SEARCH_CODEX_ID: 'search',
+    FAVORITES_CODEX_ID: 'favorites', SITE_SEARCH_CODEX_ID: 'search', COMMUNITY_CODEX_ID: 'community',
     firstUnlockedCodex: () => safeBook, showNsfwLockedHint() {},
     invalidateOrganizeRequest() {}, canAnimateSwitch: () => animated,
     fetchCodex: () => response.promise, showSkeleton: seq => events.push(['skeleton', seq]),
@@ -230,7 +230,7 @@ for (const animated of [false, true]) {
     openSiteSearchView: () => { events.push(['search']); return new Promise(() => {}); },
   };
   const runtime = new Function(...Object.keys(dependencies),
-    `let codexLoadSeq=0,pendingCodexLoad=null;\n${loadSource}\nreturn {loadCodex,refreshAccessView};`)(...Object.values(dependencies));
+    `let codexLoadSeq=0,pendingCodexLoad=null,communityDeferredDeepLink=null;\n${loadSource}\nreturn {loadCodex,refreshAccessView};`)(...Object.values(dependencies));
   const loading = runtime.loadCodex('adult');
   state.allowNsfw = false;
   runtime.refreshAccessView({ revoked: true });

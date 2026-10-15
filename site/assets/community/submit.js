@@ -19,6 +19,7 @@ let files = [];
 let busy = false;
 let metadataConsumed = false;
 let onSubmitted = null;
+let submitTitle = '投稿到共创法典';
 let addQueue = Promise.resolve();
 let dialogGeneration = 0;
 
@@ -26,9 +27,10 @@ export function initSubmitDialog(options = {}) {
   submitMask = $('#submitMask');
   submitForm = $('#submitForm');
   onSubmitted = options.onSubmitted || null;
+  submitTitle = options.title || '投稿到共创法典';
   if (!submitMask || !submitForm) return;
 
-  bindOpenButtons();
+  if (options.bindTriggers !== false) bindOpenButtons();
   bindDialog();
   bindDropZone();
   bindCategoryChips();
@@ -50,10 +52,10 @@ export function openSubmitDialog(trigger = document.activeElement) {
   openMask(submitMask, trigger);
 }
 
-export function closeSubmitDialog() {
+export function closeSubmitDialog(options = {}) {
   if (!submitMask || !isMaskOpen(submitMask)) return;
   dialogGeneration += 1;
-  closeMask(submitMask);
+  closeMask(submitMask, options);
 }
 
 function bindOpenButtons() {
@@ -92,7 +94,7 @@ function showSubmitForm() {
   const success = $('#subSuccess');
   if (success) success.hidden = true;
   const title = $('#submitTitle');
-  if (title) title.textContent = '投稿到共创广场';
+  if (title) title.textContent = submitTitle;
 }
 
 function showSubmitSuccess() {

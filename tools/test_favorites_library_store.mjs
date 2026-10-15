@@ -6,7 +6,10 @@ const { createLibraryStore, LIBRARY_LOCK_KEY, LIBRARY_SIGNAL_KEY } = module;
 const V1 = 'fadian-favs';
 const COMMUNITY = 'community-favorites-v1';
 class MemoryStorage {
-  constructor(values = {}) { this.values = new Map(Object.entries(values)); this.writes = []; this.beforeWrite = null; }
+  constructor(values = {}) {
+    this.values = new Map(Object.entries(values)); this.writes = []; this.beforeWrite = null;
+    try { if (JSON.parse(values[KEY]).communityMigrated) this.values.set(module.COMMUNITY_MIGRATION_STORAGE_KEY, '1'); } catch { /* 旧库与损坏库夹具不补记账。 */ }
+  }
   getItem(key) { return this.values.get(key) ?? null; }
   setItem(key, value) { this.beforeWrite?.(key, value); this.writes.push([key, value]); this.values.set(key, String(value)); }
   removeItem(key) { this.values.delete(key); }
@@ -32,7 +35,7 @@ const make = (storage = new MemoryStorage(), extra = {}) => {
 };
 // 夹具代表当前版本写下的库：已播种过预制夹，载入不写盘。早期无记账的库见末尾预制夹用例。
 const raw = (keys = ['alpha:original'], { presetsSeeded = 1 } = {}) => JSON.stringify(normalizeLibrary({
-  libraryId: 'test-library', updatedAt: '2026-09-12T12:00:00.000Z', migratedFrom: 'v1',
+  libraryId: 'test-library', updatedAt: '2026-09-12T12:00:00.000Z', migratedFrom: 'v1', communityMigrated: true,
   items: keys.map(key => ({ key, addedAt: null })), ...(presetsSeeded ? { presetsSeeded } : {}),
 }, { codexes }));
 const initial = new MemoryStorage({ [V1]: '["old_alpha:old_alpha-1","alpha:alpha-2"]' });

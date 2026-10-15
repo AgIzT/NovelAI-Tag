@@ -153,7 +153,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   assert.equal(ctx.doc.nodes.get('favoritesReplaceConfirm').hidden, false);
   assert.equal(ctx.storage.getItem(library.FAVORITES_LIBRARY_STORAGE_KEY), broken);
   await ctx.doc.nodes.get('favoritesReplaceConfirmBtn').fire('click'); await ctx.waitIdle();
-  assert.deepEqual(library.libraryKeys(ctx.libraryStore.librarySnapshot()), ['alpha:recovered']);
+  assert.deepEqual(library.libraryKeys(ctx.libraryStore.librarySnapshot()), ['alpha:recovered', 'community:community-before']);
 }
 // 合并超收藏夹上限时，覆盖计划仍能独立检查和使用。
 {
@@ -175,7 +175,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   await ctx.importText(serialize(make(['alpha:backup'])));
   await ctx.doc.nodes.get('favoritesExportBtn').fire('click');
   await ctx.doc.nodes.get('favoritesRestoreBtn').fire('click');
-  const repaired = JSON.stringify({ ...make(['alpha:newer']), migratedFrom: 'v1', presetsSeeded: 1 });
+  const repaired = JSON.stringify({ ...make(['alpha:newer']), migratedFrom: 'v1', communityMigrated: true, presetsSeeded: 1 });
   ctx.storage.setItem(library.FAVORITES_LIBRARY_STORAGE_KEY, repaired);
   // 真正的 storage 事件会触发重新读取，并把页面从损坏态改为正常态。
   for (const handler of window.handlers.get('storage') || []) handler({ storageArea: ctx.storage, key: library.FAVORITES_LIBRARY_STORAGE_KEY });
@@ -190,6 +190,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   await ctx.doc.nodes.get('favoritesExportBtn').fire('click');
   const exported = JSON.parse(await ctx.blobs.get(ctx.doc.downloads[0].href).text());
   assert.deepEqual(exported.favorites.community, []);
+  assert.ok(exported.favorites.atlas.every(item => item.codexId !== 'community'));
   const broken = await setup('{local-broken', true);
   await broken.doc.nodes.get('favoritesExportBtn').fire('click');
   const recovery = JSON.parse(await broken.blobs.get(broken.doc.downloads[0].href).text());
@@ -205,7 +206,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   assert.match(code, /^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
   assert.equal(sender.doc.nodes.get('favoritesPickupResult').hidden, false);
   assert.match(sender.doc.nodes.get('favoritesPickupExpiry').textContent, /^\d{2}:\d{2} 前有效$/);
-  assert.equal(sender.doc.nodes.get('favoritesBackupStatus').textContent, '取件码已生成：法典图鉴 2 条，共创广场 1 条，收藏夹 5 个。');
+  assert.equal(sender.doc.nodes.get('favoritesBackupStatus').textContent, '取件码已生成：收藏 3 条，收藏夹 5 个。');
   const stored = pickupEnv.COMMUNITY_DB.rows('SELECT payload FROM favorites_pickups');
   assert.equal(stored.length, 1);
   assert.ok(stored[0].payload.startsWith('NAITAG1.'), '上传的是压缩后的迁移文本');
@@ -219,7 +220,7 @@ const serialize = value => backupStore.serializeLibraryFavorites({ library: valu
   assert.equal(receiver.doc.nodes.get('favoritesPickupInput').value, '');
   assert.equal(receiver.doc.nodes.get('favoritesRestoreBtn').disabled, false);
   await receiver.doc.nodes.get('favoritesRestoreBtn').fire('click'); await receiver.waitIdle();
-  assert.deepEqual(library.libraryKeys(receiver.libraryStore.librarySnapshot()).sort(), ['alpha:a', 'alpha:b', 'alpha:c']);
+  assert.deepEqual(library.libraryKeys(receiver.libraryStore.librarySnapshot()).sort(), ['alpha:a', 'alpha:b', 'alpha:c', 'community:community-before']);
   assert.equal(pickupEnv.COMMUNITY_DB.rows('SELECT id FROM favorites_pickups').length, 0, '取件后服务端即删除');
 
   const late = await setup(make([]));
@@ -270,7 +271,7 @@ for (const inputKind of ['file', 'pickup']) {
   ctx.doc.modes[0].checked = false; ctx.doc.modes[1].checked = true;
   await ctx.doc.modes[1].fire('change');
   await ctx.doc.nodes.get('favoritesRestoreBtn').fire('click');
-  assert.match(ctx.doc.nodes.get('favoritesReplaceMessage').textContent, /1 条法典收藏/);
+  assert.match(ctx.doc.nodes.get('favoritesReplaceMessage').textContent, /1 条收藏/);
   const other = store.createLibraryStore({ getStorage: () => ctx.storage, getLocks: () => null,
     eventTarget: null, getCodexes: () => codexes });
   assert.equal((await other.commitLibrary(draft => library.addLibraryItem(draft, 'alpha:new'), { silent: true })).ok, true);
@@ -280,7 +281,7 @@ for (const inputKind of ['file', 'pickup']) {
   assert.equal(ctx.storage.getItem(library.FAVORITES_LIBRARY_STORAGE_KEY), before);
   assert.deepEqual(ctx.libraryStore.librarySnapshot(), memoryBefore);
   assert.equal(ctx.doc.nodes.get('favoritesReplaceConfirm').hidden, false);
-  assert.match(ctx.doc.nodes.get('favoritesReplaceMessage').textContent, /2 条法典收藏/);
+  assert.match(ctx.doc.nodes.get('favoritesReplaceMessage').textContent, /2 条收藏/);
   assert.match(ctx.doc.nodes.get('favoritesBackupError').textContent, /覆盖范围已更新.*再确认一次/);
   assert.doesNotMatch(ctx.doc.nodes.get('favoritesBackupStatus').textContent, /覆盖完成/);
   assert.equal(ctx.doc.nodes.get('favoritesReplaceConfirmBtn').disabled, false);
@@ -292,25 +293,22 @@ for (const inputKind of ['file', 'pickup']) {
   assert.match(ctx.doc.nodes.get('favoritesBackupError').textContent, /覆盖范围已更新.*再确认一次/);
   assert.equal(ctx.storage.getItem(library.FAVORITES_LIBRARY_STORAGE_KEY), before);
   await ctx.doc.nodes.get('favoritesReplaceConfirmBtn').fire('click'); await ctx.waitIdle();
-  assert.deepEqual(library.libraryKeys(ctx.libraryStore.librarySnapshot()), ['alpha:keep']);
+  assert.deepEqual(library.libraryKeys(ctx.libraryStore.librarySnapshot()), ['alpha:keep', 'community:community-before']);
   assert.equal(ctx.doc.nodes.get('favoritesReplaceConfirm').hidden, true);
   assert.match(ctx.doc.nodes.get('favoritesBackupStatus').textContent, /覆盖完成/);
 }
 
-// 损坏模式的共创计划过期后仍保留已导出的精确原文门，不会变成普通覆盖。
+// 损坏库原文发生变化时，仍保留已导出的精确原文门，不会变成普通覆盖。
 {
   const ctx = await setup('{broken-stable');
   await ctx.importText(backupStore.serializeLibraryFavorites({ library: make(['alpha:recovered']), codexes }));
   await ctx.doc.nodes.get('favoritesExportBtn').fire('click');
   await ctx.doc.nodes.get('favoritesRestoreBtn').fire('click');
   ctx.storage.setItem(core.COMMUNITY_FAVORITES_STORAGE_KEY, '["community-later"]');
-  await ctx.doc.nodes.get('favoritesReplaceConfirmBtn').fire('click'); await ctx.waitIdle();
-  assert.equal(ctx.storage.getItem(library.FAVORITES_LIBRARY_STORAGE_KEY), '{broken-stable');
-  assert.equal(ctx.doc.nodes.get('favoritesReplaceConfirm').hidden, false);
-  assert.match(ctx.doc.nodes.get('favoritesReplaceMessage').textContent, /无法读取/);
   ctx.storage.setItem(library.FAVORITES_LIBRARY_STORAGE_KEY, '{broken-changed');
   await ctx.doc.nodes.get('favoritesReplaceConfirmBtn').fire('click'); await ctx.waitIdle();
   assert.equal(ctx.storage.getItem(library.FAVORITES_LIBRARY_STORAGE_KEY), '{broken-changed');
+  assert.equal(ctx.storage.getItem(core.COMMUNITY_FAVORITES_STORAGE_KEY), '["community-later"]');
   assert.match(ctx.doc.nodes.get('favoritesBackupError').textContent, /已改变/);
 }
 

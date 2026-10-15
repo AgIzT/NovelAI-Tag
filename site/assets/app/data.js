@@ -3,6 +3,7 @@ import { stripTrailingSlash } from './utils.js';
 import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
 import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource } from '../data-source.js';
+import { COMMUNITY_CODEX_ID, communitySource, withCommunityCodex } from './community-codex.js';
 
 const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
 
@@ -18,13 +19,14 @@ export async function loadBootstrapData() {
     { path: 'about.json', fallbackValue: EMPTY_ABOUT },
   ]);
   return {
-    codexes: Array.isArray(indexResult.data) ? indexResult.data : [],
+    codexes: withCommunityCodex(indexResult.data, { localEdition: globalThis.document?.body?.classList.contains('local-edition') }),
     media: mediaResult.data || {},
     about: aboutResult.data || EMPTY_ABOUT,
   };
 }
 
-export async function fetchCodex(meta) {
+export async function fetchCodex(meta, options = {}) {
+  if (meta.id === COMMUNITY_CODEX_ID) return normalizeCodex(await communitySource.load(options), meta);
   const key = meta.id || meta.dataUrl;
   if (state.codexCache.has(key)) return state.codexCache.get(key);
   const load = (async () => {

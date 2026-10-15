@@ -394,6 +394,7 @@ function bindWarehouse() {
   subscribeFavoritesChanges('atlas', () => {
     invalidateFavorites();
   });
+  document.addEventListener('community:updated', invalidateFavorites);
   bindSourceMenu();
   relayScope().querySelector('#tagRelayClear')?.addEventListener('click', async event => {
     const count = relayInbox().length;

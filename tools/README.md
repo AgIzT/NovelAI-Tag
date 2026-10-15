@@ -37,6 +37,7 @@
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；使用隔离 Chrome profile，自动接受测试页的离开确认，导航等待新文档，中转站操作核对草稿落盘；控制台输出 UTF-8。`--only <用例名片段>` 可只跑单项，`--out-dir` 支持相对路径 | 只读，写测试输出 |
 | `verify_favorites_v2.py` | 收藏夹业务集成回归：迁移、归属、撤销、故障、多标签页及性能；关闭动效，含直接模块调用与 DOM 夹具；`--base-url` 指定工作区预览 | 仅接受无凭据的 HTTP localhost / 127.0.0.1；须指向只读 `preview_server.py`，不能连接编辑或生产服务；写隔离 Chrome profile 的测试存储和 `output/favorites-v2-validation/integration/`，`--out-dir` 可指定；不操作用户浏览器数据 |
 | `verify_favorites_experience.py` | 收藏夹真实操作链：开启动效，以 CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.insertText` 点击、按键和输入，核对实际命中、焦点、快捷键、断点与菜单几何；区别于上行的业务集成夹具 | 同样只接受无凭据的 HTTP localhost / 127.0.0.1；要求 `preview_server.py` 只读预览已启动，不接管服务生命周期；写独立测试 profile、结果/截图及程序版本哈希到 `output/favorites-experience/`，可用 `--out-dir` 分隔每轮；不使用用户 profile，不替代实体软键盘/读屏器验收 |
+| `verify_community_codex.py` | 共创法典浏览器验收：主站选书、瀑布流、搜索、分级、收藏迁移、旧链接图序、投稿、喜欢与审核刷新；真实站点 HTML / CSS / JS 配合抽象 SVG 夹具 | 自起自关回环临时端口 API 与隔离 Chrome profile；投稿和喜欢只改内存夹具，不读写生产接口、用户 profile 或正式数据；写 `output/playwright/community-codex/` 的桌面 / 手机截图、断言报告与夹具请求记录，不替代真实生产绑定或实体手机验收 |
 | `benchmark_search_v1.mjs` | 搜索 V1 与旧匹配逻辑的本地中位耗时对比；数据缺失时明确 SKIP | 只读 |
 | `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率；**图片参数解析的唯一公共入口**，格式与审计流程见下方“操作说明去向” | 只读；审计写 CSV |
 | `cleanup_output.py` | 按保留策略清理 `output/`（详见文件头；`单项工具/清理输出.bat` 的内核） | 默认 dry-run；`--apply` 才删 |
@@ -51,7 +52,7 @@
 | `takedown_pack_entries.py` | **计划器已纳入版本，执行端未上线**：按稳定词条 ID 生成图包下架计划；设计中的应用步骤会同步收口法典、总索引和本地同步清单，不直接操作 R2 | 默认预演也会写 `output/` 计划；跨文件事务、正式资产隔离与失败回滚门闭合前，`--apply` 被代码硬阻断 |
 | `retire_r2_assets.py` | **只读预演已纳入版本，执行端未上线**：消费下架报告中的精确对象键，计划退役或删除已不再被发布数据引用的 R2 资源；无通配删除 | 默认计划会对 R2 发带鉴权的只读 HEAD；历史 release / 激活隔离、clean rollback、失败恢复与逐次授权门闭合前，`--apply` 被代码硬阻断 |
 | `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
-| `build_local_edition.py` | `单项工具/打包本地版.bat` 的内核：按白名单生成独立本地发行包 + ZIP（见本地私有文档 `docs/decisions/独立本地发行版.md`） | 不改仓库数据；默认写 `output/local-edition/` |
+| `build_local_edition.py` | `单项工具/打包本地版.bat` 的内核：按白名单生成独立本地发行包 + ZIP；排除在线社区资产并生成三个共创空适配，保持主站模块导入完整而不注册或请求在线共创（见本地私有文档 `docs/decisions/独立本地发行版.md`） | 不改仓库数据；默认写 `output/local-edition/` |
 | `local_edition_version.py` | 构建器与本地启动器共用的本地版版本号 | 库文件，不单独运行 |
 | `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 启动即补建发行根目录及缺失的 `codexes.json` / `media.json`，随后开启可写编辑服务并默认打开浏览器；源码直跑会以仓库根为发行根，仓库内禁止日常直接运行 |
 | `backfill_pack_character_prompts.py` | 从原图幂等回填图包的 NAI V4 角色提示词（2026-08-31 两本并册后默认只跑合并册；逐条取原图本来就走 `assetCodexId`） | 默认不改正式数据，但会覆盖写 `output/pack_character_prompts/report.json`；`--apply` 才另写正式 JSON |
@@ -112,7 +113,7 @@
 
 - Python · 导入与数据：`test_apply_pack_names.py`、`test_backfill_pack_image_prompts.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang_20260925.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
-- Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
+- Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界、静态 ES import 路径完整性与共创空适配拒绝在线加载，不运行 PyInstaller）。
 - Python · UI 测试驱动：`test_verify_ui.py`（离开确认与导航响应两种顺序、后续命令继续执行及确认失败诊断；内存协议夹具，不启动浏览器）。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Python · 画师样张索引：`test_build_artist_index.py`（画师名夹具、去重顺序、书名推版本）；Node 侧对应 `test_artist_core.mjs`（倍率、索引归一、拆解兜底与跳过自身），两边共用 `fixtures/artist_keys.json`。
@@ -120,6 +121,7 @@
 - Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
 - Node · 数据与路由：`test_entry_aliases.mjs`（同书套图合并的收藏、深链及分享门控）、`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
 - Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。
+- Node · 共创法典整合：`test_community_codex.mjs`（集中适配、分级、缓存、虚拟来源与旧链）、`test_community_codex_backend.mjs`（实时读源、审核及分享链）、`test_community_refresh_runtime.mjs`（实际主站刷新函数、虚拟视图与灯箱清理）、`test_community_actions.mjs`（投稿动作接线与喜欢同步）。只读源码并使用内存数据、DOM 和后端夹具，不联网或写生产。
 - Node · 主站状态与交互：`test_access.mjs`（四态评级 / 显式 NSFW 与 R18G 路径 / 虚拟来源总闸）、`test_atlas_access_runtime.mjs`（撤权清场、在途换书与反馈异步回写）、`test_browser_history.mjs`、`test_history_storage.mjs`、`test_edit_client.mjs`、`test_search_data.mjs`、`test_search_directories.mjs`、`test_render_ui.mjs`、`test_modal_dismiss.mjs`、`test_modal_layers.mjs`（共享模态生命周期、顶层键盘归属、同一事件不连关下层与语义回焦）、`test_select_menu.mjs`（受控值、键盘/Tab、选项重绘回焦、外点、页面隐藏及销毁解绑）、`test_copy.mjs`、`test_beta_banner.mjs`、`test_local_ownership.mjs`、`test_resume_prompt.mjs`、`test_masonry_viewport.mjs`（视口、手机密度、同宽实测与列保留、布局输入失效）、`test_skeleton_transition.mjs`。
 - Node · 本机数据 P2：`test_favorites_replace_confirmation.mjs`（锁内精确损失对象、同数量换身份、备注与夹/关系变化、损坏原文门）、`test_settings_storage.mjs`（设置保存先于 UI、读写/属性/静默故障、重试、多键补偿、侧栏历史及撤权不反写）。`verify_local_data_p2.py --source baseline|fixed --baseline <P1提交> --out-dir output/<隔离目录> [--preview]` 用固定 Git 字节与当前程序运行同组 Chrome 断言；只启动回环夹具/只读预览和独立 profile，自起自关，不接管真实用户存储，不调用生产 API。
 - Node · 本机数据 P1：`test_community_favorites_store.mjs`（星标最新底本、renderer 屏障、备份协调、失败反馈）、`test_favorites_note_conflicts.mjs`（别名备注双方原文、备份去重、超预算拒写）、`test_tag_relay_compose.mjs`（等待另存时继续输入与重入）、`node --experimental-vm-modules tools/test_tag_relay_cache.mjs`（25/75ms 独立 renderer 缓存、方案/素材及 revision）。`verify_local_data_p1.py --source baseline|fixed --out-dir output/<隔离目录>` 用 Git 基线与当前程序运行相同 Chrome 安全断言；仅回环资产夹具与隔离 profile，自起自关，不读写真实用户浏览器存储或生产接口。
@@ -128,7 +130,7 @@
 - Node · 收藏与中转站：`test_favorites_backup.mjs`、`test_favorites_runtime.mjs`、`test_favorites_origin_migration.mjs`、`test_favorites_transfer.mjs`、`test_tag_relay_access.mjs`、`test_tag_relay_core.mjs`、`test_tag_relay_store.mjs`。
 - Node · 中转站文本编辑：`test_relay_text.mjs`（文本扫描、折叠与禁用守卫、输出去重、权重范围）、`test_prompt_fragments.mjs`（选择 / 输入分隔、权重边界与原文保留）、`test_copy_fragments.mjs`（准确复制范围、成功收录与异步来源快照）、`test_tag_relay_v3.mjs`（保留的旧库迁移、片段身份、编译、历史与备份）、`test_tag_relay_v4.mjs`（三格式 × 两连接迁移逐字节比较、文本持久化、revision、GC、历史与备份）。仅使用内存夹具，不写用户方案存储；旧节点编辑器测试已随实现删除。
 - Python · 中转站文本内核：`verify_relay_editor.py`（独立 Chrome profile、回环临时端口只服务内存夹具与真实 `site/assets`，断言镜像 CSS / 几何 / 实际字符落点、原生撤销、选区和拖放；`--only` 筛选用例）。写 `output/relay-plana-editor-20260921/browser-acceptance/` 截图及结果，`--out-dir` 可指定；不接用户浏览器、不写方案库，不替代真实系统输入法或实体手机验收。
-- Node · 收藏夹 V2：`test_favorites_library_core.mjs`、`test_favorites_library_store.mjs`、`test_favorites_backup_store.mjs`、`test_favorites_backup_v2.mjs`、`test_favorites_backup_ui.mjs`、`test_favorites_view.mjs`、`test_favorites_route.mjs`；浏览器模块测试加载器为 `favorites-library-test-loader.mjs`。
+- Node · 收藏夹 V2：`test_favorites_community_migration.mjs`（旧社区收藏与 V1 / V2 备份归一、备注 / 夹关系保留、双标记防复活、保存顺序与故障补偿重试；只用内存存储）、`test_favorites_library_core.mjs`、`test_favorites_library_store.mjs`、`test_favorites_backup_store.mjs`、`test_favorites_backup_v2.mjs`、`test_favorites_backup_ui.mjs`、`test_favorites_view.mjs`、`test_favorites_route.mjs`；浏览器模块测试加载器为 `favorites-library-test-loader.mjs`。
 - Node · 收藏取件码：`test_favorites_pickup_backend.mjs`（后端路由、限流、一次性与前后端防漂移）；D1 用 `sqlite-d1-test-harness.mjs` 以 `node:sqlite` 模拟，喜欢后端测试共用。
 - Node · 投稿 / 反馈防护：`test_submission_guards.mjs`（D1 原子限额与待审名额、D1 不可用时退回、公开反馈快照与推送回写的条件写）；R2 用 `memory-r2-test-harness.mjs`（etag、`onlyIf` 条件写、可选模拟延迟与读后插入钩子），反馈后台测试共用。
 

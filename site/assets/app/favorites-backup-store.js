@@ -1,8 +1,8 @@
 import {
   COMMUNITY_FAVORITES_STORAGE_KEY,
+  ATLAS_FAVORITES_STORAGE_KEY,
   FAVORITES_BACKUP_LIMITS,
   FavoritesBackupError,
-  readStoredFavorites,
 } from './favorites-backup-core.js';
 import {
   FAVORITES_LIBRARY_STORAGE_KEY,
@@ -27,14 +27,6 @@ function restoreError(result) {
     rollback: '收藏写入失败，且无法完整恢复原数据；重新导出当前收藏进行核对。',
   };
   return new FavoritesBackupError(code, messages[result.reason] || '收藏未保存，重新打开「收藏备份与恢复」后重试。', { cause: result.error, reason: result.reason });
-}
-
-// 已迁移后只从 V2 读取图鉴收藏；旧 core 仅负责共创收藏的既有容错与校验。
-function readCommunity(storage, codexes) {
-  return readStoredFavorites({
-    getItem: key => key === COMMUNITY_FAVORITES_STORAGE_KEY ? storage.getItem(key) : null,
-    setItem: (key, value) => storage.setItem(key, value),
-  }, codexes);
 }
 
 function stableJson(value) {
@@ -64,9 +56,8 @@ export function createFavoritesBackupStore(store = defaultStore) {
   const readCurrent = async ({ storage, codexes = [] } = {}) => {
     const ready = await store.ensureLibrary({ silent: true, codexes });
     if (!ready.ok) throw restoreError(ready);
-    const current = readCommunity(storage || browserStorage(), codexes);
     const library = store.librarySnapshot();
-    return { ...current, atlasKeys: libraryKeys(library), library };
+    return { communityIds: [], skippedCount: 0, atlasKeys: libraryKeys(library), library };
   };
 
   const restore = async ({ backup, mode = 'merge', storage, codexes = [], preserveCommunity = false,
@@ -77,12 +68,9 @@ export function createFavoritesBackupStore(store = defaultStore) {
     let plan;
     let current;
     const committed = await store.commitLibrary(draft => {
-      current = { ...readCommunity(storage || browserStorage(), codexes), atlasKeys: libraryKeys(draft), library: JSON.parse(JSON.stringify(draft)) };
-      const incoming = preserveCommunity
-        ? { ...backup, favorites: { ...backup.favorites, community: current.communityIds } }
-        : backup;
+      current = { communityIds: [], skippedCount: 0, atlasKeys: libraryKeys(draft), library: JSON.parse(JSON.stringify(draft)) };
       // 预览后可能已有另一标签页写入；拿锁后的 draft 才是恢复计划的当前值。
-      plan = createLibraryRestorePlan({ backup: incoming, currentLibrary: draft, currentCommunityIds: current.communityIds, mode, codexes });
+      plan = createLibraryRestorePlan({ backup, currentLibrary: draft, mode, codexes, preserveCommunity });
       if (mode === 'replace' && expectedReplaceReview !== undefined
           && expectedReplaceReview !== createReplaceReview({ plan, currentLibrary: draft })) {
         throw new FavoritesBackupError('REPLACE_PLAN_CHANGED',
@@ -93,10 +81,7 @@ export function createFavoritesBackupStore(store = defaultStore) {
     }, {
       changed: 'all', silent: true, codexes,
       ...(expectedCorruptRaw === undefined ? {} : { replaceCorrupt: true, expectedCorruptRaw }),
-      companionWrites: () => preserveCommunity ? [] : [{
-        key: COMMUNITY_FAVORITES_STORAGE_KEY,
-        value: JSON.stringify(plan.next.community),
-      }],
+      // 旧键保留原字节供故障恢复；新库的迁移标记保证它不会复活已取消的收藏。
     });
     if (!committed.ok) throw restoreError(committed);
     return { current, plan, result: { atlasKeys: plan.next.atlas.map(item => item.codexId + ':' + item.entryId), communityIds: plan.next.community } };
@@ -118,14 +103,14 @@ function browserStorage() {
 export function readFavoritesRecovery({ storage = browserStorage(), codexes = [] } = {}) {
   try {
     const libraryRaw = storage.getItem(FAVORITES_LIBRARY_STORAGE_KEY);
-    if (typeof libraryRaw !== 'string') throw new Error('missing library');
     return {
       recovery: {
         format: 'novelai-tag-favorites-recovery', version: 1,
         exportedAt: new Date().toISOString(), libraryRaw,
+        atlasRaw: storage.getItem(ATLAS_FAVORITES_STORAGE_KEY),
         communityRaw: storage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY),
       },
-      ...readCommunity(storage, codexes),
+      communityIds: [], skippedCount: 0,
       atlasKeys: [], library: normalizeLibrary(null, { codexes }),
     };
   } catch (error) { throw restoreError({ reason: 'storage', error }); }

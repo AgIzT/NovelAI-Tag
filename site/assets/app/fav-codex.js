@@ -119,6 +119,7 @@ export async function buildFavoritesCodex() {
 
   return {
     ...favoritesViewMeta(),
+    communityStamp: sources.find(source => source.group.meta.id === 'community')?.codex?.communityStamp || '',
     assetPathMode: 'codex',
     assetBaseUrl: '',
     dataUrl: '',

@@ -44,7 +44,7 @@ async function withLikes(env, request, data) {
   };
 }
 
-// GET /api/community — 已发布的社区投稿列表（strings.js 的 dataUrl 指向这里）
+// GET /api/community — 主站共创法典的实时来源；不进入不可变法典 release。
 export async function onRequestGet(context = {}) {
   const env = context.env || {};
   const request = context.request;
@@ -52,5 +52,9 @@ export async function onRequestGet(context = {}) {
   const obj = await env.STRINGS_BUCKET.get('community/community.json');
   if (!obj) return json(await withLikes(env, request, emptyCollection()));
   const data = await obj.json().catch(() => null);
-  return json(await withLikes(env, request, data));
+  return json({
+    ...await withLikes(env, request, data),
+    // 只标识审核内容版本；喜欢仍随当前 Cookie 实时读取，不以此返回 304。
+    revision: String(obj.etag || data?.generatedAt || ''),
+  });
 }

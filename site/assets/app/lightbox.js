@@ -253,7 +253,8 @@ export function shareUrlForEntry(entry) {
   if (!meta?.id) return '';
   const entryId = canonicalShareEntryId(entry);
   if (!entryId) return '';
-  return new URL(atlasUrlForRoute({ codex: meta.id, entry: entryId }), location.href).href;
+  const imageIndex = state.lightbox.entry?.id === entry.id ? state.lightbox.index : 0;
+  return new URL(atlasUrlForRoute({ codex: meta.id, entry: entryId, imageIndex }), location.href).href;
 }
 
 // 手机缩略图居中 contain 时，元素外框含留白；FLIP 的两端必须取真实图片矩形。
@@ -422,6 +423,7 @@ function cancelLightboxPreloads({ keepOriginal = false } = {}) {
 }
 
 function clearLightboxContent() {
+  $('[data-community-like-host]')?.replaceChildren();
   resetArtistStrip();
   clearTagZhDetails($('#lightboxInfo'));
   for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');

@@ -7,6 +7,8 @@ export const COMMUNITY_SUBMISSIONS_KEY = 'fadian-community-submissions-v1';
 let mask = null;
 let getEntries = () => [];
 let openEntry = null;
+let maskClass = 'community-mask';
+let openingEntry = false;
 
 function formatDate(value) {
   try {
@@ -20,7 +22,7 @@ function ensureMask() {
   if (mask?.isConnected) return mask;
   mask = document.createElement('div');
   mask.id = 'mySubmissionsPanel';
-  mask.className = 'community-mask';
+  mask.className = maskClass;
   mask.hidden = true;
   mask.setAttribute('role', 'dialog');
   mask.setAttribute('aria-modal', 'true');
@@ -35,13 +37,21 @@ function ensureMask() {
   document.body.appendChild(mask);
   mask.querySelector('[data-my-submissions-close]')?.addEventListener('click', () => closeMask(mask));
   bindBackdropDismiss(mask, () => closeMask(mask));
-  mask.addEventListener('click', event => {
+  mask.addEventListener('click', async event => {
     const button = event.target.closest('[data-my-submission-id]');
-    if (!button || button.disabled) return;
+    if (!button || button.disabled || openingEntry) return;
     const entry = getEntries().find(item => String(item.id) === button.dataset.mySubmissionId);
     if (!entry) return;
-    closeMask(mask, { historyMode: 'none' });
-    openEntry?.(entry, { consumeLayer: true });
+    // 分级门控和路由由调用方负责；拒绝打开时保留面板，不留下隐形历史层。
+    openingEntry = true;
+    button.setAttribute('aria-busy', 'true');
+    try {
+      const opened = await openEntry?.(entry, { consumeLayer: true });
+      if (opened !== false) closeMask(mask, { historyMode: 'none' });
+    } finally {
+      openingEntry = false;
+      button.removeAttribute('aria-busy');
+    }
   });
   mask.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
@@ -78,15 +88,17 @@ export function renderMySubmissions() {
   }).join('') + '<p class="my-submissions-footnote">「尚未公开」表示没在公开列表中找到：可能待审、未通过或已下架。</p>';
 }
 
-export function openMySubmissions(trigger = document.activeElement) {
+export function openMySubmissions(trigger = document.activeElement, options = {}) {
   renderMySubmissions();
-  openMask(ensureMask(), trigger);
+  openMask(ensureMask(), trigger, options);
 }
 
 export function initMySubmissions(options = {}) {
   getEntries = typeof options.getEntries === 'function' ? options.getEntries : getEntries;
   openEntry = typeof options.openEntry === 'function' ? options.openEntry : openEntry;
-  document.querySelectorAll('[data-my-submissions-open]').forEach(button => {
+  maskClass = options.maskClass || maskClass;
+  if (mask) mask.className = maskClass;
+  if (options.bindTriggers !== false) document.querySelectorAll('[data-my-submissions-open]').forEach(button => {
     if (button.dataset.boundMySubmissions === '1') return;
     button.dataset.boundMySubmissions = '1';
     button.addEventListener('click', () => openMySubmissions(button));

@@ -184,7 +184,9 @@ export function searchableText(entry) {
   if (cached !== undefined) return cached;
   const title = normalizeSearchMatchText(entry?.title);
   const prompt = normalizeSearchMatchText([entry?.tags, characterPromptText(entry)].filter(Boolean).join('\n'));
-  const text = [title, prompt].filter(Boolean).join('\n');
+  const communityText = entry?.communityId
+    ? normalizeSearchMatchText([entry.author, entry.note, ...(entry.communityTags || [])].filter(Boolean).join('\n')) : '';
+  const text = [title, prompt, communityText].filter(Boolean).join('\n');
   searchableTextCache.set(entry, text);
   let fields = searchFieldCache.get(entry);
   if (!fields) {

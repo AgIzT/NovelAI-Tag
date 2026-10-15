@@ -2,6 +2,7 @@ export const FAVORITES_BACKUP_FORMAT = 'novelai-tag-favorites';
 export const FAVORITES_BACKUP_VERSION = 1;
 export const ATLAS_FAVORITES_STORAGE_KEY = 'fadian-favs';
 export const COMMUNITY_FAVORITES_STORAGE_KEY = 'community-favorites-v1';
+export const COMMUNITY_CODEX_ID = 'community';
 
 export const FAVORITES_BACKUP_LIMITS = Object.freeze({
   maxFileBytes: 2 * 1024 * 1024,
@@ -128,7 +129,8 @@ function validateAtlasItem(value, index = -1) {
     ),
     entryId: validateIdentifier(
       value.entryId,
-      FAVORITES_BACKUP_LIMITS.maxAtlasFieldLength,
+      value.codexId === COMMUNITY_CODEX_ID
+        ? FAVORITES_BACKUP_LIMITS.maxCommunityIdLength : FAVORITES_BACKUP_LIMITS.maxAtlasFieldLength,
       `${label}的 entryId`,
       'INVALID_ATLAS_ITEM',
     ),
@@ -294,6 +296,24 @@ function normalizeAtlasStorageKeys(values, lookup) {
 
 function normalizeCommunityItems(values) {
   return [...new Set(values.map(validateCommunityId))].sort(compareText);
+}
+
+export function communityFavoriteKeys(ids = []) {
+  return normalizeCommunityItems(asArray(ids, 'communityIds')).map(id => COMMUNITY_CODEX_ID + ':' + id);
+}
+
+// 自动迁移不能把坏数据当空数组。原字节留在旧键，修复后仍可重试。
+export function readLegacyCommunityFavorites(storage) {
+  const raw = storage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY);
+  if (raw === null) return [];
+  let values;
+  try { values = JSON.parse(raw); } catch {
+    fail('CORRUPT', '旧共创收藏无法读取，先导出原始数据再恢复。');
+  }
+  if (!Array.isArray(values)) fail('CORRUPT', '旧共创收藏无法读取，先导出原始数据再恢复。');
+  try { return communityFavoriteKeys(values); } catch (cause) {
+    throw new FavoritesBackupError('CORRUPT', '旧共创收藏无法读取，先导出原始数据再恢复。', { cause });
+  }
 }
 
 function normalizeStoredItems(values, normalize, errorCode) {

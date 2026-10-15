@@ -70,8 +70,14 @@ export function readUrlState() {
     // f 允许重复；空值和非法值也必须原样交给搜索解析器，才能显示错误而不是退化成宽泛搜索。
     searchFilters: params.getAll('f'),
     entry: share.entry || params.get('entry') || hash.get('entry') || '',
+    imageIndex: urlImageIndex(params.get('image') || hash.get('image')),
     updateFilter: params.get('update') || (params.get('new') === '1' ? 'latest' : ''),
   };
+}
+
+function urlImageIndex(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.trunc(number) - 1) : 0;
 }
 
 export function captureAtlasRoute(entryOverride) {
@@ -169,7 +175,8 @@ export function atlasUrlForRoute(route) {
      也能出预览图。非根静态部署没有 Function，只能用下方查询串保证刷新可达。收藏 / 全站搜索
      是私人视图，换过去会把上下文丢给收链接的人，所以同样维持查询串形态。 */
   if (route.entry && route.codex && !virtualView && base === '/') {
-    return `${base}share/${encodeURIComponent(route.codex)}/${encodeURIComponent(route.entry)}`;
+    const imageIndex = Math.max(0, Math.trunc(Number(route.imageIndex) || 0));
+    return `${base}share/${encodeURIComponent(route.codex)}/${encodeURIComponent(route.entry)}${imageIndex ? `?image=${imageIndex + 1}` : ''}`;
   }
 
   const params = new URLSearchParams();
@@ -192,6 +199,7 @@ export function atlasUrlForRoute(route) {
     if (route.folderCode) params.set('fd', route.folderCode);
   } else if (code) params.set('p', code);
   if (route.entry) params.set('entry', route.entry);
+  if (route.entry && Number(route.imageIndex) > 0) params.set('image', String(Math.trunc(route.imageIndex) + 1));
   const query = params.toString();
   return `${base}${query ? `?${query}` : ''}`;
 }
@@ -224,6 +232,7 @@ export function syncUrlState(options = {}) {
   if (!state.codex) return;
   const entryId = entry === undefined ? (state.lightbox.entry?.id || '') : entry;
   const route = captureAtlasRoute(entryId);
+  if (entryId && Number.isFinite(options.imageIndex)) route.imageIndex = Math.max(0, Math.trunc(options.imageIndex));
   const historyMode = resolveAtlasHistoryMode(requestedHistoryMode, route, { transition, sessionId });
   // history restore 会暂时禁止 URL 写入，但灯箱仍在开合；标题不能因此停在上一条词条。
   syncDocumentTitle(route);
@@ -256,7 +265,7 @@ function decodeLegacyPathParam(value) {
     .filter(Boolean);
 }
 
-export function openEntryDeepLink(entryId, { imageIndex = 0, historyMode = 'none' } = {}) {
+export function openEntryDeepLink(entryId, { imageIndex = 0, historyMode = 'none', consumeLayer = false } = {}) {
   if (!state.codex || !entryId) return false;
   const rawId = String(entryId);
   const aliases = Array.isArray(state.codex.aliases)
@@ -328,6 +337,7 @@ export function openEntryDeepLink(entryId, { imageIndex = 0, historyMode = 'none
   routerActions.openLightbox(entry, imageIndex, img || null, {
     allowEmpty: true,
     historyMode,
+    consumeLayer,
     recordRecent: !isRestoringHistory(),
   });
   return entry.id;

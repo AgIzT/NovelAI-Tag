@@ -28,16 +28,16 @@ function backup(atlasKeys, communityIds = []) { return createFavoritesBackup({ a
   await adapter.readCurrent({ storage, codexes });
   storage.setItem(ATLAS_FAVORITES_STORAGE_KEY, '["alpha:stale-v1"]');
   const current = await adapter.readCurrent({ storage, codexes });
-  assert.deepEqual(current.atlasKeys, ['alpha:alpha-first']);
+  assert.deepEqual(current.atlasKeys, ['alpha:alpha-first', 'community:community-current']);
   const exported = parseFavoritesBackup(serializeFavoritesBackup({ ...current, codexes }), codexes);
-  assert.deepEqual(exported.favorites.atlas, [{ codexId: 'alpha', entryId: 'alpha-first' }]);
+  assert.deepEqual(exported.favorites.atlas, [{ codexId: 'alpha', entryId: 'alpha-first' }, { codexId: 'community', entryId: 'community-current' }]);
   const restored = await adapter.restore({ backup: backup(['old_alpha:old_alpha-new'], ['community-new']), storage, codexes });
-  assert.deepEqual(new Set(restored.result.atlasKeys), new Set(['alpha:alpha-first', 'alpha:alpha-new']));
-  assert.deepEqual(restored.result.communityIds, ['community-current', 'community-new']);
+  assert.deepEqual(new Set(restored.result.atlasKeys), new Set(['alpha:alpha-first', 'alpha:alpha-new', 'community:community-current', 'community:community-new']));
+  assert.deepEqual(restored.result.communityIds, []);
   assert.deepEqual(new Set(JSON.parse(storage.getItem(ATLAS_FAVORITES_STORAGE_KEY))), new Set(restored.result.atlasKeys));
 }
 
-// 恢复必须在锁内重读重算；预览之后另一页增加的条目、归属与共创收藏仍参与合并。
+// 恢复必须在锁内重读重算；旧社区键在完成迁移后不再参与读取。
 {
   const { storage, adapter, libraryStore } = setup({ [ATLAS_FAVORITES_STORAGE_KEY]: '["alpha:a"]' });
   await adapter.readCurrent({ storage, codexes });
@@ -50,13 +50,13 @@ function backup(atlasKeys, communityIds = []) { return createFavoritesBackup({ a
   storage.setItem(COMMUNITY_FAVORITES_STORAGE_KEY, '["community-later"]');
   const restored = await adapter.restore({ backup: backup(['alpha:c']), storage, codexes });
   assert.deepEqual(new Set(restored.result.atlasKeys), new Set(['alpha:a', 'beta:b', 'alpha:c']));
-  assert.deepEqual(restored.result.communityIds, ['community-later']);
+  assert.deepEqual(restored.result.communityIds, []);
   assert.equal(libraryStore.librarySnapshot().memberships[0].folderId, 'fd_other');
   assert.equal(restored.plan.stats.atlas.current, 2);
 }
 
-// 两处持久化协调失败都必须不发布成功；社区已写、V2失败时补偿恢复社区原字节。
-for (const failedKey of [COMMUNITY_FAVORITES_STORAGE_KEY, FAVORITES_LIBRARY_STORAGE_KEY]) {
+// 唯一真相提交失败时不发布成功；旧社区键始终保留原字节。
+for (const failedKey of [FAVORITES_LIBRARY_STORAGE_KEY]) {
   const { storage, adapter, libraryStore, emitted } = setup({ [ATLAS_FAVORITES_STORAGE_KEY]: '["alpha:before"]', [COMMUNITY_FAVORITES_STORAGE_KEY]: '[ "community-before" ]' });
   await adapter.readCurrent({ storage, codexes });
   const before = libraryStore.librarySnapshot();
@@ -77,7 +77,7 @@ for (const failedKey of [COMMUNITY_FAVORITES_STORAGE_KEY, FAVORITES_LIBRARY_STOR
   await adapter.readCurrent({ storage, codexes });
   storage.failKey = COMMUNITY_FAVORITES_STORAGE_KEY;
   const restored = await adapter.restore({ backup: backup(['beta:after'], ['unwanted']), mode: 'replace', preserveCommunity: true, storage, codexes });
-  assert.deepEqual(restored.result.atlasKeys, ['beta:after']);
+  assert.deepEqual(restored.result.atlasKeys, ['beta:after', 'community:community-current']);
   assert.equal(storage.getItem(COMMUNITY_FAVORITES_STORAGE_KEY), '[ "community-current" ]');
 }
 

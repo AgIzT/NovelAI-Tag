@@ -394,6 +394,7 @@ export function toEntry(env, rec) {
     tags: Array.isArray(rec.tags) ? rec.tags : [],
     category: normCategory(rec.category),
     nsfw: !!rec.nsfw,
+    ...(rec.rating || rec.level ? { rating: String(rec.rating || rec.level).toLowerCase() } : {}),
     submitter: rec.submitter || '',
     createdAt: rec.createdAt || 0,
     coverIndex: Number(rec.coverIndex || 0),
@@ -437,6 +438,26 @@ export function emptyCollection() {
 // 重新生成聚合发布文件 community/community.json（每次通过/下架后调用）
 export async function rebuildCommunity(env) {
   const bucket = env.STRINGS_BUCKET;
+  // 两次审核可能同时重建；慢请求不能把较新的下架结果覆盖回旧列表。
+  // 先记聚合版本，再读取 approved；条件写冲突后必须重读完整集合。
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const previous = await bucket.get('community/community.json');
+    const data = await buildCommunitySnapshot(env);
+    const written = await bucket.put('community/community.json', JSON.stringify(data), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8', cacheControl: 'no-store' },
+      onlyIf: previous?.etag
+        ? { etagMatches: previous.etag }
+        : new Headers({ 'If-None-Match': '*' }),
+    });
+    if (written !== null) return data;
+  }
+  const error = new Error('公开列表正在并发更新，请刷新审核页后重试');
+  error.status = 503;
+  throw error;
+}
+
+async function buildCommunitySnapshot(env) {
+  const bucket = env.STRINGS_BUCKET;
   const keys = (await listAll(bucket, 'community/approved/')).filter(k => k.endsWith('.json'));
   const rebuildLog = {
     event: 'community_rebuild',
@@ -459,8 +480,5 @@ export async function rebuildCommunity(env) {
     imagedCount: entries.filter(e => e.images.length).length,
     generatedAt: Date.now(),
   };
-  await bucket.put('community/community.json', JSON.stringify(data), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
   return data;
 }

@@ -163,7 +163,7 @@ export function codexBannerCoverEntry(c = {}) {
       assetCodexId: c.coverCodexId || '',
     };
   }
-  return (Array.isArray(c.entries) ? c.entries : []).find(hasEntryImage) || null;
+  return (Array.isArray(c.entries) ? c.entries : []).find(entry => hasEntryImage(entry) && !isEntryAccessBlocked(entry)) || null;
 }
 const pickerActiveCodex = () => (state.favoritesView || state.siteSearchView) ? state.browseCodex : state.codex;
 const pickerActiveCodexId = () => pickerActiveCodex()?.id || '';
@@ -504,6 +504,7 @@ export function setupCodexPicker() {
     const n5Featured = n5LaunchActive && isN5LaunchCodex(c);
     const pct = codexImagedPct(c);
     const count = Number(c.entryCount || 0);
+    const livePending = c.dataSource === 'community' && !c.communityLoaded;
     const cover = codexCoverUrl(c);
     /* 版本恰好是「外部源」时不和外部源小标重复说一遍 */
     const version = c.version === '外部源' ? '' : c.version;
@@ -514,11 +515,12 @@ export function setupCodexPicker() {
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
     /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
     item.setAttribute('aria-label',
-      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}`);
+      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${livePending ? '实时投稿' : `${count} 条词条，配图率 ${pct}%`}${n5Featured ? '，V5 新上线' : ''}`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
     const ring = `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>`;
-    const stat = `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>${ring}`;
+    const stat = livePending ? '<span class="ci-n"><b>实时</b><i>投稿</i></span>'
+      : `<span class="ci-n"><b>${count.toLocaleString()}</b><i>条</i></span>${ring}`;
     const main =
       `<span class="ci-main">` +
       // 书名一行排不下时省略；悬停给出书的全名
@@ -604,20 +606,19 @@ export function setupCodexPicker() {
     return panel;
   };
 
-  /* 社区投稿门：置底一扇明确标记的「门」（虚线卡+加号），点击离站前往社区共建站（走跨页 View Transition）。
-     刻意做成和策展书行视觉区分的样子——它是共建入口，不是第四本书。 */
+  /* 仅供本地编辑器注入管理入口；线上共创已作为图包书出现在选书器。 */
   const makeSubmitDoor = () => {
     const wrap = document.createElement('div');
     wrap.className = 'codex-door-wrap';
     const a = document.createElement('a');
     a.className = 'codex-door';
-    a.href = '/strings.html';
-    a.setAttribute('aria-label', '前往共创广场投稿图片与提示词');
+    a.href = '#';
+    a.setAttribute('aria-label', '法典管理');
     a.innerHTML =
       `<span class="cd-ico">${DOOR_PLUS_ICON}</span>` +
       `<span class="cd-main">` +
-      `<span class="cd-name">共创广场 · 投稿</span>` +
-      `<span class="cd-sub">社区投稿的图片与提示词作品</span>` +
+      `<span class="cd-name">法典管理</span>` +
+      `<span class="cd-sub">管理本机法典</span>` +
       `</span>` +
       `<span class="cd-out">${DOOR_OUT_ICON}</span>`;
     wrap.appendChild(a);
@@ -640,6 +641,12 @@ export function setupCodexPicker() {
   };
   const typeCount = t => (t.soon ? (t.placeholders || []).length : t.real.length);
   const typeEntries = t => t.real.reduce((sum, c) => sum + Number(c.entryCount || 0), 0);
+  const typeEntriesLabel = t => {
+    const count = typeEntries(t);
+    const pendingLive = t.real.some(c => c.dataSource === 'community' && !c.communityLoaded);
+    return pendingLive && !count ? '实时投稿'
+      : `<b>${count.toLocaleString()}</b> 条词条${pendingLive ? ' + 实时投稿' : ''}`;
+  };
   /* 书脊小封面与卷头拼贴共用；data-lock-id 让 updateCodexPickerState 就地切换锁态 */
   const miniCover = (c, cls) => {
     const url = codexCoverUrl(c);
@@ -695,7 +702,7 @@ export function setupCodexPicker() {
         `<span class="vh-text"><span class="vh-no">${volumeLabel(index)}</span>` +
         `<span class="vh-name">${TYPE_ICONS[t.icon]}<b>${esc(t.name)}</b></span>` +
         `<span class="vh-sub">${esc(t.sub)}</span>` +
-        (t.soon ? '' : `<span class="vh-stats"><span><b>${t.real.length}</b> 本 · <b>${typeEntries(t).toLocaleString()}</b> 条词条</span> · <span>圆环＝配图率</span></span>`) +
+        (t.soon ? '' : `<span class="vh-stats"><span><b>${t.real.length}</b> 本 · ${typeEntriesLabel(t)}</span> · <span>圆环＝配图率</span></span>`) +
         `</span>` + recentHTML(t);
       const grid = document.createElement('div');
       grid.className = 'vol-grid';
@@ -780,7 +787,7 @@ export function setupCodexPicker() {
     else renderVolumes(buildTypes());
     const launchPanel = makeN5LaunchPanel();
     if (launchPanel) menu.prepend(launchPanel);
-    menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
+    if (codexUiActions.decorateDoor) menu.appendChild(makeSubmitDoor());
     renderingMenu = false;
   };
   refreshPickerContent = () => {
@@ -994,6 +1001,7 @@ export function syncCodexPickerCounts(codex = state.codex) {
   if (!meta || !codex) return false;
   if (typeof codex.entryCount === 'number') meta.entryCount = codex.entryCount;
   if (typeof codex.imagedCount === 'number') meta.imagedCount = codex.imagedCount;
+  if (meta.dataSource === 'community') meta.communityLoaded = true;
   return true;
 }
 

@@ -7,12 +7,12 @@ const codexes = [{ id: 'alpha', entryAliases: { oldA: 'merged', oldB: 'merged' }
 const originals = ['first distinct note\n原文保留  ', 'second distinct note\n\n---\n\n原文自带分隔符'];
 const rawLibrary = notes => JSON.stringify({
   format: library.FAVORITES_LIBRARY_FORMAT, version: 2, libraryId: 'note-conflict-store',
-  updatedAt: '2026-10-11T00:00:00.000Z', migratedFrom: 'v1', presetsSeeded: 1,
+  updatedAt: '2026-10-11T00:00:00.000Z', migratedFrom: 'v1', communityMigrated: true, presetsSeeded: 1,
   folders: [], memberships: [],
   items: notes.map((note, index) => ({ key: index ? 'alpha:oldB' : 'alpha:oldA', note, addedAt: null })),
 });
 function make(raw) {
-  const values = new Map([[KEY, raw]]);
+  const values = new Map([[KEY, raw], [store.COMMUNITY_MIGRATION_STORAGE_KEY, '1']]);
   const writes = [];
   const storage = {
     getItem: key => values.get(key) ?? null,

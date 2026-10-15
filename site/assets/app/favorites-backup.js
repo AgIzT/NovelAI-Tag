@@ -12,7 +12,7 @@ import {
   FavoritesBackupError,
 } from './favorites-backup-core.js';
 import { createReplaceReview, readLibraryFavorites, readFavoritesRecovery, restoreLibraryFavorites, serializeLibraryFavorites } from './favorites-backup-store.js';
-import { FAVORITES_LIBRARY_STORAGE_KEY, createLibraryRestorePlan, parseLibraryBackup } from './favorites-library-core.js';
+import { FAVORITES_LIBRARY_STORAGE_KEY, createLibraryRestorePlan, normalizeLibrary, parseLibraryBackup } from './favorites-library-core.js';
 import { setupFavoritesOriginMigration } from './favorites-origin-migration.js';
 import { fetchDataJson } from '../data-source.js';
 import { decodeFavoritesTransfer, encodeFavoritesTransfer } from './favorites-transfer.js';
@@ -89,9 +89,9 @@ function friendlyError(error) {
     INVALID_ROOT: '备份内容不完整或已经损坏，未进行恢复。',
     INVALID_FAVORITES: '备份内容不完整或已经损坏，未进行恢复。',
     INVALID_ATLAS: '备份缺少法典图鉴收藏，未进行恢复。',
-    INVALID_COMMUNITY: '备份缺少共创广场收藏，未进行恢复。',
+    INVALID_COMMUNITY: '旧备份缺少共创收藏字段，未进行恢复。',
     INVALID_ATLAS_ITEM: '备份中包含无效的法典收藏标识，未进行恢复。',
-    INVALID_COMMUNITY_ITEM: '备份中包含无效的共创广场收藏标识，未进行恢复。',
+    INVALID_COMMUNITY_ITEM: '备份中包含无效的共创收藏标识，未进行恢复。',
     TOO_MANY_ITEMS: '备份中的收藏数量超过 30,000 条，未进行恢复。',
     FILE_TOO_LARGE: '文件超过 2 MB，无法作为收藏备份处理。',
     STORAGE_READ_FAILED: '无法读取当前浏览器收藏，未进行恢复。',
@@ -152,7 +152,6 @@ export function setupFavoritesBackup(options = {}) {
   const status = byId('favoritesBackupStatus');
   const errorBox = byId('favoritesBackupError');
   const currentAtlas = byId('favoritesCurrentAtlas');
-  const currentCommunity = byId('favoritesCurrentCommunity');
   const replaceConfirm = byId('favoritesReplaceConfirm');
   const replaceMessage = byId('favoritesReplaceMessage');
   const replaceBack = byId('favoritesReplaceBack');
@@ -178,7 +177,7 @@ export function setupFavoritesBackup(options = {}) {
   let planErrors = {};
   let busy = false;
   let corruptRecovery = null;
-  let exportedCorruptRaw = null;
+  let exportedCorruptRaw;
   let pendingReplace = null;
   let replaceNeedsConfirmation = false;
 
@@ -237,7 +236,7 @@ export function setupFavoritesBackup(options = {}) {
     try {
       const current = await readLibraryFavorites({ codexes });
       corruptRecovery = null;
-      return current;
+      return localEdition ? { ...current, atlasKeys: current.atlasKeys.filter(key => !key.startsWith('community:')) } : current;
     } catch (error) {
       if (error.code !== 'CORRUPT') throw error;
       const current = readFavoritesRecovery({ codexes });
@@ -247,12 +246,14 @@ export function setupFavoritesBackup(options = {}) {
     }
   };
 
+  const exportLibrary = library => localEdition ? normalizeLibrary({
+    ...library, items: library.items.filter(item => !item.key.startsWith('community:')),
+  }) : library;
+
   const refreshCounts = async () => {
     const current = await readCurrent();
     if (currentAtlas) currentAtlas.textContent = corruptRecovery ? '无法读取' : String(current.atlasKeys.length);
-    if (currentCommunity) currentCommunity.textContent = String(current.communityIds.length);
-    const visibleCount = current.atlasKeys.length
-      + (localEdition ? 0 : current.communityIds.length);
+    const visibleCount = current.atlasKeys.length;
     const empty = !corruptRecovery && visibleCount === 0 && current.library.folders.length === 0;
     if (exportButton) {
       exportButton.textContent = corruptRecovery ? '导出当前原始数据' : '导出 JSON';
@@ -316,9 +317,8 @@ export function setupFavoritesBackup(options = {}) {
 
     const grid = document.createElement('div');
     grid.className = 'favorites-backup-stats';
-    appendStatCard(grid, '法典图鉴', corruptRecovery ? { ...plan.stats.atlas, current: null } : plan.stats.atlas, mode);
+    appendStatCard(grid, '收藏', corruptRecovery ? { ...plan.stats.atlas, current: null } : plan.stats.atlas, mode);
     appendStatCard(grid, '收藏夹', corruptRecovery ? { ...plan.stats.folders, current: null } : plan.stats.folders, mode, '个');
-    if (!localEdition) appendStatCard(grid, '共创广场', plan.stats.community, mode);
     summary.appendChild(grid);
 
     if (plan.stats.unknownCodexCount) {
@@ -365,10 +365,7 @@ export function setupFavoritesBackup(options = {}) {
   };
 
   const buildPlans = (current, codexes) => {
-    const incoming = localEdition
-      ? { ...parsedBackup, favorites: { ...parsedBackup.favorites, community: current.communityIds } }
-      : parsedBackup;
-    const common = { backup: incoming, currentLibrary: current.library, currentCommunityIds: current.communityIds, codexes };
+    const common = { backup: parsedBackup, currentLibrary: current.library, currentCommunityIds: current.communityIds, codexes, preserveCommunity: localEdition };
     plans = {};
     planErrors = {};
     for (const mode of ['merge', 'replace']) {
@@ -397,8 +394,8 @@ export function setupFavoritesBackup(options = {}) {
             ? '备份为空，覆盖后会清空全部本地法典收藏。建议先导出当前备份。'
             : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条本地法典收藏。建议先导出当前备份。`)
         : (willClearVisible
-            ? '备份为空，覆盖后会清空法典图鉴与共创广场的全部收藏。建议先导出当前备份。'
-            : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条法典收藏和 ${plan.stats.community.removed} 条共创收藏。建议先导出当前备份。`);
+            ? '备份为空，覆盖后会清空全部收藏。建议先导出当前备份。'
+            : `覆盖将删除当前设备中未出现在备份里的 ${plan.stats.atlas.removed} 条收藏。建议先导出当前备份。`);
       replaceMessage.textContent = recoveryRaw !== undefined
         ? '当前收藏数据无法读取。确认覆盖后，将用选中的备份替换当前收藏、收藏夹、归类和备注。'
         : replaceMessage.textContent + ' 收藏夹、归类和备注将按备份恢复。';
@@ -470,7 +467,7 @@ export function setupFavoritesBackup(options = {}) {
         ...(previewPlan.mode === 'replace' ? { expectedReplaceReview: previewPlan.replaceReview } : {}),
       });
       corruptRecovery = null;
-      exportedCorruptRaw = null;
+      exportedCorruptRaw = undefined;
       if (preview) preview.hidden = true;
       emitFavoritesChanged(localEdition ? ['atlas'] : ['atlas', 'community']);
       await refreshCounts();
@@ -479,7 +476,7 @@ export function setupFavoritesBackup(options = {}) {
       if (plan.mode === 'replace') {
         setStatus(localEdition
           ? `覆盖完成：本地法典收藏 ${result.atlasKeys.length} 条，收藏夹 ${plan.stats.folders.total} 个。`
-          : `覆盖完成：法典图鉴 ${result.atlasKeys.length} 条，共创广场 ${result.communityIds.length} 条，收藏夹 ${plan.stats.folders.total} 个。`);
+          : `覆盖完成：收藏 ${result.atlasKeys.length} 条，收藏夹 ${plan.stats.folders.total} 个。`);
       } else {
         const visibleStats = localEdition ? plan.stats.atlas : plan.stats.all;
         setStatus(`恢复完成：新增 ${visibleStats.added} 条收藏，${visibleStats.duplicate} 条已存在，收藏夹 ${plan.stats.folders.total} 个。`);
@@ -534,14 +531,14 @@ export function setupFavoritesBackup(options = {}) {
         return;
       }
       downloadJson(serializeLibraryFavorites({
-        library: current.library,
+        library: exportLibrary(current.library),
         communityIds: localEdition ? [] : current.communityIds,
         codexes,
         exportedAt: new Date().toISOString(),
       }));
       const exported = localEdition
         ? `备份已导出：本地法典收藏 ${current.atlasKeys.length} 条，收藏夹 ${current.library.folders.length} 个。`
-        : `备份已导出：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条，收藏夹 ${current.library.folders.length} 个。`;
+        : `备份已导出：收藏 ${current.atlasKeys.length} 条，收藏夹 ${current.library.folders.length} 个。`;
       setStatus(`${exported}${skippedStatus(current.skippedCount)}`);
     } catch (error) {
       recordSiteEvent('frontend_error', 'export');
@@ -561,7 +558,7 @@ export function setupFavoritesBackup(options = {}) {
       return null;
     }
     const json = serializeLibraryFavorites({
-      library: current.library,
+      library: exportLibrary(current.library),
       communityIds: localEdition ? [] : current.communityIds,
       codexes,
       exportedAt: new Date().toISOString(),
@@ -607,7 +604,7 @@ export function setupFavoritesBackup(options = {}) {
       if (!built) return;
       showPickup(await createPickup(built.transfer));
       const { current } = built;
-      setStatus(`取件码已生成：法典图鉴 ${current.atlasKeys.length} 条，共创广场 ${current.communityIds.length} 条，收藏夹 ${current.library.folders.length} 个。${skippedStatus(current.skippedCount)}`);
+      setStatus(`取件码已生成：收藏 ${current.atlasKeys.length} 条，收藏夹 ${current.library.folders.length} 个。${skippedStatus(current.skippedCount)}`);
     } catch (error) {
       setError(friendlyError(error));
     } finally {

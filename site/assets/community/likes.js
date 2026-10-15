@@ -1,12 +1,21 @@
 import { toast } from '../app/feedback.js';
-import { state } from './state.js';
 
 const LIKE_INFO_STORAGE_KEY = 'community-like-info-seen-v1';
 const pendingEntries = new Set();
 let likeInfoShownThisSession = false;
 
 function entryKey(entry) {
-  return String(entry?.id || '');
+  return String(entry?.communityId || entry?.id || '');
+}
+
+function likesEnabled(entry, options = {}) {
+  return typeof options.isEnabled === 'function'
+    ? options.isEnabled(entry) : entry?.communityFeatures?.likes === true;
+}
+
+function publishLikeState(entry, options) {
+  options.onChange?.(entry);
+  patchLikeControls(entry);
 }
 
 function normalizeLikeCount(value) {
@@ -35,9 +44,9 @@ export function patchLikeControls(entry) {
   });
 }
 
-export function createLikeButton(entry, className = '') {
+export function createLikeButton(entry, className = '', options = {}) {
   const key = entryKey(entry);
-  if (!state.features.likes || !key) return null;
+  if (!likesEnabled(entry, options) || !key) return null;
 
   const button = document.createElement('button');
   button.type = 'button';
@@ -50,7 +59,7 @@ export function createLikeButton(entry, className = '') {
   button.addEventListener('click', event => {
     event.preventDefault();
     event.stopPropagation();
-    void toggleCommunityLike(entry);
+    void toggleCommunityLike(options.resolveEntry?.(key, entry) || entry, options);
   });
   button.addEventListener('keydown', event => {
     if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
@@ -76,12 +85,12 @@ function showFirstLikeInfo() {
   } catch {
     // 提示标记不是点赞状态，存储失败不影响互动。
   }
-  toast('喜欢会匿名计入热度；星标收藏仍只保存在本机。', '');
+  toast('喜欢会匿名计入作品的喜欢数；星标收藏保存在本机。', '');
 }
 
-export async function toggleCommunityLike(entry) {
+export async function toggleCommunityLike(entry, options = {}) {
   const key = entryKey(entry);
-  if (!state.features.likes || !key || pendingEntries.has(key)) return;
+  if (!likesEnabled(entry, options) || !key || pendingEntries.has(key)) return;
 
   const previous = {
     liked: Boolean(entry.liked),
@@ -92,7 +101,7 @@ export async function toggleCommunityLike(entry) {
   entry.liked = nextLiked;
   entry.likeCount = Math.max(0, previous.likeCount + (nextLiked ? 1 : -1));
   pendingEntries.add(key);
-  patchLikeControls(entry);
+  publishLikeState(entry, options);
 
   try {
     const response = await fetch(`/api/community-likes/${encodeURIComponent(key)}`, {
@@ -110,10 +119,10 @@ export async function toggleCommunityLike(entry) {
   } catch (error) {
     entry.liked = previous.liked;
     entry.likeCount = previous.likeCount;
-    console.warn('共创广场喜欢操作失败', error);
+    console.warn('共创法典喜欢操作失败', error);
     toast('喜欢操作未完成，稍后重试', '!');
   } finally {
     pendingEntries.delete(key);
-    patchLikeControls(entry);
+    publishLikeState(entry, options);
   }
 }

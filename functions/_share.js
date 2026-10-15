@@ -1,5 +1,7 @@
 'use strict';
 
+import { readCommunityRecord, toEntry } from './_lib.js';
+
 const APP_SHELL_PATH = '/index.html';
 /* 这条路由返回的是 App 外壳本体：浏览器侧必须每次回源校验（跟静态 / 一致），
    否则发版后有人会拿着旧外壳；边缘留 60 秒只为削抓取器和转发带来的并发峰值。 */
@@ -249,6 +251,7 @@ async function resolveShareCard(context) {
   const origin = originOf(context.request);
   const path = parseSharePath(context.request);
   if (!path.ok || !path.codexId) return genericCard(origin);
+  if (path.codexId === 'community') return resolveCommunityShareCard(context, path);
 
   let dataset;
   try {
@@ -342,6 +345,45 @@ async function resolveShareCard(context) {
     canonicalUrl: canonicalShareUrl(origin, codexId),
     targetUrl,
     safe: true,
+  };
+}
+
+/* 共创法典是实时审核数据：不读法典 release 的分享索引，也不缓存已发布状态。
+   直接查 approved，确保下架后不再泄露旧标题、说明或图片。 */
+async function resolveCommunityShareCard(context, path) {
+  const origin = originOf(context.request);
+  const requestedImage = Number(new URL(context.request.url).searchParams.get('image'));
+  const imageNumber = Number.isFinite(requestedImage) ? Math.max(1, Math.trunc(requestedImage)) : 1;
+  const target = new URL(deepLinkUrl(origin, 'community', path.entryId));
+  if (path.entryId && imageNumber > 1) target.searchParams.set('image', String(imageNumber));
+  const fallback = { ...genericCard(origin, target.href), live: true };
+  if (!path.entryId || !context.env?.STRINGS_BUCKET) return fallback;
+
+  let record;
+  try {
+    record = await readCommunityRecord(context.env, 'approved', path.entryId);
+  } catch (error) {
+    console.warn('community share read failed', error);
+    return fallback;
+  }
+  if (!record || record.id !== path.entryId) return fallback;
+  // 投稿标题不保证是匿名编号；门控稿件连标题都不出，避免分享卡绕过主站分级。
+  const rating = String(record.rating || record.level || '').toLowerCase();
+  if (record.nsfw || ['restricted', 'r18', 'nsfw', 'r18g'].includes(rating)
+      || record.images?.some(image => image.label === 'nsfw')) return fallback;
+  const entry = toEntry(context.env, record);
+  const selectedImage = entry.images[Math.min(imageNumber - 1, Math.max(0, entry.images.length - 1))];
+  const canonical = new URL(canonicalShareUrl(origin, 'community', entry.id));
+  if (imageNumber > 1) canonical.searchParams.set('image', String(imageNumber));
+  return {
+    kind: 'entry',
+    title: `${entry.title || '随手分享'} · 共创法典 | ${SITE_NAME}`,
+    description: entry.comment || SITE_DESCRIPTION,
+    image: safeImage(selectedImage && { ...selectedImage, url: selectedImage.file, alt: entry.title }),
+    canonicalUrl: canonical.href,
+    targetUrl: target.href,
+    safe: true,
+    live: true,
   };
 }
 
@@ -465,7 +507,7 @@ export async function renderShareResponse(context) {
     'content-type': 'text/html; charset=utf-8',
     // HEAD 不读取外壳，无法判断 GET 是否会走 fallback；一律 no-store，避免它的
     // 缓存元数据反过来污染同 URL 的 GET 响应。
-    'cache-control': context.request.method === 'HEAD' || card.transient || degraded
+    'cache-control': context.request.method === 'HEAD' || card.transient || card.live || degraded
       ? 'no-store'
       : APP_SHELL_CACHE_CONTROL,
   };
