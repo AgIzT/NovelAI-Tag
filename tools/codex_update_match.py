@@ -53,26 +53,8 @@ AUDITED_NEW_OVERRIDES: dict[tuple[str, str], dict[str, dict[str, Any]]] = {
             "isNew": True,
         },
     },
-    # Prompt text stays out of the public repository: these entries are
-    # identified by the SHA-256 of their normalized tags instead.
-    ("suozhang_r18", "2026.9.25"): {
-        # Real 9.25 addition left unhighlighted beside its pink sibling.
-        "codex_6e699406-6169": {
-            "title": "透明男压身正身位",
-            "path": ["基础涩涩", "各种体位", "正身位"],
-            "tagsSha256": "813a2e2df649822563eb884bc625fed758ac1acdb0b6d58f7d9d1ca0b4f93665",
-            "isNew": True,
-        },
-    },
-    ("suozhang_nai5_r18", "2026.9.25"): {
-        # Variant of a pink 9.25 card whose own title line was left unhighlighted.
-        "suozhang_nai5_r18-0431": {
-            "title": "其他版本（侧视）",
-            "path": ["r18g/重口", "刑罚"],
-            "tagsSha256": "03e2a71700f732f5b3b523a8a9a1cfce62a4de29e552d9ae453e2a11aa1f92f0",
-            "isNew": True,
-        },
-    },
+    # 所长 2026.9.25 起的版本修正表放在 tools/suozhang_versions/<版本>.json 的
+    # newOverrides，由 import_suozhang.py 运行时装入，这里不再逐版追加。
 }
 
 
@@ -113,8 +95,18 @@ def _source_signature(entry: Mapping[str, Any]) -> tuple[Any, ...]:
     return (norm_title(entry), norm_path(entry), norm_tags(entry))
 
 
+def override_signature_sha256(entry: Mapping[str, Any]) -> str:
+    """One hash of normalized title, path and tags; keeps prompt text out of code."""
+    payload = json.dumps(
+        [norm_title(entry), list(norm_path(entry)), norm_tags(entry)], ensure_ascii=False
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _override_signature(entry: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[Any, ...]:
-    """Compare by tag hash when the audited record stores only ``tagsSha256``."""
+    """Compare by hash when the audited record stores ``signatureSha256`` or ``tagsSha256``."""
+    if "signatureSha256" in expected:
+        return (override_signature_sha256(entry),)
     if "tagsSha256" not in expected:
         return _source_signature(entry)
     digest = hashlib.sha256(norm_tags(entry).encode("utf-8")).hexdigest()
@@ -122,6 +114,8 @@ def _override_signature(entry: Mapping[str, Any], expected: Mapping[str, Any]) -
 
 
 def _expected_override_signature(expected: Mapping[str, Any]) -> tuple[Any, ...]:
+    if "signatureSha256" in expected:
+        return (str(expected["signatureSha256"]).lower(),)
     if "tagsSha256" not in expected:
         return _source_signature(expected)
     return (norm_title(expected), norm_path(expected), str(expected["tagsSha256"]).lower())

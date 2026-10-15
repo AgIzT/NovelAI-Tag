@@ -1,0 +1,59 @@
+{
+  "version": "2026.9.13",
+  "historical": true,
+  "note": "9.13 由 import_suozhang_models.py 导入；本文件只给 survey 当上一版参照，不能 prepare。",
+  "source": {
+    "dir": "所长历版本/（解压密码：1984）所长NovelAI个人法典（2026.9.13版，一般所长整理）"
+  },
+  "outDir": "output/suozhang-20260913-import",
+  "parts": {
+    "N4.5-regular": {
+      "sha256": "f080012c2b1b88e0644e2e79f07b927ce5c52a27bd9055990a5faddad1bf747d",
+      "half": null
+    },
+    "N4.5-upper": {
+      "sha256": "60112b8143286e6b7b0b525466d7ef66903e31855f0784fcd522de1abd4e905f",
+      "half": "upper"
+    },
+    "N4.5-lower": {
+      "sha256": "cc339b567c672b744eb76c8d4b6aa181d0591c4d99d99cfa561d2a5bb365a20d",
+      "half": "lower"
+    },
+    "N5-regular": {
+      "sha256": "7510a1267aab6cff5e39228376d8ad292e87c165351cc502209c9c4be818c82f",
+      "half": null
+    },
+    "N5-upper": {
+      "sha256": "adb708a5807cac4e5056c96021415328e7cf1e049af9306ad631f575042a6f76",
+      "half": "upper"
+    },
+    "N5-lower": {
+      "sha256": "488f3e254023419251d4cdd33781819bd811354c63d6e216955d87ca86ef59a6",
+      "half": "lower"
+    }
+  },
+  "pathAliases": {},
+  "proseParagraphs": {
+    "N5-regular": {
+      "330": "5da347a85ef12bb0bd7c787d5edcdcd23e66fe84c11b925b568d2dfe3073d4ac",
+      "334": "044f283c90d3ae3ee84f6301aa074ef4940cf89e7c8a76b63009215389a29fe8"
+    },
+    "N5-upper": {
+      "334": "3c6ca37690485e2968d48d2f8d9966c8b60345fc661ce89312fce7d74add7734",
+      "590": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "591": "f18e4aa2ca637a322706407913342f26635c6ba7734692de12674b021bc52261",
+      "592": "dc871857eb653516a7ade58a48ae36bb1990cc1a9d0a485cac2c1d33b8aa0f91",
+      "775": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "776": "5a1dc9ece8cffb654526517c5499f3757975b53ea6f6913659039abd672d070c",
+      "777": "e0a45f4ccf925f29017c7f7dd2e37a1df7aa1a97a55824965e1b22a50d194602"
+    }
+  },
+  "foodEmojiParagraph": {
+    "part": "N4.5-regular",
+    "index": 6694
+  },
+  "duplicateBlocks": [],
+  "styleCollections": [],
+  "removals": {},
+  "newOverrides": {}
+}

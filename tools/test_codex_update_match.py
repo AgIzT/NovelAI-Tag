@@ -1053,6 +1053,22 @@ class CodexUpdateMatchTests(unittest.TestCase):
         self.assertTrue(source_entry["isNew"])
         self.assertEqual(applied, ["suozhang-5704"])
 
+    def test_audited_override_can_identify_entry_by_signature_hash(self):
+        import codex_update_match as module
+
+        hit = entry(None, "示例", ["目录"], "sample, prompt,", is_new=False)
+        digest = module.override_signature_sha256(entry(None, "示例", ["目录"], "sample,prompt,"))
+        table = {("demo", "2026.10.1"): {"demo-0003": {"signatureSha256": digest, "isNew": True}}}
+        with patch.dict(module.AUDITED_NEW_OVERRIDES, table):
+            self.assertEqual(
+                apply_audited_source_new_overrides([hit], "demo", "2026.10.1"), ["demo-0003"]
+            )
+            self.assertTrue(hit["isNew"])
+            with self.assertRaises(ValueError):
+                apply_audited_source_new_overrides(
+                    [entry(None, "改名", ["目录"], "sample,prompt,", is_new=False)], "demo", "2026.10.1"
+                )
+
     def test_audited_override_can_identify_entry_by_tag_hash(self):
         import hashlib
         import codex_update_match as module

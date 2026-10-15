@@ -1,0 +1,208 @@
+{
+  "version": "2026.9.25",
+  "baseVersion": "2026.9.13",
+  "source": {
+    "dir": "所长历版本/（解压密码：1984）所长NovelAI个人法典（2026.9.25版，一般所长整理）/（解压密码：1984）所长NovelAI个人法典（2026.9.25版，一般所长整理）"
+  },
+  "baseline": {
+    "dir": "output/suozhang-20260913-import"
+  },
+  "outDir": "output/suozhang-20260925-import",
+  "parts": {
+    "N4.5-regular": {
+      "sha256": "01168d45c3aa29103f48c105ebed70ea823ae8563a5b20df11de668c639aaa0b",
+      "half": null
+    },
+    "N4.5-v1": {
+      "sha256": "bb8a656c83a671a97d5df0d662fa7469ed7e72a263c84faf36e42c94aa80dc8a",
+      "half": "upper"
+    },
+    "N4.5-v3": {
+      "sha256": "993b5cd7f118004ec40b563138b253d90fb48866b5efc9a58a78f4db3d38267b",
+      "half": "lower"
+    },
+    "N4.5-v2": {
+      "sha256": "19a0bf98a405175c0c28bf40ab4d9b9433465b0aa41975c4e4d3ea389f91be30",
+      "half": "upper"
+    },
+    "N4.5-v4": {
+      "sha256": "c1d24a295160dec9337766024138a983b22bf3c9881eb4563174fee1abfe1a83",
+      "half": "lower"
+    },
+    "N5-regular": {
+      "sha256": "61d65e8a8e0d16a9e1d402865dc071116b9f51eaa380324764594ee45092153b",
+      "half": null
+    },
+    "N5-upper": {
+      "sha256": "001f0fbb830d1e5a4e890d469ca80fcd417d96862641811f1e3451430ebed25c",
+      "half": "upper"
+    },
+    "N5-lower": {
+      "sha256": "c2abff842406abc7e6ea5321b3faf570c51bb566fc7dc7b903155e5a22ec4195",
+      "half": "lower"
+    }
+  },
+  "pathAliases": {
+    "suozhang_r18": [
+      [
+        [
+          "各种涩涩",
+          "2+girl/+1boy系列"
+        ],
+        [
+          "各种涩涩",
+          "2+girl/2+boy系列"
+        ]
+      ],
+      [
+        [
+          "各种涩涩",
+          "随机生成"
+        ],
+        [
+          "基础涩涩",
+          "随机生成"
+        ]
+      ]
+    ],
+    "suozhang_nai5_r18": [
+      [
+        [
+          "群友色色串收录"
+        ],
+        [
+          "网络色色串收录"
+        ]
+      ],
+      [
+        [
+          "涩涩服饰",
+          "本职穿搭",
+          "辣妹"
+        ],
+        [
+          "涩涩服饰",
+          "本职穿搭",
+          "辣妹婊子"
+        ]
+      ]
+    ]
+  },
+  "proseParagraphs": {
+    "N5-regular": {
+      "459": "5da347a85ef12bb0bd7c787d5edcdcd23e66fe84c11b925b568d2dfe3073d4ac",
+      "463": "044f283c90d3ae3ee84f6301aa074ef4940cf89e7c8a76b63009215389a29fe8"
+    },
+    "N5-upper": {
+      "466": "3c6ca37690485e2968d48d2f8d9966c8b60345fc661ce89312fce7d74add7734",
+      "990": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "991": "f18e4aa2ca637a322706407913342f26635c6ba7734692de12674b021bc52261",
+      "992": "dc871857eb653516a7ade58a48ae36bb1990cc1a9d0a485cac2c1d33b8aa0f91",
+      "1497": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "1498": "5a1dc9ece8cffb654526517c5499f3757975b53ea6f6913659039abd672d070c",
+      "1499": "e0a45f4ccf925f29017c7f7dd2e37a1df7aa1a97a55824965e1b22a50d194602"
+    }
+  },
+  "foodEmojiParagraph": {
+    "part": "N4.5-regular",
+    "index": 6695
+  },
+  "duplicateBlocks": [
+    {
+      "keep": {
+        "part": "N4.5-v3",
+        "pathSha256": "0f6bd7539729218876853f98a5bf84cdaa83b5fec500115ef03db1c601023d88",
+        "depth": 3
+      },
+      "drop": {
+        "part": "N4.5-v2",
+        "pathSha256": "d0c98f1b278bdfe501e4e6a3c169e0ba6ab26ee6b8bac24756c953c6ef8886eb",
+        "depth": 3
+      },
+      "rawItems": 134,
+      "note": "卷二末尾整段复制了卷三的一个子目录，保留卷三原位置"
+    }
+  ],
+  "styleCollections": [
+    {
+      "part": "N5-regular",
+      "path": [
+        "画风搜集"
+      ],
+      "hosts": {
+        "画风1": [
+          "负面",
+          "设置"
+        ],
+        "画风2": [
+          "负面",
+          "设置",
+          "附带tag"
+        ],
+        "Q版画风1": [
+          "负面",
+          "设置"
+        ]
+      }
+    }
+  ],
+  "removals": {
+    "suozhang_r18": {
+      "retiredSections": [
+        "一些个人未能整好的串",
+        "已删除/替换tag留存",
+        "录自某水友文档的r18串"
+      ],
+      "movedTo": {
+        "suozhang_nai5_r18": [
+          "codex_6e699406-6159",
+          "codex_6e699406-6160",
+          "codex_6e699406-6161",
+          "codex_6e699406-6162"
+        ]
+      }
+    }
+  },
+  "newOverrides": {
+    "suozhang_r18": {
+      "codex_6e699406-6169": {
+        "signatureSha256": "7ab896e01e4682154fc703f6102b6c44e332de96f4a8e391cadaff60cf05a553",
+        "isNew": true
+      }
+    },
+    "suozhang_nai5_r18": {
+      "suozhang_nai5_r18-0431": {
+        "signatureSha256": "7cd80af49e9604bdbd5cf9b69507cd3cd59369680d834323d26db07215937677",
+        "isNew": true
+      }
+    }
+  },
+  "expected": {
+    "suozhang": {
+      "entryCount": 5700,
+      "newIdCount": 1,
+      "removedCount": 0
+    },
+    "suozhang_r18": {
+      "entryCount": 11971,
+      "newIdCount": 41,
+      "removedCount": 173
+    },
+    "suozhang_nai5": {
+      "entryCount": 128,
+      "newIdCount": 59,
+      "removedCount": 0
+    },
+    "suozhang_nai5_r18": {
+      "entryCount": 469,
+      "newIdCount": 284,
+      "removedCount": 0
+    }
+  },
+  "decisions": [
+    "2026-09-26 维护者拍板：删除跟随源稿（页尾后三个附录栏目整体退场；4 条被作者原样挪去 N5 色色）。",
+    "卷二末尾复制卷三的子目录：保留卷三原位置，旧 ID 连目录都不动。",
+    "N5「画风搜集」合并为三张卡：负面进 negative，设置进 note，附带tag 并进画风2。",
+    "NEW 跟随 Word 高亮；两条紧挨粉色新卡的漏标补进 NEW；旧词条误标粉按惯例保留。"
+  ]
+}
