@@ -234,6 +234,8 @@ def install_overrides(config):
 def source_files(source_dir):
     files = {}
     for path in sorted(Path(source_dir).glob('*.docx')):
+        if path.name.startswith('~$'):  # Word lock file while the document is open
+            continue
         key = part_key(path.name)
         if key in files:
             raise ValueError(f'同一分卷出现两份文件：{key}')
@@ -485,6 +487,24 @@ def check_removals(config, book, rows):
             raise ValueError(f'{book}: movedTo 里有没被删除的 ID {sorted(ids - removed_ids)}')
 
 
+def resolve_manual_matches(config, book, old_entries, new_entries):
+    """Audited old ID → new card pairs, located by the new card's signature hash."""
+    rules = config.get('manualMatches', {}).get(book, [])
+    if not rules:
+        return {}
+    old_index = {e['id']: i for i, e in enumerate(old_entries)}
+    by_signature = defaultdict(list)
+    for i, entry in enumerate(new_entries):
+        by_signature[match.override_signature_sha256(entry)].append(i)
+    forced = {}
+    for rule in rules:
+        hits = by_signature.get(rule['newSignatureSha256'], [])
+        if rule['oldId'] not in old_index or len(hits) != 1:
+            raise ValueError(f"手工匹配 {rule['oldId']} 对不上了（源稿或旧数据变了），停下复核")
+        forced[old_index[rule['oldId']]] = hits[0]
+    return forced
+
+
 def build_books(config, formal, index, sources, *, reserved_cap=None, strict=True, enforce_removals=True):
     """Match and build all four books; ``strict=False`` reports instead of raising."""
     version = config['version']
@@ -501,7 +521,8 @@ def build_books(config, formal, index, sources, *, reserved_cap=None, strict=Tru
                 raise
             problems.append(f'{book}: {exc}')
             source_overrides = []
-        result = match.match_entries(aliased(old['entries'], pairs), entries)
+        forced = resolve_manual_matches(config, book, old['entries'], entries)
+        result = match.match_entries(aliased(old['entries'], pairs), entries, forced_pairs=forced)
         if result['review'] or result['validationIssues']:
             message = f"{book}: {len(result['review'])} 条待复核，校验问题 {result['validationIssues']}"
             if strict:
@@ -576,11 +597,24 @@ def replay_baseline(config, formal):
             raise ValueError(f'{book}: 回放快照版本不是 {config["baseVersion"]}')
         result = match.match_entries(formal[book]['entries'], snapshot['entries'])
         summaries[book] = {'summary': result['summary'],
-                           'drift': [{'id': m['old']['id'], 'fields': m['changes']} for m in result['matches']
-                                     if any(f != 'isNew' for f in m['changes'])],
+                           'drift': [{'id': m['old']['id'], 'fields': sorted(f for f in m['changes'] if f != 'isNew')}
+                                     for m in result['matches'] if any(f != 'isNew' for f in m['changes'])],
                            'unmatchedOld': [e['id'] for e in result['unmatchedOld']],
                            'unmatchedNew': len(result['unmatchedNew'])}
     return summaries
+
+
+def replay_failures(config, baseline):
+    """Books whose replay fails beyond the local edits listed in ``acceptedDrift``."""
+    failed = []
+    for book, item in baseline.items():
+        if item['summary']['strictReplayPass']:
+            continue
+        allowed = {(row['id'], tuple(sorted(row['fields']))) for row in config.get('acceptedDrift', {}).get(book, [])}
+        drift = {(row['id'], tuple(row['fields'])) for row in item['drift']}
+        if item['unmatchedOld'] or item['unmatchedNew'] or drift != allowed:
+            failed.append(book)
+    return failed
 
 
 def load_formal(formal_dir=None):
@@ -599,9 +633,10 @@ def build_from_config(config, formal_dir=None):
     if any(book['version'] != config['baseVersion'] for book in formal.values()):
         raise ValueError(f"正式数据不是 {config['baseVersion']}，先确认上一版是否已应用")
     baseline = replay_baseline(config, formal)
-    failed = [book for book, item in baseline.items() if not item['summary']['strictReplayPass']]
+    failed = replay_failures(config, baseline)
     if failed:
-        raise ValueError(f'基线严格回放失败：{failed}；先查 survey 报告里的「本地修改漂移」')
+        raise ValueError(f'基线严格回放失败：{failed}；先查 survey 报告里的「本地修改漂移」，'
+                         '维护者确认保留的写进 acceptedDrift')
     files = source_files(NEW_DATA / config['source']['dir'])
     if set(files) != set(config['parts']):
         raise ValueError(f'源文件分卷与配置不符：{sorted(files)} vs {sorted(config["parts"])}')
@@ -732,6 +767,15 @@ def prose_candidates(docs, known):
                 continue
             rows.append({'part': key, 'paragraph': index, 'path': path, 'text': text,
                          'previous': previous[:60], 'next': following[:60]})
+            # Lines right after it that also read as titles belong to the same run.
+            for later in range(index + 1, len(paragraphs)):
+                line = paragraphs[later].text.strip()
+                if not line or convert.classify_nai5_line(line) != 'title' or str(later) in known.get(key, {}):
+                    break
+                rows.append({'part': key, 'paragraph': later, 'path': path, 'text': line,
+                             'previous': paragraphs[later - 1].text.strip()[:60],
+                             'next': paragraphs[later + 1].text.strip()[:60] if later + 1 < len(paragraphs) else '',
+                             'runStart': index})
     return rows
 
 
@@ -890,8 +934,8 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         'outDir': Path(os.path.abspath(out)).relative_to(os.path.abspath(ROOT)).as_posix(),
         'parts': {key: {'sha256': base.digest(path), 'half': None} for key, path in files.items()},
         'pathAliases': {}, 'proseParagraphs': prose, 'foodEmojiParagraph': emoji,
-        'duplicateBlocks': [], 'styleCollections': [], 'removals': {}, 'newOverrides': {}, 'expected': {},
-        'decisions': [],
+        'duplicateBlocks': [], 'styleCollections': [], 'removals': {}, 'newOverrides': {},
+        'manualMatches': {}, 'acceptedDrift': {}, 'expected': {}, 'decisions': [],
     }
     loaded = {key: load_part(path, key, prose.get(key), emoji['index'] if emoji and emoji['part'] == key else None)
               for key, path in files.items()}
@@ -945,6 +989,22 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
                     notes.append(f'{key} 的编纂者 OC 与前面各卷不同，按独立一组保留（历史上下册 OC 就是两组），请核对')
             for correction in stats['titleCorrections']:
                 notes.append(f"已知勘误 {correction['formalId']}：{correction['status']}")
+        for book in BOOKS:
+            review = match.match_entries(aliased(formal[book]['entries'], aliases_of(draft, book)), sources[book])['review']
+            for item in review:
+                ranked = sorted(item['candidates'], key=lambda c: -c['similarity']['score'])
+                top = ranked[0]
+                clear = len(ranked) == 1 or ranked[1]['similarity']['score'] < top['similarity']['score']
+                entry = sources[book][item['new']['index']]
+                if clear and top['old']['path'] == entry['path']:
+                    draft.setdefault('manualMatches', {}).setdefault(book, []).append(
+                        {'oldId': top['old']['id'], 'newSignatureSha256': match.override_signature_sha256(entry),
+                         'note': '同目录改写，按旧编号继承'})
+                    decisions.append(f"{book}: 新卡「{entry['title']}」与旧 {top['old']['id']}"
+                                     f"（{'带图' if top['old'].get('image') else '无图'}）相似度 {top['similarity']['score']:.2f}，"
+                                     '草稿按改写处理、继承旧编号——需维护者确认')
+                else:
+                    decisions.append(f"{book}: 新卡「{entry['title']}」有多个相近旧词条，需人工指定 manualMatches")
         for book in BOOKS:
             match.AUDITED_NEW_OVERRIDES.pop((book, version), None)
         applied, results, _, problems = build_books(dict(draft, newOverrides={}), formal, index, sources,

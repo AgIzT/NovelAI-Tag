@@ -28,6 +28,12 @@ class NamingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             imp.part_key('所长色色NovelAI个人法典（卷一）.docx')
 
+    def test_word_lock_files_are_ignored(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ('N5所长常规NovelAI个人法典（2026.10.13版）.docx', '~$所长常规NovelAI个人法典（2026.10.13版）.docx'):
+                (Path(folder) / name).write_bytes(b'')
+            self.assertEqual(list(imp.source_files(folder)), ['N5-regular'])
+
     def test_version_comes_from_file_names(self):
         names = ['N5所长常规NovelAI个人法典（2026.10.13版，一般所长整理）.docx',
                  'N4.5所长常规NovelAI个人法典（2026.10.13版，一般所长整理）.docx']
@@ -193,6 +199,29 @@ class RemovalTests(unittest.TestCase):
             imp.check_removals(config, 'suozhang_r18', rows)
         config['removals']['suozhang_r18']['approvedIds'] = ['r-3']
         imp.check_removals(config, 'suozhang_r18', rows)
+
+
+class ManualMatchAndDriftTests(unittest.TestCase):
+    def test_manual_match_pins_rewritten_card_to_old_id(self):
+        old = [{'id': 'b-0070', 'title': '旧无标题', 'path': ['收录'], 'tags': 'a,b,c,'}]
+        new = [card('新标题', ['收录'], 'a,b,c,d,')]
+        config = {'manualMatches': {'demo': [{'oldId': 'b-0070',
+                                              'newSignatureSha256': match.override_signature_sha256(new[0])}]}}
+        forced = imp.resolve_manual_matches(config, 'demo', old, new)
+        result = match.match_entries(old, new, forced_pairs=forced)
+        self.assertEqual(result['matches'][0]['old']['id'], 'b-0070')
+        self.assertEqual(result['summary']['methodCounts'], {'manual_override': 1})
+        with self.assertRaises(ValueError):  # source text changed since the decision
+            imp.resolve_manual_matches(config, 'demo', old, [card('新标题', ['收录'], 'changed,')])
+
+    def test_only_listed_local_edits_pass_replay(self):
+        baseline = {'suozhang_r18': {'summary': {'strictReplayPass': False}, 'unmatchedOld': [], 'unmatchedNew': 0,
+                                     'drift': [{'id': 'x-1', 'fields': ['tags']}]}}
+        self.assertEqual(imp.replay_failures({}, baseline), ['suozhang_r18'])
+        config = {'acceptedDrift': {'suozhang_r18': [{'id': 'x-1', 'fields': ['tags']}]}}
+        self.assertEqual(imp.replay_failures(config, baseline), [])
+        stale = {'acceptedDrift': {'suozhang_r18': [{'id': 'x-1', 'fields': ['tags']}, {'id': 'x-2', 'fields': ['title']}]}}
+        self.assertEqual(imp.replay_failures(stale, baseline), ['suozhang_r18'])
 
 
 class ConfigTests(unittest.TestCase):

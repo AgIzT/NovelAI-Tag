@@ -1,0 +1,177 @@
+{
+  "version": "2026.10.13",
+  "baseVersion": "2026.9.25",
+  "source": {
+    "dir": "所长历版本/10.13"
+  },
+  "baseline": {
+    "dir": "output/suozhang-20260925-import"
+  },
+  "outDir": "output/suozhang-20261013-import",
+  "parts": {
+    "N4.5-regular": {
+      "sha256": "11bc6c559d4eadae420f4b1b002e331c6d3359771c31d0286be241953384b73e",
+      "half": null
+    },
+    "N4.5-v1": {
+      "sha256": "41282fced609b337e162228444d07ce1312b66386d2ea074569c9d1276db6d0e",
+      "half": "upper"
+    },
+    "N4.5-v3": {
+      "sha256": "b9b1169d7ecbf3af1df281df9a3b9c24d3a9112d6dc45a990fb91847168f5559",
+      "half": "lower"
+    },
+    "N4.5-v2": {
+      "sha256": "e7bbbc1d4f082e43b8f553457d5b24ab9f8e1475e0defe49be5263bd0fd4c94d",
+      "half": "upper"
+    },
+    "N4.5-v4": {
+      "sha256": "1cfb4fb987cc3a1cfb9c6399452fba24eebe5ee44f4be56efd31235631269e8b",
+      "half": "lower"
+    },
+    "N5-regular": {
+      "sha256": "dc02d76900b24bffc866d7a64953ebe6bd344adb2f2b39500614d09f18e5bd77",
+      "half": null
+    },
+    "N5-upper": {
+      "sha256": "c9bb25eb9b778fff57a6da6ced941a1b3d507ab5c838b7e16e2aa744311c6bb8",
+      "half": "upper"
+    },
+    "N5-lower": {
+      "sha256": "93e82a306909b3e5e66faddf718a091497ceab11ce47c213a557b3766fec530e",
+      "half": "lower"
+    }
+  },
+  "pathAliases": {
+    "suozhang_nai5_r18": [
+      [
+        [
+          "杂项涩涩",
+          "异种",
+          "捆绑位置"
+        ],
+        [
+          "杂项涩涩",
+          "捆绑拘束",
+          "捆绑位置"
+        ]
+      ]
+    ]
+  },
+  "proseParagraphs": {
+    "N5-regular": {
+      "688": "5da347a85ef12bb0bd7c787d5edcdcd23e66fe84c11b925b568d2dfe3073d4ac",
+      "692": "044f283c90d3ae3ee84f6301aa074ef4940cf89e7c8a76b63009215389a29fe8"
+    },
+    "N5-upper": {
+      "807": "3c6ca37690485e2968d48d2f8d9966c8b60345fc661ce89312fce7d74add7734",
+      "1757": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "1758": "f18e4aa2ca637a322706407913342f26635c6ba7734692de12674b021bc52261",
+      "1759": "dc871857eb653516a7ade58a48ae36bb1990cc1a9d0a485cac2c1d33b8aa0f91",
+      "2679": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "2680": "5a1dc9ece8cffb654526517c5499f3757975b53ea6f6913659039abd672d070c",
+      "2681": "e0a45f4ccf925f29017c7f7dd2e37a1df7aa1a97a55824965e1b22a50d194602",
+      "704": "29eb15a37b7956af6208f5ab39a5cb918a88f2a397b23756dd073268a98b4100",
+      "705": "457d6192c05cd14125d154b61bcf20f732ada411d18d6b73a3caeb0a00caceba",
+      "706": "5dd939271577be48487ee3af9864d5b9ebb6f59d9063647443b36aa118b2ce52",
+      "711": "0b9541c5e8d4e92097bde9fda87e20d4b7ae2f2bca8cf154aef70e255b084d13",
+      "712": "a34452d5b1e6cad6f85b183d90ef73bba86e2d1e568696de35bed79acb6537d2",
+      "713": "741ed74c93e1fa146bf3f94f1a035dbd2cae080bda5c66535bddc6cd2b05264e",
+      "1700": "967b57704ccca792878b9466b361193af2283adad151740f9009cd94ae85a04d"
+    }
+  },
+  "foodEmojiParagraph": {
+    "part": "N4.5-regular",
+    "index": 6698
+  },
+  "duplicateBlocks": [
+    {
+      "keep": {
+        "part": "N4.5-v3",
+        "pathSha256": "0f6bd7539729218876853f98a5bf84cdaa83b5fec500115ef03db1c601023d88",
+        "depth": 3
+      },
+      "drop": {
+        "part": "N4.5-v2",
+        "pathSha256": "d0c98f1b278bdfe501e4e6a3c169e0ba6ab26ee6b8bac24756c953c6ef8886eb",
+        "depth": 3
+      },
+      "rawItems": 134,
+      "note": "卷二末尾整段复制了卷三的一个子目录，保留卷三原位置（同 9.25）"
+    }
+  ],
+  "styleCollections": [
+    {
+      "part": "N5-regular",
+      "path": [
+        "画风搜集"
+      ],
+      "hosts": {
+        "画风1": [
+          "负面",
+          "设置"
+        ],
+        "画风2": [
+          "负面",
+          "设置",
+          "附带tag"
+        ],
+        "Q版画风1": [
+          "负面",
+          "设置"
+        ]
+      }
+    }
+  ],
+  "removals": {},
+  "newOverrides": {},
+  "manualMatches": {
+    "suozhang_nai5": [
+      {
+        "oldId": "suozhang_nai5-0070",
+        "newSignatureSha256": "24add57f347c2f0c70a1e9ae8c6e22b82dd2fdfe539f21063330f3fc84e0762f",
+        "note": "同目录改写，按旧编号继承"
+      }
+    ]
+  },
+  "acceptedDrift": {
+    "suozhang_r18": [
+      {
+        "id": "codex_8489ac52-3185",
+        "fields": [
+          "tags"
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "suozhang": {
+      "entryCount": 5702,
+      "newIdCount": 2,
+      "removedCount": 0
+    },
+    "suozhang_r18": {
+      "entryCount": 11982,
+      "newIdCount": 11,
+      "removedCount": 0
+    },
+    "suozhang_nai5": {
+      "entryCount": 254,
+      "newIdCount": 126,
+      "removedCount": 0
+    },
+    "suozhang_nai5_r18": {
+      "entryCount": 946,
+      "newIdCount": 477,
+      "removedCount": 0
+    }
+  },
+  "decisions": [
+    "2026-10-15 维护者确认全部五项：",
+    "接受 codex_8489ac52-3185 的本地修改（10-14 默认质量尾段清理）；导入后用同一清理工具再跑一遍，清掉重新带回和新增的默认尾段。",
+    "suozhang_nai5-0070 作者补了标题并小改正文，按改写继承旧编号与配图。",
+    "卷二末尾复制卷三的子目录（同 9.25）：保留卷三原位置。",
+    "N5 色色上册第 704–706、711–713、1700 段按续行；第 394 段是步骤卡标题。",
+    "3 张未标粉的新增画师组卡跟随源稿，不进本期 NEW。"
+  ]
+}
