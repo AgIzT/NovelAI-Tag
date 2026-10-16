@@ -6,6 +6,7 @@
   apply     校验冻结计划、备份后写四本法典 JSON 与书目
   verify    只读复验已应用的计划
   selfcheck 用 9.25 的存档输入重放，确认改过代码后结果不变
+  compare   演练用：自己定的配置与标准答案配置在同一份底数据上重建、逐条比对
 
 不写图片、不联网、不发布。完整流程见本地私有文档 docs/经验/所长法典更新手册.md。
 """
@@ -1073,6 +1074,8 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     version = source_version([p.name for p in files.values()])
     previous = previous or previous_config(version)
     out = out or default_out(version)
+    if (out / 'applied.json').exists():
+        raise ValueError(f'{out} 是已经应用过的导入存档，调研不能写进去；演练或重跑请用 --out-dir 指到别处')
     out.mkdir(parents=True, exist_ok=True)
     formal, index = load_formal(formal_dir)
     capped = formal_dir is not None
@@ -1364,6 +1367,43 @@ def selfcheck(skip_survey=False):
     return 1 if failures else 0
 
 
+# ---------------------------------------------------------------- compare
+
+def entry_signature(entry):
+    return json.dumps([entry.get('id'), entry.get('title'), entry.get('path'), body(entry), entry.get('note') or '',
+                       bool(entry.get('isNew')), sorted(entry.get('updateBatches') or [])], ensure_ascii=False)
+
+
+def compare(config, reference, formal_dir, out):
+    """Build two configs on the same base data and diff the four books entry by entry."""
+    built = {}
+    for name, cfg in (('config', config), ('reference', reference)):
+        for book in BOOKS:  # each config installs its own NEW table
+            match.AUDITED_NEW_OVERRIDES.pop((book, cfg['version']), None)
+        built[name] = build_from_config(cfg, formal_dir)
+    report, passed = {}, True
+    for book in BOOKS:
+        mine = Counter(entry_signature(e) for e in built['config']['applied'][book]['entries'])
+        theirs = Counter(entry_signature(e) for e in built['reference']['applied'][book]['entries'])
+        only_mine, only_theirs = mine - theirs, theirs - mine
+
+        def examples(counter):
+            return [json.loads(sig)[:3] for sig in list(counter)[:12]]
+
+        report[book] = {'config': built['config']['results'][book]['summary'],
+                        'reference': built['reference']['results'][book]['summary'],
+                        'onlyInConfig': sum(only_mine.values()), 'onlyInReference': sum(only_theirs.values()),
+                        'examplesOnlyInConfig': examples(only_mine), 'examplesOnlyInReference': examples(only_theirs)}
+        passed = passed and not only_mine and not only_theirs
+    result = {'result': 'PASS' if passed else 'FAIL', 'books': report}
+    out.mkdir(parents=True, exist_ok=True)
+    base.write_json(out / 'compare.json', result)
+    print(json.dumps({'result': result['result'],
+                      'books': {b: {k: v[k] for k in ('onlyInConfig', 'onlyInReference')} for b, v in report.items()},
+                      'report': str(out / 'compare.json')}, ensure_ascii=False, indent=1))
+    return 0 if passed else 1
+
+
 # ---------------------------------------------------------------- cli
 
 def main():
@@ -1373,24 +1413,36 @@ def main():
     p.add_argument('--source-dir', type=Path, required=True, help='解压后放 docx 的目录')
     p.add_argument('--previous', type=Path, help='上一版配置；默认取 tools/suozhang_versions/ 里最近的一份')
     p.add_argument('--out-dir', type=Path)
+    p.add_argument('--formal-dir', type=Path, help='演练用：拿这个目录里的四本当「导入前的正式数据」，只读')
     for name, help_text in (('preview', '按配置预览结果（只读，不冻结）'), ('prepare', '生成冻结候选与计划'),
                             ('apply', '应用冻结计划'), ('verify', '只读复验')):
         p = sub.add_parser(name, help=help_text)
         p.add_argument('--config', type=Path, required=True)
         p.add_argument('--out-dir', type=Path, help='默认取配置里的 outDir')
+        if name == 'preview':
+            p.add_argument('--formal-dir', type=Path, help='演练用：导入前的正式数据目录，只读')
+    p = sub.add_parser('compare', help='演练用：两份配置在同一份底数据上重建并逐条比对')
+    p.add_argument('--config', type=Path, required=True, help='要检验的配置（演练者自己定的）')
+    p.add_argument('--reference', type=Path, required=True, help='标准答案配置')
+    p.add_argument('--formal-dir', type=Path, required=True, help='导入前的正式数据目录，只读')
+    p.add_argument('--out-dir', type=Path, required=True)
     p = sub.add_parser('selfcheck', help='用 9.25 存档重放，确认工具结果不变')
     p.add_argument('--skip-survey', action='store_true')
     args = parser.parse_args()
     if args.command == 'survey':
         previous = load_config(args.previous) if args.previous else None
-        survey(args.source_dir, previous=previous, out=args.out_dir)
+        survey(args.source_dir, previous=previous, out=args.out_dir, formal_dir=args.formal_dir)
         return 0
     if args.command == 'selfcheck':
         return selfcheck(args.skip_survey)
+    if args.command == 'compare':
+        return compare(load_config(args.config), load_config(args.reference), args.formal_dir, args.out_dir)
     config = load_config(args.config)
     out = args.out_dir or ROOT / config['outDir']
     if args.command == 'preview':
-        preview(config, out)
+        if args.out_dir is None and (out / 'applied.json').exists():
+            raise SystemExit(f'{out} 是已应用的导入存档；预览请用 --out-dir 指到别处')
+        preview(config, out, formal_dir=args.formal_dir)
     elif args.command == 'prepare':
         prepare(config, out)
     elif args.command == 'apply':

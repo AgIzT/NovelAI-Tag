@@ -315,6 +315,21 @@ class SpecialChapterTests(unittest.TestCase):
         self.assertTrue(result['summary']['strictReplayPass'])
 
 
+class RehearsalGuardTests(unittest.TestCase):
+    def test_survey_refuses_to_write_into_an_applied_archive(self):
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as out:
+            (Path(source) / 'N5所长常规NovelAI个人法典（2026.10.13版）.docx').write_bytes(b'')
+            (Path(out) / 'applied.json').write_text('{}', encoding='utf-8')
+            with self.assertRaises(ValueError):
+                imp.survey(source, out=Path(out))
+
+    def test_rehearsal_start_config_loads(self):
+        config = imp.load_config(imp.VERSIONS_DIR / 'rehearsal' / '1013-previous.json')
+        self.assertEqual(config['version'], '2026.9.25')
+        self.assertEqual([r['chapter'] for r in config['specialChapters']], ['自然语言'])
+        self.assertNotIn('sourceSplits', config)
+
+
 class ConfigTests(unittest.TestCase):
     def write(self, value):
         handle = tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8')
