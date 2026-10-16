@@ -224,6 +224,27 @@ class ManualMatchAndDriftTests(unittest.TestCase):
         self.assertEqual(imp.replay_failures(stale, baseline), ['suozhang_r18'])
 
 
+class SourceSplitTests(unittest.TestCase):
+    def rule(self):
+        return {'part': 'N5-regular', 'lineSha256': imp.sha256_text('long untitled paragraph,'),
+                'title': '收录（无标题1）', 'isNew': False, 'note': 'demo'}
+
+    def test_registered_paragraph_is_split_back(self):
+        entries = [card('新卡', ['收录'], 'new card,\nlong untitled paragraph,', isNew=True),
+                   card('旧卡', ['收录'], 'old,')]
+        result = imp.apply_source_splits('N5-regular', entries, [self.rule()])
+        self.assertEqual([(e['title'], e['tags'], e['isNew']) for e in result],
+                         [('新卡', 'new card,', True), ('收录（无标题1）', 'long untitled paragraph,', False), ('旧卡', 'old,', False)])
+
+    def test_record_stops_when_author_fixed_it(self):
+        standalone = [card('有了标题', ['收录'], 'long untitled paragraph,')]
+        with self.assertRaises(ValueError):
+            imp.apply_source_splits('N5-regular', standalone, [self.rule()])
+        with self.assertRaises(ValueError):
+            imp.apply_source_splits('N5-regular', [card('新卡', ['收录'], 'edited paragraph,')], [self.rule()])
+        self.assertEqual(imp.apply_source_splits('N4.5-regular', standalone, [self.rule()]), standalone)
+
+
 class ConfigTests(unittest.TestCase):
     def write(self, value):
         handle = tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8')

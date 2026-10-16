@@ -125,15 +125,7 @@
   ],
   "removals": {},
   "newOverrides": {},
-  "manualMatches": {
-    "suozhang_nai5": [
-      {
-        "oldId": "suozhang_nai5-0070",
-        "newSignatureSha256": "24add57f347c2f0c70a1e9ae8c6e22b82dd2fdfe539f21063330f3fc84e0762f",
-        "note": "同目录改写，按旧编号继承"
-      }
-    ]
-  },
+  "manualMatches": {},
   "acceptedDrift": {
     "suozhang_r18": [
       {
@@ -144,6 +136,15 @@
       }
     ]
   },
+  "sourceSplits": [
+    {
+      "part": "N5-regular",
+      "lineSha256": "b05589dfbd3988bcb35513a6744b844ae3a85d6880168ec1d9031cafd69c2d0c",
+      "title": "群友处收录（无标题1）",
+      "isNew": false,
+      "note": "N5 常规「群友处收录」开头那段提示词在源稿里一直没有标题；10.13 起上方插入了新卡，解析时会被并进新卡，按此拆回原来的无标题卡（suozhang_nai5-0070）"
+    }
+  ],
   "expected": {
     "suozhang": {
       "entryCount": 5702,
@@ -156,8 +157,8 @@
       "removedCount": 0
     },
     "suozhang_nai5": {
-      "entryCount": 254,
-      "newIdCount": 126,
+      "entryCount": 255,
+      "newIdCount": 127,
       "removedCount": 0
     },
     "suozhang_nai5_r18": {
@@ -172,6 +173,7 @@
     "suozhang_nai5-0070 作者补了标题并小改正文，按改写继承旧编号与配图。",
     "卷二末尾复制卷三的子目录（同 9.25）：保留卷三原位置。",
     "N5 色色上册第 704–706、711–713、1700 段按续行；第 394 段是步骤卡标题。",
-    "3 张未标粉的新增画师组卡跟随源稿，不进本期 NEW。"
+    "3 张未标粉的新增画师组卡跟随源稿，不进本期 NEW。",
+    "2026-10-16 更正：「群友处收录」那张无标题卡并非被改写，而是被上方新插入的卡吞并；撤销原手工匹配，改为登记 sourceSplits 拆回，新插入的卡另取新编号。解析器不改，作者修复后删掉这条记录。"
   ]
 }

@@ -315,12 +315,50 @@ def name_untitled(entries):
     return dict(counts)
 
 
-def normalize_part(key, loaded, reference, style_rules=()):
+def source_split_hit(entries, rule):
+    """Locate a registered untitled paragraph that the parser glued onto the card above."""
+    hits = [(i, n) for i, entry in enumerate(entries)
+            for n, line in enumerate(str(entry.get('tags', '')).split('\n'))
+            if sha256_text(line.strip()) == rule['lineSha256']]
+    if len(hits) != 1:
+        return None
+    index, line = hits[0]
+    host = entries[index]
+    if line == 0 or host.get('characterPrompts') or host.get('negative'):
+        return None
+    return index, line
+
+
+def apply_source_splits(key, entries, rules):
+    """Registered source errors, one exact paragraph each; nothing else is touched.
+
+    The parser keeps an untitled paragraph on the card above it.  Instead of
+    teaching the parser a general rule, each known case is listed in the
+    version config by the hash of that paragraph and split back here.
+    """
+    for rule in rules:
+        if rule['part'] != key:
+            continue
+        hit = source_split_hit(entries, rule)
+        if hit is None:
+            raise ValueError(f"已登记的源稿问题对不上了（{rule.get('note', '')}）：作者可能已修复或改了这段，"
+                             '核实后从配置的 sourceSplits 删掉这条')
+        index, line = hit
+        host = entries[index]
+        lines = host['tags'].split('\n')
+        entries[index] = dict(host, tags='\n'.join(lines[:line]))
+        entries.insert(index + 1, {'title': rule['title'], 'path': list(host['path']),
+                                   'tags': '\n'.join(lines[line:]), 'isNew': bool(rule['isNew'])})
+    return entries
+
+
+def normalize_part(key, loaded, reference, style_rules=(), splits=()):
     entries, roles = base.checked_normalize(loaded['raw'], reference)
     recovered = base.verify_recovered_prose(loaded['doc'], entries, loaded['audit']) if part_model(key) == 'N5' else 0
     for rule in style_rules:
         if rule['part'] == key:
             entries = fold_style_collection(entries, rule)
+    entries = apply_source_splits(key, entries, splits)
     untitled = name_untitled(entries)
     record = {
         'path': loaded['path'], 'sha256': loaded['sha256'], 'parsed': len(entries),
@@ -351,7 +389,7 @@ def parse_sources(config, formal, files):
         book = part_book(key)
         parts[key], records[key] = normalize_part(
             key, loaded[key], aliased(formal[book]['entries'], aliases_of(config, book)),
-            config.get('styleCollections', ()))
+            config.get('styleCollections', ()), config.get('sourceSplits', ()))
         records[key]['structure'] = structure
         print(json.dumps({'parsed': key, 'count': len(parts[key])}, ensure_ascii=True), flush=True)
     return loaded, parts, records
@@ -935,13 +973,20 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         'parts': {key: {'sha256': base.digest(path), 'half': None} for key, path in files.items()},
         'pathAliases': {}, 'proseParagraphs': prose, 'foodEmojiParagraph': emoji,
         'duplicateBlocks': [], 'styleCollections': [], 'removals': {}, 'newOverrides': {},
-        'manualMatches': {}, 'acceptedDrift': {}, 'expected': {}, 'decisions': [],
+        'manualMatches': {}, 'acceptedDrift': {}, 'sourceSplits': [], 'expected': {}, 'decisions': [],
     }
     loaded = {key: load_part(path, key, prose.get(key), emoji['index'] if emoji and emoji['part'] == key else None)
               for key, path in files.items()}
     known_styles = {(rule['part'], tuple(rule['path'])) for rule in previous.get('styleCollections', [])}
-    rules, orphans = detect_style_collections(
-        {key: base.checked_normalize(item['raw'], [])[0] for key, item in loaded.items()})
+    quick = {key: base.checked_normalize(item['raw'], [])[0] for key, item in loaded.items()}
+    for rule in previous.get('sourceSplits', []):
+        if rule['part'] in quick and source_split_hit(quick[rule['part']], rule) is not None:
+            draft['sourceSplits'].append(dict(rule))
+            notes.append(f"已登记的源稿问题仍在，继续拆分：{rule.get('note', '')}")
+        else:
+            decisions.append(f"已登记的源稿问题不再适用（{rule.get('note', '')}）：作者可能已修复或改了这段，"
+                             '草稿已去掉这条记录，请核对原文后确认')
+    rules, orphans = detect_style_collections(quick)
     draft['styleCollections'] = rules
     for rule in rules:
         if (rule['part'], tuple(rule['path'])) not in known_styles:
@@ -951,7 +996,8 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         decisions.append(f"{orphan['part']} 「{' / '.join(orphan['path'])}」的小标签「{orphan['title']}」找不到所属卡，需人工看原文")
 
     # Pass 1: normalize against unaliased formal data to find halves, renamed sections and copied blocks.
-    first_pass = {key: normalize_part(key, item, formal[part_book(key)]['entries'], rules)[0]
+    splits = draft['sourceSplits']
+    first_pass = {key: normalize_part(key, item, formal[part_book(key)]['entries'], rules, splits)[0]
                   for key, item in loaded.items()}
     halves_evidence = {}
     for book in BOOKS:
@@ -980,7 +1026,7 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     preview_problems, anomalies, removal_rows = [], {}, {}
     try:
         parts = {key: normalize_part(key, item, aliased(formal[part_book(key)]['entries'],
-                                                        aliases_of(draft, part_book(key))), rules)[0]
+                                                        aliases_of(draft, part_book(key))), rules, splits)[0]
                  for key, item in loaded.items()}
         sources, merges = assemble(draft, loaded, parts, formal)
         for stats in merges.values():
