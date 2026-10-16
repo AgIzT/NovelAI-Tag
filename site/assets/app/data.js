@@ -4,6 +4,7 @@ import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
 import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource } from '../data-source.js';
 import { normalizeCategoryOrder, sortCategoryTree } from './category-order.js';
+import { stripNaiDefaultTags } from './nai-default-tags.js';
 
 const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
 
@@ -222,7 +223,7 @@ export function normalizeEntry(entry, codex, index) {
     id: String(entry.id || `${codex.id}-${index + 1}`),
     title: String(entry.title || ''),
     path: Array.isArray(entry.path) ? entry.path : [],
-    tags: String(entry.tags || entry.rawTags || ''),
+    tags: stripNaiDefaultTags(entry.tags || entry.rawTags || ''),
     negative: String(entry.negative || ''),
     updateBatches: Array.isArray(entry.updateBatches)
       ? [...new Set(entry.updateBatches.map(String).filter(Boolean))]
@@ -270,7 +271,7 @@ export function normalizeImageList(entry) {
       path,
       original: item.original || path,
       _hasOriginal: hasOriginal,
-      rawTag: item.rawTag || item.rawTags || '',
+      rawTag: stripNaiDefaultTags(item.rawTag || item.rawTags || ''),
     };
     /* 套图逐图负面 / 角色词只存与顶层不同的，缺省即与顶层相同；所以只在数据里真有时才保留字段。 */
     if (item.negative != null) normalized.negative = String(item.negative);

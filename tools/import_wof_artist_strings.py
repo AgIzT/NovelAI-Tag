@@ -42,6 +42,7 @@ WOF_SECTION = "W.O.F_画风"
 WOF_PATH = [WOF_TOP, WOF_SECTION]
 
 sys.path.insert(0, str(ROOT / "tools"))
+from nai_default_tags import strip_nai_default_suffix  # noqa: E402
 from sd_metadata_inspector import extract_image_metadata  # noqa: E402
 
 
@@ -50,7 +51,7 @@ def clean_text(value: object) -> str:
 
 
 def style_prompt(meta) -> str:
-    prompt = clean_text(meta.fields.get("Description"))
+    prompt = strip_nai_default_suffix(clean_text(meta.fields.get("Description")))
     if prompt:
         return prompt
     comment_json = meta.fields.get("CommentJson")
@@ -59,7 +60,7 @@ def style_prompt(meta) -> str:
         if isinstance(v4_prompt, dict):
             caption = v4_prompt.get("caption")
             if isinstance(caption, dict):
-                return clean_text(caption.get("base_caption"))
+                return strip_nai_default_suffix(clean_text(caption.get("base_caption")))
     return ""
 
 
@@ -122,7 +123,7 @@ def scan_source(source: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             missing_prompt.append(path.name)
             continue
         all_prompts.add(prompt)
-        full_prompt = clean_text(meta.prompt)
+        full_prompt = strip_nai_default_suffix(clean_text(meta.prompt))
         digest = sha256_file(path)
         visual_digest = png_visual_hash(path)
         if digest in seen_hashes:
@@ -891,7 +892,7 @@ def validate_import(codex_id: str, book_id: str = DEFAULT_BOOK_ID) -> dict[str, 
             referenced_originals.add(original_name)
             rev_paths.extend([thumb, original])
             metadata_prompt = style_prompt(extract_image_metadata(original))
-            if metadata_prompt != entry.get("tags"):
+            if metadata_prompt != strip_nai_default_suffix(clean_text(entry.get("tags"))):
                 mismatches.append(f"prompt mismatch: {entry_id}:{original.name}")
             checked_images += 1
         if images:

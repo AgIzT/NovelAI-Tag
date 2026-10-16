@@ -17,6 +17,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from nai_default_tags import strip_nai_default_suffix  # noqa: E402
+
 DATA_DIR = ROOT / "site" / "data"
 ORIGINAL_ROOT = ROOT / "originals"
 OUTPUT_DIR = ROOT / "output" / "pack_character_prompts"
@@ -107,11 +110,14 @@ def reconcile_prompt_field(
     prompt_key: str,
 ) -> str:
     current = clean_text(entry.get(field))
-    base = clean_text(base)
+    source_base = clean_text(base)
+    base = strip_nai_default_suffix(source_base) if field == "tags" else source_base
+    normalized_current = strip_nai_default_suffix(current) if field == "tags" else current
     flattened = old_flattened_text(base, prompts, prompt_key)
-    if comparison_text(current) == comparison_text(base):
+    source_flattened = old_flattened_text(source_base, prompts, prompt_key)
+    if comparison_text(normalized_current) == comparison_text(base):
         return "already_base"
-    if comparison_text(current) == comparison_text(flattened) and comparison_text(flattened) != comparison_text(base):
+    if comparison_text(current) in {comparison_text(flattened), comparison_text(source_flattened)} and comparison_text(flattened) != comparison_text(base):
         entry[field] = base
         return "separated_flattened"
     if not current and not base:

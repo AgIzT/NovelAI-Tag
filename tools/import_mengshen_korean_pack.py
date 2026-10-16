@@ -27,6 +27,7 @@ from pack_import_core import (
     attach_per_image_prompts,
     build_tree,
     clean_character_prompts,
+    clean_positive_prompt,
     clean_text,
     inspect_image_task,
     make_staging_directory,
@@ -301,7 +302,7 @@ def classify_rows(rows: list[dict[str, Any]]) -> None:
         reason = "accepted"
         if row.get("error"):
             reason = str(row["error"])
-        elif not clean_text(row.get("prompt")):
+        elif not clean_positive_prompt(row.get("prompt")):
             reason = "no_prompt"
         elif not row.get("promptTagCount"):
             reason = "no_tags_after_parse"
@@ -806,7 +807,7 @@ def entry_from_group(group: dict[str, Any], asset: dict[str, Any]) -> dict[str, 
         "title": group["targetTitle"],
         "serialTitle": group.get("targetSerialTitle") or group["targetTitle"],
         "path": list(group["path"]),
-        "tags": clean_text(cover.get("prompt")),
+        "tags": clean_positive_prompt(cover.get("prompt")),
         **({"negative": clean_text(cover.get("negative"))} if clean_text(cover.get("negative")) else {}),
         **({"characterPrompts": clean_character_prompts(cover.get("characterPrompts"))} if cover.get("characterPrompts") else {}),
         **({"note": "\n".join(notes)} if notes else {}),
@@ -1090,7 +1091,7 @@ def validate_payloads(
             issues.append(f"{book_id}:{group['targetEntryId']}:image_count")
             continue
         cover = rows[0]
-        if clean_text(entry.get("tags")) != clean_text(cover.get("prompt")):
+        if clean_positive_prompt(entry.get("tags")) != clean_positive_prompt(cover.get("prompt")):
             issues.append(f"{book_id}:{group['targetEntryId']}:prompt")
         if clean_text(entry.get("negative")) != clean_text(cover.get("negative")):
             issues.append(f"{book_id}:{group['targetEntryId']}:negative")
@@ -1099,7 +1100,7 @@ def validate_payloads(
         issues.extend(per_image_prompt_issues(entry, rows, f"{book_id}:{group['targetEntryId']}"))
         for position, (item, row) in enumerate(zip(items, rows), 1):
             checked_images += 1
-            if len(rows) > 1 and clean_text(item.get("rawTag")) != clean_text(row.get("prompt")):
+            if len(rows) > 1 and clean_positive_prompt(item.get("rawTag")) != clean_positive_prompt(row.get("prompt")):
                 issues.append(f"{book_id}:{group['targetEntryId']}[{position}]:raw_tag")
             if len(rows) == 1 and item.get("rawTag"):
                 issues.append(f"{book_id}:{group['targetEntryId']}:unexpected_raw_tag")
@@ -1113,7 +1114,7 @@ def validate_payloads(
                 except Exception as exc:
                     issues.append(f"{book_id}:{group['targetEntryId']}[{position}]:metadata:{type(exc).__name__}")
                     continue
-                if clean_text(metadata.prompt) != clean_text(row.get("prompt")):
+                if clean_positive_prompt(metadata.prompt) != clean_positive_prompt(row.get("prompt")):
                     issues.append(f"{book_id}:{group['targetEntryId']}[{position}]:original_prompt")
                 if clean_text(metadata.negative) != clean_text(row.get("negative")):
                     issues.append(f"{book_id}:{group['targetEntryId']}[{position}]:original_negative")
@@ -1458,7 +1459,8 @@ def installed_prompt_issues(entry: dict[str, Any], rows: list[dict[str, Any]], l
         return [f"{label}:metadata_image_count"]
     cover = rows[0]
     for field, name in (("tags", "prompt"), ("negative", "negative")):
-        if clean_text(entry.get(field)) != clean_text(cover.get(name)):
+        normalize = clean_positive_prompt if field == "tags" else clean_text
+        if normalize(entry.get(field)) != normalize(cover.get(name)):
             issues.append(f"{label}:{name}")
     if clean_character_prompts(entry.get("characterPrompts")) != clean_character_prompts(cover.get("characterPrompts")):
         issues.append(f"{label}:character_prompts")
@@ -1466,9 +1468,9 @@ def installed_prompt_issues(entry: dict[str, Any], rows: list[dict[str, Any]], l
     for position, (item, row) in enumerate(zip(items, rows), 1):
         if row.get("error"):
             issues.append(f"{label}[{position}]:{row['error']}")
-        elif not clean_text(row.get("prompt")):
+        elif not clean_positive_prompt(row.get("prompt")):
             issues.append(f"{label}[{position}]:original_no_prompt")
-        if len(items) > 1 and clean_text(item.get("rawTag")) != clean_text(row.get("prompt")):
+        if len(items) > 1 and clean_positive_prompt(item.get("rawTag")) != clean_positive_prompt(row.get("prompt")):
             issues.append(f"{label}[{position}]:raw_tag")
         if len(items) == 1 and item.get("rawTag"):
             issues.append(f"{label}:unexpected_raw_tag")

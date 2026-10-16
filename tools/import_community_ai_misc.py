@@ -18,6 +18,9 @@ from PIL import Image, ImageOps
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from pack_import_core import clean_positive_prompt  # noqa: E402
+
 DATA_DIR = ROOT / "site" / "data"
 IMAGE_ROOT = ROOT / "site" / "images"
 ORIGINAL_ROOT = ROOT / "originals"
@@ -188,7 +191,7 @@ def scan_one(task: dict[str, Any]) -> dict[str, Any]:
     try:
         meta = extract_image_metadata(path)
         result["sourceType"] = clean_text(meta.source_type) or "unknown"
-        result["prompt"] = clean_text(meta.prompt)
+        result["prompt"] = clean_positive_prompt(meta.prompt)
         result["negative"] = clean_text(meta.negative)
         result["characterPrompts"] = clean_character_prompts(meta.character_prompts)
         result["note"] = metadata_note(meta)
@@ -269,7 +272,7 @@ def validation_one(task: dict[str, Any]) -> dict[str, Any]:
         meta = extract_image_metadata(original)
     except Exception as exc:
         return {"id": entry["id"], "issues": [f"metadata_error:{type(exc).__name__}"]}
-    if clean_text(meta.prompt) != clean_text(entry.get("tags")):
+    if clean_positive_prompt(meta.prompt) != clean_positive_prompt(entry.get("tags")):
         issues.append("prompt_mismatch")
     if clean_text(meta.negative) != clean_text(entry.get("negative")):
         issues.append("negative_mismatch")

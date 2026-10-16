@@ -18,6 +18,8 @@ from typing import Any, Callable, Iterable
 
 from PIL import Image, ImageOps
 
+from nai_default_tags import strip_nai_default_suffix
+
 
 MAX_DIM = 1100
 IMAGE_EXTS = {".png", ".webp", ".jpg", ".jpeg"}
@@ -39,6 +41,11 @@ def make_staging_directory(parent: Path, prefix: str) -> Path:
 
 def clean_text(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def clean_positive_prompt(value: Any) -> str:
+    """Normalize reusable main/image prompts while keeping source metadata intact."""
+    return strip_nai_default_suffix(clean_text(value))
 
 
 def serial_title(entry: dict[str, Any]) -> str:
@@ -238,7 +245,7 @@ def inspect_image(path: Path) -> dict[str, Any]:
         meta = extract_image_metadata(path)
         result["sourceType"] = clean_text(meta.source_type) or "unknown"
         result["sourceModel"] = clean_text(meta.fields.get("Source") or meta.fields.get("Software"))
-        result["prompt"] = clean_text(meta.prompt)
+        result["prompt"] = clean_positive_prompt(meta.prompt)
         result["negative"] = clean_text(meta.negative)
         result["characterPrompts"] = clean_character_prompts(meta.character_prompts)
         result["note"] = metadata_note(meta)
@@ -453,7 +460,10 @@ def write_asset_bundle_from_paths(task: dict[str, Any]) -> dict[str, Any]:
         image_fields = source.get("imageFields") or {}
         if not isinstance(image_fields, dict):
             raise TypeError(f"imageFields must be an object: {entry_id}:{index + 1}")
-        image.update({key: value for key, value in image_fields.items() if value not in (None, "")})
+        image.update({
+            key: clean_positive_prompt(value) if key == "rawTag" else value
+            for key, value in image_fields.items() if value not in (None, "")
+        })
         written.append({**asset, "imageItem": image})
 
     first = written[0]

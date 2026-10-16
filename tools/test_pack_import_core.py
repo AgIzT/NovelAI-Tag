@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -8,9 +9,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 from pack_import_core import (
     build_tree,
+    inspect_image,
     make_staging_directory,
     mark_exact_duplicates,
     normalized_suffix,
@@ -23,6 +26,118 @@ from pack_import_core import (
 
 
 class PackImportCoreTests(unittest.TestCase):
+    def test_import_normalizes_default_suffix_and_preserves_original_metadata(self) -> None:
+        from import_community_ai_misc import validation_one
+        from sd_metadata_inspector import extract_image_metadata
+
+        suffix = "very aesthetic, masterpiece, no text"
+        source_prompt = f"artist, 1girl, {suffix}, masterpiece, no text, very aesthetic,"
+        negative = f"lowres, {suffix}"
+        character = f"standing, {suffix}"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.png"
+            info = PngInfo()
+            info.add_text("Software", "NovelAI")
+            info.add_text("Comment", json.dumps({
+                "prompt": source_prompt,
+                "uc": negative,
+                "v4_prompt": {"caption": {
+                    "base_caption": source_prompt,
+                    "char_captions": [{"char_caption": character}],
+                }},
+            }))
+            Image.new("RGB", (64, 80), (1, 2, 3)).save(source, pnginfo=info)
+            digest = sha256_file(source)
+            meta = extract_image_metadata(source)
+            self.assertEqual(meta.prompt, source_prompt)
+
+            row = inspect_image(source)
+            self.assertEqual(row["error"], "")
+            self.assertEqual(row["prompt"], "artist, 1girl")
+            self.assertEqual(row["promptTagCount"], 2)
+            self.assertEqual(row["negative"], negative)
+            self.assertEqual(row["characterPrompts"], [{"label": "char1", "prompt": character}])
+
+            thumbs, originals = root / "thumbs", root / "originals"
+            thumbs.mkdir()
+            originals.mkdir()
+            asset = write_asset_bundle_from_paths({
+                "entryId": "sample",
+                "sources": [{
+                    "sourcePath": str(source), "sha256": digest,
+                    "imageFields": {"rawTag": source_prompt, "negative": negative},
+                }],
+                "thumbDir": str(thumbs), "originalDir": str(originals),
+            })
+            self.assertEqual(asset["images"][0]["rawTag"], "artist, 1girl")
+            self.assertEqual(asset["images"][0]["negative"], negative)
+            self.assertEqual(sha256_file(source), digest)
+            self.assertEqual(sha256_file(originals / asset["original"]), digest)
+            self.assertEqual(extract_image_metadata(originals / asset["original"]).prompt, source_prompt)
+            entry = {
+                "id": "sample", "tags": row["prompt"], "negative": negative,
+                "characterPrompts": row["characterPrompts"],
+                "imageWidth": asset["imageWidth"], "imageHeight": asset["imageHeight"],
+            }
+            validation = {
+                "entry": entry, "original": str(originals / asset["original"]),
+                "thumb": str(thumbs / asset["image"]),
+            }
+            self.assertEqual(validation_one(validation)["issues"], [])
+            entry["tags"] = "artist, edited"
+            self.assertIn("prompt_mismatch", validation_one(validation)["issues"])
+
+    def test_backfill_and_installed_validation_accept_normalized_main_prompts(self) -> None:
+        from backfill_pack_image_prompts import plan_entry
+        from import_mengshen_korean_pack import installed_prompt_issues
+
+        suffix = "very aesthetic, masterpiece, no text"
+        characters = [{"label": "char1", "prompt": f"standing, {suffix}"}]
+        rows = [
+            {"prompt": f"artist, room, {suffix}, {suffix}", "negative": suffix, "characterPrompts": characters},
+            {"prompt": f"artist, beach, no text, very aesthetic, masterpiece", "negative": suffix, "characterPrompts": characters},
+        ]
+        entry = {
+            "id": "sample", "tags": "artist, room", "negative": suffix,
+            "characterPrompts": characters, "perImagePrompts": True,
+            "images": [
+                {"path": "cover.jpg", "original": "cover.png", "rawTag": "artist, room"},
+                {"path": "next.jpg", "original": "next.png", "rawTag": "artist, beach"},
+            ],
+        }
+        self.assertEqual(installed_prompt_issues(entry, rows, "sample"), [])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "book").mkdir()
+            for image in entry["images"]:
+                (root / "book" / image["original"]).write_bytes(b"fixture")
+            by_name = dict(zip((image["original"] for image in entry["images"]), rows))
+            def reader(path):
+                row = by_name[path.name]
+                return row["prompt"], row["negative"], row["characterPrompts"]
+            targets, reason = plan_entry("book", entry, root, reader)
+            self.assertEqual(reason, "")
+            self.assertEqual(targets, [{"negative": None, "characterPrompts": None}])
+            entry["images"][1]["rawTag"] = "artist, edited"
+            self.assertEqual(plan_entry("book", entry, root, reader), (None, "[2] prompt_mismatch"))
+
+    def test_character_backfill_normalizes_base_without_changing_character_or_negative(self) -> None:
+        from backfill_pack_character_prompts import reconcile_prompt_field
+
+        suffix = "very aesthetic, masterpiece, no text"
+        source_base = f"artist, {suffix}, {suffix}"
+        characters = [{"label": "char1", "prompt": f"standing, {suffix}"}]
+        entry = {"tags": "artist"}
+        self.assertEqual(reconcile_prompt_field(entry, "tags", source_base, characters, "prompt"), "already_base")
+        entry = {"tags": source_base + "\n" + characters[0]["prompt"]}
+        self.assertEqual(reconcile_prompt_field(entry, "tags", source_base, characters, "prompt"), "separated_flattened")
+        self.assertEqual(entry["tags"], "artist")
+        self.assertEqual(characters[0]["prompt"], f"standing, {suffix}")
+        negative = {"negative": suffix}
+        self.assertEqual(reconcile_prompt_field(negative, "negative", suffix, [], "negative"), "already_base")
+        self.assertEqual(negative["negative"], suffix)
+
     def test_tree_counts_preserves_paths_counts_and_empty_categories(self) -> None:
         tree = [{"name": "root", "count": 1, "children": [
             {"name": "empty", "count": 0, "children": []},

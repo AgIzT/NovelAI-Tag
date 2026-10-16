@@ -28,6 +28,7 @@ from pack_import_core import (  # noqa: E402
     PER_IMAGE_PROMPT_KEYS,
     PER_IMAGE_PROMPTS_MARKER,
     clean_character_prompts,
+    clean_positive_prompt,
     clean_text,
     set_prompt_note,
 )
@@ -76,7 +77,7 @@ def pack_codex_ids(data_dir: Path = DATA_DIR) -> list[str]:
 
 def read_image_prompts(path: Path) -> tuple[str, str, list[dict[str, str]]]:
     meta = extract_image_metadata(path)
-    return clean_text(meta.prompt), clean_text(meta.negative), clean_character_prompts(meta.character_prompts)
+    return clean_positive_prompt(meta.prompt), clean_text(meta.negative), clean_character_prompts(meta.character_prompts)
 
 
 def plan_entry(
@@ -101,9 +102,10 @@ def plan_entry(
             prompt, negative, characters = reader(path)
         except Exception as exc:  # noqa: BLE001 — 单张读不出只跳过这一组，不中断整本
             return None, f"{position} unreadable:{type(exc).__name__}"
+        prompt = clean_positive_prompt(prompt)
         if not prompt:
             return None, f"{position} no_prompt"
-        expected = clean_text(item.get("rawTag")) or (clean_text(entry.get("tags")) if index == 0 else "")
+        expected = clean_positive_prompt(item.get("rawTag")) or (clean_positive_prompt(entry.get("tags")) if index == 0 else "")
         if prompt != expected:
             return None, f"{position} prompt_mismatch"
         if index == 0:

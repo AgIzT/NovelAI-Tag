@@ -35,6 +35,7 @@
 | `content-blocking-ui.js` | 屏蔽管理、卡片隐藏/撤销、结果提示与主动打开时临时查看 | 页签、分页、结果命中数、按键复用的行节点与退场/高度动效 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`modal.js`、`ui-motion.js`、`content-blocking.js` | 保存与刷新不等待动画；关闭/快切结清局部动效，移除项立即 inert；调用方先执行分级门控；临时查看不修改持久清单 |
 | `media.js` | 图片能力判断、资源路径、版本参数、缩略图与原图 URL | — | `state.js` | 只解决资源定位，不判断“用户是否有权看原图” |
 | `nai-sd.js` | `naiToSd`、`fmtSdWeight`、`formatCopyText` | — | — | 无 DOM 的格式转换层，主站和共创广场可复用 |
+| `nai-default-tags.js` | `stripNaiDefaultTags`：主正向与逐图复制文本的完整默认尾段剥离 | — | — | 只处理末尾含齐 very aesthetic / masterpiece / no text 的连续裸标签；重复、混序与额外默认单项一并去除，前文原样保留；与 Python `nai_default_tags.py` 共用边界夹具 |
 | `tag-zh-core.js` | tag 中文对照纯计算：`bareTag`（剥权重与括号的公共底层，画师名归一也用它）、`tagZhKey`、`splitPromptPieces`（含 NAI 数字权重组）、`normalizeTagZhShard`、`lookupTagZh`、`danbooruWikiUrl` | — | — | 零 DOM；查表键与 `tools/build_tag_zh.py` 的 `tag_key` 共用夹具 `tools/fixtures/tag_zh_keys.json`，改一侧必须同步另一侧 |
 | `tag-zh.js` | 中文对照偏好（默认开，`fadian-tag-zh`）、`core` + 分书分片按需加载、对照排版渲染与点 tag 说明行 | 偏好值与监听者、分片缓存与在途 Promise | `../data-source.js`、`search.js`、`tag-zh-core.js`、`preferences-storage.js` | 译名只进展示层，中文小字不可选中；对照表不可用（旧 release 无 `tag_zh/`）时调用方按原文显示并隐藏开关；`setTagZhEnabled` 保存成功才通知订阅者，失败返回 false，设置控件据此恢复。 |
 | `artist-core.js` | 画师串拆解纯计算：`artistKey`、`promptArtists`（按出现顺序去重并算倍率）、`formatArtistWeight`、`normalizeArtistIndex`、`resolveArtistTiles` | — | `tag-zh-core.js` | 零 DOM；画师名归一与 `tools/build_artist_index.py` 的 `artist_key` 共用夹具 `tools/fixtures/artist_keys.json`，改一侧必须同步另一侧 |
@@ -57,7 +58,7 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `data.js` | 引导数据、法典加载、规范化（`normalizeImageList` 只在数据真有时保留逐图 `negative` / `characterPrompts`）、目录树、更新筛选和数据状态提示 | — | `state.js`、`utils.js`、`media.js`、`feedback.js`、`../data-source.js`、`category-order.js` | 显式 `categoryOrder` 规范化后稳定排序真实目录树，旧书保留原序；下载中的 Promise 先写入 `state.codexCache`，并发调用共享；失败时只清理对应 Promise 以允许重试；加载后的封面、资源归属及修订号优先继承书目配置，未配置时保留正文值；`updateFilterDefinitions` 按批次 id（`YYYY.M.D`）日期倒序返回并带 `time`，不吃 `codexes.json` 里数组的书写顺序 |
+| `data.js` | 引导数据、法典加载、规范化（`normalizeImageList` 只在数据真有时保留逐图 `negative` / `characterPrompts`）、目录树、更新筛选和数据状态提示 | — | `state.js`、`utils.js`、`media.js`、`feedback.js`、`../data-source.js`、`category-order.js`、`nai-default-tags.js` | 主 tags 与逐图 rawTag 在归一入口去除完整默认尾段，外部书与在线共创共用；显式 `categoryOrder` 规范化后稳定排序真实目录树，旧书保留原序；下载中的 Promise 先写入 `state.codexCache`，并发调用共享；失败时只清理对应 Promise 以允许重试；加载后的封面、资源归属及修订号优先继承书目配置，未配置时保留正文值；`updateFilterDefinitions` 按批次 id（`YYYY.M.D`）日期倒序返回并带 `time`，不吃 `codexes.json` 里数组的书写顺序 |
 | `category-order.js` | `normalizeCategoryOrder`、`sortCategoryTree`、`sortCategoryEntries`；单本目录路径顺序规范化与同级稳定排序 | — | — | 纯函数；显示列表按树深度优先分组，同一完整路径内保留原序，不改源数组或词条身份；只对已有节点排序，保留计数与分级标记；未登记路径保持原相对次序，不生成目录 |
 | `search.js` | `q + f` 查询解析 / 序列化、字段筛选、稳定相关性排序、短语高亮、显式拆词与缓存失效 | 默认文本、字段值、筛选 needle 与目录短码的每词条 `WeakMap` 缓存 | `state.js`、`media.js`、`favorites.js`、`path-code.js` | 空格属于短语、逗号分 AND 条件；共享英文边界与下划线归一，保留字段/角色换行边界；默认召回严格限于标题、标签和角色正向提示词，非法语法 fail-closed；编辑后调用 `invalidateSearchableText` |
 | `search-directories.js` | 构建目录选项、相关目录排序与缓存失效 | 按 entries 身份、来源模式、法典身份和权限态缓存目录表 | `state.js`、`access.js`、`path-code.js`、`search.js` | 复用短语匹配边界，只生成权限过滤后的真实来源目录；最终同级顺序取真实 tree，最多展示 5 项但保留完整 `totalCount` |

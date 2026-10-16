@@ -132,6 +132,7 @@ from pack_import_core import (  # noqa: E402
     attach_per_image_prompts,
     build_tree,
     clean_character_prompts,
+    clean_positive_prompt,
     clean_text,
     effective_image_prompts,
     inspect_image_task,
@@ -395,7 +396,7 @@ def finalize_groups(rows: list[dict[str, Any]], groups: list[dict[str, Any]]) ->
             else "accepted" if group["accepted"]
             else "source_image_rejected" if non_duplicate_rejections else "all_images_are_duplicates"
         )
-        group["promptVariants"] = len({clean_text(row.get("prompt")) for row in accepted})
+        group["promptVariants"] = len({clean_positive_prompt(row.get("prompt")) for row in accepted})
         group["negativeVariants"] = len({clean_text(row.get("negative")) for row in accepted})
         group["characterPromptVariants"] = len({
             json.dumps(clean_character_prompts(row.get("characterPrompts")), ensure_ascii=False, sort_keys=True)
@@ -452,7 +453,7 @@ def write_audit_files(
             "prompt": row.get("prompt", ""),
             "negative": row.get("negative", ""),
             "characterPrompts": clean_character_prompts(row.get("characterPrompts")),
-            "promptSha256": hashlib.sha256(clean_text(row.get("prompt")).encode("utf-8")).hexdigest(),
+            "promptSha256": hashlib.sha256(clean_positive_prompt(row.get("prompt")).encode("utf-8")).hexdigest(),
             "decision": row.get("reason", ""),
             "duplicateOf": row.get("duplicateOf", ""),
             "groupAccepted": bool(group["accepted"]),
@@ -685,7 +686,7 @@ def validate_payload(
         images = entry.get("images") or []
         if len(images) != len(rows):
             issues.append(f"{entry_id}:image_count")
-        if clean_text(entry.get("tags")) != clean_text(rows[0].get("prompt")):
+        if clean_positive_prompt(entry.get("tags")) != clean_positive_prompt(rows[0].get("prompt")):
             issues.append(f"{entry_id}:cover_prompt")
         if clean_text(entry.get("negative")) != clean_text(rows[0].get("negative")):
             issues.append(f"{entry_id}:cover_negative")
@@ -693,7 +694,7 @@ def validate_payload(
             issues.append(f"{entry_id}:cover_character_prompts")
         issues.extend(per_image_prompt_issues(entry, rows, entry_id))
         for position, (item, row) in enumerate(zip(images, rows), 1):
-            if len(rows) > 1 and clean_text(item.get("rawTag")) != clean_text(row.get("prompt")):
+            if len(rows) > 1 and clean_positive_prompt(item.get("rawTag")) != clean_positive_prompt(row.get("prompt")):
                 issues.append(f"{entry_id}[{position}]:raw_tag")
             if len(rows) == 1 and item.get("rawTag"):
                 issues.append(f"{entry_id}:unexpected_single_raw_tag")
@@ -853,9 +854,9 @@ def validate_import() -> dict[str, Any]:
             except Exception as exc:
                 issues.append(f"{entry_id}[{position}]:metadata:{type(exc).__name__}")
                 continue
-            prompt = clean_text(metadata.prompt)
-            expected_prompt = clean_text(item.get("rawTag")) if len(images) > 1 else clean_text(entry.get("tags"))
-            if prompt != expected_prompt or prompt != clean_text(record.get("prompt")):
+            prompt = clean_positive_prompt(metadata.prompt)
+            expected_prompt = clean_positive_prompt(item.get("rawTag")) if len(images) > 1 else clean_positive_prompt(entry.get("tags"))
+            if prompt != expected_prompt or prompt != clean_positive_prompt(record.get("prompt")):
                 issues.append(f"{entry_id}[{position}]:prompt")
             # 每张图实际显示的负面 / 角色词都要等于该图原图参数（封面即顶层）
             negative, characters = effective_image_prompts(entry, images, position - 1)
@@ -1164,7 +1165,7 @@ def current_batch_state(codex: dict[str, Any]) -> dict[str, Any]:
                 "entry": entry,
                 "imageIndex": image_index,
                 "image": image,
-                "prompt": clean_text(image.get("rawTag")) if len(images) > 1 else clean_text(entry.get("tags")),
+                "prompt": clean_positive_prompt(image.get("rawTag")) if len(images) > 1 else clean_positive_prompt(entry.get("tags")),
             }
         entry_hashes[entry_id] = hashes
     return {
@@ -1495,7 +1496,7 @@ def _regrouped_asset(group: dict[str, Any], state: dict[str, Any]) -> dict[str, 
     for row in group["acceptedMembers"]:
         current = state["hashRefs"][str(row["sha256"])]
         image = copy.deepcopy(current["image"])
-        image["rawTag"] = clean_text(row.get("prompt"))
+        image["rawTag"] = clean_positive_prompt(row.get("prompt"))
         images.append(image)
     first = images[0]
     with Image.open(IMAGE_ROOT / CODEX_ID / str(first["path"])) as opened:
@@ -1532,7 +1533,7 @@ def _new_or_regrouped_entry(
         "title": group["targetTitle"],
         "serialTitle": group.get("targetSerialTitle") or group["targetTitle"],
         "path": group["path"],
-        "tags": clean_text(cover.get("prompt")),
+        "tags": clean_positive_prompt(cover.get("prompt")),
         **({"negative": clean_text(cover.get("negative"))} if clean_text(cover.get("negative")) else {}),
         **({"characterPrompts": clean_character_prompts(cover.get("characterPrompts"))} if cover.get("characterPrompts") else {}),
         **({"note": "\n".join(note_parts)} if note_parts else {}),
@@ -1624,7 +1625,7 @@ def validate_batch_payload(codex: dict[str, Any], groups: list[dict[str, Any]]) 
         images = list(entry.get("images") or [])
         if len(images) != len(rows):
             issues.append(f"{entry_id}:image_count")
-        if clean_text(entry.get("tags")) != clean_text(rows[0].get("prompt")):
+        if clean_positive_prompt(entry.get("tags")) != clean_positive_prompt(rows[0].get("prompt")):
             issues.append(f"{entry_id}:cover_prompt")
         if clean_text(entry.get("negative")) != clean_text(rows[0].get("negative")):
             issues.append(f"{entry_id}:cover_negative")
@@ -1640,15 +1641,15 @@ def validate_batch_payload(codex: dict[str, Any], groups: list[dict[str, Any]]) 
             if value in seen_hashes:
                 issues.append(f"{entry_id}[{position}]:duplicate_hash")
             seen_hashes.add(value)
-            expected_prompt = clean_text(image.get("rawTag")) if len(images) > 1 else clean_text(entry.get("tags"))
-            if expected_prompt != clean_text(row.get("prompt")):
+            expected_prompt = clean_positive_prompt(image.get("rawTag")) if len(images) > 1 else clean_positive_prompt(entry.get("tags"))
+            if expected_prompt != clean_positive_prompt(row.get("prompt")):
                 issues.append(f"{entry_id}[{position}]:raw_tag")
             try:
                 metadata = extract_image_metadata(original)
             except Exception as exc:
                 issues.append(f"{entry_id}[{position}]:metadata:{type(exc).__name__}")
                 continue
-            if clean_text(metadata.prompt) != clean_text(row.get("prompt")):
+            if clean_positive_prompt(metadata.prompt) != clean_positive_prompt(row.get("prompt")):
                 issues.append(f"{entry_id}[{position}]:original_prompt")
             negative, characters = effective_image_prompts(entry, images, position - 1)
             suffix = "" if position == 1 else f"[{position}]"
@@ -2306,7 +2307,7 @@ def _new_dream_entry(group: dict[str, Any], asset: dict[str, Any]) -> dict[str, 
         "title": group["targetTitle"],
         "serialTitle": group["targetTitle"],
         "path": list(group["path"]),
-        "tags": clean_text(row.get("prompt")),
+        "tags": clean_positive_prompt(row.get("prompt")),
         **({"negative": clean_text(row.get("negative"))} if clean_text(row.get("negative")) else {}),
         **({"characterPrompts": clean_character_prompts(row.get("characterPrompts"))} if row.get("characterPrompts") else {}),
         **({"note": note} if note else {}),
@@ -2412,7 +2413,7 @@ def validate_dream_payload(codex: dict[str, Any], groups: list[dict[str, Any]]) 
         row = group["acceptedMembers"][0]
         if list(entry.get("path") or []) != list(group["path"]) or entry.get("rating") != group["rating"]:
             issues.append(f"{entry_id}:path_or_rating")
-        if clean_text(entry.get("tags")) != clean_text(row.get("prompt")):
+        if clean_positive_prompt(entry.get("tags")) != clean_positive_prompt(row.get("prompt")):
             issues.append(f"{entry_id}:prompt")
         if clean_text(entry.get("negative")) != clean_text(row.get("negative")):
             issues.append(f"{entry_id}:negative")
@@ -2432,7 +2433,7 @@ def validate_dream_payload(codex: dict[str, Any], groups: list[dict[str, Any]]) 
         except Exception as exc:
             issues.append(f"{entry_id}:metadata:{type(exc).__name__}")
             continue
-        if clean_text(metadata.prompt) != clean_text(row.get("prompt")):
+        if clean_positive_prompt(metadata.prompt) != clean_positive_prompt(row.get("prompt")):
             issues.append(f"{entry_id}:original_prompt")
         if clean_text(metadata.negative) != clean_text(row.get("negative")):
             issues.append(f"{entry_id}:original_negative")
@@ -2762,7 +2763,7 @@ def validate_current_dream_payload(
                 issues.append(f"{entry_id}:metadata:{type(exc).__name__}")
                 continue
             for field, actual, expected_value in (
-                ("prompt", clean_text(entry.get("tags")), clean_text(metadata.prompt)),
+                ("prompt", clean_positive_prompt(entry.get("tags")), clean_positive_prompt(metadata.prompt)),
                 ("negative", clean_text(entry.get("negative")), clean_text(metadata.negative)),
                 ("character_prompts", clean_character_prompts(entry.get("characterPrompts")), clean_character_prompts(metadata.character_prompts)),
             ):

@@ -51,6 +51,8 @@
 | `takedown_pack_entries.py` | **计划器已纳入版本，执行端未上线**：按稳定词条 ID 生成图包下架计划；设计中的应用步骤会同步收口法典、总索引和本地同步清单，不直接操作 R2 | 默认预演也会写 `output/` 计划；跨文件事务、正式资产隔离与失败回滚门闭合前，`--apply` 被代码硬阻断 |
 | `retire_r2_assets.py` | **只读预演已纳入版本，执行端未上线**：消费下架报告中的精确对象键，计划退役或删除已不再被发布数据引用的 R2 资源；无通配删除 | 默认计划会对 R2 发带鉴权的只读 HEAD；历史 release / 激活隔离、clean rollback、失败恢复与逐次授权门闭合前，`--apply` 被代码硬阻断 |
 | `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
+| `nai_default_tags.py` | 主正向复制文本的 NAI 默认尾段清理；与前端 `nai-default-tags.js` 共用边界夹具，重复组、混序和额外重复单项一并剥离；前文权重、负面、角色词及原图参数不变 | 纯函数库，不单独运行 |
+| `clean_nai_default_tags.py` | 按当前书目清理主 `tags/rawTags` 与逐图 `rawTag/rawTags` 的完整默认尾段；双击 `单项工具/清理默认标签.bat`（总控台第 16 项）；脚本默认预演，`--verify <manifest>` 做字节逆向和幂等复验 | 默认只写 `output/default-tags-cleanup-<日期>/` 计划；`--apply` 先备份并冻结恢复清单后原子写数据，必要时移走对应解构 DOCX 防重转覆盖；不联网、不上传、不发布 |
 | `build_local_edition.py` | `单项工具/打包本地版.bat` 的内核：按白名单生成独立本地发行包 + ZIP（见本地私有文档 `docs/decisions/独立本地发行版.md`） | 不改仓库数据；默认写 `output/local-edition/` |
 | `local_edition_version.py` | 构建器与本地启动器共用的本地版版本号 | 库文件，不单独运行 |
 | `local_launcher.py` | 本地发行版启动器，被 `build_local_edition.py` 打包成 EXE 随发行包分发 | 启动即补建发行根目录及缺失的 `codexes.json` / `media.json`，随后开启可写编辑服务并默认打开浏览器；源码直跑会以仓库根为发行根，仓库内禁止日常直接运行 |
@@ -110,7 +112,8 @@
 - SQL · 匿名统计清理：`site_metrics_maintenance.sql` 只删除过期统计日聚合和全站限频桶，不碰互动/投稿/反馈表；执行即改指定 D1，本地/远端必须显式区分，远端需要另行授权。流程见私密运维文档 `docs/运维/匿名产品统计上线与回滚.md`。
 - Worker · `site-metrics-maintenance/worker.js` 与同目录 `wrangler.jsonc`：统计过期清理的独立 Cron Worker；部署会创建或更新具名 Worker/计划，运行会删除目标 D1 的过期统计行，绝不删除社区表；无公开 HTTP 维护接口，不随菜单程序发布自动部署。须核对目标配置并取得生产授权。
 
-- Python · 导入与数据：`test_apply_pack_names.py`、`test_backfill_pack_image_prompts.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
+- Python · 导入与数据：`test_apply_pack_names.py`、`test_backfill_pack_image_prompts.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_clean_nai_default_tags.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
+- Node · 默认尾段：`test_nai_default_tags.mjs`；Python/JS 共用 `fixtures/nai_default_tags.json`，覆盖重复尾段、混序、NAI reset、前文原样保留与外部/在线加载。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Node · 本地编辑器目录调序：`test_category_order.mjs`（真实节点与图片列表排序、组内原序、实际过滤链接线、收藏 / 全站搜索排序边界、空目录、旧书原序、分级及缓存失效；仅内存夹具，不写用户数据）。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
