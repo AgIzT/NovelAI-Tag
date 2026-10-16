@@ -315,6 +315,57 @@ class SpecialChapterTests(unittest.TestCase):
         self.assertTrue(result['summary']['strictReplayPass'])
 
 
+class ReportHintTests(unittest.TestCase):
+    def test_lines_after_image_text_are_flagged(self):
+        from docx import Document
+        doc = Document()
+        lines = ['吃下后迷幻', '1girl,drugged,', '迷幻时侵犯', 'char1：girl,',
+                 '小穴黏在灯柱上', '1girl,solo,text: 唔……是不小心的！', '帮帮我!', 'char1：girl,solo,',
+                 '招募', 'char1：parchment,text:', '【募集】', '现招募志愿者。', '男女不限,有无经验均可。', '※请服从指示。', 'char2：girl,']
+        for line in lines:
+            doc.add_paragraph(line)
+        paragraphs, at = doc.paragraphs, {line: i for i, line in enumerate(lines)}
+        self.assertFalse(imp.after_image_text(paragraphs, at['迷幻时侵犯'], set()))
+        self.assertTrue(imp.after_image_text(paragraphs, at['帮帮我!'], set()))
+        run = {at['【募集】'], at['现招募志愿者。'], at['※请服从指示。']}
+        self.assertTrue(imp.after_image_text(paragraphs, at['现招募志愿者。'], run))
+        self.assertTrue(imp.after_image_text(paragraphs, at['※请服从指示。'], run))
+        self.assertFalse(imp.after_image_text(paragraphs, at['※请服从指示。'], set()))  # 「现招募」 alone reads as a title
+
+    def test_copies_and_followed_moves(self):
+        old = [{'id': 'a-1', 'title': '组', 'path': ['画师'], 'tags': 'artist:a,', 'image': 'a-1.jpg'},
+               {'id': 'a-2', 'title': '留下', 'path': ['旧目录'], 'tags': 'keep,'}]
+        new = [card('组', ['画师'], 'artist:a,'), card('组', ['画师'], 'artist:a,'), card('留下', ['新目录'], 'keep,')]
+        result = match.match_entries(old, new)
+        self.assertEqual(imp.copied_additions(new, result),
+                         [{'index': 1, 'title': '组', 'path': ['画师'], 'oldId': 'a-1', 'oldWentTo': 0, 'oldPath': ['画师'], 'imaged': True}])
+        self.assertEqual(imp.followed_moves(result), [{'from': ['旧目录'], 'to': ['新目录'], 'count': 1}])
+        copy = imp.copied_additions(new, result)[0]
+        self.assertIn('同一目录里出现了两份', imp.describe_copy('demo', copy))
+        self.assertIn('别的目录', imp.describe_copy('demo', dict(copy, path=['自然语言'])))
+
+    def test_prose_outcomes_name_the_cards(self):
+        path = ['涩涩', '杂项']
+        rows = [{'part': 'N5-upper', 'paragraph': p, 'path': path, 'text': t, 'afterImageText': h}
+                for p, t, h in ((10, '帮帮我!', True), (20, '续一句', True), (30, '空标题', False), (40, '丢了', False))]
+        entries = [{'id': 'b-1', 'title': '灯柱', 'path': path, 'tags': 'text: 唔,',
+                    'characterPrompts': [{'prompt': 'girl,\n续一句'}]},
+                   {'id': 'b-2', 'title': '帮帮我!', 'path': path, 'tags': ''}]
+        built = {'loaded': {'N5-upper': {'doc': None}}, 'applied': {'suozhang_nai5_r18': {'entries': entries}}}
+        config = {'proseParagraphs': {'N5-upper': {'20': 'x', '40': 'y'}}}
+        with mock.patch.object(imp, 'prose_candidates', return_value=rows):
+            outcomes = imp.prose_outcomes(config, built)
+        self.assertEqual([(o['outcome'], o.get('card')) for o in outcomes],
+                         [('ownCard', ['b-2', '帮帮我!']), ('merged', ['b-1', '灯柱']), ('noCard', None), ('missing', None)])
+        self.assertEqual(outcomes[0]['cardAbove'], ['b-1', '灯柱'])
+        self.assertIn('自成一卡', imp.render_prose_outcomes(outcomes))
+
+    def test_content_signature_ignores_ids(self):
+        entry = card('甲', ['场景'], 'a,')
+        self.assertEqual(imp.content_signature(dict(entry, id='x-1')), imp.content_signature(dict(entry, id='x-2')))
+        self.assertNotEqual(imp.entry_signature(dict(entry, id='x-1')), imp.entry_signature(dict(entry, id='x-2')))
+
+
 class RehearsalGuardTests(unittest.TestCase):
     def test_survey_refuses_to_write_into_an_applied_archive(self):
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as out:

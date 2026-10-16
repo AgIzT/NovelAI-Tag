@@ -37,6 +37,8 @@ PROSE_PARAGRAPHS = {
     'N5-upper': (334, 590, 591, 592, 775, 776, 777),
     'N5-lower': (),
 }
+# The 9.13 N4.5 regular paragraph with six inline food pictures; later versions pass their own.
+FOOD_EMOJI_PARAGRAPH = 6694
 BOOKS = ('suozhang', 'suozhang_r18', 'suozhang_nai5', 'suozhang_nai5_r18')
 TITLES = {
     'suozhang': '所长N4.5常规NovelAI个人法典',
@@ -63,7 +65,7 @@ def data_hashes():
     return {str(p.relative_to(ROOT)):digest(p) for p in sorted((ROOT/'site/data').rglob('*.json'))}
 
 
-def restore_food_emoji(doc, paragraph_index=6694):
+def restore_food_emoji(doc, paragraph_index):
     """Restore the six visually audited inline pictures, in their XML positions."""
     p = doc.paragraphs[paragraph_index]
     if len(convert.paragraph_blips(p)) != 6:
@@ -188,7 +190,7 @@ def prepare(source, out):
         if not match.word_structure_safe(structure):
             raise ValueError(f'Unsupported Word structure: {key}')
         doc=Document(path); audit=[]
-        overrides=restore_food_emoji(doc) if key=='N4.5-regular' else {}
+        overrides=restore_food_emoji(doc, FOOD_EMOJI_PARAGRAPH) if key=='N4.5-regular' else {}
         raw=convert.parse_standard_docx_items(doc, suozhang_model=model,
             kind_overrides={p:'tag' for p in PROSE_PARAGRAPHS.get(key,())},
             text_overrides=overrides, audit=audit)

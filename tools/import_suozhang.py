@@ -6,7 +6,7 @@
   apply     校验冻结计划、备份后写四本法典 JSON 与书目
   verify    只读复验已应用的计划
   selfcheck 用 9.25 的存档输入重放，确认改过代码后结果不变
-  compare   演练用：自己定的配置与标准答案配置在同一份底数据上重建、逐条比对
+  compare   两份配置在同一份底数据上重建、逐条比对（演练对标准答案；平时对改动前的配置）
 
 不写图片、不联网、不发布。完整流程见本地私有文档 docs/经验/所长法典更新手册.md。
 """
@@ -44,6 +44,9 @@ LABEL_TITLES = frozenset({'负面', '负面提示词', '设置', '参数', '附�
 # Short titles that are real variant cards, not prose continuations.
 VARIANT_TITLE_RE = re.compile(r'^(?:原版|其他版本|其它版本|版本|差分|变体)')
 FRESH_PROMPT_RE = re.compile(r'^[\[{(0-9A-Za-z]')
+CHAR_LINE_RE = re.compile(r'^char\d*\s*[:：]', re.I)
+ON_IMAGE_TEXT_RE = re.compile(r'\btext\s*[:：]', re.I)
+UNTITLED_RE = re.compile(r'（无标题\d+）$')
 CN_DIGITS = dict(zip('一二三四五六七八九', range(1, 10)))
 
 
@@ -823,7 +826,60 @@ def build_from_config(config, formal_dir=None):
     applied_books, results, new_index, _ = build_books(config, formal, index, sources,
                                                       reserved_cap=formal_dir is not None, strict=True)
     return {'baseline': baseline, 'records': records, 'sources': sources, 'merges': merges,
-            'applied': applied_books, 'results': results, 'index': new_index}
+            'applied': applied_books, 'results': results, 'index': new_index, 'loaded': loaded}
+
+
+def prompt_text(entry):
+    roles = [str(value) for prompt in entry.get('characterPrompts') or [] for value in prompt.values()]
+    return '\n'.join([entry.get('tags') or '', *roles])
+
+
+def prose_outcomes(config, built):
+    """Where every title-like short N5 line ended up in this build.
+
+    Registered lines should sit inside the card above; unregistered ones are
+    either a card title or an empty title that forms no card. Lets a count
+    difference be pinned to named cards instead of reasoning about it.
+    """
+    docs = {key: item['doc'] for key, item in built['loaded'].items()}
+    rows = []
+    for row in prose_candidates(docs, {}):
+        key, text = row['part'], row['text']
+        entries = [e for e in built['applied'][part_book(key)]['entries'] if e.get('path') == row['path']]
+        registered = str(row['paragraph']) in config.get('proseParagraphs', {}).get(key, {})
+        out = {'part': key, 'paragraph': row['paragraph'], 'text': text, 'registered': registered,
+               'afterImageText': row['afterImageText']}
+        if registered:
+            host = next((e for e in entries if text in prompt_text(e)), None)
+            out.update(outcome='merged' if host else 'missing', card=host and [host['id'], host['title']])
+        else:
+            spot = next((i for i, e in enumerate(entries) if e['title'] == text), None)
+            if spot is None:
+                out['outcome'] = 'noCard'
+            else:
+                card = entries[spot]
+                out.update(outcome='ownCard', card=[card['id'], card['title']],
+                           cardAbove=[entries[spot - 1]['id'], entries[spot - 1]['title']] if spot else None)
+        rows.append(out)
+    return rows
+
+
+def render_prose_outcomes(rows):
+    lines = ['# 疑似续行的去向（本次预览）', '',
+             '每一行短中文句在这次预览里落到了哪里。条数和草稿差几条，就从这里数出是哪几张卡。', '',
+             '| 分卷 | 段 | 原文 | 已登记 | 结果 |', '| --- | ---: | --- | --- | --- |']
+    for row in rows:
+        card = row.get('card')
+        result = {
+            'merged': lambda: f"并进 `{card[0]}`「{card[1]}」的正文",
+            'missing': lambda: '**已登记，却没在这个目录的任何卡里找到这句——看原文**',
+            'noCard': lambda: '空标题，不成卡（下面的正文归到后一个标题）',
+            'ownCard': lambda: (f"**自成一卡** `{card[0]}`；上一张卡是 `{row['cardAbove'][0]}`「{row['cardAbove'][1]}」"
+                                if row.get('cardAbove') else f"**自成一卡** `{card[0]}`"),
+        }[row['outcome']]()
+        hint = '（接在画面文字后面）' if row['afterImageText'] else ''
+        lines.append(f"| {row['part']} | {row['paragraph']} | {row['text']}{hint} | {'是' if row['registered'] else '否'} | {result} |")
+    return '\n'.join(lines) + '\n'
 
 
 def preview(config, out, *, formal_dir=None):
@@ -836,9 +892,13 @@ def preview(config, out, *, formal_dir=None):
                          'expected': config.get('expected', {}).get(book),
                          'removalReasons': dict(Counter(row['reason'] for row in result['removals'])),
                          'newOverrides': result['stats'].get('auditedNewOverrideIds', [])}
+    outcomes = prose_outcomes(config, built)
     out.mkdir(parents=True, exist_ok=True)
     base.write_json(out / 'preview.json', summary)
+    (out / '续行去向.md').write_text(render_prose_outcomes(outcomes), encoding='utf-8')
     print(json.dumps(summary, ensure_ascii=False, indent=1))
+    print(json.dumps({'proseLines': dict(Counter(row['outcome'] for row in outcomes)),
+                      'detail': str(out / '续行去向.md')}, ensure_ascii=False))
     return summary
 
 
@@ -912,6 +972,26 @@ def find_food_emoji(docs):
     return hits
 
 
+def after_image_text(paragraphs, index, run):
+    """True when the prompt above this line opens on-image text (``text:``).
+
+    Walks up through body lines and the lines of the same candidate run; a
+    role line without ``text:``, a real title or a blank line ends the search.
+    Only a hint for the report: the parser never uses it.
+    """
+    for above in range(index - 1, max(index - 30, -1), -1):
+        line = paragraphs[above].text.strip()
+        if not line or convert.outline_lvl(paragraphs[above]) is not None:
+            return False
+        if ON_IMAGE_TEXT_RE.search(line):
+            return True
+        if CHAR_LINE_RE.match(line):
+            return False
+        if above not in run and convert.classify_nai5_line(line) == 'title':
+            return False
+    return False
+
+
 def prose_candidates(docs, known):
     """Short title-like lines wedged inside a prompt: may be prose, needs a human."""
     rows = []
@@ -919,6 +999,7 @@ def prose_candidates(docs, known):
         if part_model(key) != 'N5':
             continue
         paragraphs = doc.paragraphs
+        run = {int(index) for index in known.get(key, {})}
         cats, seen_toc = [None] * 4, False
         for index, paragraph in enumerate(paragraphs):
             if paragraph.style.name.startswith('toc'):
@@ -941,19 +1022,22 @@ def prose_candidates(docs, known):
             following = paragraphs[index + 1].text.strip() if index + 1 < len(paragraphs) else ''
             if not previous or convert.classify_nai5_line(previous) != 'tag':
                 continue
-            if following and FRESH_PROMPT_RE.match(following) and not re.match(r'^char\d*\s*[:：]', following, re.I):
+            if following and FRESH_PROMPT_RE.match(following) and not CHAR_LINE_RE.match(following):
                 continue
+            run.add(index)
             rows.append({'part': key, 'paragraph': index, 'path': path, 'text': text,
-                         'previous': previous[:60], 'next': following[:60]})
+                         'previous': previous[:60], 'next': following[:60],
+                         'afterImageText': after_image_text(paragraphs, index, run)})
             # Lines right after it that also read as titles belong to the same run.
             for later in range(index + 1, len(paragraphs)):
                 line = paragraphs[later].text.strip()
                 if not line or convert.classify_nai5_line(line) != 'title' or str(later) in known.get(key, {}):
                     break
+                run.add(later)
                 rows.append({'part': key, 'paragraph': later, 'path': path, 'text': line,
                              'previous': paragraphs[later - 1].text.strip()[:60],
                              'next': paragraphs[later + 1].text.strip()[:60] if later + 1 < len(paragraphs) else '',
-                             'runStart': index})
+                             'runStart': index, 'afterImageText': after_image_text(paragraphs, later, run)})
     return rows
 
 
@@ -1069,6 +1153,42 @@ def new_anomalies(book, entries, result):
     return rows
 
 
+def copied_additions(entries, result):
+    """New cards repeating, word for word, a card that an old ID already went to.
+
+    The old ID follows the first copy in source order, which may be the
+    author's fresh duplicate rather than the original position.
+    """
+    taken = {}
+    for item in result['matches']:
+        taken.setdefault(body(entries[item['new']['index']]), item)
+    rows = []
+    for item in result['additions']:
+        twin = taken.get(body(entries[item['index']]))
+        if twin:
+            rows.append({'index': item['index'], 'title': item['title'], 'path': item['path'],
+                         'oldId': twin['old']['id'], 'oldWentTo': twin['new']['index'],
+                         'oldPath': twin['new']['path'], 'imaged': bool(twin['old'].get('image'))})
+    return rows
+
+
+def describe_copy(book, copy):
+    where = f"{book}: 新增「{copy['title']}」（{' / '.join(copy['path'])}）与旧 {copy['oldId']}{'（带图）' if copy['imaged'] else ''}逐字相同"
+    if copy['oldPath'] != copy['path']:
+        return (f"{where}，旧编号留在「{' / '.join(copy['oldPath'])}」：作者在别的目录重复收了这一条，"
+                '这张按新增收即可，过目确认')
+    side = '前面' if copy['oldWentTo'] < copy['index'] else '后面'
+    return (f'{where}：同一目录里出现了两份，旧编号和配图给了{side}那一份、这张另取新号——'
+            f'看原文确认{side}那份是不是作者新复制的，是就报维护者')
+
+
+def followed_moves(result):
+    """Matched cards that changed section without a pathAliases rule."""
+    moves = Counter((tuple(item['old']['path']), tuple(item['new']['path']))
+                    for item in result['matches'] if item['old']['path'] != item['new']['path'])
+    return [{'from': list(old), 'to': list(new), 'count': count} for (old, new), count in sorted(moves.items())]
+
+
 def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     files = source_files(source_dir)
     version = source_version([p.name for p in files.values()])
@@ -1114,7 +1234,10 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
             decisions.append(f"登记的特别章节「{rule['chapter']}」这次找不到（{exc}），草稿已去掉，核对原文后确认")
     candidates = prose_candidates(docs, prose)
     if candidates:
-        decisions.append(f'N5 有 {len(candidates)} 行疑似续行的短句被当成了标题，逐条看原文后决定是否加进 proseParagraphs')
+        hinted = sum(row['afterImageText'] for row in candidates)
+        decisions.append(f'N5 有 {len(candidates)} 行疑似续行的短句被当成了标题'
+                         f'{f"（其中 {hinted} 行接在 text: 画面文字后面）" if hinted else ""}，'
+                         '逐条看原文后决定是否加进 proseParagraphs')
     del docs
 
     draft = {
@@ -1181,7 +1304,7 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
 
     # Pass 2: a real build of the draft. Removals and NEW gaps are read off a
     # first build without approvals, then the draft is rebuilt with them.
-    preview_problems, anomalies, removal_rows = [], {}, {}
+    preview_problems, anomalies, removal_rows, moves = [], {}, {}, {}
     try:
         parts = {key: normalize_part(key, item, aliased(formal[part_book(key)]['entries'],
                                                         aliases_of(draft, part_book(key))), rules, splits)[0]
@@ -1204,9 +1327,12 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
                     draft.setdefault('manualMatches', {}).setdefault(book, []).append(
                         {'oldId': top['old']['id'], 'newSignatureSha256': match.override_signature_sha256(entry),
                          'note': '同目录改写，按旧编号继承'})
-                    decisions.append(f"{book}: 新卡「{entry['title']}」与旧 {top['old']['id']}"
+                    untitled = UNTITLED_RE.search(top['old']['title'])
+                    decisions.append(f"{book}: 新卡「{entry['title']}」与旧 {top['old']['id']}「{top['old']['title']}」"
                                      f"（{'带图' if top['old'].get('image') else '无图'}）相似度 {top['similarity']['score']:.2f}，"
-                                     '草稿按改写处理、继承旧编号——需维护者确认')
+                                     '草稿按改写处理、继承旧编号——需维护者确认'
+                                     + ('。**旧卡是无标题卡**：先按手册第 12 节查是不是被上方新卡吞并，是就改登记 sourceSplits'
+                                        if untitled else ''))
                 else:
                     decisions.append(f"{book}: 新卡「{entry['title']}」有多个相近旧词条，需人工指定 manualMatches")
         for book in BOOKS:
@@ -1242,6 +1368,13 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
             if 'match' not in result:
                 continue
             anomalies[book] = rows = new_anomalies(book, sources[book], result['match'])
+            rows['copies'] = copied_additions(sources[book], result['match'])
+            for copy in rows['copies']:
+                (notes if copy['oldPath'] != copy['path'] else decisions).append(describe_copy(book, copy))
+            moves[book] = followed_moves(result['match'])
+            if moves[book]:
+                notes.append(f"{book}: {sum(m['count'] for m in moves[book])} 条旧词条按内容跟到了别的目录"
+                             f"（{len(moves[book])} 处，没有生成改名规则），见报告「目录改名」一节，过目即可")
             ids = {match.override_signature_sha256(e): e['id'] for e in applied.get(book, {}).get('entries', [])}
             for row in rows['unhighlightedAdditions']:
                 entry = sources[book][row['index']]
@@ -1267,7 +1400,7 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
 
     report = {'version': version, 'previous': previous['version'], 'files': {k: str(v) for k, v in files.items()},
               'structures': structures, 'baselineReplay': replay, 'halvesEvidence': halves_evidence,
-              'removals': removal_rows, 'newAnomalies': anomalies, 'proseCandidates': candidates,
+              'removals': removal_rows, 'newAnomalies': anomalies, 'followedMoves': moves, 'proseCandidates': candidates,
               'decisions': decisions, 'notes': notes}
     base.write_json(out / 'survey.json', report)
     base.write_json(out / 'draft-config.json', draft)
@@ -1291,6 +1424,11 @@ def render_survey(report, draft):
     lines += ['', '## 目录改名（只用于匹配）', '']
     for book, pairs in draft['pathAliases'].items():
         lines += [f"- {book}：{' / '.join(old)} → {' / '.join(new)}" for old, new in pairs]
+    followed = [(book, move) for book, rows in report.get('followedMoves', {}).items() for move in rows]
+    if followed:
+        lines += ['', '按内容自动跟到新目录的旧词条（不需要改名规则，编号和配图都在；过目即可）：', '']
+        lines += [f"- {book}：{' / '.join(move['from'])} → {' / '.join(move['to'])}（{move['count']} 条）"
+                  for book, move in followed]
     lines += ['', '## 删除明细', '']
     for book, rows in report['removals'].items():
         for row in rows:
@@ -1303,9 +1441,13 @@ def render_survey(report, draft):
             lines.append(f"- {book} 新增未标粉：{' / '.join(row['path'])} › {row['title']}（{flag}）")
         for row in rows['highlightedUnchanged']:
             lines.append(f"- {book} 旧词条内容没变却标粉：`{row['id']}` {row['title']}（按惯例跟随源稿）")
+        for row in rows.get('copies', []):
+            lines.append(f"- {describe_copy(book, row)}")
     lines += ['', '## 疑似续行短句', '']
+    lines += ['标了「接在画面文字后面」的：前文有 `text:`，这句多半是画面上文字的下一行（续行）。只是提示，仍要看原文。', '']
     for row in report['proseCandidates']:
-        lines.append(f"- {row['part']} 第 {row['paragraph']} 段「{row['text']}」｜上一行：{row['previous']}｜下一行：{row['next']}")
+        hint = '｜**接在画面文字后面**' if row.get('afterImageText') else ''
+        lines.append(f"- {row['part']} 第 {row['paragraph']} 段「{row['text']}」{hint}｜上一行：{row['previous']}｜下一行：{row['next']}")
     lines += ['', '下一步：把 `draft-config.json` 按拍板结果改好，另存为 `tools/suozhang_versions/<版本>.json`，再运行 prepare。', '']
     return '\n'.join(lines)
 
@@ -1374,8 +1516,18 @@ def entry_signature(entry):
                        bool(entry.get('isNew')), sorted(entry.get('updateBatches') or [])], ensure_ascii=False)
 
 
+def content_signature(entry):
+    """The card as a reader sees it, without its ID: survives renumbering."""
+    return json.dumps([entry.get('title'), entry.get('path'), body(entry), entry.get('note') or ''], ensure_ascii=False)
+
+
 def compare(config, reference, formal_dir, out):
-    """Build two configs on the same base data and diff the four books entry by entry."""
+    """Build two configs on the same base data and diff the four books entry by entry.
+
+    ``onlyIn*`` compare whole entries, IDs included, so one extra card shifts
+    every later new ID; ``contentOnlyIn*`` ignore IDs and name the cards that
+    really differ.
+    """
     built = {}
     for name, cfg in (('config', config), ('reference', reference)):
         for book in BOOKS:  # each config installs its own NEW table
@@ -1390,16 +1542,27 @@ def compare(config, reference, formal_dir, out):
         def examples(counter):
             return [json.loads(sig)[:3] for sig in list(counter)[:12]]
 
+        content_mine = Counter(content_signature(e) for e in built['config']['applied'][book]['entries'])
+        content_theirs = Counter(content_signature(e) for e in built['reference']['applied'][book]['entries'])
+
+        def cards(counter):
+            return [[title, path, prompt[:80]] for title, path, prompt, _ in map(json.loads, counter)]
+
         report[book] = {'config': built['config']['results'][book]['summary'],
                         'reference': built['reference']['results'][book]['summary'],
                         'onlyInConfig': sum(only_mine.values()), 'onlyInReference': sum(only_theirs.values()),
-                        'examplesOnlyInConfig': examples(only_mine), 'examplesOnlyInReference': examples(only_theirs)}
+                        'examplesOnlyInConfig': examples(only_mine), 'examplesOnlyInReference': examples(only_theirs),
+                        'contentOnlyInConfig': cards(content_mine - content_theirs),
+                        'contentOnlyInReference': cards(content_theirs - content_mine)}
         passed = passed and not only_mine and not only_theirs
     result = {'result': 'PASS' if passed else 'FAIL', 'books': report}
     out.mkdir(parents=True, exist_ok=True)
     base.write_json(out / 'compare.json', result)
     print(json.dumps({'result': result['result'],
-                      'books': {b: {k: v[k] for k in ('onlyInConfig', 'onlyInReference')} for b, v in report.items()},
+                      'books': {b: {'onlyInConfig': v['onlyInConfig'], 'onlyInReference': v['onlyInReference'],
+                                    'contentOnlyInConfig': len(v['contentOnlyInConfig']),
+                                    'contentOnlyInReference': len(v['contentOnlyInReference'])}
+                                for b, v in report.items()},
                       'report': str(out / 'compare.json')}, ensure_ascii=False, indent=1))
     return 0 if passed else 1
 
@@ -1421,10 +1584,10 @@ def main():
         p.add_argument('--out-dir', type=Path, help='默认取配置里的 outDir')
         if name == 'preview':
             p.add_argument('--formal-dir', type=Path, help='演练用：导入前的正式数据目录，只读')
-    p = sub.add_parser('compare', help='演练用：两份配置在同一份底数据上重建并逐条比对')
-    p.add_argument('--config', type=Path, required=True, help='要检验的配置（演练者自己定的）')
-    p.add_argument('--reference', type=Path, required=True, help='标准答案配置')
-    p.add_argument('--formal-dir', type=Path, required=True, help='导入前的正式数据目录，只读')
+    p = sub.add_parser('compare', help='两份配置在同一份底数据上重建并逐条比对（演练对答案；平时查改配置前后差在哪几张卡）')
+    p.add_argument('--config', type=Path, required=True, help='要检验的配置')
+    p.add_argument('--reference', type=Path, required=True, help='对照配置：标准答案，或改动前的配置')
+    p.add_argument('--formal-dir', type=Path, help='导入前的正式数据目录，只读；默认 site/data')
     p.add_argument('--out-dir', type=Path, required=True)
     p = sub.add_parser('selfcheck', help='用 9.25 存档重放，确认工具结果不变')
     p.add_argument('--skip-survey', action='store_true')
