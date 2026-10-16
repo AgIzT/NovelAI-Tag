@@ -245,7 +245,82 @@ def source_files(source_dir):
     return files
 
 
-def load_part(path, key, prose=None, emoji_index=None):
+TEMPLATE_LABELS = {'原tag': 'original', '翻译': 'translation', 'tag版本改编后': 'adapted', '改编后': 'adapted'}
+TEMPLATE_LABEL_RE = re.compile(r'^(原Tag|翻译|Tag版本改编后|改编后)\s*[:：]\s*(.*)$', re.I | re.S)
+
+
+def chapter_bounds(doc, name):
+    paragraphs = doc.paragraphs
+    starts = [i for i, p in enumerate(paragraphs) if p.text.strip() == name and convert.outline_lvl(p) == 0]
+    if len(starts) != 1:
+        raise ValueError(f'登记的特别章节「{name}」找到 {len(starts)} 处（应为 1 处）')
+    start = starts[0]
+    end = next((i for i in range(start + 1, len(paragraphs))
+                if convert.outline_lvl(paragraphs[i]) == 0 and paragraphs[i].text.strip()), len(paragraphs))
+    later = [p.text.strip() for p in paragraphs[end:] if convert.outline_lvl(p) == 0 and p.text.strip()]
+    return start, end, later
+
+
+def parse_template_chapter(doc, rule):
+    """Read a chapter the parser skips: repeated 原Tag / 翻译 (/ 改编后) blocks, no titles.
+
+    Each filled block becomes「<前缀>（N）」with the translation as its note; an
+    adapted version becomes「<前缀>（N）：改编后」. Empty template blocks are dropped.
+    NEW follows the author's highlight, as everywhere else.
+    """
+    start, end, later = chapter_bounds(doc, rule['chapter'])
+    blocks, current, field = [], None, None
+    for index in range(start + 1, end):
+        paragraph = doc.paragraphs[index]
+        if convert.outline_lvl(paragraph) is not None and paragraph.text.strip():
+            raise ValueError(f"特别章节「{rule['chapter']}」里出现了小节标题，模板变了，停下复核")
+        for line in convert.visible_lines(paragraph.text):
+            label = TEMPLATE_LABEL_RE.match(line)
+            if label:
+                field = TEMPLATE_LABELS[label.group(1).lower()]
+                if field == 'original':
+                    current = {'original': [], 'translation': [], 'adapted': [], 'pink': False}
+                    blocks.append(current)
+                elif current is None:
+                    raise ValueError(f"特别章节「{rule['chapter']}」第 {index} 段在第一个「原Tag」之前")
+                rest = label.group(2).strip()
+                if rest:
+                    current[field].append(rest)
+            elif current is None:
+                raise ValueError(f"特别章节「{rule['chapter']}」第 {index} 段在第一个「原Tag」之前")
+            else:
+                current[field].append(line)
+            current['pink'] = current['pink'] or convert.is_pink(paragraph)
+    items, number, empty = [], 0, 0
+    for block in blocks:
+        if not block['original']:
+            if block['translation'] or block['adapted']:
+                raise ValueError(f"特别章节「{rule['chapter']}」有只填了翻译 / 改编、没有原文的格，停下复核")
+            empty += 1
+            continue
+        number += 1
+        title = f"{rule['titlePrefix']}（{number}）"
+        item = {'title': title, 'path': [rule['chapter']], 'tags': '\n'.join(block['original']),
+                'isNew': block['pink']}
+        if block['translation']:
+            item['note'] = '\n'.join(block['translation'])
+        items.append(item)
+        if block['adapted']:
+            items.append({'title': f'{title}：改编后', 'path': [rule['chapter']],
+                          'tags': '\n'.join(block['adapted']), 'isNew': block['pink']})
+    stats = {'blocks': len(blocks), 'filled': number, 'emptyTemplates': empty,
+             'adapted': sum(bool(b['adapted']) for b in blocks), 'items': len(items)}
+    return items, later, stats
+
+
+def insert_chapter_items(raw, items, later_sections):
+    later = set(later_sections)
+    position = next((i for i, entry in enumerate(raw) if entry.get('path', [])[:1] and entry['path'][0] in later),
+                    len(raw))
+    return raw[:position] + items + raw[position:]
+
+
+def load_part(path, key, prose=None, emoji_index=None, chapters=()):
     doc = Document(path)
     prose = {int(index): text_sha for index, text_sha in (prose or {}).items()}
     for index, text_sha in prose.items():
@@ -256,7 +331,12 @@ def load_part(path, key, prose=None, emoji_index=None):
     raw = convert.parse_standard_docx_items(
         doc, suozhang_model=part_model(key), kind_overrides={index: 'tag' for index in prose},
         text_overrides=overrides, audit=audit)
-    return {'doc': doc, 'raw': raw, 'audit': audit, 'prose': sorted(prose),
+    chapter_stats = {}
+    for rule in chapters:
+        if rule['part'] == key:
+            items, later, chapter_stats[rule['chapter']] = parse_template_chapter(doc, rule)
+            raw = insert_chapter_items(raw, items, later)
+    return {'doc': doc, 'raw': raw, 'audit': audit, 'prose': sorted(prose), 'chapters': chapter_stats,
             'emoji': emoji_index, 'sha256': base.digest(path), 'path': str(path)}
 
 
@@ -385,12 +465,14 @@ def parse_sources(config, formal, files):
         if not match.word_structure_safe(structure):
             raise ValueError(f'{key}: Word 含修订、表格或文本框，需人工处理')
         loaded[key] = load_part(path, key, config.get('proseParagraphs', {}).get(key),
-                                emoji.get('index') if emoji.get('part') == key else None)
+                                emoji.get('index') if emoji.get('part') == key else None,
+                                config.get('specialChapters', ()))
         book = part_book(key)
         parts[key], records[key] = normalize_part(
             key, loaded[key], aliased(formal[book]['entries'], aliases_of(config, book)),
             config.get('styleCollections', ()), config.get('sourceSplits', ()))
         records[key]['structure'] = structure
+        records[key]['specialChapters'] = loaded[key]['chapters']
         print(json.dumps({'parsed': key, 'count': len(parts[key])}, ensure_ascii=True), flush=True)
     return loaded, parts, records
 
@@ -480,7 +562,47 @@ def assemble(config, loaded, parts, formal):
         sources[book] = merged['merged']
         stats[book] = {'frontMatter': front, 'duplicateBlocks': blocks, 'titleCorrections': corrections,
                        **merged['stats'], **merged['special']}
+    own_chapter_titles(config, formal, sources)
     return sources, stats
+
+
+def chapter_paths(config, book):
+    return {(rule['chapter'],) for rule in config.get('specialChapters', []) if part_book(rule['part']) == book}
+
+
+def own_chapter_titles(config, formal, sources):
+    """Titles in a special chapter belong to the site, not the source.
+
+    The source has no titles there; the site numbers them once and may later
+    give them real names.  A card whose prompt is unchanged keeps the site's
+    title; a new or edited one continues the numbering after the highest
+    number in use.  On the first import (no old cards) the source numbering stays.
+    """
+    for rule in config.get('specialChapters', []):
+        book = part_book(rule['part'])
+        path = [rule['chapter']]
+        olds = [e for e in formal[book]['entries'] if e.get('path') == path]
+        if not olds:
+            continue
+        by_body = defaultdict(list)
+        for entry in olds:
+            by_body[body(entry)].append(entry)
+        pattern = re.compile(re.escape(rule['titlePrefix']) + r'（(\d+)）')
+        numbers = [int(m.group(1)) for e in olds for m in [pattern.match(e['title'])] if m]
+        next_number = max(numbers, default=0)
+        main_title = None
+        for entry in (e for e in sources[book] if e.get('path') == path):
+            adapted = entry['title'].endswith('：改编后')
+            hits = by_body.get(body(entry), [])
+            if len(hits) == 1:
+                entry['title'] = hits[0]['title']
+            elif adapted and main_title:
+                entry['title'] = f'{main_title}：改编后'
+            else:
+                next_number += 1
+                entry['title'] = f"{rule['titlePrefix']}（{next_number}）"
+            if not adapted:
+                main_title = entry['title']
 
 
 # ---------------------------------------------------------------- build
@@ -575,6 +697,16 @@ def build_books(config, formal, index, sources, *, reserved_cap=None, strict=Tru
         for entry in applied['entries']:
             entry.pop('sourceHalf', None)
             entry.pop('sourceIndex', None)
+        owned_paths = chapter_paths(config, book)
+        if owned_paths:
+            # Built entries follow source order; a special chapter's note is the
+            # author's translation and must refresh on matched cards too.
+            for entry, source in zip(applied['entries'], entries):
+                if tuple(entry.get('path', [])) in owned_paths:
+                    if source.get('note'):
+                        entry['note'] = source['note']
+                    else:
+                        entry.pop('note', None)
         if book == 'suozhang_r18':
             stats['auditedNewOverrideIds'] = match.apply_audited_new_overrides(applied['entries'], book, version)
         if sorted(source_overrides) != sorted(stats.get('auditedNewOverrideIds', [])):
@@ -586,7 +718,9 @@ def build_books(config, formal, index, sources, *, reserved_cap=None, strict=Tru
             if new_entry is None:
                 continue
             for key, value in old_entry.items():
-                if key not in {*match.SOURCE_CONTENT_KEYS, 'updateBatches', 'sourceHalf', 'sourceIndex'} and new_entry.get(key) != value:
+                owned = {'note'} if tuple(old_entry.get('path', [])) in chapter_paths(config, book) else set()
+                if key not in {*match.SOURCE_CONTENT_KEYS, 'updateBatches', 'sourceHalf', 'sourceIndex', *owned} \
+                        and new_entry.get(key) != value:
                     raise ValueError(f"{book}: 继承字段漂移 {old_entry['id']} {key}")
         applied['title'] = base.TITLES[book]
         removed_ids = set(stats['removedIds'])
@@ -633,7 +767,12 @@ def replay_baseline(config, formal):
         snapshot = base.read_json(base_dir / name)
         if snapshot.get('version') != config['baseVersion']:
             raise ValueError(f'{book}: 回放快照版本不是 {config["baseVersion"]}')
-        result = match.match_entries(formal[book]['entries'], snapshot['entries'])
+        owned = chapter_paths(config, book)
+
+        def untitled(entries):  # site-owned titles in a special chapter are not drift
+            return [dict(e, title='') if tuple(e.get('path', [])) in owned else e for e in entries]
+
+        result = match.match_entries(untitled(formal[book]['entries']), untitled(snapshot['entries']))
         summaries[book] = {'summary': result['summary'],
                            'drift': [{'id': m['old']['id'], 'fields': sorted(f for f in m['changes'] if f != 'isNew')}
                                      for m in result['matches'] if any(f != 'isNew' for f in m['changes'])],
@@ -942,7 +1081,8 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     formal_versions = {book: data['version'] for book, data in formal.items()}
     if set(formal_versions.values()) != {previous['version']}:
         decisions.append(f'正式数据版本 {formal_versions} 不是上一版 {previous["version"]}：上一版可能没应用，先查清再继续')
-    replay = replay_baseline({'baseline': {'dir': previous['outDir']}, 'baseVersion': previous['version']}, formal)
+    replay = replay_baseline({'baseline': {'dir': previous['outDir']}, 'baseVersion': previous['version'],
+                              'specialChapters': previous.get('specialChapters', [])}, formal)
     for book, item in replay.items():
         if not item['summary']['strictReplayPass']:
             decisions.append(f'{book} 基线回放不通过：{len(item["drift"])} 条本地修改漂移、'
@@ -960,6 +1100,15 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     if len(emoji_hits) != 1:
         decisions.append(f'食物图标段落找到 {len(emoji_hits)} 处（应为 1 处）：{emoji_hits}')
     emoji = emoji_hits[0] if len(emoji_hits) == 1 else None
+    chapters = []
+    for rule in previous.get('specialChapters', []):
+        try:
+            if rule['part'] not in docs:
+                raise ValueError('分卷不在')
+            chapter_bounds(docs[rule['part']], rule['chapter'])
+            chapters.append(dict(rule))
+        except ValueError as exc:
+            decisions.append(f"登记的特别章节「{rule['chapter']}」这次找不到（{exc}），草稿已去掉，核对原文后确认")
     candidates = prose_candidates(docs, prose)
     if candidates:
         decisions.append(f'N5 有 {len(candidates)} 行疑似续行的短句被当成了标题，逐条看原文后决定是否加进 proseParagraphs')
@@ -973,10 +1122,16 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         'parts': {key: {'sha256': base.digest(path), 'half': None} for key, path in files.items()},
         'pathAliases': {}, 'proseParagraphs': prose, 'foodEmojiParagraph': emoji,
         'duplicateBlocks': [], 'styleCollections': [], 'removals': {}, 'newOverrides': {},
-        'manualMatches': {}, 'acceptedDrift': {}, 'sourceSplits': [], 'expected': {}, 'decisions': [],
+        'manualMatches': {}, 'acceptedDrift': {}, 'sourceSplits': [], 'specialChapters': chapters,
+        'expected': {}, 'decisions': [],
     }
-    loaded = {key: load_part(path, key, prose.get(key), emoji['index'] if emoji and emoji['part'] == key else None)
+    loaded = {key: load_part(path, key, prose.get(key), emoji['index'] if emoji and emoji['part'] == key else None,
+                             chapters)
               for key, path in files.items()}
+    for key, item in loaded.items():
+        for name, stats in item['chapters'].items():
+            notes.append(f"特别章节「{name}」：{stats['filled']} 组收录、{stats['adapted']} 组带改编版、"
+                         f"{stats['emptyTemplates']} 个空模板不收")
     known_styles = {(rule['part'], tuple(rule['path'])) for rule in previous.get('styleCollections', [])}
     quick = {key: base.checked_normalize(item['raw'], [])[0] for key, item in loaded.items()}
     for rule in previous.get('sourceSplits', []):

@@ -245,6 +245,76 @@ class SourceSplitTests(unittest.TestCase):
         self.assertEqual(imp.apply_source_splits('N4.5-regular', standalone, [self.rule()]), standalone)
 
 
+class SpecialChapterTests(unittest.TestCase):
+    RULE = {'part': 'N4.5-regular', 'chapter': '自然语言', 'titlePrefix': '自然语言'}
+
+    def document(self, lines):
+        from docx import Document
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        doc = Document()
+
+        def heading(text):
+            paragraph = doc.add_paragraph(text)
+            outline = OxmlElement('w:outlineLvl')
+            outline.set(qn('w:val'), '0')
+            paragraph._p.get_or_add_pPr().append(outline)
+
+        heading('场景')
+        doc.add_paragraph('普通卡')
+        heading('自然语言')
+        for line in lines:
+            doc.add_paragraph(line)
+        heading('群友处收录')
+        return doc
+
+    def test_template_blocks_become_numbered_cards(self):
+        doc = self.document(['原Tag：', 'a calm lake at dawn,', '翻译：', '黎明时平静的湖面', '',
+                             '原Tag：', 'a city street,', 'neon lights,', '翻译：', '城市街道', 'Tag版本改编后：', 'city, neon,',
+                             '原Tag：', '翻译：', '原Tag：', '翻译：'])
+        items, later, stats = imp.parse_template_chapter(doc, self.RULE)
+        self.assertEqual([(i['title'], i['tags'], i.get('note')) for i in items], [
+            ('自然语言（1）', 'a calm lake at dawn,', '黎明时平静的湖面'),
+            ('自然语言（2）', 'a city street,\nneon lights,', '城市街道'),
+            ('自然语言（2）：改编后', 'city, neon,', None)])
+        self.assertEqual(later, ['群友处收录'])
+        self.assertEqual((stats['filled'], stats['emptyTemplates'], stats['adapted']), (2, 2, 1))
+        self.assertFalse(any(i['isNew'] for i in items))
+
+    def test_translation_without_original_stops(self):
+        with self.assertRaises(ValueError):
+            imp.parse_template_chapter(self.document(['原Tag：', '翻译：', '只有翻译']), self.RULE)
+
+    def test_items_go_back_to_the_chapter_position(self):
+        raw = [card('甲', ['场景'], 'a,'), card('乙', ['群友处收录'], 'b,')]
+        merged = imp.insert_chapter_items(raw, [card('自然语言（1）', ['自然语言'], 'x,')], ['群友处收录', '页尾'])
+        self.assertEqual([e['title'] for e in merged], ['甲', '自然语言（1）', '乙'])
+
+    def test_site_titles_survive_and_new_cards_continue_numbering(self):
+        config = {'specialChapters': [self.RULE]}
+        formal = {book: {'entries': []} for book in imp.BOOKS}
+        formal['suozhang']['entries'] = [
+            {'id': 's-1', 'title': '晨雾湖面', 'path': ['自然语言'], 'tags': 'a calm lake at dawn,'},
+            {'id': 's-2', 'title': '自然语言（2）', 'path': ['自然语言'], 'tags': 'a city street,'}]
+        sources = {book: [] for book in imp.BOOKS}
+        sources['suozhang'] = [card('自然语言（1）', ['自然语言'], 'a calm lake at dawn,'),
+                               card('自然语言（2）', ['自然语言'], 'a new forest,'),
+                               card('自然语言（2）：改编后', ['自然语言'], 'forest,'),
+                               card('自然语言（3）', ['自然语言'], 'a city street,')]
+        imp.own_chapter_titles(config, formal, sources)
+        self.assertEqual([e['title'] for e in sources['suozhang']],
+                         ['晨雾湖面', '自然语言（3）', '自然语言（3）：改编后', '自然语言（2）'])
+
+    def test_replay_ignores_site_owned_titles(self):
+        config = {'specialChapters': [self.RULE]}
+        old = [{'id': 's-1', 'title': '起好的名字', 'path': ['自然语言'], 'tags': 'a,'}]
+        snapshot = [card('自然语言（1）', ['自然语言'], 'a,')]
+        owned = imp.chapter_paths(config, 'suozhang')
+        blank = [dict(e, title='') if tuple(e['path']) in owned else e for e in old]
+        result = match.match_entries(blank, [dict(snapshot[0], title='')])
+        self.assertTrue(result['summary']['strictReplayPass'])
+
+
 class ConfigTests(unittest.TestCase):
     def write(self, value):
         handle = tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8')
