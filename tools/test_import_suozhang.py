@@ -360,6 +360,24 @@ class ReportHintTests(unittest.TestCase):
         self.assertEqual(outcomes[0]['cardAbove'], ['b-1', '灯柱'])
         self.assertIn('自成一卡', imp.render_prose_outcomes(outcomes))
 
+    def test_audit_flags_catch_swallowed_titles(self):
+        swallowed = card('逼近注视', ['搞怪'], 'white background,', characterPrompts=[
+            {'label': 'char1', 'prompt': 'girl,'}, {'label': 'char2', 'prompt': 'girl,\n这里跟你无关，继续往下滑\nhorror,'},
+            {'label': 'char1', 'prompt': 'girl,'}])
+        self.assertEqual(imp.audit_flags(swallowed), ['角色框编号重来', '正文里夹着中文短句'])
+        self.assertEqual(imp.audit_flags(card('搞怪（无标题1）', ['搞怪'], '烧死他，用文火')), ['无标题', '正文里夹着中文短句'])
+        self.assertEqual(imp.audit_flags(card('正常', ['搞怪'], '1girl,smile,', characterPrompts=[
+            {'label': 'char1', 'prompt': 'girl,'}, {'label': 'char2', 'prompt': 'boy,'}])), [])
+        old = {'id': 'b-1', 'title': '旧', 'path': ['搞怪'], 'tags': 'a,'}
+        built = {'results': {book: {'match': match.match_entries([], [])} for book in imp.BOOKS},
+                 'applied': {book: {'entries': []} for book in imp.BOOKS}}
+        built['results']['suozhang']['match'] = match.match_entries([old], [card('旧', ['搞怪'], 'a,b,')])
+        built['applied']['suozhang']['entries'] = [dict(old, tags='a,b,'), dict(swallowed, id='b-2')]
+        report = imp.changes_report(built)['suozhang']
+        self.assertEqual([r['id'] for r in report['added']], ['b-2'])
+        self.assertEqual([(r['id'], r['fields']) for r in report['changed']], [('b-1', ['tags'])])
+        self.assertIn('⚑ 角色框编号重来', imp.render_changes(imp.changes_report(built)))
+
     def test_content_signature_ignores_ids(self):
         entry = card('甲', ['场景'], 'a,')
         self.assertEqual(imp.content_signature(dict(entry, id='x-1')), imp.content_signature(dict(entry, id='x-2')))
@@ -370,7 +388,7 @@ class TitleParagraphTests(unittest.TestCase):
     LINES = ['烧死他，用文火', 'char1：girl,', '', '逼近注视', 'white background,', 'char1：girl,', '',
              '这里跟你无关，继续往下滑', 'horror (theme),', 'char1：girl,']
 
-    def write_doc(self, folder):
+    def write_doc(self, folder, lines=None):
         from docx import Document
         from docx.enum.style import WD_STYLE_TYPE
         from docx.oxml import OxmlElement
@@ -382,7 +400,7 @@ class TitleParagraphTests(unittest.TestCase):
         outline.set(qn('w:val'), '0')
         heading._p.get_or_add_pPr().append(outline)
         doc.add_paragraph('')
-        for line in self.LINES:
+        for line in lines or self.LINES:
             doc.add_paragraph(line)
         path = Path(folder) / 'n5.docx'
         doc.save(path)
@@ -413,6 +431,13 @@ class TitleParagraphTests(unittest.TestCase):
             self.assertEqual((found, missing), ({'N5-regular': {str(at['这里跟你无关，继续往下滑']):
                                                                  imp.sha256_text('这里跟你无关，继续往下滑')}}, []))
             self.assertEqual([r['text'] for r in imp.title_candidates(docs, found)], ['烧死他，用文火'])
+
+    def test_title_broken_inside_brackets_is_detected(self):
+        from docx import Document
+        with tempfile.TemporaryDirectory() as folder:
+            path, _ = self.write_doc(folder, ['前后夹击', 'solo,', 'char1：girl,', '前后夹击（口/穴，桌底', '）1koma,', 'char1：girl,'])
+            rows = imp.title_candidates({'N5-upper': Document(path)}, {})
+            self.assertEqual([r['text'] for r in rows], ['前后夹击（口/穴，桌底'])
 
 
 class RehearsalGuardTests(unittest.TestCase):

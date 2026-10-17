@@ -900,6 +900,69 @@ def render_prose_outcomes(rows):
     return '\n'.join(lines) + '\n'
 
 
+SHORT_CN_LINE_RE = re.compile(r'[^A-Za-z,:：]{2,30}')
+
+
+def audit_flags(entry):
+    """Shapes that misparsed cards had; a hint for the blind-spot check, not a verdict."""
+    flags = []
+    if UNTITLED_RE.search(entry['title']):
+        flags.append('无标题')
+    if len(entry['title']) > 30 or re.search(r'[,，]', entry['title']):
+        flags.append('标题像正文')
+    numbers = [int(m.group(1)) for prompt in entry.get('characterPrompts') or []
+               for m in [re.match(r'char(\d+)$', str(prompt.get('label', '')), re.I)] if m]
+    if any(later == 1 and earlier > 1 for earlier, later in zip(numbers, numbers[1:])):
+        flags.append('角色框编号重来')
+    if any(SHORT_CN_LINE_RE.fullmatch(line.strip()) for line in prompt_text(entry).split('\n') if line.strip()):
+        flags.append('正文里夹着中文短句')
+    return flags
+
+
+def changes_report(built):
+    """Every new card and every old card whose content changed, per book."""
+    report = {}
+    for book in BOOKS:
+        result = built['results'][book]['match']
+        entries = built['applied'][book]['entries']
+        old_ids = {m['old']['id'] for m in result['matches']}
+        by_id = {e['id']: e for e in entries}
+        added = [{'id': e['id'], 'title': e['title'], 'path': e['path'], 'tags': e.get('tags', ''),
+                  'characterPrompts': e.get('characterPrompts', []), 'flags': audit_flags(e)}
+                 for e in entries if e['id'] not in old_ids]
+        changed = [{'id': m['old']['id'], 'path': by_id[m['old']['id']]['path'], 'oldTitle': m['old']['title'],
+                    'title': by_id[m['old']['id']]['title'],
+                    'fields': [f for f in m['changes'] if f != 'isNew'], 'flags': audit_flags(by_id[m['old']['id']])}
+                   for m in result['matches'] if any(f != 'isNew' for f in m['changes'])]
+        report[book] = {'added': added, 'changed': changed}
+    return report
+
+
+def render_changes(report):
+    lines = ['# 新增与改动（本次预览）', '',
+             '给盲区检查用：每本列出全部新增卡和内容有改动的旧卡。⚑ 是工具按以往读错过的形状挑出来的，'
+             '不一定有错，逐张对照 Word 原文。', '']
+    for book, item in report.items():
+        flagged = [row for row in item['added'] + item['changed'] if row['flags']]
+        lines += [f"## {book}：新增 {len(item['added'])}，改动 {len(item['changed'])}，可疑 {len(flagged)}", '']
+        if flagged:
+            lines += ['### 可疑', '']
+            for row in flagged:
+                lines.append(f"- `{row['id']}` {' / '.join(row.get('path', []))} › {row['title']}　⚑ {'、'.join(row['flags'])}")
+                if 'tags' in row:
+                    roles = '、'.join(str(p.get('label', '')) for p in row['characterPrompts'])
+                    lines.append(f"  正文：{row['tags'][:100]}{'…' if len(row['tags']) > 100 else ''}"
+                                 + (f"｜角色框：{roles}" if roles else ''))
+            lines.append('')
+        lines += ['### 全部新增', '']
+        lines += [f"- `{row['id']}` {' / '.join(row['path'])} › {row['title']}" for row in item['added']] or ['- 无']
+        lines += ['', '### 内容有改动的旧卡', '']
+        lines += [f"- `{row['id']}` {row['oldTitle']}{' → ' + row['title'] if row['title'] != row['oldTitle'] else ''}"
+                  f"（{'、'.join(row['fields'])}）" for row in item['changed']] or ['- 无']
+        lines.append('')
+    return '\n'.join(lines)
+
+
 def preview(config, out, *, formal_dir=None):
     """Build exactly as prepare does, but only print the result; nothing is frozen."""
     built = build_from_config(config, formal_dir)
@@ -917,9 +980,15 @@ def preview(config, out, *, formal_dir=None):
     out.mkdir(parents=True, exist_ok=True)
     base.write_json(out / 'preview.json', summary)
     (out / '续行去向.md').write_text(render_prose_outcomes(outcomes), encoding='utf-8')
+    changes = changes_report(built)
+    base.write_json(out / 'changes.json', changes)
+    (out / '新增与改动.md').write_text(render_changes(changes), encoding='utf-8')
     print(json.dumps(summary, ensure_ascii=False, indent=1))
     print(json.dumps({'proseLines': dict(Counter(row['outcome'] for row in outcomes)),
                       'detail': str(out / '续行去向.md')}, ensure_ascii=False))
+    print(json.dumps({'flaggedCards': {book: sum(bool(row['flags']) for row in item['added'] + item['changed'])
+                                       for book, item in changes.items()},
+                      'detail': str(out / '新增与改动.md')}, ensure_ascii=False))
     off = [book for book, item in summary.items() if item['matchesExpected'] is False]
     if off:
         print(f'注意：{off} 的条数与配置里的 expected 不一致；差额要指到具体的卡，解释通了再改 expected')
@@ -1047,10 +1116,11 @@ def n5_body_lines(doc):
 
 
 def title_candidates(docs, known):
-    """Titles N5 reads as prompt text: a short pure-Chinese line with a full-width comma after a blank line.
+    """Titles N5 reads as prompt text: a short pure-Chinese line with a full-width comma.
 
     Any comma makes an N5 line prompt text, so such a title silently becomes
-    the body of an untitled card or of the card above (10.13 had four).
+    the body of an untitled card or of the card above.  It must follow a blank
+    line, or leave a bracket open (10.13 broke one title inside its brackets).
     """
     rows = []
     for key, doc in docs.items():
@@ -1058,7 +1128,8 @@ def title_candidates(docs, known):
             continue
         paragraphs = doc.paragraphs
         for index, text, path in n5_body_lines(doc):
-            if str(index) in known.get(key, {}) or not index or paragraphs[index - 1].text.strip():
+            unclosed = text.count('（') + text.count('(') > text.count('）') + text.count(')')
+            if str(index) in known.get(key, {}) or not index or (paragraphs[index - 1].text.strip() and not unclosed):
                 continue
             if '，' not in text or len(text) > 30 or re.search(r'[A-Za-z,:：]', text):
                 continue
@@ -1312,7 +1383,7 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
                          '逐条看原文后决定是否加进 proseParagraphs')
     title_rows = title_candidates(docs, titles)
     if title_rows:
-        decisions.append(f'N5 有 {len(title_rows)} 行疑似标题被当成了正文（空行后、带全角逗号的纯中文短行），'
+        decisions.append(f'N5 有 {len(title_rows)} 行疑似标题被当成了正文（带全角逗号的纯中文短行，在空行后或括号没闭合），'
                          '逐条看原文后决定是否加进 titleParagraphs')
     del docs
 
