@@ -366,6 +366,55 @@ class ReportHintTests(unittest.TestCase):
         self.assertNotEqual(imp.entry_signature(dict(entry, id='x-1')), imp.entry_signature(dict(entry, id='x-2')))
 
 
+class TitleParagraphTests(unittest.TestCase):
+    LINES = ['烧死他，用文火', 'char1：girl,', '', '逼近注视', 'white background,', 'char1：girl,', '',
+             '这里跟你无关，继续往下滑', 'horror (theme),', 'char1：girl,']
+
+    def write_doc(self, folder):
+        from docx import Document
+        from docx.enum.style import WD_STYLE_TYPE
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        doc = Document()
+        doc.add_paragraph('目录', style=doc.styles.add_style('toc 1', WD_STYLE_TYPE.PARAGRAPH))
+        heading = doc.add_paragraph('场景')
+        outline = OxmlElement('w:outlineLvl')
+        outline.set(qn('w:val'), '0')
+        heading._p.get_or_add_pPr().append(outline)
+        doc.add_paragraph('')
+        for line in self.LINES:
+            doc.add_paragraph(line)
+        path = Path(folder) / 'n5.docx'
+        doc.save(path)
+        return path, {line: i for i, line in enumerate(p.text for p in Document(path).paragraphs) if line}
+
+    def test_registered_lines_become_titles(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder)
+            plain = imp.load_part(path, 'N5-regular')['raw']
+            self.assertEqual([e['title'] for e in plain], ['(未命名)', '逼近注视'])
+            titles = {str(at[t]): imp.sha256_text(t) for t in ('烧死他，用文火', '这里跟你无关，继续往下滑')}
+            fixed = imp.load_part(path, 'N5-regular', titles=titles)['raw']
+            self.assertEqual([e['title'] for e in fixed], ['烧死他，用文火', '逼近注视', '这里跟你无关，继续往下滑'])
+            with self.assertRaises(ValueError):  # the paragraph moved or changed
+                imp.load_part(path, 'N5-regular', titles={str(at['逼近注视']): imp.sha256_text('烧死他，用文火')})
+            with self.assertRaises(ValueError):  # one paragraph cannot be both
+                imp.load_part(path, 'N5-regular', prose=titles, titles=titles)
+
+    def test_detection_and_relocation(self):
+        from docx import Document
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder)
+            docs = {'N5-regular': Document(path)}
+            rows = imp.title_candidates(docs, {})
+            self.assertEqual([r['text'] for r in rows], ['烧死他，用文火', '这里跟你无关，继续往下滑'])
+            previous = {'titleParagraphs': {'N5-regular': {'99': imp.sha256_text('这里跟你无关，继续往下滑')}}}
+            found, missing = imp.relocate_titles(previous, docs)
+            self.assertEqual((found, missing), ({'N5-regular': {str(at['这里跟你无关，继续往下滑']):
+                                                                 imp.sha256_text('这里跟你无关，继续往下滑')}}, []))
+            self.assertEqual([r['text'] for r in imp.title_candidates(docs, found)], ['烧死他，用文火'])
+
+
 class RehearsalGuardTests(unittest.TestCase):
     def test_survey_refuses_to_write_into_an_applied_archive(self):
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as out:

@@ -80,6 +80,18 @@
       "1700": "967b57704ccca792878b9466b361193af2283adad151740f9009cd94ae85a04d"
     }
   },
+  "titleParagraphs": {
+    "N5-regular": {
+      "433": "837b9f348c3bff0a8cf10fc7b45651e43225cbe90379a1fa24633851f532bf71",
+      "442": "7a03481a926bff380c53d34e788c00573fd08b8a1969b02e2731460e955e1b22"
+    },
+    "N5-upper": {
+      "974": "f50b8ce689b6bd316acfee4142bda8bd2a987923664b6064c42d7a4cc7571d6a"
+    },
+    "N5-lower": {
+      "811": "c5dfec35be38fc57a9dc38319bb0961ca129fc42f81a9de86bec27077342d9b0"
+    }
+  },
   "foodEmojiParagraph": {
     "part": "N4.5-regular",
     "index": 6698
@@ -165,13 +177,13 @@
       "removedCount": 0
     },
     "suozhang_nai5": {
-      "entryCount": 255,
-      "newIdCount": 127,
+      "entryCount": 256,
+      "newIdCount": 128,
       "removedCount": 0
     },
     "suozhang_nai5_r18": {
-      "entryCount": 946,
-      "newIdCount": 477,
+      "entryCount": 948,
+      "newIdCount": 479,
       "removedCount": 0
     }
   },
@@ -183,6 +195,7 @@
     "N5 色色上册第 704–706、711–713、1700 段按续行；第 394 段是步骤卡标题。",
     "3 张未标粉的新增画师组卡跟随源稿，不进本期 NEW。",
     "2026-10-16 更正：「群友处收录」那张无标题卡并非被改写，而是被上方新插入的卡吞并；撤销原手工匹配，改为登记 sourceSplits 拆回，新插入的卡另取新编号。解析器不改，作者修复后删掉这条记录。",
-    "2026-10-16 补收 N4.5 常规「自然语言」章：登记 specialChapters，按「自然语言（N）」编号、翻译进备注、改编版作第二张卡；该章源稿无高亮，不进更新批次。"
+    "2026-10-16 补收 N4.5 常规「自然语言」章：登记 specialChapters，按「自然语言（N）」编号、翻译进备注、改编版作第二张卡；该章源稿无高亮，不进更新批次。",
+    "2026-10-17 补登记：N5 四处带全角逗号的新卡标题被读成正文（N5 常规 433、442 段，N5 色色上 974 段、下 811 段），登记 titleParagraphs 按标题读；解析器不改，作者改掉标题里的逗号后删除记录。"
   ]
 }
