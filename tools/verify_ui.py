@@ -479,15 +479,42 @@ def check_no_errors(cdp: CDP) -> None:
         raise CheckFailed("; ".join(errors[:5]))
 
 
-def run_check(results: list[dict], name: str, func) -> None:
+def run_check(results: list[dict], name: str, func, *, required: bool = True) -> None:
     started = time.time()
     try:
         detail = func() or {}
-        results.append({"name": name, "ok": True, "seconds": round(time.time() - started, 2), "detail": detail})
-        log(f"[OK] {name}")
+        status = "PASS"
+        if isinstance(detail, dict):
+            status = detail.get("status", "SKIP" if "skipped" in detail else "PASS")
+            if status not in ("PASS", "FAIL", "SKIP", "BLOCKED"):
+                raise CheckFailed(f"Invalid check status: {status!r}")
+            if "skipped" in detail and status == "PASS":
+                raise CheckFailed("Check cannot be both skipped and PASS")
+        results.append({"name": name, "status": status, "ok": status == "PASS", "required": required,
+                        "seconds": round(time.time() - started, 2), "detail": detail})
+        log(f"[{status}] {name}")
     except Exception as exc:
-        results.append({"name": name, "ok": False, "seconds": round(time.time() - started, 2), "error": str(exc)})
+        results.append({"name": name, "status": "FAIL", "ok": False, "required": required,
+                        "seconds": round(time.time() - started, 2), "error": str(exc)})
         log(f"[FAIL] {name}: {exc}")
+
+
+def summarize_results(results: list[dict]) -> dict:
+    counts = {status: 0 for status in ("PASS", "FAIL", "SKIP", "BLOCKED")}
+    for result in results:
+        counts[result["status"]] += 1
+    if counts["FAIL"]:
+        status = "FAIL"
+    elif not results or counts["BLOCKED"] or any(
+        result["status"] == "SKIP" and result.get("required", True) for result in results
+    ):
+        status = "BLOCKED"
+    elif counts["PASS"]:
+        status = "PASS"
+    else:
+        status = "SKIP"
+    return {"status": status, "ok": status == "PASS", "counts": counts,
+            "exitCode": 0 if status == "PASS" else (1 if status == "FAIL" else 2)}
 
 
 def install_error_capture(cdp: CDP) -> None:
@@ -1786,10 +1813,10 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         return {"scenarios": results}
 
     def tag_zh_lightbox():
-        """中文对照：默认打开、原文一个字符不改、开关双向同步、点 tag 出说明。没生成对照表就跳过。"""
+        """中文对照：默认打开、原文不改、开关同步、点 tag 出说明；缺必需夹具记 BLOCKED。"""
         core_path = ROOT / "site" / "data" / "tag_zh" / "core.json"
         if not core_path.exists():
-            return {"skipped": "site/data/tag_zh/core.json 不存在（未运行 build_tag_zh.py）"}
+            return {"status": "BLOCKED", "reason": "site/data/tag_zh/core.json 不存在（未运行 build_tag_zh.py）"}
         import build_tag_zh as btz
 
         core = json.loads(core_path.read_text(encoding="utf-8"))
@@ -3149,9 +3176,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
 
 def write_report(out_dir: Path, base_url: str, results: list[dict]) -> None:
-    ok = all(r["ok"] for r in results)
     report = {
-        "ok": ok,
+        **summarize_results(results),
         "baseUrl": base_url,
         "generatedAt": _dt.datetime.now().isoformat(timespec="seconds"),
         "results": results,
@@ -3162,14 +3188,15 @@ def write_report(out_dir: Path, base_url: str, results: list[dict]) -> None:
         "",
         f"- Base URL: `{base_url}`",
         f"- Generated: `{report['generatedAt']}`",
-        f"- Result: `{'PASS' if ok else 'FAIL'}`",
+        f"- Result: `{report['status']}`",
+        f"- Counts: `{json.dumps(report['counts'])}`",
         "",
         "| Check | Result | Details |",
         "| --- | --- | --- |",
     ]
     for item in results:
-        status = "PASS" if item["ok"] else "FAIL"
-        detail = item.get("detail") if item["ok"] else item.get("error")
+        status = item["status"]
+        detail = item.get("error", item.get("detail"))
         if isinstance(detail, dict):
             small = {k: v for k, v in detail.items() if k != "screenshot"}
             detail_text = json.dumps(small, ensure_ascii=False)
@@ -3213,8 +3240,9 @@ def main() -> int:
         write_report(out_dir, base_url, results)
         log("")
         log(f"Report: {out_dir / 'report.md'}")
-        log("Result: " + ("PASS" if all(r["ok"] for r in results) else "FAIL"))
-        return 0 if all(r["ok"] for r in results) else 1
+        summary = summarize_results(results)
+        log("Result: " + summary["status"])
+        return summary["exitCode"]
     except Exception as exc:
         (out_dir / "fatal.txt").write_text(traceback.format_exc(), encoding="utf-8")
         log(f"[FATAL] {exc}")

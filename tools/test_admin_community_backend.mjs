@@ -1,32 +1,23 @@
 import assert from 'node:assert/strict';
+import { MemoryR2 as MemoryR2Base } from './memory-r2-test-harness.mjs';
 
 import {
   onRequestGet as adminGet,
   onRequestPost as adminPost,
 } from '../functions/api/admin/community/[[path]].js';
 
-class MemoryR2 {
+class MemoryR2 extends MemoryR2Base {
   constructor() {
-    this.objects = new Map();
+    super();
     this.communityWrites = 0;
     this.activeStatusLists = 0;
     this.maxActiveStatusLists = 0;
   }
 
-  async get(key) {
-    if (!this.objects.has(key)) return null;
-    const raw = this.objects.get(key);
-    return { json: async () => JSON.parse(raw) };
-  }
-
-  async put(key, value) {
-    const raw = typeof value === 'string' ? value : await value.text();
-    this.objects.set(key, raw);
-    if (key === 'community/community.json') this.communityWrites += 1;
-  }
-
-  async delete(keys) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
+  async put(key, value, options) {
+    const result = await super.put(key, value, options);
+    if (result && key === 'community/community.json') this.communityWrites += 1;
+    return result;
   }
 
   async list({ prefix }) {
@@ -37,10 +28,7 @@ class MemoryR2 {
       await new Promise(resolve => setTimeout(resolve, 5));
       this.activeStatusLists -= 1;
     }
-    return {
-      objects: [...this.objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key })),
-      truncated: false,
-    };
+    return super.list({ prefix });
   }
 }
 

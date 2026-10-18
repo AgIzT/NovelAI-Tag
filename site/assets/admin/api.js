@@ -76,8 +76,15 @@ export async function fetchCommunityAsset(key) {
   return res.blob();
 }
 
-export function getFeedback(status, opts = {}) {
-  return adminApi('/api/admin/feedback?status=' + encodeURIComponent(status), opts);
+export async function getFeedback(status, opts = {}) {
+  // 首次/大量变更分批准备完整排序；202 不是空列表，离页后停止后续批次。
+  for (let attempt = 0; attempt < 8; attempt++) {
+    opts.signal?.throwIfAborted();
+    const data = await adminApi('/api/admin/feedback?status=' + encodeURIComponent(status), opts);
+    opts.signal?.throwIfAborted();
+    if (!data.indexing) return data;
+  }
+  throw new Error('反馈列表仍在准备中，请点击「刷新反馈」继续加载');
 }
 
 export function updateFeedback(id, sourceStatus, progressStatus, adminReply, publicVisible) {

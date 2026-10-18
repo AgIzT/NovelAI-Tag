@@ -19,6 +19,12 @@ exit /b %RC%
 
 :inner
 chcp 65001 >nul
+call :run
+set "RC=%ERRORLEVEL%"
+chcp 936 >nul
+exit /b %RC%
+
+:run
 
 set "PY="
 call python --version >nul 2>nul

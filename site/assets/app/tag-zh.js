@@ -16,10 +16,12 @@ import {
 
 export const TAG_ZH_STORAGE_KEY = 'fadian-tag-zh';
 const CORE_PATH = 'tag_zh/core.json';
+const RETRY_DELAY_MS = 1000;
 
 const listeners = new Set();
 const shardCache = new Map();   // 书 id → 已归一的分片；null = 该书没有分片
 const shardLoads = new Map();   // 书 id → 在途 Promise
+const retryAfter = new Map();   // 临时故障按路径冷却；只在下次按需调用时重试，不后台轮询
 let coreShard;                  // undefined = 还没加载完；null = 当前数据版本没有对照表
 let coreLoad = null;
 let enabled = readTagZhEnabled();
@@ -58,30 +60,36 @@ export function isTagZhUnavailable() {
 
 function loadCore() {
   if (coreShard !== undefined) return Promise.resolve(coreShard);
-  coreLoad ??= fetchDataJson(CORE_PATH)
-    .then(normalizeTagZhShard)
-    .catch(error => {
-      console.warn('tag 中文对照表不可用，灯箱按原文显示。', error);
-      return null;
-    })
-    .then(shard => {
-      coreShard = shard;
-      return shard;
-    });
+  coreLoad ??= loadShardPath(CORE_PATH, shard => { coreShard = shard; })
+    .finally(() => { coreLoad = null; });
   return coreLoad;
+}
+
+async function loadShardPath(path, remember) {
+  if (Date.now() < (retryAfter.get(path) || 0)) return null;
+  try {
+    const shard = normalizeTagZhShard(await fetchDataJson(path));
+    remember(shard); // 合法空表、非法形态均为当前不可变 release 的确定结果。
+    retryAfter.delete(path);
+    return shard;
+  } catch (error) {
+    if (error.status === 404 || error.name === 'SyntaxError') {
+      remember(null);
+      retryAfter.delete(path);
+    } else {
+      retryAfter.set(path, Date.now() + RETRY_DELAY_MS);
+    }
+    console.warn('tag 中文对照暂不可用，灯箱按原文显示。', error);
+    return null;
+  }
 }
 
 function loadShard(codexId) {
   if (shardCache.has(codexId)) return Promise.resolve(shardCache.get(codexId));
   if (!shardLoads.has(codexId)) {
-    shardLoads.set(codexId, fetchDataJson(`tag_zh/${codexId}.json`)
-      .then(normalizeTagZhShard)
-      .catch(() => null)
-      .then(shard => {
-        shardCache.set(codexId, shard);
-        shardLoads.delete(codexId);
-        return shard;
-      }));
+    shardLoads.set(codexId, loadShardPath(`tag_zh/${codexId}.json`, shard => {
+      shardCache.set(codexId, shard);
+    }).finally(() => { shardLoads.delete(codexId); }));
   }
   return shardLoads.get(codexId);
 }

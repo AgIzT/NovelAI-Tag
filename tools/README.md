@@ -15,6 +15,7 @@
 
 | 文件 | 用途 | 默认副作用 |
 | --- | --- | --- |
+| `run_project_checks.py` | **现役**：显式白名单工程自检，`--profile quick\|ci\|windows\|baseline`；双击 `单项工具/工程自检.bat` 或总菜单 17 跑 quick。命令、输入、运行时与副作用清单以 `--profile <组> --list` 为唯一执行台账；只证明所选检查，不能代替独立审查 | 默认在新的 `output/project-audit/checks/<run>/` 写 JSON/Markdown 报告及日志；Python 测试可写隔离临时文件，不写真实业务数据。`--list` 不执行、不写。`--output-dir` 只接受仓库内未存在、无联接/符号链接的目录。子进程环境清理不是网络/文件系统沙箱，脚本及依赖变化后仍须复核；发布安全测试只在假存储/合成目录调用发布函数，不继承生产凭据。baseline 只读本地私密数据，已知失败/缺模块保持 FAIL/BLOCKED，报告不进公开 CI |
 | `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 默认重写法典 JSON / 总索引；处理梦神内嵌图时还写 `originals/`、`site/images/`，并可能创建或删除待复核 TXT；`--archive-sources` 再移动源 DOCX，源文件被锁定时改为复制并写归档清单 |
 | `codex_update_match.py` | 新旧法典增量匹配、基线回放与门禁应用；流程见本地私有文档 `docs/经验/Word法典增量更新.md` | 默认不改正式数据，但会创建或覆盖 `output/` 匹配报告；`--apply` 才另写正式数据 |
 | `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上。9.25 起源稿分四卷，主流程不再适用，只作为合并、勘误与号段分配的公共库被导入 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
@@ -22,8 +23,8 @@
 | `import_suozhang.py` | **现役：所长四本的版本更新通用入口（2026.9.25 起）**。`survey` 只读调研新版 Word 并写出调研报告与配置草稿；`prepare --config tools/suozhang_versions/<版本>.json` 生成冻结候选与计划；`apply` / `verify` 应用与复验；`selfcheck` 用 9.25 存档重放，改过代码后必跑；`preview` 只读预览，另写 `续行去向.md`（每行疑似续行落到了哪张卡）和 `新增与改动.md` / `changes.json`（全部新增与改动的卡，⚑ 标出以往读错过的形状，供盲区检查）；`compare` 把两份配置在同一份底数据上重建逐条比对（演练时对标准答案、以 `--formal-dir` 指导入前数据；平时对改动前的配置，`contentOnlyIn*` 不看编号、直接列出不同的卡），演练起点配置在 `tools/suozhang_versions/rehearsal/`。每版的源哈希、分卷号段、目录改名、续行段落、被误读成正文的标题段落、跨卷重复、删除批准、NEW 修正都在版本配置里，代码不再逐版复制；流程见本地私有文档 `docs/经验/所长法典更新手册.md` | `survey` / `prepare` / `selfcheck` 只写 `output/`；`apply` 校验冻结计划并备份后写四本 JSON 和书目，失败恢复原文件。不写图片、不联网、不发布 |
 | `import_docx_codex.py` | 导入结构特殊、带内嵌图片的 Word 法典（解构原典用） | 默认只出报告；`--apply` 才写 |
 | `import_excel_images.py` | 从 Excel 内嵌图片导入词条配图（通用） | 默认只预览；`--apply` 才写 |
-| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；远端清单按本地 key 切成约每 1000 个一段、多段同时列出（进度行 `listed N remote objects (k/M ranges)`），任何一段失败都不上传；读取响应中途断开（`IncompleteRead`）会按既有上限与退避重试当前请求，分页成功前不推进游标；本地扫描每个文件只 stat 一次，缩略图尺寸随同步清单记下，文件未变就不再重读；连接 30 秒无进展即重试（请求 8 次、上传 6 次，退避封顶 10 秒），上传请求体分块发送，慢网大文件不会被超时误判；重试行写明断连 / 卡住，不再显示成 `[Errno 2]`，上传进度每 25 个一行；WebP 上传显式使用 `image/webp`，不依赖系统 MIME 表；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
-| `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；与当前线上版本字节相同的文件用 R2 服务端复制、不重传，复制后另核对缓存头与类型，不符即改为上传；文件多路同时处理，指针仍最后写；R2 请求与上传沿用同步器的超时和重试，公共 release 核验遇断连或可重试状态码重试 3 次；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
+| `sync_r2.py` | `site/images/` + `originals/` → R2，维护 media 配置；远端清单按本地 key 切成约每 1000 个一段、多段同时列出（进度行 `listed N remote objects (k/M ranges)`），任何一段失败都不上传；读取响应中途断开（`IncompleteRead`）会按既有上限与退避重试当前请求，分页成功前不推进游标；本地扫描每个文件只 stat 一次，缩略图尺寸随同步清单记下，文件未变就不再重读；连接 30 秒无进展即重试（请求 8 次、上传 6 次，退避封顶 10 秒），上传请求体分块发送，慢网大文件不会被超时误判；重试行写明断连 / 卡住，不再显示成 `[Errno 2]`，上传进度每 25 个一行；WebP 上传显式使用 `image/webp`，不依赖系统 MIME 表；收集词条及分书/总索引独立封面，按 `coverCodexId` 定位并去重，外链封面不入本地上传队列；本地缺少显式媒体引用时，去重并有界并发读取远端首字节，缺失/不可读/空对象返回 1 阻断；远端可读或未声明原图仍可提示 2；**只上传不删除**。⚠ 单独跑只是半步（正式站读指针锁定的 release，新图不显示），日常走 `单项工具/发布数据.bat` | 默认会回写本地法典 JSON / `media.json`、读取并上传 R2、更新同步清单；`--metadata-only` 只写本地元数据；严格本地不写只能用 `--dry-run`，但配置完整时它仍会向 R2 发只读列举及必需媒体首字节探测请求；`--check-only` 虽不上传，仍会回写本地 JSON / `media.json`，不是只读模式；当前退出码只对法典对象缺失闭合，仅 strings 对象缺失或变化时仍可能为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail` |
+| `publish_data_r2.py` | 把本机 Git-ignored 的 `site/data/**/*.json` 发布为不可变 R2 release，发布前校验索引↔分书↔分享分片自洽，校验后最后更新 `data/current.json`；与当前线上版本字节相同的文件用 R2 服务端复制、不重传，复制后另核对缓存头与类型，不符即改为上传；文件多路同时处理，指针按操作开始时的 ETag 条件写；冲突或结果不明不盲目重试，随机 operationId 防止同目标 ABA；其它 R2 请求与上传沿用同步器的超时和重试，公共 release 核验遇断连或可重试状态码重试 3 次；支持检查、指定版本激活和回滚；**只上传不删除** | 默认只生成计划；`--publish`/`--activate-release`/`--rollback` 才写 R2 |
 | `build_updates_index.py` | 重建跨书更新索引 `site/data/updates.json`（顶栏动态气泡与「公告/更新/反馈」面板的更新页签读它）。判定规则与前端 `data.js` 的 `updateFilterDefinitions`/`entryMatchesUpdateFilter` 逐条对齐，改一侧必须同步另一侧；每本每批另带 `safeCount`（未解锁 NSFW 可见条数）与最多 4 张样图 `samples`，供法典选择器卷头「最近新增」（与书内样张共用默认抽样：按书内顺序均匀取，整本 NSFW 的样图带 nsfw 标记、只给已解锁访客看，其余书只取公开词条，R18G 不收；某一批要单独指定，在 `codexes.json` 该书 `updateFilters` 对应批次写 `samples: [图片文件名…]`，指定成人档样图同样带 nsfw 标记；同处写 `pickerHidden: true` 则这本书这一批不进「最近新增」）与新增分布 `dirs` / `safeDirs`（没图可看时画目录分布）；另出顶层 `previews`（每本书封面外 3 张书内样图，供 4 本卷「样张条」；`codexes.json` 写 `previews: [图片文件名…]` 可单独指定，外部源书不出）；发布数据链自动跑，也可 `--dry-run` / `--report` 单独看结果 | 只写 `site/data/updates.json` |
 | `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条默认不入索引（开关 `TITLE_ONLY_GATED_IN_SAFE_BOOKS`，默认关，开了只入词条名）；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
 | `build_tag_zh.py` | **现役（2026-09-18 上线）**：生成灯箱「中文对照」的译名分片 `site/data/tag_zh/`（core + 分书），译名优先级「人工译名 > 社区词库 > AI 译名」，来源表在 Git 忽略的 `tools/data/tag_zh/`；社区词库缺失时从钉死提交的 URL 下载并校验 SHA-256。查表键与前端 `tag-zh-core.js` 共用夹具 `fixtures/tag_zh_keys.json`，改一侧必须同步另一侧。双击入口 `单项工具/生成中文对照.bat`（总控台第 14 项）；发布数据链在分享索引之后自动跑一次 | 重写 `site/data/tag_zh/*.json`（并删除该目录下不再产出的旧分片）；覆盖写 `output/tag-zh/构建报告.md` 与 `待翻译.csv`；词库缺失时写 `tools/data/tag_zh/` 缓存；`--dry-run` 不写 `site/data` |
@@ -34,10 +35,11 @@
 | `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |
 | `test_blocking_manager_motion.mjs` | 屏蔽清单节点复用、退场隔离、焦点、快速切页/关闭、跨标签更新与动效兜底回归 | 只读，内存 DOM/动画与存储夹具；真实几何仍须浏览器验证 |
-| `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；使用隔离 Chrome profile，自动接受测试页的离开确认，导航等待新文档，中转站操作核对草稿落盘；控制台输出 UTF-8。`--only <用例名片段>` 可只跑单项，`--out-dir` 支持相对路径 | 只读，写测试输出 |
+| `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；使用隔离 Chrome profile，自动接受测试页的离开确认，导航等待新文档，中转站操作核对草稿落盘；控制台输出 UTF-8。`--only <用例名片段>` 可只跑单项，`--out-dir` 支持相对路径；四态汇总，译名用例缺 core.json 为 BLOCKED，跳过不算通过 | 只读，写测试输出 |
 | `verify_favorites_v2.py` | 收藏夹业务集成回归：迁移、归属、撤销、故障、多标签页及性能；关闭动效，含直接模块调用与 DOM 夹具；`--base-url` 指定工作区预览 | 仅接受无凭据的 HTTP localhost / 127.0.0.1；须指向只读 `preview_server.py`，不能连接编辑或生产服务；写隔离 Chrome profile 的测试存储和 `output/favorites-v2-validation/integration/`，`--out-dir` 可指定；不操作用户浏览器数据 |
 | `verify_favorites_experience.py` | 收藏夹真实操作链：开启动效，以 CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.insertText` 点击、按键和输入，核对实际命中、焦点、快捷键、断点与菜单几何；区别于上行的业务集成夹具 | 同样只接受无凭据的 HTTP localhost / 127.0.0.1；要求 `preview_server.py` 只读预览已启动，不接管服务生命周期；写独立测试 profile、结果/截图及程序版本哈希到 `output/favorites-experience/`，可用 `--out-dir` 分隔每轮；不使用用户 profile，不替代实体软键盘/读屏器验收 |
-| `benchmark_search_v1.mjs` | 搜索 V1 与旧匹配逻辑的本地中位耗时对比；数据缺失时明确 SKIP | 只读 |
+| `benchmark_search_v1.mjs` | 搜索当前实现的冷暖交错微基准，每次核对完整排序结果；记录原字节数据摘要、源码与环境。`--baseline-report <报告>` 比较已冻结的成功输出，输入、环境、协议或结果不同为 BLOCKED；可比情况下 median 超过基准 10% 为 FAIL。`--compare-legacy` 仍先核对召回集合，不同或空数据/缺输入为 BLOCKED、退出 2 | 只读本地 JSON；私密输入的输出不可上传公共 CI。冷暖差异是缓存观测，同源码重复测量不证明代码提升/退化；主机调度与负载需另行控制 |
+| `verify_frontend_loading_recovery.py` | 隔离 Chrome 验译名、搜索与后台列表恢复；`--source fixed` 用当前源码及内存合成 JSON，`--only-relay` 单验中转站恢复，`before` 只用于本轮冻结夹具复现 | 起停独立回环服务/浏览器 profile，只写指定新输出目录；禁外网，不接用户 profile，不读真实数据/凭据，不进无浏览器 CI |
 | `sd_metadata_inspector.py` | 读图片生成参数 + 审计法典 tag 覆盖率；**图片参数解析的唯一公共入口**，格式与审计流程见下方“操作说明去向” | 只读；审计写 CSV |
 | `cleanup_output.py` | 按保留策略清理 `output/`（详见文件头；`单项工具/清理输出.bat` 的内核） | 默认 dry-run；`--apply` 才删 |
 
@@ -108,22 +110,25 @@
 
 测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
+- Python · 工程自检：`test_run_project_checks.py` 验零用例、缺输入/运行时、跳过、超时、结果汇总、环境清理、路径及证据边界；使用合成临时文件。`test_project_audit_entrypoints.py` 在 Windows 用假 Python 验工程自检入口的退出码、GBK 恢复与总菜单动作委托；不运行真实发布或生产命令，不代替实体控制台键盘交互。公开 CI 仅运行 runner 的 ci/windows 两组，运行结果和已知基线缺口同时保留；main 默认尾段及公共搜索夹具纳入 ci；待合并社区入口、真实数据采样与旧实现比较单列 baseline，缺模块或不可比较保持 BLOCKED。发布安全测试依赖现有 Pillow，CI 只安装这一项。
+
 - Node · 匿名产品统计：`test_site_analytics.mjs`（显式关闭工厂、DNT/GPC 零发送、内存队列、限频、超时、无重试/标识/持久化）；`test_site_metrics_backend.mjs`（真实内存 SQLite migration、同源、字节上限、严格字段枚举、未迁移 disabled、原子全站限额、保留期与已认证聚合报表）；`test_site_metrics_hooks.mjs`（实际复制/分享/导出/过滤函数体的内存依赖回放，成功时序与取消/失败排除）；`test_site_search_observation.mjs`（800ms 前清空/历史提前返回、导航及结果更新取消、无效回调、新旧代次与三个作用域的有效完成）；`test_site_metrics_production.mjs`（独立只读权限/到期、不能进入管理员接口、保留期清理边界及无关表不变）。只读源码和内存夹具，不联网、不写用户存储或生产；不代替真实 Pages Functions 与浏览器验收。
 - SQL · 匿名统计清理：`site_metrics_maintenance.sql` 只删除过期统计日聚合和全站限频桶，不碰互动/投稿/反馈表；执行即改指定 D1，本地/远端必须显式区分，远端需要另行授权。流程见私密运维文档 `docs/运维/匿名产品统计上线与回滚.md`。
 - Worker · `site-metrics-maintenance/worker.js` 与同目录 `wrangler.jsonc`：统计过期清理的独立 Cron Worker；部署会创建或更新具名 Worker/计划，运行会删除目标 D1 的过期统计行，绝不删除社区表；无公开 HTTP 维护接口，不随菜单程序发布自动部署。须核对目标配置并取得生产授权。
 
 - Python · 导入与数据：`test_apply_pack_names.py`、`test_backfill_pack_image_prompts.py`、`test_import_docx_codex.py`、`test_import_nai5_artist_dictionary.py`、`test_import_nai5_community_pack.py`、`test_import_mengshen_korean_pack.py`、`test_import_wof_artist_strings.py`、`test_pack_import_core.py`、`test_clean_nai_default_tags.py`、`test_preserved_display_policy.py`、`test_pack_character_prompts.py`、`test_suozhang_char_prompts.py`。
-- Node · 默认尾段：`test_nai_default_tags.mjs`；Python/JS 共用 `fixtures/nai_default_tags.json`，覆盖重复尾段、混序、NAI reset、前文原样保留与外部/在线加载。
+- Node · 默认尾段：`test_nai_default_tags.mjs`；Python/JS 共用 `fixtures/nai_default_tags.json`，覆盖重复尾段、混序、NAI reset、前文原样保留与 main 实际加载；`test_nai_default_tags_community.mjs` 独立验证待合并模块的适配与加载，缺模块为 BLOCKED，不导入空壳。
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Node · 本地编辑器目录调序：`test_category_order.mjs`（真实节点与图片列表排序、组内原序、实际过滤链接线、收藏 / 全站搜索排序边界、空目录、旧书原序、分级及缓存失效；仅内存夹具，不写用户数据）。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
-- Python · UI 测试驱动：`test_verify_ui.py`（离开确认与导航响应两种顺序、后续命令继续执行及确认失败诊断；内存协议夹具，不启动浏览器）。
+- Python · UI 测试驱动：`test_verify_ui.py`（CDP 离开确认/导航，以及 PASS/FAIL/SKIP/BLOCKED 汇总、必需夹具缺失与 CLI 退出码；合成夹具，不启动浏览器）。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Python · 画师样张索引：`test_build_artist_index.py`（画师名夹具、去重顺序、书名推版本）；Node 侧对应 `test_artist_core.mjs`（倍率、索引归一、拆解兜底与跳过自身），两边共用 `fixtures/artist_keys.json`。
 - Python · 更新样图索引：`test_build_updates_index.py`（更新批次与书内样张共用抽样、成人书自动抽图与解锁标记、公开书排除成人词条、指定样图及失效回退、可见计数门控）。
-- Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
+- Python · 发布与安全：`test_build_share_index.py`、`test_sync_r2.py`、`test_publish_data_r2.py`、`test_publish_safety.py`、`test_publish_entrypoints.py`、`test_favorites_origin_migration_browser.py`、`test_python_tool_safety.py`、`test_lint_docs.py`。
 - Node · 数据与路由：`test_entry_aliases.mjs`（同书套图合并的收藏、深链及分享门控）、`test_data_source.mjs`、`test_data_proxy.mjs`、`test_r2_proxy.mjs`、`test_share_backend.mjs`、`test_codex_route_compat.mjs`、`test_path_code.mjs`、`test_404_page.mjs`。
-- Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。
+- Node · 共创与后台：`test_admin_community_backend.mjs`、`test_admin_feedback_backend.mjs`、`test_community_backend_low_risk.mjs`、`test_community_frontend.mjs`、`test_community_frontend_low_risk.mjs`、`test_community_likes_backend.mjs`、`test_community_submit_backend.mjs`、`test_community_router_url.mjs`。`test_community_rebuild.mjs` 以真实 handler + 内存 R2 的确定性交错验证聚合条件写：已成功下架不被旧快照覆盖、首次创建、同毫秒同内容 ETag、重读重试、冲突耗尽错误传播及分页；纳入 runner 的 ci 组，不联网、不写生产，不替代真实 R2 平台验收。
+- Node · 投稿失败恢复：`test_community_submit_recovery.mjs` 用真实 handler、合成内存 R2 与 SQLite 验每个缩略图/原图写入点失败、写入已完成/晚到但响应失败、条件首建冲突、补偿失败、恢复清单失败及待审占位。纳入 ci 组；仅写内存，不扫描或清理历史对象，不联网，不替代真实 R2/D1 平台验收。
 - Node · 主站状态与交互：`test_access.mjs`（四态评级 / 显式 NSFW 与 R18G 路径 / 虚拟来源总闸）、`test_atlas_access_runtime.mjs`（撤权清场、在途换书与反馈异步回写）、`test_browser_history.mjs`、`test_history_storage.mjs`、`test_edit_client.mjs`、`test_search_data.mjs`、`test_search_directories.mjs`、`test_render_ui.mjs`、`test_modal_dismiss.mjs`、`test_modal_layers.mjs`（共享模态生命周期、顶层键盘归属、同一事件不连关下层与语义回焦）、`test_select_menu.mjs`（受控值、键盘/Tab、选项重绘回焦、外点、页面隐藏及销毁解绑）、`test_copy.mjs`、`test_beta_banner.mjs`、`test_local_ownership.mjs`、`test_resume_prompt.mjs`、`test_masonry_viewport.mjs`（视口、手机密度、同宽实测与列保留、布局输入失效）、`test_skeleton_transition.mjs`。
 - Node · 本机数据 P2：`test_favorites_replace_confirmation.mjs`（锁内精确损失对象、同数量换身份、备注与夹/关系变化、损坏原文门）、`test_settings_storage.mjs`（设置保存先于 UI、读写/属性/静默故障、重试、多键补偿、侧栏历史及撤权不反写）。`verify_local_data_p2.py --source baseline|fixed --baseline <P1提交> --out-dir output/<隔离目录> [--preview]` 用固定 Git 字节与当前程序运行同组 Chrome 断言；只启动回环夹具/只读预览和独立 profile，自起自关，不接管真实用户存储，不调用生产 API。
 - Node · 本机数据 P1：`test_community_favorites_store.mjs`（星标最新底本、renderer 屏障、备份协调、失败反馈）、`test_favorites_note_conflicts.mjs`（别名备注双方原文、备份去重、超预算拒写）、`test_tag_relay_compose.mjs`（等待另存时继续输入与重入）、`node --experimental-vm-modules tools/test_tag_relay_cache.mjs`（25/75ms 独立 renderer 缓存、方案/素材及 revision）。`verify_local_data_p1.py --source baseline|fixed --out-dir output/<隔离目录>` 用 Git 基线与当前程序运行相同 Chrome 安全断言；仅回环资产夹具与隔离 profile，自起自关，不读写真实用户浏览器存储或生产接口。
@@ -134,9 +139,19 @@
 - Python · 中转站文本内核：`verify_relay_editor.py`（独立 Chrome profile、回环临时端口只服务内存夹具与真实 `site/assets`，断言镜像 CSS / 几何 / 实际字符落点、原生撤销、选区和拖放；`--only` 筛选用例）。写 `output/relay-plana-editor-20260921/browser-acceptance/` 截图及结果，`--out-dir` 可指定；不接用户浏览器、不写方案库，不替代真实系统输入法或实体手机验收。
 - Node · 收藏夹 V2：`test_favorites_library_core.mjs`、`test_favorites_library_store.mjs`、`test_favorites_backup_store.mjs`、`test_favorites_backup_v2.mjs`、`test_favorites_backup_ui.mjs`、`test_favorites_view.mjs`、`test_favorites_route.mjs`；浏览器模块测试加载器为 `favorites-library-test-loader.mjs`。
 - Node · 收藏取件码：`test_favorites_pickup_backend.mjs`（后端路由、限流、一次性与前后端防漂移）；D1 用 `sqlite-d1-test-harness.mjs` 以 `node:sqlite` 模拟，喜欢后端测试共用。
-- Node · 投稿 / 反馈防护：`test_submission_guards.mjs`（D1 原子限额与待审名额、D1 不可用时退回、公开反馈快照与推送回写的条件写）；R2 用 `memory-r2-test-harness.mjs`（etag、`onlyIf` 条件写、可选模拟延迟与读后插入钩子），反馈后台测试共用。
+- Node · 投稿 / 反馈防护：`test_submission_guards.mjs`（D1 原子限额与待审名额、D1 不可用时退回、公开反馈快照与推送回写的条件写）；R2 用 `memory-r2-test-harness.mjs`（etag、Headers/对象形式的 `onlyIf` 条件写及首次创建 `*`、可选模拟延迟与读后插入钩子），反馈/共创后台测试共用。共享夹具用递增 ETag，聚合交错测试另用内容哈希 ETag 覆盖同内容版本重复；两者均不是生产存储。
 
 `__pycache__/` 是 Python 缓存，忽略。
+
+### 工程风险专项回归
+
+- `test_frontend_loading_recovery.mjs`：实际 ES module 图的译名失败恢复、搜索截止/取消/权限/release、主站和中转站重试接线；Node 需 `--experimental-vm-modules`，合成 fetch/时钟，不联网。
+- `test_feedback_list_budget.mjs`、`test_feedback_list_client.mjs`：假 R2 分页、读正文预算、最新排序/版本冲突、加密缓存和 202 有界客户端续载；仅合成对象与口令。
+- `test_benchmark_search_v1.mjs`：固定公共语义、数据摘要、采样分布、完整排序结果、冻结报告可比性、10% 回退判定、空数据及旧比较不可比闸门；写临时合成 JSON，不读取私密法典。
+
+本机搜索基准可先把 `node tools/benchmark_search_v1.mjs` 的完整标准输出冻结到新的 `output/` 文件，再运行 `node tools/benchmark_search_v1.mjs --baseline-report <该文件>`。仅接受成功 JSON 或原始成功输出；失败/不完整报告不能充当基线。不同源码允许比较，但必须保留两端源码哈希；同源码重复测量只反映运行波动。比较前应停止并行重负载；失败日志必须保留，不反复重跑挑选绿色结果。历史 `--compare-legacy` 的不可比诊断仍独立保留。
+- `test_publish_safety.py`：合成媒体缺失/可选原图、FakeR2 受控发布回滚交错、条件请求签名与未知结果；含隔离数据的默认计划模式，不读取真实配置、上传或激活。
+
 
 ## 永久下架记录
 
@@ -151,7 +166,7 @@
 ## 安全建议
 
 - 不确定时先查本行的准确边界，再选明确标为只读的模式；不能从文件名、`plan`、`validate`、`check-only` 或“不带 `--apply`”猜默认副作用。
-- `sync_r2.py` 的严格本地不写模式只有 `--dry-run`；配置完整时即便 dry-run 也会读取 R2。`--check-only` 只禁止上传与同步清单更新，仍可能回写法典 JSON 和 `media.json`；其退出码目前忽略 `strings_counts["upload"]`，所以仅 strings 图片缺失或变化时可能仍为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail`，不得把 exit 0 当作全部 R2 对象齐全。默认模式会联系并写入 R2；运行前必须核对 `r2_config.json`，生产上传仍需明确授权。
+- `sync_r2.py` 的严格本地不写模式只有 `--dry-run`；配置完整时即便 dry-run 也会列举 R2 并探测本地缺失的必需媒体首字节。`--check-only` 只禁止上传与同步清单更新，仍可能回写法典 JSON 和 `media.json`；其退出码目前忽略 `strings_counts["upload"]`，所以仅 strings 图片缺失或变化时可能仍为 0，必须同时检查 `remote sync` 与 `strings sync` 两段的 `upload` / `fail`，不得把 exit 0 当作全部 R2 对象齐全。默认模式会联系并写入 R2；运行前必须核对 `r2_config.json`，生产上传仍需明确授权。
 - 写数据前先检查工作树和工具自己的差异报告；`site/data/`、`site/images/`、`originals/` 被 Git 忽略，不能只靠 `git status` 判断是否混入旧改动。
 - 一次性导入器即使自带中止保护也不得绕过；需要复用时先把它改造成针对现行 schema 的新流程并重新审核。
 - 工具生成 `output/` 不等于正式数据已应用，更不等于 R2 或 Pages 已发布。

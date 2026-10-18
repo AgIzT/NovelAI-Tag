@@ -1,9 +1,10 @@
 'use strict';
 
-import { json, err, requireAdmin, listAll, readJsonBatch, cleanLine } from '../../_lib.js';
+import { json, err, requireAdmin, cleanLine } from '../../_lib.js';
 import {
-  normalizeFeedbackStatus, sanitizeAdminFeedbackRecord,
+  normalizeFeedbackStatus,
 } from '../../_feedback.js';
+import { readAdminFeedbackList } from '../../_feedback-list.js';
 
 export async function onRequestGet(context) {
   const denied = await requireAdmin(context);
@@ -15,24 +16,10 @@ export async function onRequestGet(context) {
   const status = cleanLine(url.searchParams.get('status'), 20) || 'pending';
   if (!normalizeFeedbackStatus(status)) return err('反馈状态无效');
 
-  const keys = (await listAll(env.STRINGS_BUCKET, `feedback/${status}/`))
-    .filter(k => k.endsWith('.json'));
-  const records = await readJsonBatch(env.STRINGS_BUCKET, keys);
-  const items = records
-    .filter(Boolean)
-    .map(record => sanitizeAdminFeedbackRecord(record, status))
-    .sort((a, b) => sortTime(b) - sortTime(a))
-    .slice(0, 200);
-
-  return json({ ok: true, status, items });
-}
-
-function sortTime(item) {
-  return [
-    item.progressStatusUpdatedAt,
-    item.replyUpdatedAt,
-    item.statusUpdatedAt,
-    item.handledAt,
-    item.createdAt,
-  ].reduce((latest, value) => Math.max(latest, Number(value) || 0), 0);
+  try {
+    const result = await readAdminFeedbackList(env.STRINGS_BUCKET, status, env.ADMIN_TOKEN);
+    return json({ ok: true, status, ...result }, result.indexing ? 202 : 200);
+  } catch {
+    return err('反馈列表暂时无法完整加载，请稍后刷新重试', 503);
+  }
 }

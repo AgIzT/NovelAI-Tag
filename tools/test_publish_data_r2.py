@@ -61,6 +61,15 @@ class FakeClient:
         item = self.objects.get(key)
         return json.loads(item["body"].decode("utf-8")) if item else None
 
+    def get_json_snapshot(self, key):
+        item = self.objects.get(key)
+        return self.get_json(key), ('"' + sha256_bytes(item["body"]) + '"') if item else None
+
+    def put_pointer(self, key, body, expected_etag):
+        if self.get_json_snapshot(key)[1] != expected_etag:
+            raise RuntimeError("current pointer conflict")
+        self.put_bytes(key, body, POINTER_CACHE_CONTROL)
+
 
 class FakePublicResponse:
     headers = {"Access-Control-Allow-Origin": "https://novelai.quicktagcloud.com"}

@@ -3,7 +3,7 @@
 import {
   json, err, LIMITS, requireStorage,
   cleanLine, cleanText, normTags, normCategory, defaultSubmissionTitle,
-  normImageParams,
+  normImageParams, COMMUNITY_STATUSES,
 } from '../_lib.js';
 import { sniffImageKind, readPngSize, extractTextParams } from '../_params_core.js';
 import { reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
@@ -27,6 +27,103 @@ function parseImagesMeta(raw, count) {
 function clampDim(v) {
   const n = Math.floor(Number(v || 0));
   return Number.isFinite(n) && n > 0 && n <= 20000 ? n : 0;
+}
+
+// 只补偿本请求已确认首建的媒体，不扫描 ID 前缀，也不把读空当作写入失败证明。
+async function compensateMedia(bucket, keys) {
+  if (!keys.length) return [];
+  try { await bucket.delete(keys); return []; } catch { /* 批量删除可能部分完成，逐 key 重试一次 */ }
+  const failed = [];
+  for (let i = 0; i < keys.length; i += 4) {
+    const results = await Promise.all(keys.slice(i, i + 4).map(async key => {
+      try { await bucket.delete(key); return null; } catch { return key; }
+    }));
+    failed.push(...results.filter(Boolean));
+  }
+  return failed;
+}
+
+async function storeSubmission(env, { id, record, uploads, slot }) {
+  const bucket = env.STRINGS_BUCKET;
+  const pendingKey = `community/pending/${id}.json`;
+  const recoveryKey = `community/submission-recovery/${id}.json`;
+  const confirmedMediaKeys = [];
+  let intent, intentObject, attemptId;
+  let phase = 'identity';
+  let uncertainKey = null;
+  let pendingUnknown = false;
+
+  async function create(key, value, httpMetadata) {
+    uncertainKey = key;
+    const result = await bucket.put(key, value, {
+      httpMetadata, customMetadata: { submissionAttempt: attemptId },
+      onlyIf: new Headers({ 'if-none-match': '*' }),
+    });
+    uncertainKey = null; // null 返回也是确定的首建冲突，不能据此认领已有对象。
+    return result;
+  }
+  async function removeIntent() {
+    try { await bucket.delete(recoveryKey); }
+    catch {
+      console.warn(JSON.stringify({ event: 'community_submission_recovery_cleanup_failed', id, recoveryKey, phase }));
+    }
+  }
+
+  try {
+    // 只读五个精确记录 key；损坏 JSON 也算已占用，不能复用其 ID。
+    const existing = await Promise.all(COMMUNITY_STATUSES.map(status => bucket.head(`community/${status}/${id}.json`)));
+    if (existing.some(Boolean)) throw new Error('Submission ID already exists');
+    attemptId = crypto.randomUUID();
+    intent = { version: 1, id, attemptId, pendingKey, mediaKeys: uploads.map(upload => upload.key), createdAt: record.createdAt };
+    phase = 'intent';
+    intentObject = await create(recoveryKey, JSON.stringify(intent), { contentType: 'application/json; charset=utf-8' });
+    if (!intentObject) throw new Error('Submission recovery key already exists');
+    phase = 'media';
+    for (const upload of uploads) {
+      const saved = await create(upload.key, upload.body, upload.httpMetadata);
+      if (!saved) throw new Error('Submission media key already exists');
+      confirmedMediaKeys.push(upload.key);
+    }
+    phase = 'pending';
+    pendingUnknown = true;
+    const saved = await create(pendingKey, JSON.stringify(record), { contentType: 'application/json; charset=utf-8' });
+    if (!saved) {
+      pendingUnknown = false;
+      throw new Error('Submission pending key already exists');
+    }
+  } catch (error) {
+    // pending 写入一旦结果不明，可能已经提交或稍后提交；保留媒体及占位，避免生成缺图记录。
+    const cleanupFailedKeys = pendingUnknown ? [] : await compensateMedia(bucket, confirmedMediaKeys);
+    const needsRecovery = pendingUnknown || uncertainKey || cleanupFailedKeys.length;
+    if (intentObject && needsRecovery) {
+      try {
+        const saved = await bucket.put(recoveryKey, JSON.stringify({
+          ...intent, phase, confirmedMediaKeys, uncertainKey, cleanupFailedKeys,
+          pendingOutcome: pendingUnknown ? 'unknown' : 'not_committed', failedAt: Date.now(),
+        }), {
+          httpMetadata: { contentType: 'application/json; charset=utf-8' },
+          onlyIf: { etagMatches: intentObject.etag },
+        });
+        if (!saved) throw new Error('Recovery snapshot conflict');
+      } catch {
+        // 初始清单已在媒体之前持久化；更新失败也不能抹掉原始错误或声称补偿完成。
+        console.warn(JSON.stringify({ event: 'community_submission_recovery_update_failed', id, recoveryKey }));
+      }
+    } else if (intentObject) {
+      await removeIntent();
+    }
+    if (needsRecovery) {
+      console.error(JSON.stringify({
+        event: 'community_submission_recovery_needed', id, recoveryKey, phase,
+        uncertainKey, cleanupFailedKeys, pendingOutcome: pendingUnknown ? 'unknown' : 'not_committed',
+      }));
+    }
+    if (!pendingUnknown) await releasePendingSlot(env, { queue: 'community', id: slot?.id });
+    throw error;
+  }
+  // pending 已确认提交。清单删除失败仅留待核对，不能触发媒体回滚或返回投稿失败。
+  phase = 'committed';
+  await removeIntent();
 }
 
 export async function onRequestPost({ request, env }) {
@@ -118,41 +215,34 @@ export async function onRequestPost({ request, env }) {
   const slot = await reservePendingSlot(env, { queue: 'community', pendingCount: pendCount, max: LIMITS.pendingMax });
   if (slot && !slot.reserved) return err('待审投稿已满，过几天再投稿', 429);
 
-  // 写入 R2
+  // 先准备完整的精确 key 清单，持久化恢复意图后才开始上传媒体。
   const id = crypto.randomUUID();
-  try {
-    const stored = [];
-    for (let i = 0; i < images.length; i++) {
-      const im = images[i];
-      const key = `community/img/${id}/${i + 1}.${im.ext}`;
-      await env.STRINGS_BUCKET.put(key, im.buf, {
-        httpMetadata: { contentType: CONTENT_TYPES[im.ext], cacheControl: 'public, max-age=31536000, immutable' },
-      });
-      const record = { key };
-      if (im.origBuf) {
-        const origKey = `community/img/${id}/${i + 1}.orig.${im.origExt}`;
-        await env.STRINGS_BUCKET.put(origKey, im.origBuf, {
-          httpMetadata: { contentType: CONTENT_TYPES[im.origExt], cacheControl: 'public, max-age=31536000, immutable' },
-        });
-        record.origKey = origKey;
-      }
-      if (im.width && im.height) { record.width = im.width; record.height = im.height; }
-      if (im.params) record.params = im.params;
-      stored.push(record);
+  const stored = [];
+  const uploads = [];
+  for (let i = 0; i < images.length; i++) {
+    const im = images[i];
+    const key = `community/img/${id}/${i + 1}.${im.ext}`;
+    uploads.push({ key, body: im.buf, httpMetadata: {
+      contentType: CONTENT_TYPES[im.ext], cacheControl: 'public, max-age=31536000, immutable',
+    } });
+    const record = { key };
+    if (im.origBuf) {
+      const origKey = `community/img/${id}/${i + 1}.orig.${im.origExt}`;
+      uploads.push({ key: origKey, body: im.origBuf, httpMetadata: {
+        contentType: CONTENT_TYPES[im.origExt], cacheControl: 'public, max-age=31536000, immutable',
+      } });
+      record.origKey = origKey;
     }
-
-    const record = {
-      id, title, prompt, negative, comment, tags, category, nsfw, submitter,
-      images: stored,
-      createdAt: Date.now(),
-    };
-    await env.STRINGS_BUCKET.put(`community/pending/${id}.json`, JSON.stringify(record), {
-      httpMetadata: { contentType: 'application/json; charset=utf-8' },
-    });
-  } catch (error) {
-    await releasePendingSlot(env, { queue: 'community', id: slot?.id });
-    throw error;
+    if (im.width && im.height) { record.width = im.width; record.height = im.height; }
+    if (im.params) record.params = im.params;
+    stored.push(record);
   }
+
+  const record = {
+    id, title, prompt, negative, comment, tags, category, nsfw, submitter,
+    images: stored, createdAt: Date.now(),
+  };
+  await storeSubmission(env, { id, record, uploads, slot });
 
   return json({ ok: true, id }, 201);
 }

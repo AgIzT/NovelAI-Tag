@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { SqliteD1 as SqliteD1Base, readMigrations } from './sqlite-d1-test-harness.mjs';
+import { MemoryR2 as MemoryR2Base } from './memory-r2-test-harness.mjs';
 
 import { onRequestGet as communityGet } from '../functions/api/community.js';
 import { onRequestPut as likePut, onRequestDelete as likeDelete } from '../functions/api/community-likes/[id].js';
@@ -13,30 +14,19 @@ class SqliteD1 extends SqliteD1Base {
   constructor() { super(MIGRATION); }
 }
 
-class MemoryR2 {
-  constructor() { this.objects = new Map(); }
+class MemoryR2 extends MemoryR2Base {
   async get(key) {
-    if (!this.objects.has(key)) return null;
-    const value = this.objects.get(key);
-    const raw = typeof value === 'string' ? value : new TextDecoder().decode(value);
+    const object = await super.get(key);
+    if (!object) return null;
     return {
-      json: async () => JSON.parse(raw),
-      body: typeof value === 'string' ? new TextEncoder().encode(value) : value,
-      httpMetadata: { contentType: key.endsWith('.json') ? 'application/json' : 'image/jpeg' },
+      ...object,
+      body: typeof object.body === 'string' ? new TextEncoder().encode(object.body) : object.body,
+      httpMetadata: object.httpMetadata || { contentType: key.endsWith('.json') ? 'application/json' : 'image/jpeg' },
     };
   }
-  async put(key, value) {
-    if (typeof value === 'string') this.objects.set(key, value);
-    else this.objects.set(key, new Uint8Array(await new Response(value).arrayBuffer()));
-  }
-  async delete(keys) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
-  }
-  async list({ prefix }) {
-    return {
-      objects: [...this.objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key })),
-      truncated: false,
-    };
+  async put(key, value, options) {
+    const raw = typeof value === 'string' ? value : new Uint8Array(await new Response(value).arrayBuffer());
+    return super.put(key, raw, options);
   }
 }
 

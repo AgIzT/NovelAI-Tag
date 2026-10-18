@@ -2,8 +2,10 @@ import { state } from './state.js';
 import { fetchCodex, buildTreeFromEntries } from './data.js';
 import { isCodexLocked } from './access.js';
 import { hasEntryImage, entryImages, assetUrl } from './media.js';
+import { getDataSource } from '../data-source.js';
 
 export const SITE_SEARCH_CODEX_ID = 'site-search';
+const BUILD_TIMEOUT_MS = 10000;
 
 let siteSearchMemo = null;
 let siteSearchInFlight = null;
@@ -14,6 +16,7 @@ function currentBuildKey() {
     codexes: state.codexes,
     allowNsfw: state.allowNsfw,
     allowR18g: state.allowR18g,
+    release: getDataSource().release,
   };
 }
 
@@ -21,12 +24,14 @@ function sameBuildKey(a, b) {
   return Boolean(a && b
     && a.codexes === b.codexes
     && a.allowNsfw === b.allowNsfw
-    && a.allowR18g === b.allowR18g);
+    && a.allowR18g === b.allowR18g
+    && a.release === b.release);
 }
 
 export function invalidateSiteSearchCodex() {
   siteSearchGeneration += 1;
   siteSearchMemo = null;
+  siteSearchInFlight?.controller.abort();
   siteSearchInFlight = null;
 }
 
@@ -78,9 +83,12 @@ export async function buildSiteSearchCodex() {
   const key = currentBuildKey();
   if (sameBuildKey(siteSearchMemo?.key, key)) return siteSearchMemo.codex;
   if (sameBuildKey(siteSearchInFlight?.key, key)) return siteSearchInFlight.promise;
+  siteSearchInFlight?.controller.abort();
 
   const generation = siteSearchGeneration;
-  const promise = buildSiteSearchCodexFresh().then(({ codex, complete }) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException('全站搜索加载超时', 'TimeoutError')), BUILD_TIMEOUT_MS);
+  const promise = buildSiteSearchCodexFresh(controller.signal).then(({ codex, complete }) => {
     if (generation !== siteSearchGeneration || !sameBuildKey(key, currentBuildKey())) {
       return buildSiteSearchCodex();
     }
@@ -89,18 +97,19 @@ export async function buildSiteSearchCodex() {
     }
     return codex;
   }).finally(() => {
+    clearTimeout(timeout);
     if (siteSearchInFlight?.promise === promise) siteSearchInFlight = null;
   });
-  siteSearchInFlight = { key, promise };
+  siteSearchInFlight = { key, promise, controller };
   return promise;
 }
 
-async function buildSiteSearchCodexFresh() {
+async function buildSiteSearchCodexFresh(signal) {
   const lockedMetas = state.codexes.filter(isCodexLocked);
   const openMetas = state.codexes.filter(meta => !isCodexLocked(meta));
   const sources = await Promise.all(openMetas.map(async meta => {
     try {
-      return { meta, codex: await fetchCodex(meta) };
+      return { meta, codex: await fetchCodex(meta, { signal }) };
     } catch (ex) {
       console.warn(ex);
       return { meta, codex: null };
@@ -125,15 +134,17 @@ async function buildSiteSearchCodexFresh() {
   const lockedCount = lockedMetas.reduce((n, meta) => n + Number(meta.entryCount || 0), 0);
   const notices = [];
   if (lockedCount) notices.push(`另有 ${lockedCount} 条在 NSFW 法典中，开启 NSFW 后可搜索`);
-  if (failedCount) notices.push(`${failedCount} 条所在的法典加载失败，刷新页面重试`);
+  if (failedSources) notices.push(`${failedSources} 本法典加载失败${failedCount ? `（约 ${failedCount} 条）` : ''}，重新搜索可重试`);
+  const complete = failedSources === 0
+    && sources.every(({ codex }) => codex?.dataStatus !== '发布回退数据');
 
   return {
     // fetchCodex 的“发布回退数据”刻意不进 codexCache，以便下次重试外部源；
     // 全站 memo 也必须尊重这层语义，不能把一次降级冻结成整会话结果。
-    complete: failedSources === 0
-      && sources.every(({ codex }) => codex?.dataStatus !== '发布回退数据'),
+    complete,
     codex: {
       ...siteSearchMeta(),
+      _siteSearchComplete: complete,
       assetPathMode: 'codex',
       assetBaseUrl: '',
       dataUrl: '',

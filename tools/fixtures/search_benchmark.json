@@ -1,0 +1,20 @@
+{
+  "metas": [{"id": "public-demo", "title": "公共合成样本"}],
+  "codexes": [{
+    "id": "public-demo",
+    "tree": [{"name": "场景", "children": []}, {"name": "画风", "children": []}],
+    "entries": [
+      {"id": "title", "title": "广场", "tags": "blue sky", "path": ["场景"]},
+      {"id": "prompt", "title": "示例甲", "tags": "画风", "path": ["画风"]},
+      {"id": "character", "title": "示例乙", "tags": "sample", "characterPrompts": [{"label": "角色", "prompt": "涩", "negative": "场"}], "path": ["人物"]},
+      {"id": "excluded", "title": "示例丙", "tags": "plain", "negative": "场 画 涩", "rawTags": "场 画 涩", "note": "场 画 涩", "path": ["场景"]},
+      {"id": "empty", "title": "", "tags": "", "path": []}
+    ]
+  }],
+  "cases": [
+    {"query": "场", "ids": ["title"], "relatedNames": ["场景"]},
+    {"query": "画", "ids": ["prompt"], "relatedNames": ["画风"]},
+    {"query": "涩", "ids": ["character"], "relatedNames": []},
+    {"query": "not present", "ids": [], "relatedNames": []}
+  ]
+}

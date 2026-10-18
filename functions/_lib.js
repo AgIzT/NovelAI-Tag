@@ -437,30 +437,44 @@ export function emptyCollection() {
 // 重新生成聚合发布文件 community/community.json（每次通过/下架后调用）
 export async function rebuildCommunity(env) {
   const bucket = env.STRINGS_BUCKET;
-  const keys = (await listAll(bucket, 'community/approved/')).filter(k => k.endsWith('.json'));
-  const rebuildLog = {
-    event: 'community_rebuild',
-    approvedCount: keys.length,
-    readBatches: Math.ceil(keys.length / 20),
-  };
-  if (keys.length >= 900) {
-    console.warn(JSON.stringify({ ...rebuildLog, risk: 'internal_subrequest_limit' }));
-  } else {
-    console.log(JSON.stringify(rebuildLog));
+  const aggregateKey = 'community/community.json';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    // 必须先读发布版本，再扫描记录；否则旧记录可能配上刚下架后的新 ETag。
+    const previous = await bucket.head(aggregateKey);
+    const keys = (await listAll(bucket, 'community/approved/')).filter(k => k.endsWith('.json'));
+    const rebuildLog = {
+      event: 'community_rebuild',
+      attempt,
+      approvedCount: keys.length,
+      readBatches: Math.ceil(keys.length / 20),
+    };
+    if (keys.length >= 900) {
+      console.warn(JSON.stringify({ ...rebuildLog, risk: 'internal_subrequest_limit' }));
+    } else {
+      console.log(JSON.stringify(rebuildLog));
+    }
+    const records = await readJsonBatch(bucket, keys);
+    records.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const entries = records.map(r => toEntry(env, r));
+    const categories = communityCategoriesFromEntries(entries);
+    const data = {
+      ...emptyCollection(),
+      categories,
+      entries,
+      imagedCount: entries.filter(e => e.images.length).length,
+      generatedAt: Date.now(),
+      // 同内容、同毫秒的重建也必须改变对象字节，防止 ETag 重复放行旧快照。
+      revision: crypto.randomUUID(),
+    };
+    const written = await bucket.put(aggregateKey, JSON.stringify(data), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+      onlyIf: previous ? { etagMatches: previous.etag } : new Headers({ 'if-none-match': '*' }),
+    });
+    if (written) return data;
+    // 条件写冲突不能复用本轮 records，也不能回退成无条件覆盖。
+    console.warn(JSON.stringify({ event: 'community_rebuild_conflict', attempt }));
   }
-  const records = await readJsonBatch(bucket, keys);
-  records.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  const entries = records.map(r => toEntry(env, r));
-  const categories = communityCategoriesFromEntries(entries);
-  const data = {
-    ...emptyCollection(),
-    categories,
-    entries,
-    imagedCount: entries.filter(e => e.images.length).length,
-    generatedAt: Date.now(),
-  };
-  await bucket.put('community/community.json', JSON.stringify(data), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
-  return data;
+  const error = new Error('公开列表更新冲突，记录状态可能已改变；刷新页面核对后重试');
+  error.status = 503;
+  throw error;
 }

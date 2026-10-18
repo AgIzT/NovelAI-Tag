@@ -60,9 +60,13 @@ function joinBase(baseUrl, path) {
   return absoluteSiteUrl(`${stripTrailingSlash(baseUrl)}/${encoded}`);
 }
 
-async function fetchJsonUrl(url, cache) {
-  const response = await fetch(url, { cache });
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
+async function fetchJsonUrl(url, cache, signal) {
+  const response = await fetch(url, { cache, ...(signal ? { signal } : {}) });
+  if (!response.ok) {
+    const error = new Error(`HTTP ${response.status}: ${url}`);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 
@@ -265,17 +269,20 @@ export async function fetchDataJsonBatch(requests) {
   }));
 }
 
-export async function fetchDataJsonResult(path, { cache = 'default', allowFallback = true } = {}) {
+export async function fetchDataJsonResult(path, { cache = 'default', allowFallback = true, signal } = {}) {
+  signal?.throwIfAborted();
   const source = await initializeDataSource();
+  signal?.throwIfAborted();
   const primaryUrl = joinBase(source.baseUrl, path);
   try {
     return {
-      data: await fetchJsonUrl(primaryUrl, cache),
+      data: await fetchJsonUrl(primaryUrl, cache, signal),
       source: sourceLabel(source),
       url: primaryUrl,
       release: source.release,
     };
   } catch (error) {
+    signal?.throwIfAborted();
     if (source.mode !== 'r2' || !allowFallback) throw error;
     const demoting = DEMOTING_PATHS.has(normalizeKey(path));
     const proxy = demoting
@@ -291,7 +298,7 @@ export async function fetchDataJsonResult(path, { cache = 'default', allowFallba
     const fallbackUrl = joinBase(proxy.baseUrl, path);
     console.warn(`R2 data file unavailable; using the Pages proxy: ${path}`, error);
     return {
-      data: await fetchJsonUrl(fallbackUrl, 'no-store'),
+      data: await fetchJsonUrl(fallbackUrl, 'no-store', signal),
       source: 'proxy-fallback',
       url: fallbackUrl,
       release: source.release,

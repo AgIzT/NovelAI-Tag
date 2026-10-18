@@ -40,6 +40,7 @@ echo     13.  互动数据库迁移  生产 D1, 谨慎
 echo     14.  生成中文对照    重建 tag 译名分片
 echo     15.  补译中文对照    AI 补长尾译名, 要花钱
 echo     16.  清理默认标签    本地正向尾段, 自动备份
+echo     17.  工程自检        有限离线检查, 不发布
 echo.
 echo      0.  退出
 echo ------------------------------------------------------------
@@ -61,6 +62,7 @@ if "%c%"=="13" goto act_migrate
 if "%c%"=="14" goto act_tagzh
 if "%c%"=="15" goto act_tagzh_ai
 if "%c%"=="16" goto act_default_tags
+if "%c%"=="17" goto act_project_checks
 if "%c%"=="0" goto end
 goto menu
 
@@ -124,6 +126,10 @@ goto menu
 
 :act_default_tags
 call :run "清理默认标签.bat"
+goto menu
+
+:act_project_checks
+call :run "工程自检.bat"
 goto menu
 
 :act_migrate

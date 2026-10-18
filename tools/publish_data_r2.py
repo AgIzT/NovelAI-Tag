@@ -12,6 +12,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -212,6 +213,8 @@ def build_pointer(plan_or_manifest, previous_release="", published_at=None):
         "contentHash": content_hash,
         "manifest": f"releases/{release}/manifest.json",
         "publishedAt": published_at,
+        # Distinguish repeated same-release decisions within the same second (ABA).
+        "operationId": uuid.uuid4().hex,
     }
     if previous_release and previous_release != release:
         pointer["previousRelease"] = normalize_release(previous_release)
@@ -285,15 +288,44 @@ class R2DataClient:
         )
 
     def get_json(self, key):
-        status, _headers, body = self.raw.get(key)
+        value, _etag = self.get_json_snapshot(key)
+        return value
+
+    def get_json_snapshot(self, key):
+        # The value and its validator must come from one GET, never GET + HEAD.
+        status, headers, body = self.raw.get(key)
         if status == 404:
-            return None
-        if status >= 400:
+            return None, None
+        if status != 200:
             raise RuntimeError(f"GET failed {key}: {status} {body[:200]!r}")
         try:
-            return json.loads(body.decode("utf-8"))
+            return json.loads(body.decode("utf-8")), headers.get("etag")
         except (UnicodeError, json.JSONDecodeError) as ex:
             raise RuntimeError(f"invalid remote JSON {key}: {ex}") from ex
+
+    def put_pointer(self, key, body, expected_etag):
+        # A pointer is a decision, not an idempotent content upload. Do not retry
+        # a conflict or an ambiguous transport result against a newer view.
+        try:
+            status, _headers, response_body = self.raw.put_bytes(
+                key, body, sha256_bytes(body), "application/json; charset=utf-8", POINTER_CACHE_CONTROL,
+                if_match=expected_etag, if_none_match="*" if expected_etag is None else None,
+            )
+        except Exception as ex:
+            raise RuntimeError("current pointer write outcome unknown; check current release before retrying") from ex
+        if status in (409, 412):
+            raise RuntimeError("current pointer conflict; reload and review the active release before retrying")
+        if status not in (200, 201):
+            raise RuntimeError(f"current pointer write failed ({status}); check current release before retrying: {response_body[:200]!r}")
+
+
+def pointer_snapshot(client, key):
+    value, etag = client.get_json_snapshot(key)
+    if value is None:
+        return {}, None
+    if not isinstance(value, dict) or not etag:
+        raise RuntimeError("current pointer is invalid or has no ETag; refusing unconditional activation")
+    return value, etag
 
 
 def metadata_matches(remote, size, sha):
@@ -349,13 +381,14 @@ def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30, r
         raise RuntimeError("public manifest does not match the release just uploaded")
 
 
-def copy_sources(client, data_prefix, plan):
+def copy_sources(client, data_prefix, plan, pointer=None):
     """Active-release files byte-identical to the plan, as relative path -> source key.
 
     Best effort: without a readable active manifest every file is simply uploaded.
     """
     try:
-        pointer = client.get_json(f"{data_prefix}/current.json") or {}
+        if pointer is None:
+            pointer = client.get_json(f"{data_prefix}/current.json") or {}
         source = safe_release(pointer.get("release"))
         if not source or source == plan.release:
             return {}
@@ -403,8 +436,10 @@ def publish_file(client, key, item, source_key=None):
 def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None,
                     workers=DEFAULT_RELEASE_WORKERS):
     data_prefix = normalize_prefix(data_prefix)
+    current_key = f"{data_prefix}/current.json"
+    previous, expected_etag = pointer_snapshot(client, current_key)
     release_prefix = f"{data_prefix}/releases/{plan.release}"
-    sources = copy_sources(client, data_prefix, plan)
+    sources = copy_sources(client, data_prefix, plan, pointer=previous)
     counts = {"uploaded": 0, "copied": 0, "skipped": 0}
     total = len(plan.files)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
@@ -437,13 +472,11 @@ def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=
     if public_check:
         public_check(plan)
 
-    current_key = f"{data_prefix}/current.json"
-    previous = client.get_json(current_key) or {}
     pointer = build_pointer(plan, previous_release=previous_release_for(previous, plan.release))
     pointer_bytes = json_bytes(pointer)
-    client.put_bytes(current_key, pointer_bytes, POINTER_CACHE_CONTROL)
+    client.put_pointer(current_key, pointer_bytes, expected_etag)
     remote_pointer = client.get_json(current_key) or {}
-    if remote_pointer.get("release") != plan.release or remote_pointer.get("contentHash") != plan.content_hash:
+    if remote_pointer != pointer:
         raise RuntimeError("current pointer verification failed")
     return {**counts, "pointer": pointer}
 
@@ -465,19 +498,19 @@ def verify_manifest_files(client, data_prefix, release, manifest):
         verify_object(client, key, int(meta.get("size") or 0), str(meta.get("sha256") or ""))
 
 
-def activate_release(client, data_prefix, release):
+def activate_release(client, data_prefix, release, expected_snapshot=None):
     data_prefix = normalize_prefix(data_prefix)
+    current_key = f"{data_prefix}/current.json"
+    current, expected_etag = expected_snapshot if expected_snapshot is not None else pointer_snapshot(client, current_key)
     manifest = load_remote_manifest(client, data_prefix, release)
     if "codexes.json" not in manifest["files"]:
         raise RuntimeError("release manifest is missing codexes.json")
     verify_manifest_files(client, data_prefix, release, manifest)
-    current_key = f"{data_prefix}/current.json"
-    current = client.get_json(current_key) or {}
     pointer = build_pointer(manifest, previous_release=previous_release_for(current, release))
     pointer_bytes = json_bytes(pointer)
-    client.put_bytes(current_key, pointer_bytes, POINTER_CACHE_CONTROL)
+    client.put_pointer(current_key, pointer_bytes, expected_etag)
     verified = client.get_json(current_key) or {}
-    if verified.get("release") != release:
+    if verified != pointer:
         raise RuntimeError("current pointer verification failed")
     return pointer
 
@@ -527,11 +560,12 @@ def main(argv=None):
         print(f"activated release: {pointer['release']}")
         return 0
     if args.rollback:
-        current = client.get_json(f"{data_prefix}/current.json") or {}
+        snapshot = pointer_snapshot(client, f"{data_prefix}/current.json")
+        current, _etag = snapshot
         target = current.get("previousRelease") or ""
         if not target:
             raise SystemExit("current pointer has no previousRelease")
-        pointer = activate_release(client, data_prefix, target)
+        pointer = activate_release(client, data_prefix, target, expected_snapshot=snapshot)
         print(f"rolled back to: {pointer['release']}")
         return 0
 

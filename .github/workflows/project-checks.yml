@@ -1,0 +1,70 @@
+name: Project checks (selected public coverage)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-checks:
+    name: Selected public checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      # Existing image-library dependency only; no private data, credentials, publishing or live API tests.
+      - name: Install the existing media-test dependency
+        run: python -m pip install "Pillow>=10.0.0"
+      - name: Run the explicit public check list
+        run: python -B tools/run_project_checks.py --profile ci --output-dir output/project-audit/ci-public
+      - name: Preserve results, including failures and blocked checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-check-results
+          path: output/project-audit/ci-public/
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-entrypoints:
+    name: Windows entrypoints (fake executables)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - name: Run copied BAT files with fake commands in temporary directories
+        run: python -B tools/run_project_checks.py --profile windows --output-dir output/project-audit/ci-windows
+      - name: Preserve results, including failures and blocked checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-check-results
+          path: output/project-audit/ci-windows/
+          if-no-files-found: error
+          retention-days: 14

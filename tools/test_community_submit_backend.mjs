@@ -1,6 +1,7 @@
 // 投稿后端内存流测试：原图收录 + 服务端参数验证 + schema 透出 + 前后端识别核心防漂移
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { MemoryR2 as MemoryR2Base } from './memory-r2-test-harness.mjs';
 
 import { onRequestPost as submitPost } from '../functions/api/submit.js';
 import { onRequestGet as communityGet } from '../functions/api/community.js';
@@ -15,33 +16,13 @@ import { readPngTextChunks, PARAMS_INFLATE_LIMITS } from '../functions/_params_c
   assert.equal(a, b, 'functions/_params_core.js 与 site/assets/community/params-core.js 漂移了，请重新同步');
 }
 
-class MemoryR2 {
-  constructor() { this.objects = new Map(); this.metas = new Map(); }
-  async get(key) {
-    if (!this.objects.has(key)) return null;
-    const raw = this.objects.get(key);
-    return {
-      json: async () => JSON.parse(new TextDecoder().decode(raw)),
-      body: raw,
-      httpMetadata: this.metas.get(key),
-    };
-  }
+class MemoryR2 extends MemoryR2Base {
   async put(key, value, options) {
     let raw;
     if (typeof value === 'string') raw = new TextEncoder().encode(value);
     else if (value instanceof Uint8Array) raw = value;
     else raw = new Uint8Array(await new Response(value).arrayBuffer());
-    this.objects.set(key, raw);
-    this.metas.set(key, options?.httpMetadata);
-  }
-  async delete(keys) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
-  }
-  async list({ prefix }) {
-    return {
-      objects: [...this.objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key })),
-      truncated: false,
-    };
+    return super.put(key, raw, options);
   }
 }
 

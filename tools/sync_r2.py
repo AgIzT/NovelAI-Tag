@@ -311,7 +311,7 @@ def collect_strings_assets():
     return assets
 
 
-def collect_cover_assets(codexes, assets, issues, image_prefix, manifest_objects, hash_stats):
+def collect_cover_assets(codexes, assets, issues, image_prefix, manifest_objects, hash_stats, missing_keys=None):
     # Selector covers may exist only in codexes.json or outside entries entirely.
     # They are images, not synthetic entries: no original or entry revision is added.
     seen = {
@@ -358,12 +358,14 @@ def collect_cover_assets(codexes, assets, issues, image_prefix, manifest_objects
         seen.add(key)
         if not cover_path.is_file():
             issues.append(f"missing cover: {asset_cid}/{cover}")
+            if missing_keys is not None:
+                missing_keys.add(key)
             continue
         sha = sha256_cached(cover_path, key, manifest_objects, hash_stats)
         assets.append(("image", asset_cid, cover, cover_path, sha))
 
 
-def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_meta=None):
+def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_meta=None, missing_keys=None):
     """Scan local media. `local_meta`, if given, receives key -> the manifest entry
     (size, mtime, sha256, thumbnail size) seen during this scan, so the sync step
     need not stat or open the files again."""
@@ -377,12 +379,25 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_
     image_prefix = cfg.get("image_prefix") or DEFAULT_IMAGE_PREFIX
     original_prefix = cfg.get("original_prefix") or DEFAULT_ORIGINAL_PREFIX
     cover_sources = []
+    index = load_json(DATA_DIR / "codexes.json", []) or []
+    routes = {item.get("id"): item for item in index if isinstance(item, dict)}
     books = {}
 
     for codex_path, codex in codex_documents():
         cover_sources.append(codex)
         cid = codex.get("id") or codex_path.stem
         books[cid] = codex
+        route = routes.get(cid, {})
+        path_mode = route.get("assetPathMode") or codex.get("assetPathMode") or (
+            "relative" if route.get("dataUrl") or codex.get("dataUrl") else "codex"
+        )
+        def missing_reference(prefix, owner, filename):
+            # External/relative books are not stored under our R2 media prefix.
+            if missing_keys is None or path_mode == "relative" or not filename:
+                return
+            parsed = urllib.parse.urlsplit(filename)
+            if not parsed.scheme and not parsed.netloc:
+                missing_keys.add(key_for(prefix, owner, filename))
         changed = False
         imaged = 0
 
@@ -404,6 +419,7 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_
             dims = None
             if thumb_stat is None:
                 issues.append(f"missing thumbnail: {asset_cid}/{image}")
+                missing_reference(image_prefix, asset_cid, image)
             else:
                 dims = cached_dimensions(manifest_objects.get(thumb_key), thumb_stat) or image_dimensions(thumb_path)
                 if dims and (entry.get("imageWidth") != dims[0] or entry.get("imageHeight") != dims[1]):
@@ -420,6 +436,7 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_
                     changed = True
             elif entry.get("original"):
                 issues.append(f"missing original: {asset_cid}/{entry['original']}")
+                missing_reference(original_prefix, asset_cid, entry["original"])
             else:
                 issues.append(f"missing original for imaged entry: {eid}")
 
@@ -465,6 +482,7 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_
                     rev_hashes.append(sec_thumb_sha)
                 else:
                     issues.append(f"missing secondary thumbnail: {asset_cid}/{sec}")
+                    missing_reference(image_prefix, asset_cid, sec)
                 sec_orig_stat = stat_or_none(sec_orig_path)
                 if sec_orig_stat is not None:
                     sec_orig_sha = sha256_cached(
@@ -475,6 +493,8 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_
                     rev_hashes.append(sec_orig_sha)
                 else:
                     issues.append(f"missing secondary original: {asset_cid}/{sec_orig}")
+                    if item.get("original"):
+                        missing_reference(original_prefix, asset_cid, sec_orig)
 
             if thumb_sha:
                 rev = rev_from_hashes(rev_hashes)
@@ -490,9 +510,9 @@ def collect_assets(apply_metadata=False, cfg=None, manifest_objects=None, local_
             write_json(codex_path, codex)
             changed_files.append(codex_path)
 
-    cover_sources.extend(load_json(DATA_DIR / "codexes.json", []) or [])
+    cover_sources.extend(index)
     collect_cover_assets(
-        cover_sources, assets, issues, image_prefix, manifest_objects, hash_stats
+        cover_sources, assets, issues, image_prefix, manifest_objects, hash_stats, missing_keys
     )
     update_index(apply_metadata=apply_metadata, changed_files=changed_files, books=books)
     return assets, issues, changed_files, hash_stats
@@ -662,8 +682,9 @@ class R2Client:
     def head(self, key):
         return self._request("HEAD", key, retry_statuses=RETRYABLE_REQUEST_STATUSES)
 
-    def get(self, key):
-        return self._request("GET", key, retry_statuses=RETRYABLE_REQUEST_STATUSES)
+    def get(self, key, byte_range=None):
+        headers = {"Range": byte_range} if byte_range else None
+        return self._request("GET", key, headers=headers, retry_statuses=RETRYABLE_REQUEST_STATUSES)
 
     def put_file(self, key, path, sha, cache_control):
         with open(path, "rb") as fh:
@@ -677,13 +698,17 @@ class R2Client:
             )
         return self.put_bytes(key, body, sha, guess_type(path), cache_control)
 
-    def put_bytes(self, key, body, sha, content_type, cache_control):
+    def put_bytes(self, key, body, sha, content_type, cache_control, *, if_match=None, if_none_match=None):
         headers = {
             "Content-Type": content_type or "application/octet-stream",
             "Content-Length": str(len(body)),
             "Cache-Control": cache_control,
             "x-amz-meta-sha256": sha,
         }
+        if if_match is not None:
+            headers["If-Match"] = if_match
+        if if_none_match is not None:
+            headers["If-None-Match"] = if_none_match
         return self._request("PUT", key, body=body, headers=headers, retries=0)
 
     def copy_object(self, source_key, key, sha, content_type, cache_control):
@@ -1070,6 +1095,24 @@ def write_media(cfg, dry_run=False):
     return False
 
 
+def verify_missing_media(client, keys, workers=DEFAULT_UPLOAD_WORKERS):
+    """A missing local cache is only a warning when the referenced R2 bytes exist.
+
+    Read one byte rather than trusting a local manifest or object listing. Explicit
+    original references are required; entries with no original remain a warning.
+    """
+    def check(key):
+        try:
+            status, _headers, body = client.get(key, byte_range="bytes=0-0")
+            if status not in (200, 206) or not body:
+                return f"required media is not readable: {key} (status {status})"
+        except Exception as ex:
+            return f"required media verification failed: {key}: {describe_request_error(ex)}"
+        return None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
+        return [failure for failure in pool.map(check, sorted(keys)) if failure]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Report work without writing metadata or uploading.")
@@ -1095,11 +1138,13 @@ def main():
     apply_metadata = not args.dry_run
     manifest_objects = load_manifest()
     local_meta = {}
+    missing_keys = set()
     assets, issues, changed_files, hash_stats = collect_assets(
         apply_metadata=apply_metadata,
         cfg=cfg,
         manifest_objects=manifest_objects,
         local_meta=local_meta,
+        missing_keys=missing_keys,
     )
 
     strings_assets = collect_strings_assets()
@@ -1129,6 +1174,15 @@ def main():
     if args.dry_run and not all(cfg.get(k) for k in ("account_id", "access_key_id", "secret_access_key", "bucket")):
         print("dry-run skipped remote checks because r2_config.json is incomplete.")
         return 0 if not issues else 2
+
+    if missing_keys:
+        failures = verify_missing_media(R2Client(request_config(cfg, args)), missing_keys,
+                                        args.workers or cfg.get("upload_workers") or DEFAULT_UPLOAD_WORKERS)
+        for failure in failures:
+            print(f"- {failure}")
+        if failures:
+            print("required media unavailable; data publication must stop.")
+            return 1
 
     counts, failures = sync_assets(args, cfg, assets, manifest_objects=manifest_objects, local_meta=local_meta)
     print("remote sync")

@@ -81,11 +81,21 @@ for (let i = 0; i < 240; i++) assert.equal((await writeSiteMetrics(quotaEnv, [ev
 for (let i = 0; i < 5; i++) assert.equal((await writeSiteMetrics(quotaEnv, [events[1]], now)).limited, true);
 assert.equal(quotaDb.rows('SELECT event_count FROM site_metric_counts')[0].event_count, 240);
 assert.equal(quotaDb.rows('SELECT request_count FROM site_metric_rate')[0].request_count, 241);
-const throttleMinute = Math.floor(Date.now() / 60_000) * 60_000;
-quotaDb.sqlite.exec(`INSERT OR REPLACE INTO site_metric_rate VALUES (${throttleMinute}, 240, ${throttleMinute + 120_000})`);
-const throttled = await onRequestPost(context(undefined, { env: quotaEnv }));
-assert.equal(throttled.status, 429);
-assert.ok(Number(throttled.headers.get('retry-after')) >= 1);
+const originalNow = Date.now;
+let requestTime = now;
+try {
+  // The seeded quota and request must use the same clock, even at a minute edge.
+  Date.now = () => requestTime;
+  const throttleMinute = Math.floor(requestTime / 60_000) * 60_000;
+  quotaDb.sqlite.exec(`INSERT OR REPLACE INTO site_metric_rate VALUES (${throttleMinute}, 240, ${throttleMinute + 120_000})`);
+  const throttled = await onRequestPost(context(undefined, { env: quotaEnv }));
+  assert.equal(throttled.status, 429);
+  assert.ok(Number(throttled.headers.get('retry-after')) >= 1);
+  requestTime = throttleMinute + 60_000;
+  assert.equal((await onRequestPost(context(undefined, { env: quotaEnv }))).status, 200);
+} finally {
+  Date.now = originalNow;
+}
 assert.equal((await writeSiteMetrics(quotaEnv, [events[1]], now + 60_000)).limited, false);
 const unavailable = { ...env, COMMUNITY_DB: { prepare() { throw new Error('private internal error'); }, batch() {} } };
 await disabled(await onRequestPost(context(undefined, { env: unavailable })));

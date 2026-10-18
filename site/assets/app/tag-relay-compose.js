@@ -2,7 +2,7 @@
 import { copyText } from './copy.js';
 import { dismissToast, toast } from './feedback.js';
 import { state } from './state.js';
-import { isTagZhEnabled, loadTagZh, lookupLoadedTagZh, onTagZhChange } from './tag-zh.js';
+import { isTagZhComplete, isTagZhEnabled, loadTagZh, lookupLoadedTagZh, onTagZhChange } from './tag-zh.js';
 import { createRelayEditor } from './tag-relay-editor.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { foldRanges, tokens } from './tag-relay-text.js';
@@ -29,7 +29,10 @@ const element = (tag, className, text) => {
 function warmTranslations(codexId) {
   const id = String(codexId || '');
   if (requestedZh.has(id)) return;
-  requestedZh.add(id); void loadTagZh(id).then(() => editor?.render());
+  requestedZh.add(id); void loadTagZh(id).then(() => editor?.render()).finally(() => {
+    // 保留在途/重绘重入守卫；临时失败交还给下一次打开或加入素材，冷却由 loader 统一管理。
+    if (!isTagZhComplete(id)) requestedZh.delete(id);
+  });
 }
 function translate(token) {
   return isTagZhEnabled() ? lookupLoadedTagZh(token.name || token.core || '', [token.codexId, state.codex?.id])?.zh || '' : '';

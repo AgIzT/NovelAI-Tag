@@ -7,6 +7,7 @@ import { normalizeCategoryOrder, sortCategoryTree } from './category-order.js';
 import { stripNaiDefaultTags } from './nai-default-tags.js';
 
 const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
+const codexLoads = new WeakMap(); // 共享 Promise → 请求与消费者；取消一个视图不打断其它视图
 
 /* 这三个 JSON 走的是 release 锁定地址（data-source.js 把 baseUrl 拼成 .../releases/<release>/，
    服务端对 release 路径发 immutable），内容不可能就地变——发布新数据 = 指针换 release = 换 URL。
@@ -26,18 +27,43 @@ export async function loadBootstrapData() {
   };
 }
 
-export async function fetchCodex(meta) {
+function waitForCodex(promise, key, signal) {
+  const load = codexLoads.get(promise);
+  if (load) load.consumers += 1;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = (callback, value) => {
+      if (finished) return;
+      finished = true;
+      signal?.removeEventListener('abort', abort);
+      if (load && --load.consumers === 0 && !load.settled) {
+        if (state.codexCache.get(key) === promise) state.codexCache.delete(key);
+        load.controller.abort();
+      }
+      callback(value);
+    };
+    const abort = () => finish(reject, signal.reason);
+    signal?.addEventListener('abort', abort, { once: true });
+    promise.then(value => finish(resolve, value), error => finish(reject, error));
+    if (signal?.aborted) abort();
+  });
+}
+
+export async function fetchCodex(meta, { signal } = {}) {
+  signal?.throwIfAborted();
   const key = meta.id || meta.dataUrl;
-  if (state.codexCache.has(key)) return state.codexCache.get(key);
+  if (state.codexCache.has(key)) return waitForCodex(state.codexCache.get(key), key, signal);
+  const request = { controller: new AbortController(), consumers: 0, settled: false };
+  const requestSignal = request.controller.signal;
   const load = (async () => {
     let data;
     let sourceMeta = meta;
     let shouldCache = true;
     try {
       if (meta.dataUrl) {
-        data = await fetchJson(meta.dataUrl, 'no-store');
+        data = await fetchJson(meta.dataUrl, 'no-store', requestSignal);
       } else {
-        const result = await fetchDataJsonResult(`${meta.id}.json`);
+        const result = await fetchDataJsonResult(`${meta.id}.json`, { signal: requestSignal });
         data = result.data;
         if (result.source === 'r2') {
           sourceMeta = { ...meta, dataStatus: 'R2 数据', dataRelease: result.release };
@@ -54,13 +80,14 @@ export async function fetchCodex(meta) {
         }
       }
     } catch (ex) {
+      requestSignal.throwIfAborted();
       if (!meta.fallbackDataUrl) throw ex;
       console.warn(ex);
       shouldCache = false;
       const fallbackPath = localDataPath(meta.fallbackDataUrl);
       data = fallbackPath
-        ? await fetchDataJson(fallbackPath)
-        : await fetchJson(meta.fallbackDataUrl, 'default');
+        ? await fetchDataJson(fallbackPath, { signal: requestSignal })
+        : await fetchJson(meta.fallbackDataUrl, 'default', requestSignal);
       sourceMeta = {
         ...meta,
         sourceDataUrl: meta.dataUrl,
@@ -73,24 +100,28 @@ export async function fetchCodex(meta) {
         version: meta.fallbackVersion || meta.version || data.version,
       };
     }
+    requestSignal.throwIfAborted();
     return { codex: normalizeCodex(data, sourceMeta), shouldCache };
   })();
   const cached = load.then(
     ({ codex, shouldCache }) => {
+      request.settled = true;
       if (!shouldCache && state.codexCache.get(key) === cached) state.codexCache.delete(key);
       return codex;
     },
     error => {
+      request.settled = true;
       if (state.codexCache.get(key) === cached) state.codexCache.delete(key);
       throw error;
     },
   );
+  codexLoads.set(cached, request);
   state.codexCache.set(key, cached);
-  return cached;
+  return waitForCodex(cached, key, signal);
 }
 
-export async function fetchJson(url, cache = 'default') {
-  return fetch(url, { cache }).then(r => {
+export async function fetchJson(url, cache = 'default', signal) {
+  return fetch(url, { cache, ...(signal ? { signal } : {}) }).then(r => {
     if (!r.ok) throw new Error(`Failed to load codex: ${url}`);
     return r.json();
   });

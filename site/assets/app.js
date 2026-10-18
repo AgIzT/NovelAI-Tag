@@ -724,7 +724,7 @@ export async function applySearch(options = {}) {
     return;
   }
   if (state.searchScope === 'site' && hasActiveSearchState()) {
-    if (!state.siteSearchView) await openSiteSearchView(options);
+    if (!state.siteSearchView || state.codex?._siteSearchComplete === false) await openSiteSearchView(options);
     else {
       applyFilter(options);
       syncUrlState({ historyMode: historyModeFor(options, 'replace'), transition: options.transition, sessionId: options.sessionId, parentScrollY, saveBrowse: options.saveBrowse !== false });
