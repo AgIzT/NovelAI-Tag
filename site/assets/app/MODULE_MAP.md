@@ -121,7 +121,7 @@
 
 | 模块 | 职责 / 主要出口 | 模块状态 | 直接依赖 | 注入 / 边界 |
 | --- | --- | --- | --- | --- |
-| `edit.js` | `initEditMode`；本地词条、目录、法典与图片编辑 UI | 服务端能力、注入动作、启用 / 保存 / 弹层与当前词条状态 | `state.js`、`utils.js`、`feedback.js`、`lightbox.js`、`codex-ui.js`、`modal.js`、`../data-source.js`、`search.js`、`search-directories.js`、`masonry.js`、`site-search.js`、`edit-core.js`、`content-blocking.js` | `app.js` 探测同源 `/__edit__/ping` 成功后才动态导入；原地编辑后同时失效词条文本、目录和全站搜索缓存；线上不得静态加载 |
+| `edit.js` | `initEditMode`；本地词条、目录、法典与图片编辑 UI | 服务端能力、注入动作、启用 / 保存 / 弹层与当前词条状态 | `state.js`、`utils.js`、`feedback.js`、`lightbox.js`、`codex-ui.js`、`modal.js`、`../data-source.js`、`search.js`、`search-directories.js`、`masonry.js`、`site-search.js`、`edit-core.js`、`content-blocking.js` | `app.js` 探测同源 `/__edit__/ping` 成功后才动态导入；面板挂载 / 移除同步 `#lightboxInfo.has-edit-panel`，宽屏 CSS 据此在编辑时退回单栏；原地编辑后同时失效词条文本、目录和全站搜索缓存；线上不得静态加载 |
 | `edit-core.js` | 路径编解码、目录列表、搜索结果还原、图片名标题、角色提示归一、字段 diff / 校验 / 合并 | — | — | 无 DOM 的纯函数，供 `edit.js` 与 Node 测试复用；维护方式见本地私有文档 `docs/经验/本地嵌入式编辑器.md` |
 
 ## 必须保持的接线约束

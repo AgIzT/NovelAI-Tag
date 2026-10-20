@@ -744,6 +744,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 // 电脑宽屏：图片按高度撑满，剩下的宽度给信息栏；有负面或角色词且够 540 时分两列、最宽 1000，单列最宽 480 并整组居中，横图守住原栏宽。
 {
   const portrait = 753 / 1100;
+  const lightboxStyles = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
+  assert.equal(/:has\(\s*(?:>\s*)?\.edit-panel\s*\)/.test(lightboxStyles), false,
+    '公共灯箱样式不得依赖本地编辑面板的后代查询，避免正常内容更新扩大样式重算');
   assert.deepEqual(lightboxWideLayout({ width: 1905, height: 1080, aspect: portrait, rich: true }),
     { edge: 19, info: 1000, right: 1037, tight: false, columns: 2 });
   assert.deepEqual(lightboxWideLayout({ width: 1905, height: 1080, aspect: portrait }),

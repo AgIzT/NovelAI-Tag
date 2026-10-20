@@ -2534,21 +2534,22 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 .lightbox.lb-settling :is(.lightbox-stage,.lightbox-info,.lb-circle,.lb-fold,.lightbox-thumbs){transition:none}
 .lightbox.lb-wide .artist-strip{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}
 /* 有负面或角色词、栏宽够 540px 时分两列：左列正向 + 画师，右列角色 + 负面 + 备注，两列各自滚动。
-   其余情况列容器是 display:contents，排版与单栏完全一样；本地编辑面板打开时也退回单栏。 */
+   其余情况列容器是 display:contents，排版与单栏完全一样；本地编辑面板打开时也退回单栏。
+   edit.js 显式标记面板挂载，避免 :has 后代查询让普通内容更新扩大样式重算。 */
 .lightbox-columns,.lightbox-column{display:contents}
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)){display:flex;flex-direction:column;overflow:hidden}
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) > :not(.lightbox-columns){flex:none}
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-columns{
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel){display:flex;flex-direction:column;overflow:hidden}
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel) > :not(.lightbox-columns){flex:none}
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel) .lightbox-columns{
   flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);margin-top:2px;
 }
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column{
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel) .lightbox-column{
   display:block;min-height:0;overflow-y:auto;overscroll-behavior:contain;
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column-main{padding-right:16px}
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column-side{padding-left:16px;border-left:1px solid var(--line)}
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) .lightbox-column > .lightbox-section{margin:0 0 14px}
-.lightbox.lb-two-columns .lightbox-info:not(:has(.edit-panel)) :is(.lightbox-section pre,.lightbox-section pre.tag-zh-on,.character-prompt pre){max-height:none}
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel) .lightbox-column-main{padding-right:16px}
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel) .lightbox-column-side{padding-left:16px;border-left:1px solid var(--line)}
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel) .lightbox-column > .lightbox-section{margin:0 0 14px}
+.lightbox.lb-two-columns .lightbox-info:not(.has-edit-panel) :is(.lightbox-section pre,.lightbox-section pre.tag-zh-on,.character-prompt pre){max-height:none}
 
 /* 窄竖屏先给图片完整宽度；横屏保留自适应侧栏，避免上下布局压扁图片。 */
 @media (max-width:600px), (max-width:760px) and (orientation:portrait){

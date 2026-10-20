@@ -280,6 +280,7 @@ function refreshPanel() {
 
 function removePanel() {
   document.getElementById('editPanel')?.remove();
+  $('#lightboxInfo')?.classList.remove('has-edit-panel');
   document.querySelectorAll('.lb-edit-hidden').forEach(el => el.classList.remove('lb-edit-hidden'));
   panelEntryId = null;
 }
@@ -330,6 +331,7 @@ function buildPanel(entry, { force = false } = {}) {
     </div>`;
   const head = info.querySelector('.lightbox-head');
   head ? head.after(panel) : info.prepend(panel);
+  info.classList.add('has-edit-panel');
   buildImageZone(panel.querySelector('#edImgZone'), entry);
 
   panel.querySelector('#edTitle').value = entry.title || '';
