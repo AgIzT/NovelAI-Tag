@@ -324,29 +324,93 @@ def insert_chapter_items(raw, items, later_sections):
     return raw[:position] + items + raw[position:]
 
 
-def load_part(path, key, prose=None, emoji_index=None, chapters=(), titles=None):
-    """``prose`` paragraphs are read as prompt text, ``titles`` as card titles."""
+def translation_card_starts(doc, key, kinds):
+    """Prompt lines for each registered translation block (``kinds`` value 'translation').
+
+    Consecutive translation paragraphs are one block; the prompt is the run
+    of prompt lines right above it, stopping at a blank line, a heading or
+    another block.  The prompt starts an untitled card of its own unless a
+    card title sits right above it.  Returns (prompt start paragraphs that
+    begin a card, first paragraphs of blocks with no prompt above them).
+    """
+    classify = convert.classify_nai5_line if part_model(key) == 'N5' else convert.classify
+    paragraphs = doc.paragraphs
+
+    def kind(index):
+        return kinds.get(index) or classify(paragraphs[index].text.strip())
+
+    def boundary(index):
+        level = convert.outline_lvl(paragraphs[index])
+        return not paragraphs[index].text.strip() or (level is not None and level <= 3) or kinds.get(index) == 'translation'
+
+    starts, misfits = [], []
+    for index in sorted(i for i, value in kinds.items() if value == 'translation'):
+        if kinds.get(index - 1) == 'translation':
+            continue
+        top = index
+        while top > 0 and not boundary(top - 1) and kind(top - 1) == 'tag':
+            top -= 1
+        if top == index:
+            misfits.append(index)
+        elif top == 0 or boundary(top - 1) or kind(top - 1) != 'title':
+            starts.append(top)
+    return starts, misfits
+
+
+def prune_translations(docs, prose, titles, translations):
+    """Drop translation blocks that no longer sit under a prompt; returns what was dropped per part."""
+    dropped = {}
+    for key, registered in list(translations.items()):
+        kinds = {**{int(i): 'tag' for i in prose.get(key, {})}, **{int(i): 'title' for i in titles.get(key, {})},
+                 **{int(i): 'translation' for i in registered}}
+        _, misfits = translation_card_starts(docs[key], key, kinds)
+        for start in misfits:
+            index = start
+            while str(index) in registered:
+                registered.pop(str(index))
+                dropped.setdefault(key, []).append(index)
+                index += 1
+        if not registered:
+            translations.pop(key)
+    return dropped
+
+
+def load_part(path, key, prose=None, emoji_index=None, chapters=(), titles=None, translations=None):
+    """``prose`` paragraphs are read as prompt text, ``titles`` as card titles.
+
+    ``translations`` paragraphs are the Chinese translation of the prompt
+    lines right above them and go into that card's note (see
+    ``translation_card_starts``).
+    """
     doc = Document(path)
     prose = {int(index): text_sha for index, text_sha in (prose or {}).items()}
     titles = {int(index): text_sha for index, text_sha in (titles or {}).items()}
-    if set(prose) & set(titles):
-        raise ValueError(f'{key}: 第 {sorted(set(prose) & set(titles))} 段同时登记成了续行和标题')
-    for registered, name in ((prose, '续行'), (titles, '标题')):
+    translations = {int(index): text_sha for index, text_sha in (translations or {}).items()}
+    kinds = {}
+    for registered, kind in ((prose, 'tag'), (titles, 'title'), (translations, 'translation')):
+        for index in registered:
+            if index in kinds:
+                raise ValueError(f'{key}: 第 {index} 段登记了两种读法')
+            kinds[index] = kind
+    starts, misfits = translation_card_starts(doc, key, kinds)
+    if misfits:
+        raise ValueError(f'{key}: 第 {misfits} 段登记成翻译，但它上面不是提示词')
+    kinds.update((index, 'card') for index in starts)
+    for registered, name in ((prose, '续行'), (titles, '标题'), (translations, '翻译')):
         for index, text_sha in registered.items():
             if sha256_text(doc.paragraphs[index].text) != text_sha:
                 raise ValueError(f'{key}: 第 {index} 段不是已审的{name}原文，段落位置变了')
     overrides = base.restore_food_emoji(doc, emoji_index) if emoji_index is not None else {}
     audit = []
     raw = convert.parse_standard_docx_items(
-        doc, suozhang_model=part_model(key),
-        kind_overrides={**{index: 'tag' for index in prose}, **{index: 'title' for index in titles}},
-        text_overrides=overrides, audit=audit)
+        doc, suozhang_model=part_model(key), kind_overrides=kinds, text_overrides=overrides, audit=audit)
     chapter_stats = {}
     for rule in chapters:
         if rule['part'] == key:
             items, later, chapter_stats[rule['chapter']] = parse_template_chapter(doc, rule)
             raw = insert_chapter_items(raw, items, later)
     return {'doc': doc, 'raw': raw, 'audit': audit, 'prose': sorted(prose), 'titles': sorted(titles),
+            'translations': sorted(translations),
             'chapters': chapter_stats,
             'emoji': emoji_index, 'sha256': base.digest(path), 'path': str(path)}
 
@@ -453,7 +517,8 @@ def normalize_part(key, loaded, reference, style_rules=(), splits=()):
     untitled = name_untitled(entries)
     record = {
         'path': loaded['path'], 'sha256': loaded['sha256'], 'parsed': len(entries),
-        'proseParagraphs': loaded['prose'], 'titleParagraphs': loaded['titles'], 'foodEmojiParagraph': loaded['emoji'],
+        'proseParagraphs': loaded['prose'], 'titleParagraphs': loaded['titles'],
+        'translationParagraphs': loaded['translations'], 'foodEmojiParagraph': loaded['emoji'],
         'recoveredProseLinesVerified': recovered,
         'artistCards': sum(special(e) == 'artist' for e in entries),
         'ocCards': sum(special(e) == 'oc' for e in entries),
@@ -477,7 +542,8 @@ def parse_sources(config, formal, files):
             raise ValueError(f'{key}: Word 含修订、表格或文本框，需人工处理')
         loaded[key] = load_part(path, key, config.get('proseParagraphs', {}).get(key),
                                 emoji.get('index') if emoji.get('part') == key else None,
-                                config.get('specialChapters', ()), config.get('titleParagraphs', {}).get(key))
+                                config.get('specialChapters', ()), config.get('titleParagraphs', {}).get(key),
+                                config.get('translationParagraphs', {}).get(key))
         book = part_book(key)
         parts[key], records[key] = normalize_part(
             key, loaded[key], aliased(formal[book]['entries'], aliases_of(config, book)),
@@ -676,6 +742,26 @@ def resolve_manual_matches(config, book, old_entries, new_entries):
     return forced
 
 
+def refresh_source_notes(book, built, sources, owned_paths):
+    """Notes the author wrote in the source follow it on matched cards too.
+
+    Built entries follow source order.  A translation or 设置 label in the
+    source replaces the card's note; a special chapter owns its notes
+    outright, elsewhere a site-added note stays when the source has none.
+    Returns the IDs whose note came from the source.
+    """
+    if len(built) != len(sources) or any(entry.get('path') != source.get('path') for entry, source in zip(built, sources)):
+        raise ValueError(f'{book}: 生成结果与源稿顺序对不上，备注无法跟随源稿')
+    noted = set()
+    for entry, source in zip(built, sources):
+        if source.get('note'):
+            entry['note'] = source['note']
+            noted.add(entry['id'])
+        elif tuple(entry.get('path', [])) in owned_paths:
+            entry.pop('note', None)
+    return noted
+
+
 def build_books(config, formal, index, sources, *, reserved_cap=None, strict=True, enforce_removals=True):
     """Match and build all four books; ``strict=False`` reports instead of raising."""
     version = config['version']
@@ -709,15 +795,7 @@ def build_books(config, formal, index, sources, *, reserved_cap=None, strict=Tru
             entry.pop('sourceHalf', None)
             entry.pop('sourceIndex', None)
         owned_paths = chapter_paths(config, book)
-        if owned_paths:
-            # Built entries follow source order; a special chapter's note is the
-            # author's translation and must refresh on matched cards too.
-            for entry, source in zip(applied['entries'], entries):
-                if tuple(entry.get('path', [])) in owned_paths:
-                    if source.get('note'):
-                        entry['note'] = source['note']
-                    else:
-                        entry.pop('note', None)
+        noted = refresh_source_notes(book, applied['entries'], entries, owned_paths)
         if book == 'suozhang_r18':
             stats['auditedNewOverrideIds'] = match.apply_audited_new_overrides(applied['entries'], book, version)
         if sorted(source_overrides) != sorted(stats.get('auditedNewOverrideIds', [])):
@@ -729,7 +807,7 @@ def build_books(config, formal, index, sources, *, reserved_cap=None, strict=Tru
             if new_entry is None:
                 continue
             for key, value in old_entry.items():
-                owned = {'note'} if tuple(old_entry.get('path', [])) in chapter_paths(config, book) else set()
+                owned = {'note'} if old_entry['id'] in noted or tuple(old_entry.get('path', [])) in owned_paths else set()
                 if key not in {*match.SOURCE_CONTENT_KEYS, 'updateBatches', 'sourceHalf', 'sourceIndex', *owned} \
                         and new_entry.get(key) != value:
                     raise ValueError(f"{book}: 继承字段漂移 {old_entry['id']} {key}")
@@ -833,7 +911,7 @@ def build_from_config(config, formal_dir=None):
     applied_books, results, new_index, _ = build_books(config, formal, index, sources,
                                                       reserved_cap=formal_dir is not None, strict=True)
     return {'baseline': baseline, 'records': records, 'sources': sources, 'merges': merges,
-            'applied': applied_books, 'results': results, 'index': new_index, 'loaded': loaded}
+            'applied': applied_books, 'results': results, 'index': new_index, 'loaded': loaded, 'formal': formal}
 
 
 def prompt_text(entry):
@@ -869,7 +947,7 @@ def prose_outcomes(config, built):
                            cardAbove=[entries[spot - 1]['id'], entries[spot - 1]['title']] if spot else None)
         rows.append(out)
     for key, registered in config.get('titleParagraphs', {}).items():
-        lines = {index: (text, path) for index, text, path in n5_body_lines(built['loaded'][key]['doc'])}
+        lines = {index: (text, path) for index, text, path in body_lines(built['loaded'][key]['doc'])}
         for index in sorted(map(int, registered)):
             text, path = lines[index]
             card = next((e for e in built['applied'][part_book(key)]['entries']
@@ -906,9 +984,11 @@ SHORT_CN_LINE_RE = re.compile(r'[^A-Za-z,:：]{2,30}')
 def audit_flags(entry):
     """Shapes that misparsed cards had; a hint for the blind-spot check, not a verdict."""
     flags = []
-    if UNTITLED_RE.search(entry['title']):
+    if UNTITLED_RE.search(entry['title']) and not entry.get('note'):  # a translated card is untitled by design
         flags.append('无标题')
-    if len(entry['title']) > 30 or re.search(r'[,，]', entry['title']):
+    if sentence_title(entry['title']):
+        flags.append('标题是长句')
+    elif len(entry['title']) > 30 or re.search(r'[,，]', entry['title']):
         flags.append('标题像正文')
     numbers = [int(m.group(1)) for prompt in entry.get('characterPrompts') or []
                for m in [re.match(r'char(\d+)$', str(prompt.get('label', '')), re.I)] if m]
@@ -927,13 +1007,19 @@ def changes_report(built):
         entries = built['applied'][book]['entries']
         old_ids = {m['old']['id'] for m in result['matches']}
         by_id = {e['id']: e for e in entries}
+        old_notes = {e['id']: e.get('note') or '' for e in built.get('formal', {}).get(book, {}).get('entries', [])}
+
+        def fields(m):  # the matcher does not compare notes
+            note = old_notes.get(m['old']['id'], '') != (by_id[m['old']['id']].get('note') or '')
+            return [f for f in m['changes'] if f != 'isNew'] + (['note'] if note else [])
+
         added = [{'id': e['id'], 'title': e['title'], 'path': e['path'], 'tags': e.get('tags', ''),
                   'characterPrompts': e.get('characterPrompts', []), 'flags': audit_flags(e)}
                  for e in entries if e['id'] not in old_ids]
         changed = [{'id': m['old']['id'], 'path': by_id[m['old']['id']]['path'], 'oldTitle': m['old']['title'],
                     'title': by_id[m['old']['id']]['title'],
-                    'fields': [f for f in m['changes'] if f != 'isNew'], 'flags': audit_flags(by_id[m['old']['id']])}
-                   for m in result['matches'] if any(f != 'isNew' for f in m['changes'])]
+                    'fields': fields(m), 'flags': audit_flags(by_id[m['old']['id']])}
+                   for m in result['matches'] if fields(m)]
         report[book] = {'added': added, 'changed': changed}
     return report
 
@@ -957,7 +1043,7 @@ def render_changes(report):
         lines += ['### 全部新增', '']
         lines += [f"- `{row['id']}` {' / '.join(row['path'])} › {row['title']}" for row in item['added']] or ['- 无']
         lines += ['', '### 内容有改动的旧卡', '']
-        lines += [f"- `{row['id']}` {row['oldTitle']}{' → ' + row['title'] if row['title'] != row['oldTitle'] else ''}"
+        lines += [f"- `{row['id']}` {row['oldTitle'][:40]}{' → ' + row['title'][:40] if row['title'] != row['oldTitle'] else ''}"
                   f"（{'、'.join(row['fields'])}）" for row in item['changed']] or ['- 无']
         lines.append('')
     return '\n'.join(lines)
@@ -1036,16 +1122,17 @@ def prepare(config, out, *, formal_dir=None, write_snapshots=True):
 
 # ---------------------------------------------------------------- survey
 
-def relocate_lines(previous, docs, field, parsed_as):
-    """Find last version's reviewed N5 lines again by text hash; positions move."""
+def relocate_lines(previous, docs, field, parsed_as=None, models=('N5',)):
+    """Find last version's reviewed lines again by text hash; positions move."""
     known = {text_sha for part in previous.get(field, {}).values() for text_sha in part.values()}
     found, used = {}, set()
     for key, doc in docs.items():
-        if part_model(key) != 'N5':
+        if part_model(key) not in models:
             continue
         for index, paragraph in enumerate(doc.paragraphs):
             text_sha = sha256_text(paragraph.text)
-            if text_sha in known and convert.classify_nai5_line(paragraph.text.strip()) == parsed_as:
+            if text_sha in known and (parsed_as is None
+                                      or convert.classify_nai5_line(paragraph.text.strip()) == parsed_as):
                 found.setdefault(key, {})[str(index)] = text_sha
                 used.add(text_sha)
     return found, sorted(known - used)
@@ -1057,6 +1144,10 @@ def relocate_prose(previous, docs):
 
 def relocate_titles(previous, docs):
     return relocate_lines(previous, docs, 'titleParagraphs', 'tag')
+
+
+def relocate_translations(previous, docs):
+    return relocate_lines(previous, docs, 'translationParagraphs', models=('N4.5', 'N5'))
 
 
 def find_food_emoji(docs):
@@ -1094,8 +1185,8 @@ def after_image_text(paragraphs, index, run):
     return False
 
 
-def n5_body_lines(doc):
-    """(index, text, path) of N5 card lines: after the Word TOC, outside headings and front matter."""
+def body_lines(doc):
+    """(index, text, path) of card lines: after the Word TOC, outside headings, front matter and skipped chapters."""
     cats, seen_toc = [None] * 4, False
     for index, paragraph in enumerate(doc.paragraphs):
         if paragraph.style.name.startswith('toc'):
@@ -1110,7 +1201,8 @@ def n5_body_lines(doc):
         if not seen_toc or not text:
             continue
         path = [c for c in cats if c]
-        if '法典相关网站' in path or path[-1:] == ['编纂者常用画师组'] or convert.is_compiler_oc_path(path):
+        if ('法典相关网站' in path or path[-1:] == ['编纂者常用画师组'] or convert.is_compiler_oc_path(path)
+                or convert.should_skip_path(path)):
             continue
         yield index, text, path
 
@@ -1127,7 +1219,7 @@ def title_candidates(docs, known):
         if part_model(key) != 'N5':
             continue
         paragraphs = doc.paragraphs
-        for index, text, path in n5_body_lines(doc):
+        for index, text, path in body_lines(doc):
             unclosed = text.count('（') + text.count('(') > text.count('）') + text.count(')')
             if str(index) in known.get(key, {}) or not index or (paragraphs[index - 1].text.strip() and not unclosed):
                 continue
@@ -1141,6 +1233,37 @@ def title_candidates(docs, known):
     return rows
 
 
+def sentence_title(text):
+    """A real title is never a long natural-language sentence: a translation,
+    a description, or a title run together with its prompt.  Bracketed notes
+    such as 【推荐画风：…】 do not count."""
+    bare = re.sub(r'【[^】]*】|[（(][^）)]*[）)]', '', text)
+    return len(bare) > 50 or '。' in bare
+
+
+def long_title_candidates(docs, skip):
+    """Lines the parser would take as a card title although they read as a sentence.
+
+    Checked line by line as the parser reads them; ``skip`` holds
+    (part, paragraph) pairs already registered or reported elsewhere.
+    """
+    rows = []
+    for key, doc in docs.items():
+        classify = convert.classify_nai5_line if part_model(key) == 'N5' else convert.classify
+        paragraphs = doc.paragraphs
+        for index, _, path in body_lines(doc):
+            if (key, index) in skip or path[:1] == ['页尾']:
+                continue
+            lines = convert.visible_lines(paragraphs[index].text)
+            for at, line in enumerate(lines):
+                if classify(line) != 'title' or not sentence_title(line):
+                    continue
+                previous = lines[at - 1] if at else (paragraphs[index - 1].text.strip() if index else '')
+                rows.append({'part': key, 'paragraph': index, 'path': path, 'text': line[:60], 'previous': previous[:60],
+                             'afterPrompt': bool(previous) and classify(previous.splitlines()[-1]) == 'tag'})
+    return rows
+
+
 def prose_candidates(docs, known):
     """Short title-like lines wedged inside a prompt: may be prose, needs a human."""
     rows = []
@@ -1149,7 +1272,7 @@ def prose_candidates(docs, known):
             continue
         paragraphs = doc.paragraphs
         run = {int(index) for index in known.get(key, {})}
-        for index, text, path in n5_body_lines(doc):
+        for index, text, path in body_lines(doc):
             if str(index) in known.get(key, {}):
                 continue
             if convert.classify_nai5_line(text) != 'title' or text in LABEL_TITLES or VARIANT_TITLE_RE.match(text):
@@ -1362,6 +1485,12 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     titles, missing_titles = relocate_titles(previous, docs)
     if missing_titles:
         notes.append(f'上一版的 {len(missing_titles)} 行已审标题这次没找到（作者可能删改了），无需处理')
+    translations, missing_translations = relocate_translations(previous, docs)
+    if missing_translations:
+        notes.append(f'上一版的 {len(missing_translations)} 行已审翻译这次没找到（作者可能删改了），无需处理')
+    for key, indexes in prune_translations(docs, prose, titles, translations).items():
+        decisions.append(f'{key} 第 {indexes} 段登记过翻译，但这次上面已不是提示词：草稿去掉了这几段的登记，'
+                         '看原文后重新判断（是长句的会出现在「被当成标题的长句」里）')
     emoji_hits = find_food_emoji(docs)
     if len(emoji_hits) != 1:
         decisions.append(f'食物图标段落找到 {len(emoji_hits)} 处（应为 1 处）：{emoji_hits}')
@@ -1381,6 +1510,13 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         decisions.append(f'N5 有 {len(candidates)} 行疑似续行的短句被当成了标题'
                          f'{f"（其中 {hinted} 行接在 text: 画面文字后面）" if hinted else ""}，'
                          '逐条看原文后决定是否加进 proseParagraphs')
+    reviewed = {(key, int(index)) for field in (prose, titles, translations) for key, rows in field.items() for index in rows}
+    reviewed |= {(row['part'], row['paragraph']) for row in candidates}
+    sentence_rows = long_title_candidates(docs, reviewed)
+    if sentence_rows:
+        paired = sum(row['afterPrompt'] for row in sentence_rows)
+        decisions.append(f'{len(sentence_rows)} 行长句被当成了标题（正常标题不会是一段自然语言；其中 {paired} 行紧跟在提示词下面，'
+                         '多半是那条提示词的中文翻译），逐条看原文：是翻译就加进 translationParagraphs')
     title_rows = title_candidates(docs, titles)
     if title_rows:
         decisions.append(f'N5 有 {len(title_rows)} 行疑似标题被当成了正文（带全角逗号的纯中文短行，在空行后或括号没闭合），'
@@ -1393,13 +1529,14 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         'baseline': {'dir': previous['outDir']},
         'outDir': Path(os.path.abspath(out)).relative_to(os.path.abspath(ROOT)).as_posix(),
         'parts': {key: {'sha256': base.digest(path), 'half': None} for key, path in files.items()},
-        'pathAliases': {}, 'proseParagraphs': prose, 'titleParagraphs': titles, 'foodEmojiParagraph': emoji,
+        'pathAliases': {}, 'proseParagraphs': prose, 'titleParagraphs': titles, 'translationParagraphs': translations,
+        'foodEmojiParagraph': emoji,
         'duplicateBlocks': [], 'styleCollections': [], 'removals': {}, 'newOverrides': {},
         'manualMatches': {}, 'acceptedDrift': {}, 'sourceSplits': [], 'specialChapters': chapters,
         'expected': {}, 'decisions': [],
     }
     loaded = {key: load_part(path, key, prose.get(key), emoji['index'] if emoji and emoji['part'] == key else None,
-                             chapters, titles.get(key))
+                             chapters, titles.get(key), translations.get(key))
               for key, path in files.items()}
     for key, item in loaded.items():
         for name, stats in item['chapters'].items():
@@ -1552,7 +1689,7 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     report = {'version': version, 'previous': previous['version'], 'files': {k: str(v) for k, v in files.items()},
               'structures': structures, 'baselineReplay': replay, 'halvesEvidence': halves_evidence,
               'removals': removal_rows, 'newAnomalies': anomalies, 'followedMoves': moves, 'proseCandidates': candidates,
-              'titleCandidates': title_rows,
+              'titleCandidates': title_rows, 'sentenceTitles': sentence_rows,
               'decisions': decisions, 'notes': notes}
     base.write_json(out / 'survey.json', report)
     base.write_json(out / 'draft-config.json', draft)
@@ -1607,6 +1744,12 @@ def render_survey(report, draft):
               '是标题就把段落号和该段原文的 sha256 加进 `titleParagraphs`。', '']
     lines += [f"- {row['part']} 第 {row['paragraph']} 段「{row['text']}」｜下一行：{row['next']}"
               for row in report.get('titleCandidates', [])] or ['- 无']
+    lines += ['', '## 被当成标题的长句', '',
+              '正常标题不会是一段自然语言。紧跟在提示词下面的长句多半是那条提示词的中文翻译：'
+              '把它的段落号和原文 sha256 加进 `translationParagraphs`，两段合成一张无标题卡，翻译进备注。'
+              '也可能是标题和提示词写在了同一行，那种报维护者。', '']
+    lines += [f"- {row['part']} 第 {row['paragraph']} 段「{row['text']}」{'｜**紧跟在提示词下面**' if row['afterPrompt'] else ''}"
+              f"｜上一行：{row['previous']}" for row in report.get('sentenceTitles', [])] or ['- 无']
     lines += ['', '下一步：把 `draft-config.json` 按拍板结果改好，另存为 `tools/suozhang_versions/<版本>.json`，再运行 prepare。', '']
     return '\n'.join(lines)
 

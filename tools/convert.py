@@ -768,7 +768,7 @@ def parse_standard_docx_items(doc, *, suozhang_model=None, kind_overrides=None,
         if should_skip_path(path_now) or (suozhang_model and "法典相关网站" in path_now):
             cur = None
             continue
-        for t in lines:
+        for line_index, t in enumerate(lines):
             if suozhang_model and path_now[-1:] == ["编纂者常用画师组"]:
                 if re.match(r"^NAI\d", t, re.I):
                     artist_title = t
@@ -837,6 +837,20 @@ def parse_standard_docx_items(doc, *, suozhang_model=None, kind_overrides=None,
                 continue
 
             kind = kind_overrides.get(paragraph_index)
+            # Reviewed overrides only: "card" starts an untitled card with this
+            # paragraph's prompt, "translation" is that prompt's Chinese
+            # translation and becomes the card's note.
+            if kind == "card":
+                if line_index == 0:
+                    cur = {"title": "(未命名)", "path": path_now, "tags": [t], "isNew": is_pink(p)}
+                    entries.append(cur)
+                    continue
+                kind = "tag"
+            if kind == "translation":
+                if cur is None or not cur["tags"]:
+                    raise ValueError(f"Translation paragraph {paragraph_index} has no prompt above it")
+                cur.setdefault("notes", []).append(t)
+                continue
             if kind is None:
                 kind = classify_nai5_line(t) if suozhang_model == "N5" else classify(t)
             if audit is not None and kind != classify(t):
@@ -866,6 +880,7 @@ def parse_standard_docx_items(doc, *, suozhang_model=None, kind_overrides=None,
             "tags": block,
             "isNew": e["isNew"],
             **({"negative": e["negative"]} if e.get("negative") else {}),
+            **({"note": "\n".join(e["notes"])} if e.get("notes") else {}),
         })
 
     return items

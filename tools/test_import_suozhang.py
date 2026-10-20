@@ -384,9 +384,11 @@ class ReportHintTests(unittest.TestCase):
         self.assertNotEqual(imp.entry_signature(dict(entry, id='x-1')), imp.entry_signature(dict(entry, id='x-2')))
 
 
-class TitleParagraphTests(unittest.TestCase):
-    LINES = ['烧死他，用文火', 'char1：girl,', '', '逼近注视', 'white background,', 'char1：girl,', '',
-             '这里跟你无关，继续往下滑', 'horror (theme),', 'char1：girl,']
+class WordDocMixin:
+    """Writes a minimal codex Word file: a TOC, a heading 「场景」, then ``lines``.
+
+    A line starting with ``#`` becomes a level-2 outline heading.
+    """
 
     def write_doc(self, folder, lines=None):
         from docx import Document
@@ -395,16 +397,28 @@ class TitleParagraphTests(unittest.TestCase):
         from docx.oxml.ns import qn
         doc = Document()
         doc.add_paragraph('目录', style=doc.styles.add_style('toc 1', WD_STYLE_TYPE.PARAGRAPH))
-        heading = doc.add_paragraph('场景')
-        outline = OxmlElement('w:outlineLvl')
-        outline.set(qn('w:val'), '0')
-        heading._p.get_or_add_pPr().append(outline)
+
+        def heading(text, level):
+            paragraph = doc.add_paragraph(text)
+            outline = OxmlElement('w:outlineLvl')
+            outline.set(qn('w:val'), str(level))
+            paragraph._p.get_or_add_pPr().append(outline)
+
+        heading('场景', 0)
         doc.add_paragraph('')
         for line in lines or self.LINES:
-            doc.add_paragraph(line)
+            if line.startswith('#'):
+                heading(line[1:], 1)
+            else:
+                doc.add_paragraph(line)
         path = Path(folder) / 'n5.docx'
         doc.save(path)
         return path, {line: i for i, line in enumerate(p.text for p in Document(path).paragraphs) if line}
+
+
+class TitleParagraphTests(WordDocMixin, unittest.TestCase):
+    LINES = ['烧死他，用文火', 'char1：girl,', '', '逼近注视', 'white background,', 'char1：girl,', '',
+             '这里跟你无关，继续往下滑', 'horror (theme),', 'char1：girl,']
 
     def test_registered_lines_become_titles(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -438,6 +452,120 @@ class TitleParagraphTests(unittest.TestCase):
             path, _ = self.write_doc(folder, ['前后夹击', 'solo,', 'char1：girl,', '前后夹击（口/穴，桌底', '）1koma,', 'char1：girl,'])
             rows = imp.title_candidates({'N5-upper': Document(path)}, {})
             self.assertEqual([r['text'] for r in rows], ['前后夹击（口/穴，桌底'])
+
+
+class TranslationParagraphTests(WordDocMixin, unittest.TestCase):
+    PAIRS = ['仰头吞剑', '1girl,sword,', '',
+             '1boy,femboy,slave market,', '一个男孩，伪娘，站在昏暗的地下奴隶市场里，戴着白色头巾，内里是蓝色的头发，红色的眼睛，明亮的瞳孔。', '',
+             'a wolf-boy trapped in a wall,', 'dark room,', '一个狼孩被困在墙壁的缝隙中，只能透过木洞看到臀部，场景设定在一个昏暗的地下奴隶市场。', '黑暗的房间。', '',
+             '连体泳装侵犯', 'swimsuit,']
+
+    def test_translations_split_cards_and_become_notes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, self.PAIRS)
+            plain = imp.load_part(path, 'N4.5-v4')['raw']
+            self.assertEqual(plain[0]['title'], '仰头吞剑')
+            self.assertIn('1boy,femboy', plain[0]['tags'])  # the bug: swallowed by the card above
+            lines = [t for t in self.PAIRS if t.startswith(('一个', '黑暗'))]
+            registered = {str(at[t]): imp.sha256_text(t) for t in lines}
+            fixed = imp.load_part(path, 'N4.5-v4', translations=registered)['raw']
+            self.assertEqual([(e['title'], e['tags'], e.get('note', '')[:4]) for e in fixed], [
+                ('仰头吞剑', '1girl,sword,', ''),
+                ('(未命名)', '1boy,femboy,slave market,', '一个男孩'),
+                ('(未命名)', 'a wolf-boy trapped in a wall,\ndark room,', '一个狼孩'),
+                ('连体泳装侵犯', 'swimsuit,', '')])
+            self.assertTrue(fixed[2]['note'].endswith('\n黑暗的房间。'))
+            with self.assertRaises(ValueError):  # a translation needs prompt lines right above it
+                imp.load_part(path, 'N4.5-v4', translations={str(at['仰头吞剑']): imp.sha256_text('仰头吞剑')})
+
+    def test_translation_under_a_title_stays_with_that_card(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, ['脑交', 'venus,kneeling,', '维纳斯跪着，头部向上倾斜，角色的姿势是顺从的，头部向后倾斜，嘴巴微微张开，跪在地上。'])
+            line = '维纳斯跪着，头部向上倾斜，角色的姿势是顺从的，头部向后倾斜，嘴巴微微张开，跪在地上。'
+            raw = imp.load_part(path, 'N4.5-v4', translations={str(at[line]): imp.sha256_text(line)})['raw']
+            self.assertEqual([(e['title'], e['tags'], bool(e.get('note'))) for e in raw], [('脑交', 'venus,kneeling,', True)])
+
+    ONE = '一个男孩站在昏暗的地下奴隶市场里，戴着白色头巾，内里是蓝色的头发，红色的眼睛，明亮的瞳孔，很害怕。'
+    TWO = '一个狼孩被困在墙壁的缝隙中，只能透过木洞看到臀部，场景设定在一个昏暗的地下奴隶市场，很屈辱。'
+
+    def registered(self, at, *lines):
+        return {str(at[line]): imp.sha256_text(line) for line in lines}
+
+    def test_pairs_without_blank_line_between_stay_apart(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, ['卡甲', 'a,', '', 'eng one,', self.ONE, 'eng two,', self.TWO])
+            raw = imp.load_part(path, 'N4.5-v4', translations=self.registered(at, self.ONE, self.TWO))['raw']
+            self.assertEqual([(e['title'], e['tags']) for e in raw],
+                             [('卡甲', 'a,'), ('(未命名)', 'eng one,'), ('(未命名)', 'eng two,')])
+
+    def test_prompt_search_stops_at_a_heading(self):
+        with tempfile.TemporaryDirectory() as folder:  # a heading such as 「1girl,1boy系列」 reads as prompt text
+            path, at = self.write_doc(folder, ['卡甲', 'a,', '', 'b,', '#1girl,1boy系列', 'eng one,', self.ONE])
+            raw = imp.load_part(path, 'N4.5-v4', translations=self.registered(at, self.ONE))['raw']
+            self.assertEqual([(e['title'], e['tags'], e['path'][-1]) for e in raw],
+                             [('卡甲', 'a,\nb,', '场景'), ('(未命名)', 'eng one,', '1girl,1boy系列')])
+
+    def test_prompt_under_a_dropped_note_line_starts_a_card(self):
+        note = 'This is a long english explanation line without any tag syntax at all'
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, ['卡甲', 'a,', note, 'eng one,', self.ONE])
+            raw = imp.load_part(path, 'N4.5-v4', translations=self.registered(at, self.ONE))['raw']
+            self.assertEqual([(e['title'], e['tags']) for e in raw], [('卡甲', 'a,'), ('(未命名)', 'eng one,')])
+
+    def test_survey_drops_only_the_translation_blocks_that_no_longer_fit(self):
+        from docx import Document
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, ['卡甲', 'a,', '', 'eng one,', self.ONE, '', '标题乙', self.TWO])
+            translations = {'N4.5-v4': self.registered(at, self.ONE, self.TWO)}
+            dropped = imp.prune_translations({'N4.5-v4': Document(path)}, {}, {}, translations)
+            self.assertEqual(dropped, {'N4.5-v4': [at[self.TWO]]})
+            self.assertEqual(translations, {'N4.5-v4': self.registered(at, self.ONE)})
+
+    def test_relocated_by_hash(self):
+        from docx import Document
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, self.PAIRS)
+            previous = {'translationParagraphs': {'N4.5-v4': {'7': imp.sha256_text(self.PAIRS[4]), '9': 'gone'}}}
+            found, missing = imp.relocate_translations(previous, {'N4.5-v4': Document(path)})
+            self.assertEqual((found, missing), ({'N4.5-v4': {str(at[self.PAIRS[4]]): imp.sha256_text(self.PAIRS[4])}}, ['gone']))
+
+    def test_source_notes_follow_the_source(self):
+        built = [dict(card('甲', ['收录'], 'a,'), id='x-1', note='网站加的'),
+                 dict(card('收录（无标题1）', ['收录'], 'b,'), id='x-2', note='旧翻译'),
+                 dict(card('自然语言（1）', ['自然语言'], 'c,'), id='x-3', note='作者删了')]
+        sources = [card('甲', ['收录'], 'a,'), card('收录（无标题1）', ['收录'], 'b,', note='新翻译'),
+                   card('自然语言（1）', ['自然语言'], 'c,')]
+        noted = imp.refresh_source_notes('demo', built, sources, {('自然语言',)})
+        self.assertEqual(noted, {'x-2'})
+        self.assertEqual([e.get('note') for e in built], ['网站加的', '新翻译', None])
+        with self.assertRaises(ValueError):  # built entries must line up with the source
+            imp.refresh_source_notes('demo', built[:2], sources, set())
+
+    def test_note_changes_are_listed(self):
+        old = {'id': 'x-1', 'title': '收录（无标题1）', 'path': ['收录'], 'tags': 'b,'}
+        built = {'results': {book: {'match': match.match_entries([], [])} for book in imp.BOOKS},
+                 'applied': {book: {'entries': []} for book in imp.BOOKS},
+                 'formal': {book: {'entries': []} for book in imp.BOOKS}}
+        built['results']['suozhang']['match'] = match.match_entries([old], [card('收录（无标题1）', ['收录'], 'b,')])
+        built['applied']['suozhang']['entries'] = [dict(old, note=self.ONE)]
+        built['formal']['suozhang']['entries'] = [old]
+        self.assertEqual([(r['id'], r['fields']) for r in imp.changes_report(built)['suozhang']['changed']],
+                         [('x-1', ['note'])])
+
+    def test_audit_flags_for_sentence_titles_and_translated_cards(self):
+        self.assertEqual(imp.audit_flags(card(self.ONE, ['收录'], 'a,')), ['标题是长句'])
+        self.assertEqual(imp.audit_flags(card('收录（无标题1）', ['收录'], 'eng one,', note=self.ONE)), [])
+        self.assertEqual(imp.audit_flags(card('收录（无标题1）', ['收录'], 'eng one,')), ['无标题'])
+
+    def test_long_sentences_read_as_titles_are_reported(self):
+        from docx import Document
+        self.assertTrue(imp.sentence_title('一个男孩，伪娘，戴着白色头巾，内里是蓝色的头发，红色的眼睛，明亮的瞳孔。他像商品一样站着。'))
+        self.assertFalse(imp.sentence_title('扼喉背后位【推荐画风：[[artist:a]],[[artist:b]],[[artist:c]],[[artist:d]],[[artist:e]]】'))
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, self.PAIRS)
+            rows = imp.long_title_candidates({'N4.5-v4': Document(path)}, set())
+            self.assertEqual([(r['paragraph'], r['afterPrompt']) for r in rows],
+                             [(at[self.PAIRS[4]], True), (at[self.PAIRS[8]], True), (at[self.PAIRS[9]], False)])
 
 
 class RehearsalGuardTests(unittest.TestCase):
