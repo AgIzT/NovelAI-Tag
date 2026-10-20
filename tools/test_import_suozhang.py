@@ -568,6 +568,84 @@ class TranslationParagraphTests(WordDocMixin, unittest.TestCase):
                              [(at[self.PAIRS[4]], True), (at[self.PAIRS[8]], True), (at[self.PAIRS[9]], False)])
 
 
+class JoinedTitleTests(WordDocMixin, unittest.TestCase):
+    LINES = ['半拉开外套版本', 'eyes focus,shy,', '附带两个动作', '饮水：towel around neck,holding bottle,',
+             '', '小巷撩起衣服诱惑小正太1girl,solo,sunlight,amusement\npark,best illustration,', 'char1：girl,smile,']
+
+    def registered(self, at, line, cut):
+        return {str(at[line]): {'sha256': imp.sha256_text(line), 'at': cut}}
+
+    def test_title_written_into_the_prompt_line_is_cut_off(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder)
+            plain = imp.load_part(path, 'N4.5-v4')['raw']
+            self.assertNotIn('饮水', [e['title'] for e in plain])
+            joined = {**self.registered(at, self.LINES[3], 2), **self.registered(at, self.LINES[5], 11)}
+            raw = imp.load_part(path, 'N4.5-v4', joined=joined)['raw']
+            self.assertEqual([(e['title'], e['tags']) for e in raw], [
+                ('半拉开外套版本', 'eyes focus,shy,'),
+                ('饮水', 'towel around neck,holding bottle,'),
+                ('小巷撩起衣服诱惑小正太', '1girl,solo,sunlight,amusement\npark,best illustration,\nchar1：girl,smile,')])
+
+    def test_cut_must_leave_a_title_and_a_prompt(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder)
+            with self.assertRaises(ValueError):  # cut in the middle of the prompt
+                imp.load_part(path, 'N4.5-v4', joined=self.registered(at, self.LINES[5], 20))
+            with self.assertRaises(ValueError):  # the paragraph changed
+                imp.load_part(path, 'N4.5-v4', joined={str(at[self.LINES[3]]): {'sha256': 'x', 'at': 2}})
+
+    def test_n45_registrations_are_found_again(self):
+        from docx import Document
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, ['抱枕双面', '角色tag+,arm up,armpits,ass,back,bare legs,barefoot,bed sheet,breasts', *self.LINES])
+            docs = {'N4.5-regular': Document(path)}
+            prose_line = '角色tag+,arm up,armpits,ass,back,bare legs,barefoot,bed sheet,breasts'
+            found, _ = imp.relocate_prose({'proseParagraphs': {'N4.5-regular': {'1': imp.sha256_text(prose_line)}}}, docs)
+            self.assertEqual(found, {'N4.5-regular': {str(at[prose_line]): imp.sha256_text(prose_line)}})
+            previous = {'joinedTitles': {'N4.5-regular': {'3': {'sha256': imp.sha256_text(self.LINES[3]), 'at': 2}}}}
+            found, missing = imp.relocate_joined_titles(previous, docs)
+            self.assertEqual((found, missing), ({'N4.5-regular': self.registered(at, self.LINES[3], 2)}, []))
+
+
+class DroppedLineTests(WordDocMixin, unittest.TestCase):
+    PROSE = 'shows a witch standing before a glowing magic circle in her dark study'
+    LINES = ['女巫触手召唤败北', '3koma,multiple views,', PROSE, '', '穿鞋袜出门漫画', '{four-panel comics},',
+             'first panel: wear white pantyhose', 'second panel: wear shoes', 'fourth panel: going out,location,']
+
+    def test_dropped_english_and_section_titles_are_reported(self):
+        from docx import Document
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder)
+            docs = {'N4.5-v3': Document(path)}
+            self.assertEqual([r['paragraph'] for r in imp.dropped_lines(docs, set())], [at[self.PROSE]])
+            sections = [r['text'] for r in imp.long_title_candidates(docs, set()) if r['section']]
+            self.assertEqual(sections, ['first panel: wear white pantyhose', 'second panel: wear shoes'])
+            raw = imp.load_part(path, 'N4.5-v3', prose={str(at[self.PROSE]): imp.sha256_text(self.PROSE)})['raw']
+            self.assertEqual(raw[0]['tags'], '3koma,multiple views,\n' + self.PROSE)
+
+    def test_dropped_prose_is_found_again_only_in_the_same_model(self):
+        from docx import Document
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder)
+            doc = Document(path)
+            registered = {'proseParagraphs': {'N4.5-v3': {'1': imp.sha256_text(self.PROSE)}}}
+            found, missing = imp.relocate_prose(registered, {'N4.5-v4': doc})
+            self.assertEqual((found, missing), ({'N4.5-v4': {str(at[self.PROSE]): imp.sha256_text(self.PROSE)}}, []))
+            found, missing = imp.relocate_prose(registered, {'N5-upper': doc})  # an N4.5 line is never moved into N5
+            self.assertEqual((found, missing), ({}, [imp.sha256_text(self.PROSE)]))
+
+    def test_cut_inside_an_english_word_is_refused(self):
+        line = '小巷诱惑小正太1girl,solo,sunlight,'
+        with tempfile.TemporaryDirectory() as folder:
+            path, at = self.write_doc(folder, ['卡甲', 'a,', '', line])
+            for cut in (8, 9):  # 「…小正太1」 / 「…小正太1g」
+                with self.assertRaises(ValueError):
+                    imp.load_part(path, 'N4.5-v4', joined={str(at[line]): {'sha256': imp.sha256_text(line), 'at': cut}})
+            raw = imp.load_part(path, 'N4.5-v4', joined={str(at[line]): {'sha256': imp.sha256_text(line), 'at': 7}})['raw']
+            self.assertEqual(raw[-1]['title'], '小巷诱惑小正太')
+
+
 class RehearsalGuardTests(unittest.TestCase):
     def test_survey_refuses_to_write_into_an_applied_archive(self):
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as out:

@@ -375,8 +375,12 @@ def prune_translations(docs, prose, titles, translations):
     return dropped
 
 
-def load_part(path, key, prose=None, emoji_index=None, chapters=(), titles=None, translations=None):
+def load_part(path, key, prose=None, emoji_index=None, chapters=(), titles=None, translations=None, joined=None):
     """``prose`` paragraphs are read as prompt text, ``titles`` as card titles.
+
+    A ``joined`` paragraph has its card title written straight into the
+    prompt line; it is cut ``at`` that many characters (a ：/: right after
+    the cut is dropped) into a title line and a prompt line.
 
     ``translations`` paragraphs are the Chinese translation of the prompt
     lines right above them and go into that card's note (see
@@ -401,6 +405,18 @@ def load_part(path, key, prose=None, emoji_index=None, chapters=(), titles=None,
             if sha256_text(doc.paragraphs[index].text) != text_sha:
                 raise ValueError(f'{key}: 第 {index} 段不是已审的{name}原文，段落位置变了')
     overrides = base.restore_food_emoji(doc, emoji_index) if emoji_index is not None else {}
+    classify = convert.classify_nai5_line if part_model(key) == 'N5' else convert.classify
+    for index, row in {int(i): row for i, row in (joined or {}).items()}.items():
+        text = doc.paragraphs[index].text
+        if index in kinds or index in overrides or sha256_text(text) != row['sha256']:
+            raise ValueError(f'{key}: 第 {index} 段不是已审的「标题连着提示词」原文，或另有登记')
+        title, rest = text[:row['at']].strip(), text[row['at']:].lstrip('：: ')
+        first = rest.splitlines()[0].strip() if rest.strip() else ''
+        inside_word = re.match(r'[A-Za-z0-9]{2}', text[row['at'] - 1:row['at'] + 1] or '')
+        if (not title or inside_word or re.search(r'[,，:：{}\[\]\n]', title) or classify(title) != 'title'
+                or not first or first[0] in ',，' or classify(first) != 'tag'):
+            raise ValueError(f'{key}: 第 {index} 段在第 {row["at"]} 个字处断开，得不到「标题 + 提示词」')
+        overrides[index] = title + '\n' + rest
     audit = []
     raw = convert.parse_standard_docx_items(
         doc, suozhang_model=part_model(key), kind_overrides=kinds, text_overrides=overrides, audit=audit)
@@ -410,7 +426,7 @@ def load_part(path, key, prose=None, emoji_index=None, chapters=(), titles=None,
             items, later, chapter_stats[rule['chapter']] = parse_template_chapter(doc, rule)
             raw = insert_chapter_items(raw, items, later)
     return {'doc': doc, 'raw': raw, 'audit': audit, 'prose': sorted(prose), 'titles': sorted(titles),
-            'translations': sorted(translations),
+            'translations': sorted(translations), 'joined': sorted(int(i) for i in (joined or {})),
             'chapters': chapter_stats,
             'emoji': emoji_index, 'sha256': base.digest(path), 'path': str(path)}
 
@@ -509,7 +525,7 @@ def apply_source_splits(key, entries, rules):
 
 def normalize_part(key, loaded, reference, style_rules=(), splits=()):
     entries, roles = base.checked_normalize(loaded['raw'], reference)
-    recovered = base.verify_recovered_prose(loaded['doc'], entries, loaded['audit']) if part_model(key) == 'N5' else 0
+    recovered = base.verify_recovered_prose(loaded['doc'], entries, loaded['audit'])
     for rule in style_rules:
         if rule['part'] == key:
             entries = fold_style_collection(entries, rule)
@@ -518,7 +534,8 @@ def normalize_part(key, loaded, reference, style_rules=(), splits=()):
     record = {
         'path': loaded['path'], 'sha256': loaded['sha256'], 'parsed': len(entries),
         'proseParagraphs': loaded['prose'], 'titleParagraphs': loaded['titles'],
-        'translationParagraphs': loaded['translations'], 'foodEmojiParagraph': loaded['emoji'],
+        'translationParagraphs': loaded['translations'], 'joinedTitles': loaded['joined'],
+        'foodEmojiParagraph': loaded['emoji'],
         'recoveredProseLinesVerified': recovered,
         'artistCards': sum(special(e) == 'artist' for e in entries),
         'ocCards': sum(special(e) == 'oc' for e in entries),
@@ -543,7 +560,7 @@ def parse_sources(config, formal, files):
         loaded[key] = load_part(path, key, config.get('proseParagraphs', {}).get(key),
                                 emoji.get('index') if emoji.get('part') == key else None,
                                 config.get('specialChapters', ()), config.get('titleParagraphs', {}).get(key),
-                                config.get('translationParagraphs', {}).get(key))
+                                config.get('translationParagraphs', {}).get(key), config.get('joinedTitles', {}).get(key))
         book = part_book(key)
         parts[key], records[key] = normalize_part(
             key, loaded[key], aliased(formal[book]['entries'], aliases_of(config, book)),
@@ -1122,32 +1139,51 @@ def prepare(config, out, *, formal_dir=None, write_snapshots=True):
 
 # ---------------------------------------------------------------- survey
 
-def relocate_lines(previous, docs, field, parsed_as=None, models=('N5',)):
-    """Find last version's reviewed lines again by text hash; positions move."""
-    known = {text_sha for part in previous.get(field, {}).values() for text_sha in part.values()}
+def relocate_lines(previous, docs, field, still=None, models=('N5',)):
+    """Find last version's reviewed lines again by text hash; positions move.
+
+    A line is only looked for in parts of the model it was registered for,
+    and ``still(kind)`` must hold for how the parser would read it now (no
+    registration is needed once the author's text reads right by itself).
+    """
+    known = {(part_model(part), text_sha) for part, rows in previous.get(field, {}).items() for text_sha in rows.values()}
     found, used = {}, set()
     for key, doc in docs.items():
-        if part_model(key) not in models:
+        model = part_model(key)
+        if model not in models:
             continue
+        classify = convert.classify_nai5_line if model == 'N5' else convert.classify
         for index, paragraph in enumerate(doc.paragraphs):
             text_sha = sha256_text(paragraph.text)
-            if text_sha in known and (parsed_as is None
-                                      or convert.classify_nai5_line(paragraph.text.strip()) == parsed_as):
+            if (model, text_sha) in known and (still is None or still(classify(paragraph.text.strip()))):
                 found.setdefault(key, {})[str(index)] = text_sha
-                used.add(text_sha)
-    return found, sorted(known - used)
+                used.add((model, text_sha))
+    return found, sorted(text_sha for _, text_sha in known - used)
 
 
 def relocate_prose(previous, docs):
-    return relocate_lines(previous, docs, 'proseParagraphs', 'title')
+    return relocate_lines(previous, docs, 'proseParagraphs', lambda kind: kind != 'tag', models=('N4.5', 'N5'))
 
 
 def relocate_titles(previous, docs):
-    return relocate_lines(previous, docs, 'titleParagraphs', 'tag')
+    return relocate_lines(previous, docs, 'titleParagraphs', lambda kind: kind == 'tag')
 
 
 def relocate_translations(previous, docs):
     return relocate_lines(previous, docs, 'translationParagraphs', models=('N4.5', 'N5'))
+
+
+def relocate_joined_titles(previous, docs):
+    """``joinedTitles`` rows keep their cut position; the paragraph is found by its text hash."""
+    known = {row['sha256']: row['at'] for part in previous.get('joinedTitles', {}).values() for row in part.values()}
+    found, used = {}, set()
+    for key, doc in docs.items():
+        for index, paragraph in enumerate(doc.paragraphs):
+            text_sha = sha256_text(paragraph.text)
+            if text_sha in known:
+                found.setdefault(key, {})[str(index)] = {'sha256': text_sha, 'at': known[text_sha]}
+                used.add(text_sha)
+    return found, sorted(set(known) - used)
 
 
 def find_food_emoji(docs):
@@ -1233,6 +1269,10 @@ def title_candidates(docs, known):
     return rows
 
 
+# Section headings inside one prompt, not card titles: 「## Pose」, 「first panel: …」.
+SECTION_LABEL_RE = re.compile(r'#|(?:first|second|third|fourth|fifth|top|bottom|left|right|middle) panel\b', re.I)
+
+
 def sentence_title(text):
     """A real title is never a long natural-language sentence: a translation,
     a description, or a title run together with its prompt.  Bracketed notes
@@ -1256,11 +1296,33 @@ def long_title_candidates(docs, skip):
                 continue
             lines = convert.visible_lines(paragraphs[index].text)
             for at, line in enumerate(lines):
-                if classify(line) != 'title' or not sentence_title(line):
+                if classify(line) != 'title' or not (sentence_title(line) or SECTION_LABEL_RE.match(line)):
                     continue
                 previous = lines[at - 1] if at else (paragraphs[index - 1].text.strip() if index else '')
                 rows.append({'part': key, 'paragraph': index, 'path': path, 'text': line[:60], 'previous': previous[:60],
-                             'afterPrompt': bool(previous) and classify(previous.splitlines()[-1]) == 'tag'})
+                             'afterPrompt': bool(previous) and classify(previous.splitlines()[-1]) == 'tag',
+                             'section': bool(SECTION_LABEL_RE.match(line))})
+    return rows
+
+
+def dropped_lines(docs, skip):
+    """English lines the parser reads as neither title nor prompt and silently drops.
+
+    N4.5 keeps an English line only when it carries tag syntax (commas,
+    brackets, weights); prose written as plain sentences was lost this way
+    (10.13 vol. 3 card codex_8489ac52-1382 lost three paragraphs).
+    """
+    rows = []
+    for key, doc in docs.items():
+        classify = convert.classify_nai5_line if part_model(key) == 'N5' else convert.classify
+        paragraphs = doc.paragraphs
+        for index, _, path in body_lines(doc):
+            if (key, index) in skip or path[:1] == ['页尾']:
+                continue
+            for line in convert.visible_lines(paragraphs[index].text):
+                if classify(line) == 'note' and len(re.findall(r'[A-Za-z]', line)) >= 12:
+                    rows.append({'part': key, 'paragraph': index, 'path': path, 'text': line[:60],
+                                 'previous': paragraphs[index - 1].text.strip()[:60] if index else ''})
     return rows
 
 
@@ -1488,6 +1550,9 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     translations, missing_translations = relocate_translations(previous, docs)
     if missing_translations:
         notes.append(f'上一版的 {len(missing_translations)} 行已审翻译这次没找到（作者可能删改了），无需处理')
+    joined, missing_joined = relocate_joined_titles(previous, docs)
+    if missing_joined:
+        decisions.append(f'上一版的 {len(missing_joined)} 处「标题连着提示词」这次没找到：作者可能已分行，也可能改了那一行，看原文确认')
     for key, indexes in prune_translations(docs, prose, titles, translations).items():
         decisions.append(f'{key} 第 {indexes} 段登记过翻译，但这次上面已不是提示词：草稿去掉了这几段的登记，'
                          '看原文后重新判断（是长句的会出现在「被当成标题的长句」里）')
@@ -1510,13 +1575,20 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         decisions.append(f'N5 有 {len(candidates)} 行疑似续行的短句被当成了标题'
                          f'{f"（其中 {hinted} 行接在 text: 画面文字后面）" if hinted else ""}，'
                          '逐条看原文后决定是否加进 proseParagraphs')
-    reviewed = {(key, int(index)) for field in (prose, titles, translations) for key, rows in field.items() for index in rows}
+    reviewed = {(key, int(index)) for field in (prose, titles, translations, joined)
+                for key, rows in field.items() for index in rows}
     reviewed |= {(row['part'], row['paragraph']) for row in candidates}
     sentence_rows = long_title_candidates(docs, reviewed)
     if sentence_rows:
         paired = sum(row['afterPrompt'] for row in sentence_rows)
-        decisions.append(f'{len(sentence_rows)} 行长句被当成了标题（正常标题不会是一段自然语言；其中 {paired} 行紧跟在提示词下面，'
-                         '多半是那条提示词的中文翻译），逐条看原文：是翻译就加进 translationParagraphs')
+        sections = sum(row['section'] for row in sentence_rows)
+        decisions.append(f'{len(sentence_rows)} 行长句或正文分段被当成了标题（正常标题不会是一段自然语言；其中 {paired} 行紧跟在提示词下面，'
+                         f'多半是那条提示词的中文翻译；{sections} 行像「## …」「first panel: …」这样的正文分段），'
+                         '逐条看原文：翻译加进 translationParagraphs，正文加进 proseParagraphs')
+    dropped_rows = dropped_lines(docs, reviewed)
+    if dropped_rows:
+        decisions.append(f'{len(dropped_rows)} 行英文被解析器当成说明直接丢掉了（不带逗号、括号的整句英文），'
+                         '逐条看原文：是正文就加进 proseParagraphs')
     title_rows = title_candidates(docs, titles)
     if title_rows:
         decisions.append(f'N5 有 {len(title_rows)} 行疑似标题被当成了正文（带全角逗号的纯中文短行，在空行后或括号没闭合），'
@@ -1530,13 +1602,14 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
         'outDir': Path(os.path.abspath(out)).relative_to(os.path.abspath(ROOT)).as_posix(),
         'parts': {key: {'sha256': base.digest(path), 'half': None} for key, path in files.items()},
         'pathAliases': {}, 'proseParagraphs': prose, 'titleParagraphs': titles, 'translationParagraphs': translations,
+        'joinedTitles': joined,
         'foodEmojiParagraph': emoji,
         'duplicateBlocks': [], 'styleCollections': [], 'removals': {}, 'newOverrides': {},
         'manualMatches': {}, 'acceptedDrift': {}, 'sourceSplits': [], 'specialChapters': chapters,
         'expected': {}, 'decisions': [],
     }
     loaded = {key: load_part(path, key, prose.get(key), emoji['index'] if emoji and emoji['part'] == key else None,
-                             chapters, titles.get(key), translations.get(key))
+                             chapters, titles.get(key), translations.get(key), joined.get(key))
               for key, path in files.items()}
     for key, item in loaded.items():
         for name, stats in item['chapters'].items():
@@ -1689,7 +1762,7 @@ def survey(source_dir, *, formal_dir=None, previous=None, out=None):
     report = {'version': version, 'previous': previous['version'], 'files': {k: str(v) for k, v in files.items()},
               'structures': structures, 'baselineReplay': replay, 'halvesEvidence': halves_evidence,
               'removals': removal_rows, 'newAnomalies': anomalies, 'followedMoves': moves, 'proseCandidates': candidates,
-              'titleCandidates': title_rows, 'sentenceTitles': sentence_rows,
+              'titleCandidates': title_rows, 'sentenceTitles': sentence_rows, 'droppedLines': dropped_rows,
               'decisions': decisions, 'notes': notes}
     base.write_json(out / 'survey.json', report)
     base.write_json(out / 'draft-config.json', draft)
@@ -1749,7 +1822,12 @@ def render_survey(report, draft):
               '把它的段落号和原文 sha256 加进 `translationParagraphs`，两段合成一张无标题卡，翻译进备注。'
               '也可能是标题和提示词写在了同一行，那种报维护者。', '']
     lines += [f"- {row['part']} 第 {row['paragraph']} 段「{row['text']}」{'｜**紧跟在提示词下面**' if row['afterPrompt'] else ''}"
-              f"｜上一行：{row['previous']}" for row in report.get('sentenceTitles', [])] or ['- 无']
+              f"{'｜**像正文分段**' if row.get('section') else ''}｜上一行：{row['previous']}"
+              for row in report.get('sentenceTitles', [])] or ['- 无']
+    lines += ['', '## 被丢掉的英文行', '',
+              'N4.5 只认带逗号、括号等 tag 符号的英文行；整句写的英文会被当成说明丢掉。是卡片正文就把段落号和原文 sha256 加进 `proseParagraphs`。', '']
+    lines += [f"- {row['part']} 第 {row['paragraph']} 段「{row['text']}」｜上一行：{row['previous']}"
+              for row in report.get('droppedLines', [])] or ['- 无']
     lines += ['', '下一步：把 `draft-config.json` 按拍板结果改好，另存为 `tools/suozhang_versions/<版本>.json`，再运行 prepare。', '']
     return '\n'.join(lines)
 

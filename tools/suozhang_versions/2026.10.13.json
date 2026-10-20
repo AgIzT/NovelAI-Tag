@@ -78,6 +78,45 @@
       "712": "a34452d5b1e6cad6f85b183d90ef73bba86e2d1e568696de35bed79acb6537d2",
       "713": "741ed74c93e1fa146bf3f94f1a035dbd2cae080bda5c66535bddc6cd2b05264e",
       "1700": "967b57704ccca792878b9466b361193af2283adad151740f9009cd94ae85a04d"
+    },
+    "N4.5-v4": {
+      "1041": "3e43ec8376d7ea3ee5fad25f08a69910c35678830cf2e820594a0b68c86767d3",
+      "1975": "23d2f5933092fd52fbcf22231e2f165dbd5655fb2d22ca0af261a680082c2783",
+      "6023": "330784130ce09d35d1966771e4e3cf5a0df5b7af969096633ca6255a18a19923",
+      "7691": "74820d1c4eef4255ca133fb4b861e176146e14a128cb1a07f416e75cde7225bf",
+      "7692": "00ffd7de62f80285eefbc82f798c2e1ce3ccd636e493d1e9223c1d7e0632abf3",
+      "7693": "4bd63967b9a60e0f27c3abc4b3bb1d79840cd52ec5b9ce1f83adbe56e2a52ec0",
+      "7694": "6a8b8d2c38841bfc89b549744b4c067d7653f78c4f4f834c047928add4c9450b",
+      "7695": "30cf334e31fbe4fc901a17e071903d6a6c6f29de85853d5060fd4fe8c61e8777",
+      "7696": "06644503338641f25c32c4af654c4b2eb7b1349bfd42174a3ad6cfcf16dd3a91",
+      "7697": "c3fe8ef2c227bb69066d9617304b78ce578f39f9ed6afc06a97febf89f1bbff6",
+      "7698": "61aebc7f9310bee74366c289edef612d7b4a6be7b3c10350ad1c9091979515db",
+      "7699": "b73b50c5e95075c65804e1bcf8d7c5855b3f803c2f9f4cff37aed6d471a40dff",
+      "7700": "590a833e54d03f2f599af318bdae83a2cc6278140b87a07c9629a23220beaacc"
+    },
+    "N4.5-regular": {
+      "12764": "82580fe470c50558489a5c4dfa9c682ed522f2d36aff6aa46efa0ca97385304e",
+      "17467": "55635276b3d54b1134b967c490788a950ff1520623569220fe5d8dc5808888e5",
+      "17468": "e48d974224c7d41550ecd60faca5fe946f62bc0ced703681933037716d85e309",
+      "17469": "d86d9d6a649defb415dcf16f67d17343467b6b557eb001e159a13920ffcf853e"
+    },
+    "N4.5-v3": {
+      "5586": "86785325cc28ef0239b96bb3e15e94a5733d43c4c9fd8de52cd703aaca9cf7d0",
+      "5587": "8940e39af18d61182caa520a33c20721dbfab6594185b5213d0391d1ff71580c",
+      "5588": "301fc91876ed1c0ef04b7c9b041a9c0fce4a84381d2944c59b32f376d879602d"
+    },
+    "N4.5-v1": {
+      "2720": "a7bda675189ea79e774ac8a7fa4de459e16a67ed012adab07b082396635c92df"
+    },
+    "N4.5-v2": {
+      "4330": "a35036bdbfd6df6038f19d9089c75fc3cc5cbadfb8e09579587bcee35b00d7c2",
+      "4332": "93c003c28f94e86250c136bf352bc110dda5f4899a55c42378907db0f3728ccc",
+      "4334": "00e01a4d5eb852a32cb745eec7b6d6c9b92841663cb2b4d4355f5264e2bddc88",
+      "4335": "0dcbedb88f1bfa5a3ed77b2004c7d61e2d568e42719e4ba768658e4e7897cc3b",
+      "6095": "fadb707daa3bd2d37fa21474b5327f1f3e0ddf3890cb0d6ac04a1de4e3e88712",
+      "6096": "6ac81312a680f1e21445370afa8869768b38ee1dd94937fe4ae381ae5f3c581f",
+      "6097": "95797a337e3a039b2142b4ef89d9b46ca0c70cae64e15c590a95696f6b1acf94",
+      "6192": "a35d0264af1307341261904c6b4000a24d5edc32720cc48206cbe122966a51de"
     }
   },
   "titleParagraphs": {
@@ -95,6 +134,7 @@
   },
   "translationParagraphs": {
     "N4.5-v4": {
+      "1976": "ffbfba3cec24fbd2cbc8f33d1b2b69abe36d68ce45d6c81ba7844fec09abae8b",
       "6372": "ed3da463277f828fae94d299587be1fb6623cfdbc373c4ee0ff10cf4eca4180b",
       "6375": "1d3dc41df707cbd166cc2de6a8bf2ff7bf25099347859e7e3657a9c698a18a08",
       "6641": "6e51207fb9df4a273addd24391948f6af30bb65f70d199220e07a6a9f58f50b9",
@@ -108,6 +148,14 @@
       "7864": "fcaac36c03b06e87dd8d40b4c57a5bbc41d5de36c45fe76237abd8d521e2b111",
       "8222": "e533b42702c6fba7505f81d6a88a1ee3a449b87d5fb8c5b5ad61fa22cb6f50f1",
       "8225": "ecabb0c07afdb53e336f07c3cb7e3fe89799ab6faf4c6228d737ef20024a29e9"
+    }
+  },
+  "joinedTitles": {
+    "N4.5-v4": {
+      "5624": {
+        "sha256": "f544524a41b796060647967a10e6c9b4ad2d9113e3d992a091b37547be5e775f",
+        "at": 11
+      }
     }
   },
   "foodEmojiParagraph": {
@@ -153,9 +201,29 @@
       }
     }
   ],
-  "removals": {},
+  "removals": {
+    "suozhang": {
+      "approvedImagedIds": [
+        "suozhang-4957"
+      ]
+    },
+    "suozhang_r18": {
+      "approvedImagedIds": [
+        "codex_6e699406-2904",
+        "codex_6e699406-2905"
+      ]
+    }
+  },
   "newOverrides": {},
-  "manualMatches": {},
+  "manualMatches": {
+    "suozhang_r18": [
+      {
+        "oldId": "codex_8489ac52-5366",
+        "newSignatureSha256": "32fdb6a8cb69fbedb899d37b1d984e82a2f525c7b06a4b330ff2c7702c86da73",
+        "note": "标题和提示词原本连成一行，拆开后标题变短、正文补全，同一张卡"
+      }
+    ]
+  },
   "acceptedDrift": {
     "suozhang_r18": [
       {
@@ -186,13 +254,13 @@
   "expected": {
     "suozhang": {
       "entryCount": 6042,
-      "newIdCount": 342,
-      "removedCount": 0
+      "newIdCount": 343,
+      "removedCount": 1
     },
     "suozhang_r18": {
-      "entryCount": 11989,
-      "newIdCount": 18,
-      "removedCount": 0
+      "entryCount": 11990,
+      "newIdCount": 21,
+      "removedCount": 2
     },
     "suozhang_nai5": {
       "entryCount": 256,
@@ -216,6 +284,9 @@
     "2026-10-16 补收 N4.5 常规「自然语言」章：登记 specialChapters，按「自然语言（N）」编号、翻译进备注、改编版作第二张卡；该章源稿无高亮，不进更新批次。",
     "2026-10-17 补登记：N5 四处带全角逗号的新卡标题被读成正文（N5 常规 433、442 段，N5 色色上 974 段、下 811 段），登记 titleParagraphs 按标题读；解析器不改，作者改掉标题里的逗号后删除记录。",
     "2026-10-17 再补一处：N5 色色上 2932 段，作者把标题从括号中间断到下一行，括号没闭合、逗号被当成正文，整张卡并进了带图旧卡 suozhang_nai5_r18-0358；登记为标题。源稿缺的右括号落在下一张卡正文开头，按作者笔误保留，作者修好后删除记录。",
-    "2026-10-20 补登记：N4.5 色色卷四有 12 张「英文提示词 + 中文翻译」（其中一张提示词和翻译各两行）的无标题卡（7 段），翻译被当成下一张卡的标题、每段第一条提示词并进上一张卡；登记 translationParagraphs，两段合为一张无标题卡，翻译进备注。至迟 9.13 起就如此。"
+    "2026-10-20 补登记：N4.5 色色卷四有 12 张「英文提示词 + 中文翻译」（其中一张提示词和翻译各两行）的无标题卡（7 段），翻译被当成下一张卡的标题、每段第一条提示词并进上一张卡；登记 translationParagraphs，两段合为一张无标题卡，翻译进备注。至迟 9.13 起就如此。",
+    "2026-10-20 再补四处被当成标题而丢掉的内容：卷四 5624 段标题连着提示词写在一行、卷二 6096/6097 段「饮水：」「擦汗：」动作行，登记 joinedTitles 按字数断开（后两张成为独立的卡）；卷四 1975 段「原Tag：」开头的正文与 N4.5 常规 12764 段「角色tag+」开头的正文登记为续行，卷四 1976 段「翻译：」进备注。原文文字不改。",
+    "2026-10-20 维护者定：卷二「附带两个动作」「饮水：」「擦汗：」三行并进「半拉开外套版本」作附加（登记续行，取消单独成卡）；卷四 1041 段「原画师tag：」补回「厕所人棍便器」。另由 codex_8489ac52-1382 查出 N4.5 把不带 tag 符号的整句英文当说明丢掉：卷三 5586–5588（1382）、卷一 2720（0577）、卷二 6192（5674）、卷四 6023 与 7691–7700（两张整张丢失的「原版」）登记为续行。",
+    "2026-10-20 维护者批准合并三张由正文分段生出的带图假卡：常规「穿鞋袜出门漫画」的 first/second/third panel 行（17467–17469）、卷二「原版自然语言」的「## …」小标题与丢掉的一行（4330、4332、4334、4335）登记为续行，假卡 suozhang-4957、codex_6e699406-2904/2905 随之删除（removals.approvedImagedIds）；两张宿主卡的例图本就是按完整正文生成的。"
   ]
 }
