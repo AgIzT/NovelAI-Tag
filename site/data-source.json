@@ -4,5 +4,7 @@
   "pointer": "current.json",
   "remoteHosts": [
     "novelai.quicktagcloud.com"
-  ]
+  ],
+  "v2Pointer": "v2/current.json",
+  "dataPrefix": "data"
 }

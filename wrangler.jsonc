@@ -25,7 +25,8 @@
         "COMMUNITY_LIKES_ENABLED": "true",
         "FAVORITES_PICKUP_ENABLED": "true",
         "ATLAS_DATA_HOSTS": "novelai.quicktagcloud.com",
-        "ATLAS_DATA_PREFIX": "data"
+        "ATLAS_DATA_PREFIX": "data",
+        "ATLAS_DATA_POINTER": "v2/current.json"
       },
       "r2_buckets": [
         {

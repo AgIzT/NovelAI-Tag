@@ -8,7 +8,7 @@
   "http_pool_enabled": true,
   "http_pool_max_connections": 16,
   "http_pool_idle_timeout": 60,
-  "data_release_format": "v1",
+  "data_release_format": "dual",
   "image_prefix": "images",
   "original_prefix": "originals",
   "cache_control": "public, max-age=31536000, immutable",
