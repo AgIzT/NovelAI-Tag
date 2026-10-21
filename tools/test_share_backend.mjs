@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { renderShareResponse } from '../functions/_share.js';
 
 function r2Object(value) {
+  if (value instanceof Uint8Array) return { body: value, size: value.length, arrayBuffer: async () => value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) };
   if (value instanceof Error) return { json: async () => { throw value; } };
   return { json: async () => structuredClone(value) };
 }
@@ -27,6 +29,7 @@ function makeContext({
   assets = {},
   withBucket = true,
   atlasHosts = 'novelai.quicktagcloud.com',
+  dataPointer,
   shell = APP_SHELL,
   path = '/share/demo/demo-0001',
 }) {
@@ -36,6 +39,7 @@ function makeContext({
   const env = {
       ATLAS_DATA_HOSTS: atlasHosts,
       ATLAS_DATA_PREFIX: 'data',
+      ...(dataPointer ? { ATLAS_DATA_POINTER: dataPointer } : {}),
       ASSETS: {
         fetch: async request => {
           const assetPath = new URL(request.url).pathname;
@@ -581,6 +585,58 @@ try {
     assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow', `${label} 必须 noindex`);
   }
 
+  // v2 uses one frozen manifest for both index and shard, including a current switch.
+  {
+    const digest = body => createHash('sha256').update(body).digest('hex');
+    const indexBody = Buffer.from(JSON.stringify(remoteIndex));
+    const shardBody = Buffer.from(JSON.stringify(remoteBook));
+    const files = {
+      'share-index.json': { sha256: digest(indexBody), size: indexBody.length },
+      'share/demo.json': { sha256: digest(shardBody), size: shardBody.length },
+    };
+    const contentHash = digest('r2-cas-v2\n' + Object.entries(files).map(([name, item]) => `${name}\0${item.sha256}\0${item.size}\n`).join(''));
+    const selected = 'r2-' + contentHash;
+    const manifestKey = `data/v2/releases/${selected}/manifest.json`;
+    const manifest = Buffer.from(JSON.stringify({ contentHash, files, release: selected, schemaVersion: 2 }) + '\n');
+    const indexKey = `data/objects/sha256/${files['share-index.json'].sha256.slice(0, 2)}/${files['share-index.json'].sha256}.json`;
+    const shardKey = `data/objects/sha256/${files['share/demo.json'].sha256.slice(0, 2)}/${files['share/demo.json'].sha256}.json`;
+    const pointer = { schemaVersion: 2, release: selected, contentHash, manifest: manifestKey, publishedAt: '2026-10-20T00:00:00Z', operationId: '0'.repeat(32) };
+    const base = {
+      'data/current.json': { release },
+      'data/v2/current.json': Buffer.from(JSON.stringify(pointer)),
+      [manifestKey]: manifest,
+      [indexKey]: indexBody,
+      [shardKey]: shardBody,
+    };
+    for (const host of ['novelai.quicktagcloud.com', 'preview.example.invalid']) {
+      const r2 = { ...base };
+      const { context, r2Calls, assetCalls } = makeContext({ host, atlasHosts: '*', r2, dataPointer: 'v2/current.json' });
+      const get = context.env.ATLAS_DATA_BUCKET.get;
+      context.env.ATLAS_DATA_BUCKET.get = async key => {
+        const value = await get(key);
+        if (key === indexKey) r2['data/v2/current.json'] = Buffer.from('{}');
+        return value;
+      };
+      const response = await renderShareResponse(context);
+      assert.match(await response.text(), /R2 词条 · R2 法典/);
+      assert.deepEqual(assetCalls, []);
+      assert.equal(r2Calls.filter(key => key === 'data/v2/current.json').length, 1);
+      assert.equal(r2Calls.includes('data/current.json'), false);
+      assert.equal(r2Calls.filter(key => key === manifestKey).length, 1);
+    }
+    for (const failure of ['missing', 'corrupt', 'manifest']) {
+      const r2 = { ...base };
+      if (failure === 'missing') delete r2[shardKey];
+      else if (failure === 'corrupt') r2[shardKey] = Buffer.from('{}');
+      else r2[manifestKey] = Buffer.from('{}');
+      const { context, assetCalls, r2Calls } = makeContext({ host: 'preview.example.invalid', atlasHosts: '*', r2, dataPointer: 'v2/current.json' });
+      const response = await renderShareResponse(context);
+      assert.doesNotMatch(await response.text(), /R2 词条|静态词条/);
+      assert.deepEqual(assetCalls, []);
+      assert.equal(r2Calls.includes('data/current.json'), false);
+      if (failure !== 'missing') assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
+  }
   console.log('share backend tests passed');
 } finally {
   console.warn = originalWarn;

@@ -1,0 +1,13 @@
+// Example only. No production route, bucket name, credentials or deployment.
+{
+  "name": "atlas-data-compat-example",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-20",
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "assets.example.invalid/data/*", "zone_name": "example.invalid" }],
+  "r2_buckets": [{ "binding": "ATLAS_DATA_BUCKET", "bucket_name": "atlas-example-bucket" }],
+  "vars": {
+    "ATLAS_DATA_PREFIX": "data",
+    "ATLAS_DATA_CORS_ORIGINS": "https://site.example.invalid,https://partner.example.invalid"
+  }
+}

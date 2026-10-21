@@ -127,6 +127,29 @@ class RunnerTests(unittest.TestCase):
                 result = self.execute(source, replace(self.check, parser="unittest"))
                 self.assertEqual(result["status"], "FAIL")
 
+    def test_node_test_zero_skipped_summary_is_completed(self):
+        output = "1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n"
+        result = self.execute("print(" + repr(output) + ")", replace(self.check, parser="node_test"))
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["node_test_cases_reported"], 2)
+
+    def test_node_test_incomplete_and_skipped_summaries_are_not_pass(self):
+        baseline = "1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n"
+        cases = [
+            (baseline.replace("# skipped 0", "# skipped 1"), "BLOCKED"),
+            (baseline.replace("# todo 0", "# todo 1"), "BLOCKED"),
+            (baseline.replace("# fail 0", "# fail 1"), "FAIL"),
+            (baseline.replace("# cancelled 0", "# cancelled 1"), "FAIL"),
+            (baseline.replace("# pass 2", "# pass 1"), "FAIL"),
+            (baseline.replace("# tests 2", "# tests 0"), "FAIL"),
+            (baseline.replace("# skipped 0\n", ""), "FAIL"),
+            (baseline + "# tests 2\n", "FAIL"),
+        ]
+        for output, expected in cases:
+            with self.subTest(output=output):
+                result = self.execute("print(" + repr(output) + ")", replace(self.check, parser="node_test"))
+                self.assertEqual(result["status"], expected)
+
     def test_child_environment_removes_secrets_injection_and_proxies(self):
         injected = dict(os.environ, AWS_SECRET_ACCESS_KEY="secret", ADMIN_TOKEN="secret", CLOUDFLARE_API_TOKEN="secret",
                         HTTPS_PROXY="http://example.invalid", NODE_OPTIONS="--require malicious.js", PYTHONPATH="evil",
@@ -309,7 +332,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(runner.summarize([])["exit_code"], 2)
 
     def test_profiles_do_not_silently_include_private_data_in_ci(self):
-        for profile in ["quick", "ci", "windows"]:
+        for profile in ["quick", "ci", "windows", "r2_cas", "r2_integration"]:
             self.assertTrue(all(not check.private_data for check in runner.selected_checks(profile)))
         self.assertTrue(all(check.required for check in runner.CHECKS))
         self.assertEqual({check.id for check in runner.selected_checks("baseline")},
@@ -317,6 +340,17 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("nai_default_tags", runner.PROFILES["ci"])
         self.assertIn("search_benchmark_public", runner.PROFILES["ci"])
         self.assertIn("audit_entrypoints", runner.PROFILES["windows"])
+
+    def test_r2_integration_keeps_old_readers_and_safety_checks(self):
+        ids = set(runner.PROFILES["r2_integration"])
+        self.assertTrue({"r2_publisher", "r2_pool", "r2_protocol", "r2_compat", "r2_verifier_safety",
+                         "publish_safety", "publish_entrypoints", "data_source", "data_proxy", "share_backend",
+                         "frontend_loading_recovery", "cache_buster"}.issubset(ids))
+        by_id = {check.id: check for check in runner.CHECKS}
+        for name in ("data_source", "data_proxy", "share_backend", "frontend_loading_recovery"):
+            self.assertIn("site/assets/data-release.js", by_id[name].inputs)
+        for name in ("data_proxy", "share_backend", "r2_compat"):
+            self.assertIn("functions/_atlas_data.js", by_id[name].inputs)
 
 
 if __name__ == "__main__":

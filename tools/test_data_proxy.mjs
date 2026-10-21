@@ -106,4 +106,29 @@ for (const path of [
   assert.equal((await onRequest(context)).status, 503);
 }
 
+// Public-domain compatibility must retain ranged v1 reads without buffering bodies.
+{
+  const raw = new TextEncoder().encode('[{"id":"demo"}]');
+  const calls = [];
+  const bucket = {
+    head: async key => { calls.push(['head', key]); return { size: raw.length, httpEtag: '"v1-range"' }; },
+    get: async (key, options) => {
+      calls.push(['get', key, options]);
+      assert.deepEqual(options.range, { offset: 1, length: 4 });
+      return {
+        size: raw.length, range: options.range, httpEtag: '"v1-range"',
+        body: new ReadableStream({ start(controller) { controller.enqueue(raw.slice(1, 5)); controller.close(); } }),
+      };
+    },
+  };
+  const context = {
+    request: new Request(`https://assets.example/data/releases/${release}/codexes.json`, { headers: { range: 'bytes=1-4' } }),
+    params: { path: ['releases', release, 'codexes.json'] }, env: { ATLAS_DATA_BUCKET: bucket },
+  };
+  const response = await onRequest(context);
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get('content-range'), `bytes 1-4/${raw.length}`);
+  assert.equal((await response.arrayBuffer()).byteLength, 4);
+  assert.equal(calls.length, 2);
+}
 console.log('data proxy tests passed');

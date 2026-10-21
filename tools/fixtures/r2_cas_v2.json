@@ -1,0 +1,36 @@
+{
+  "description": "Synthetic offline v2 cross-language fixture; no production data, credentials or timestamps.",
+  "objects": [
+    {
+      "bodyBase64": "eyJuYW1lIjoi5pys5Zyw6ZqU56a76K+V6aqMIiwiaXRlbXMiOlsi5YWx5Lqr5a+56LGhIiwi5peg5pe26Ze05oizIl19Cg==",
+      "sha256": "188834fc8029f0607088a4531d6cc629b2bdc18df0b920a6a58d74fbc43c5da2",
+      "size": 70,
+      "key": "data/objects/sha256/18/188834fc8029f0607088a4531d6cc629b2bdc18df0b920a6a58d74fbc43c5da2.json"
+    },
+    {
+      "bodyBase64": "eyJ0aXRsZSI6IuWIhuS6q+agt+acuiIsInZlcnNpb24iOjJ9Cg==",
+      "sha256": "4df04bc335799bbb5596e4579e763656ec7b65a35010128d387c9e8da326d6eb",
+      "size": 37,
+      "key": "data/objects/sha256/4d/4df04bc335799bbb5596e4579e763656ec7b65a35010128d387c9e8da326d6eb.json"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 2,
+    "release": "r2-c8a196c16959f71539263485c80bb4d9f925df18f8486161dd76629bfff108db",
+    "contentHash": "c8a196c16959f71539263485c80bb4d9f925df18f8486161dd76629bfff108db",
+    "files": {
+      "codexes.json": {
+        "sha256": "188834fc8029f0607088a4531d6cc629b2bdc18df0b920a6a58d74fbc43c5da2",
+        "size": 70
+      },
+      "share/demo.json": {
+        "sha256": "4df04bc335799bbb5596e4579e763656ec7b65a35010128d387c9e8da326d6eb",
+        "size": 37
+      },
+      "shared/alias.json": {
+        "sha256": "188834fc8029f0607088a4531d6cc629b2bdc18df0b920a6a58d74fbc43c5da2",
+        "size": 70
+      }
+    }
+  }
+}

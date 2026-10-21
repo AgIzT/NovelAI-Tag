@@ -1,10 +1,14 @@
 """更新批次和书内样张的自动抽样、解锁标记与索引门控回归。"""
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -122,5 +126,131 @@ class UpdateSamplesTest(unittest.TestCase):
         self.assertEqual(notes, [])
 
 
+
+class UpdateContentStabilityTest(unittest.TestCase):
+    old_time = "2026-10-01T01:02:03Z"
+    new_time = "2026-10-20T04:05:06Z"
+
+    def seed(self, root):
+        (root / "codexes.json").write_text(json.dumps([{
+            "id": "book", "title": "Fixture 图鉴", "cover": "cover.webp",
+            "updateFilters": [{"id": "2026.10.9", "label": "10.9", "latest": True}],
+        }]), encoding="utf-8")
+        (root / "book.json").write_text(json.dumps({"entries": [
+            entry("cover"), entry("new", isNew=True), entry("preview"),
+        ]}), encoding="utf-8")
+        payload, _ = bui.build(root)
+        payload["generatedAt"] = self.old_time
+        return payload
+
+    def run_main(self, root, *args):
+        with patch.object(sys, "argv", ["build_updates_index.py", "--data-dir", str(root), *map(str, args)]):
+            with patch.object(bui, "datetime") as clock, contextlib.redirect_stdout(io.StringIO()) as stdout:
+                clock.now.return_value = datetime(2026, 10, 20, 4, 5, 6, tzinfo=timezone.utc)
+                self.assertEqual(bui.main(), 0)
+        return stdout.getvalue()
+
+    def test_unchanged_content_preserves_old_time_raw_bytes_and_never_writes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = self.seed(root)
+            output = root / "updates.json"
+            # Existing whitespace, Unicode escaping and field order are not a content change.
+            original = (json.dumps(payload, ensure_ascii=True, separators=(",", ":")) + "\r\n").encode("utf-8")
+            output.write_bytes(original)
+            original_mtime = output.stat().st_mtime_ns
+            rebuilt, _ = bui.build(root)
+            self.assertEqual(rebuilt["generatedAt"], self.old_time)
+            with patch.object(Path, "write_text", side_effect=AssertionError("unchanged output must not be rewritten")):
+                self.run_main(root)
+            self.assertEqual(output.read_bytes(), original)
+            self.assertEqual(output.stat().st_mtime_ns, original_mtime)
+
+    def test_content_or_schema_changes_update_timestamp_and_write_new_payload(self):
+        for key in ("schema", "batches", "previews"):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                payload = self.seed(root)
+                changed = {"schema": 99, "batches": [], "previews": {}}
+                old = {**payload, key: changed[key]}
+                output = root / "updates.json"
+                output.write_text(json.dumps(old), encoding="utf-8")
+                self.run_main(root)
+                actual = json.loads(output.read_text(encoding="utf-8"))
+                self.assertEqual(actual["generatedAt"], self.new_time)
+                self.assertEqual({field: actual[field] for field in ("schema", "batches", "previews")},
+                                 {field: payload[field] for field in ("schema", "batches", "previews")})
+
+    def test_custom_output_compares_its_own_previous_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = self.seed(root)
+            # Default output differs; --output must only use its explicitly selected file.
+            (root / "updates.json").write_text(json.dumps({**payload, "batches": []}), encoding="utf-8")
+            output = root / "custom" / "updates.json"
+            output.parent.mkdir()
+            original = (json.dumps(payload, indent=4) + "\n").encode("utf-8")
+            output.write_bytes(original)
+            with patch.object(Path, "write_text", side_effect=AssertionError("unchanged custom output must not be rewritten")):
+                self.run_main(root, "--output", output)
+            self.assertEqual(output.read_bytes(), original)
+
+    def test_missing_corrupt_or_invalid_previous_output_is_rebuilt(self):
+        for raw in (None, b"invalid json", b"[]", b"null"):
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.seed(root)
+                output = root / "updates.json"
+                if raw is not None:
+                    output.write_bytes(raw)
+                self.run_main(root)
+                self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["generatedAt"], self.new_time)
+        for timestamp in (None, "", 0, "invalid", "2026-02-30T01:02:03Z", "2026-10-20T24:00:00Z"):
+            with self.subTest(timestamp=timestamp), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                payload = self.seed(root)
+                payload["generatedAt"] = timestamp
+                output = root / "updates.json"
+                output.write_text(json.dumps(payload), encoding="utf-8")
+                self.run_main(root)
+                self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["generatedAt"], self.new_time)
+
+    def test_non_index_input_edits_still_keep_existing_index_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = self.seed(root)
+            output = root / "updates.json"
+            original = (json.dumps(payload) + "\n").encode("utf-8")
+            output.write_bytes(original)
+            book_path = root / "book.json"
+            book = json.loads(book_path.read_text(encoding="utf-8"))
+            book["entries"][0]["tags"] = "changed prompt without index effect"
+            book_path.write_text(json.dumps(book), encoding="utf-8")
+            with patch.object(Path, "write_text", side_effect=AssertionError("unrelated input edits must not rewrite the index")):
+                self.run_main(root)
+            self.assertEqual(output.read_bytes(), original)
+
+    def test_json_boolean_is_not_equal_to_numeric_schema(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = self.seed(root)
+            output = root / "updates.json"
+            output.write_text(json.dumps({**payload, "schema": True}), encoding="utf-8")
+            self.run_main(root)
+            actual = json.loads(output.read_text(encoding="utf-8"))
+            self.assertIs(type(actual["schema"]), int)
+            self.assertEqual(actual["generatedAt"], self.new_time)
+    def test_dry_run_preserves_existing_bytes_and_does_not_create_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = self.seed(root)
+            output = root / "updates.json"
+            original = (json.dumps(payload) + "\n").encode("utf-8")
+            output.write_bytes(original)
+            self.run_main(root, "--dry-run")
+            self.assertEqual(output.read_bytes(), original)
+            alternate = root / "absent.json"
+            self.run_main(root, "--dry-run", "--output", alternate)
+            self.assertFalse(alternate.exists())
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from . import r2_data_protocol as cas
+    from .r2_data_snapshot import frozen_data_directory
+except ImportError:
+    import r2_data_protocol as cas
+    from r2_data_snapshot import frozen_data_directory
+
+try:
     from .sync_r2 import (
         DEFAULT_RETRY_BASE_DELAY,
         DEFAULT_UPLOAD_RETRIES,
@@ -287,6 +294,24 @@ class R2DataClient:
             key,
         )
 
+    def create_bytes(self, key, body, cache_control):
+        status, _headers, _response = self.raw.put_bytes(
+            key, body, sha256_bytes(body), cas.JSON_TYPE, cache_control, if_none_match="*",
+        )
+        return status
+
+    def get_bytes(self, key):
+        status, _headers, body = self.raw.get(key)
+        if status == 404:
+            return None
+        if status != 200:
+            raise RuntimeError(f"GET failed {key}: {status}")
+        return body
+
+    def close(self):
+        if hasattr(self.raw, "close"):
+            self.raw.close()
+
     def get_json(self, key):
         value, _etag = self.get_json_snapshot(key)
         return value
@@ -348,7 +373,8 @@ def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30, r
     public_data_base = base_url.rstrip("/")
     if not public_data_base.endswith("/" + data_prefix):
         public_data_base += "/" + data_prefix
-    url = f"{public_data_base}/releases/{plan.release}/manifest.json"
+    layout = "v2/releases" if plan.manifest.get("schemaVersion") == 2 else "releases"
+    url = f"{public_data_base}/{layout}/{plan.release}/manifest.json"
     request = urllib.request.Request(
         url,
         headers={
@@ -376,7 +402,7 @@ def check_public_release(base_url, site_origin, data_prefix, plan, timeout=30, r
                 time.sleep(wait)
     if allow_origin not in ("*", site_origin):
         raise RuntimeError(f"R2 CORS does not allow {site_origin}: {allow_origin or '<missing>'}")
-    remote = json.loads(body.decode("utf-8"))
+    remote = cas.parse_manifest_bytes(body) if plan.manifest.get("schemaVersion") == 2 else json.loads(body.decode("utf-8"))
     if remote.get("release") != plan.release or remote.get("contentHash") != plan.content_hash:
         raise RuntimeError("public manifest does not match the release just uploaded")
 
@@ -433,11 +459,11 @@ def publish_file(client, key, item, source_key=None):
     return "uploaded"
 
 
-def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None,
-                    workers=DEFAULT_RELEASE_WORKERS):
+def prepare_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None,
+                    workers=DEFAULT_RELEASE_WORKERS, expected_snapshot=None):
     data_prefix = normalize_prefix(data_prefix)
     current_key = f"{data_prefix}/current.json"
-    previous, expected_etag = pointer_snapshot(client, current_key)
+    previous, expected_etag = expected_snapshot if expected_snapshot is not None else pointer_snapshot(client, current_key)
     release_prefix = f"{data_prefix}/releases/{plan.release}"
     sources = copy_sources(client, data_prefix, plan, pointer=previous)
     counts = {"uploaded": 0, "copied": 0, "skipped": 0}
@@ -472,13 +498,30 @@ def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=
     if public_check:
         public_check(plan)
 
+    return counts, (previous, expected_etag)
+
+
+def activate_prepared_release(client, plan, data_prefix, frozen, skip_unchanged=False):
+    previous, expected_etag = frozen
+    current_key = f"{normalize_prefix(data_prefix)}/current.json"
+    if skip_unchanged and previous.get("release") == plan.release:
+        if pointer_snapshot(client, current_key) != frozen:
+            raise RuntimeError("current pointer conflict during no-op verification")
+        return {"pointer": previous, "unchanged": True}
+
     pointer = build_pointer(plan, previous_release=previous_release_for(previous, plan.release))
     pointer_bytes = json_bytes(pointer)
     client.put_pointer(current_key, pointer_bytes, expected_etag)
     remote_pointer = client.get_json(current_key) or {}
     if remote_pointer != pointer:
         raise RuntimeError("current pointer verification failed")
-    return {**counts, "pointer": pointer}
+    return {"pointer": pointer}
+
+
+def publish_release(client, plan, data_prefix=DEFAULT_DATA_PREFIX, public_check=None,
+                    workers=DEFAULT_RELEASE_WORKERS):
+    counts, frozen = prepare_release(client, plan, data_prefix, public_check, workers)
+    return {**counts, **activate_prepared_release(client, plan, data_prefix, frozen)}
 
 
 def load_remote_manifest(client, data_prefix, release):
@@ -526,6 +569,30 @@ def check_current_release(client, data_prefix=DEFAULT_DATA_PREFIX):
     return pointer, manifest
 
 
+def v2_module():
+    try:
+        from . import publish_data_r2_v2
+    except ImportError:
+        import publish_data_r2_v2
+    return publish_data_r2_v2
+
+
+def build_v2_release_plan(data_dir=DATA_DIR):
+    return v2_module().build_v2_release_plan(data_dir)
+
+
+def publish_v2_release(*args, **kwargs):
+    return v2_module().publish_v2_release(*args, **kwargs)
+
+
+def activate_v2_release(*args, **kwargs):
+    return v2_module().activate_v2_release(*args, **kwargs)
+
+
+def publish_dual_release(*args, **kwargs):
+    return v2_module().publish_dual_release(*args, **kwargs)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group()
@@ -534,53 +601,102 @@ def main(argv=None):
     actions.add_argument("--activate-release", metavar="RELEASE", help="Activate an existing release after validation.")
     actions.add_argument("--rollback", action="store_true", help="Activate current.json previousRelease.")
     parser.add_argument("--skip-public-check", action="store_true", help="Skip public custom-domain CORS verification.")
+    parser.add_argument("--format", choices=("v1", "v2", "dual"), default=None,
+                        help="Explicit release layout (remote publish otherwise uses config, default v1).")
+    parser.add_argument("--data-dir", type=Path, default=None, help="Local JSON input; default site/data.")
+    parser.add_argument("--local-store", type=Path, help="Use SQLite below project output; never load R2 configuration.")
     args = parser.parse_args(argv)
 
     local_action = args.publish or not any((args.check_current, args.activate_release, args.rollback))
-    plan = build_release_plan() if local_action else None
+    requested = args.format or "v1"
+    source = args.data_dir or DATA_DIR
+    plan = (build_v2_release_plan(source) if requested == "v2" else
+            (build_release_plan() if args.data_dir is None else build_release_plan(source))) if local_action else None
     if plan:
         total_size = sum(item.size for item in plan.files)
         print(f"release: {plan.release}")
         print(f"files: {len(plan.files)}")
         print(f"bytes: {total_size}")
     if not any((args.publish, args.check_current, args.activate_release, args.rollback)):
+        if requested == "dual":
+            print("v2 release: " + build_v2_release_plan(source).release)
         print("plan only; pass --publish to upload and activate")
         return 0
 
-    cfg = load_config(required=True)
+    cfg = {} if args.local_store else load_config(required=True)
+    layout = args.format or cfg.get("data_release_format") or "v1"
+    if layout not in ("v1", "v2", "dual"):
+        raise ValueError("unsupported data_release_format")
+    if layout == "dual" and (args.rollback or args.activate_release):
+        raise ValueError("activate/rollback require an explicit single format")
     site_origin = str(cfg.get("site_origin") or DEFAULT_SITE_ORIGIN).rstrip("/")
     data_prefix = normalize_prefix(cfg.get("data_prefix") or DEFAULT_DATA_PREFIX)
-    client = R2DataClient(cfg)
-    if args.check_current:
-        pointer, manifest = check_current_release(client, data_prefix)
-        print(f"active release OK: {pointer['release']} ({len(manifest['files'])} files)")
-        return 0
-    if args.activate_release:
-        pointer = activate_release(client, data_prefix, args.activate_release)
-        print(f"activated release: {pointer['release']}")
-        return 0
-    if args.rollback:
-        snapshot = pointer_snapshot(client, f"{data_prefix}/current.json")
-        current, _etag = snapshot
-        target = current.get("previousRelease") or ""
-        if not target:
-            raise SystemExit("current pointer has no previousRelease")
-        pointer = activate_release(client, data_prefix, target, expected_snapshot=snapshot)
-        print(f"rolled back to: {pointer['release']}")
-        return 0
+    if args.local_store:
+        try:
+            from .r2_local_client import LocalDataClient
+        except ImportError:
+            from r2_local_client import LocalDataClient
+        client = LocalDataClient(args.local_store)
+    else:
+        client = R2DataClient(cfg)
+    try:
+        if args.check_current:
+            versions = ("v1", "v2") if layout == "dual" else (layout,)
+            manifests = []
+            for version in versions:
+                check = check_current_release if version == "v1" else v2_module().check_current_v2_release
+                pointer, manifest = check(client, data_prefix)
+                manifests.append(manifest["files"])
+                print(f"active {version} release OK: {pointer['release']} ({len(manifest['files'])} files)")
+            if layout == "dual" and manifests[0] != manifests[1]:
+                raise RuntimeError("dual active releases contain different snapshots")
+            return 0
+        if args.activate_release:
+            if layout == "v2":
+                pointer = activate_v2_release(client, data_prefix, args.activate_release)["pointer"]
+            else:
+                pointer = activate_release(client, data_prefix, args.activate_release)
+            print(f"activated release: {pointer['release']}")
+            return 0
+        if args.rollback:
+            if layout == "v2":
+                frozen = v2_module().snapshot(client, data_prefix)
+            else:
+                frozen = pointer_snapshot(client, f"{data_prefix}/current.json")
+            target = frozen[0].get("previousRelease") or ""
+            if not target:
+                raise ValueError("current pointer has no previousRelease")
+            if layout == "v2":
+                manifest = v2_module().load_manifest(client, data_prefix, target)
+                v2_module().verify_manifest_files(client, data_prefix, manifest)
+                pointer = v2_module().activate_prepared_v2(client, manifest, data_prefix, frozen)["pointer"]
+            else:
+                pointer = activate_release(client, data_prefix, target, expected_snapshot=frozen)
+            print(f"rolled back to: {pointer['release']}")
+            return 0
 
-    public_check = None
-    if not args.skip_public_check:
-        base_url = cfg.get("data_public_base_url") or cfg.get("public_base_url") or ""
-        public_check = lambda release_plan: check_public_release(
-            base_url, site_origin, data_prefix, release_plan
-        )
-    result = publish_release(client, plan, data_prefix, public_check=public_check)
-    print(f"uploaded: {result['uploaded']}")
-    print(f"copied: {result['copied']}")
-    print(f"skipped: {result['skipped']}")
-    print(f"activated: {result['pointer']['release']}")
-    return 0
+        public_check = None
+        if not args.local_store and not args.skip_public_check:
+            base_url = cfg.get("data_public_base_url") or cfg.get("public_base_url") or ""
+            public_check = lambda release_plan: check_public_release(base_url, site_origin, data_prefix, release_plan)
+        with frozen_data_directory(source) as frozen:
+            if layout == "dual":
+                result = publish_dual_release(client, build_release_plan(frozen), build_v2_release_plan(frozen),
+                                              data_prefix, public_check)
+                for version in ("v1", "v2"):
+                    print(version + " activated: " + result[version]["pointer"]["release"])
+            else:
+                builder = build_release_plan if layout == "v1" else build_v2_release_plan
+                publish = publish_release if layout == "v1" else publish_v2_release
+                result = publish(client, builder(frozen), data_prefix, public_check)
+                for key in ("uploaded", "copied", "skipped", "reused", "unchanged"):
+                    if key in result:
+                        print(f"{key}: {result[key]}")
+                print(f"activated: {result['pointer']['release']}")
+        return 0
+    finally:
+        if hasattr(client, "close"):
+            client.close()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "atlas-r2-data-compat",
+  "main": "worker.js",
+  "account_id": "a7afb019f147ce05ab8970c734eed6e8",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "routes": [
+    { "pattern": "assets.quicktagcloud.com/data/*", "zone_id": "ca3d33b5b096f8db4d0a4404cd90bbde" }
+  ],
+  "r2_buckets": [
+    { "binding": "ATLAS_DATA_BUCKET", "bucket_name": "novelai-tag-assets" }
+  ],
+  "vars": {
+    "ATLAS_DATA_PREFIX": "data",
+    "ATLAS_DATA_CORS_ORIGINS": "https://novelai.quicktagcloud.com,https://touhounai.xyz"
+  }
+}

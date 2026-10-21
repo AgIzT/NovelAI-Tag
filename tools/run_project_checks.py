@@ -61,13 +61,19 @@ class Check:
 
 
 # This is the single execution allowlist. Never discover test_* or maintenance tools.
+R2_RELEASE_INPUTS = (
+    "tools/publish_data_r2.py", "tools/publish_data_r2_v2.py", "tools/r2_data_protocol.py",
+    "tools/r2_data_snapshot.py", "tools/r2_local_client.py", "tools/sync_r2.py", "tools/r2_http_pool.py",
+    "tools/r2_cas_experiment/store.py", "tools/r2_cas_experiment/publisher.py", "tools/r2_cas_experiment/protocol.py",
+)
+R2_READER_INPUTS = ("site/assets/data-release.js", "functions/_atlas_data.js")
 CHECKS = (
     Check("cache_buster", "python", ("-B", "tools/check_cache_buster.py"),
           ("tools/check_cache_buster.py", "site/index.html", "site/strings.html", "site/review.html"),
           r"^OK: no JS/CSS cache buster leftovers found\.$",
           read="Listed HTML plus site/assets/**/*.js and **/*.css (source only)"),
     Check("data_source", "node", ("tools/test_data_source.mjs",),
-          ("tools/test_data_source.mjs", "site/assets/data-source.js", "site/index.html"),
+          ("tools/test_data_source.mjs", "site/assets/data-source.js", "site/assets/data-release.js", "site/index.html"),
           r"^data-source tests passed$"),
     Check("search_data", "node", ("tools/test_search_data.mjs",),
           ("tools/test_search_data.mjs", "site/assets/app/search.js", "site/assets/app/data.js", "site/assets/app/site-search.js"),
@@ -82,9 +88,9 @@ CHECKS = (
           ("tools/run_project_checks.py", "tools/test_run_project_checks.py"), parser="unittest",
           write="Temporary synthetic scripts, logs and output trees only; runner reports", timeout=120),
     Check("data_proxy", "node", ("tools/test_data_proxy.mjs",),
-          ("tools/test_data_proxy.mjs", "functions/data/[[path]].js"), r"^data proxy tests passed$"),
+          ("tools/test_data_proxy.mjs", "functions/data/[[path]].js") + R2_READER_INPUTS, r"^data proxy tests passed$"),
     Check("share_backend", "node", ("tools/test_share_backend.mjs",),
-          ("tools/test_share_backend.mjs", "functions/_share.js"), r"^share backend tests passed$"),
+          ("tools/test_share_backend.mjs", "functions/_share.js") + R2_READER_INPUTS, r"^share backend tests passed$"),
     Check("site_metrics_backend", "node", ("tools/test_site_metrics_backend.mjs",),
           ("tools/test_site_metrics_backend.mjs", "tools/sqlite-d1-test-harness.mjs",
            "functions/_site_metrics.js", "functions/api/site-metrics.js", "functions/api/admin/site-metrics.js",
@@ -108,7 +114,7 @@ CHECKS = (
            "site/assets/app/tag-relay-compose.js",
            "site/assets/app/data.js", "site/assets/app/site-search.js", "site/assets/data-source.js",
            "site/assets/app/state.js", "site/assets/app/access.js", "site/assets/app/path-code.js",
-           "site/assets/app/nai-default-tags.js", "site/assets/app/search.js"),
+           "site/assets/app/nai-default-tags.js", "site/assets/app/search.js", "site/assets/data-release.js"),
           r"^frontend loading recovery: [1-9][0-9]*/[1-9][0-9]* PASS; 0 FAIL$"),
     Check("feedback_list_budget", "node", ("tools/test_feedback_list_budget.mjs",),
           ("tools/test_feedback_list_budget.mjs", "tools/memory-r2-test-harness.mjs",
@@ -122,9 +128,53 @@ CHECKS = (
           write="Synthetic CDP messages, temporary asset fixtures and result reports; no browser or network"),
     Check("publish_safety", "python", ("-B", "-m", "unittest", "tools.test_publish_safety", "tools.test_publish_data_r2", "tools.test_sync_r2"),
           ("tools/test_publish_safety.py", "tools/test_publish_data_r2.py", "tools/test_sync_r2.py",
-           "tools/publish_data_r2.py", "tools/sync_r2.py", "tools/preview_server.py"), parser="unittest", timeout=120,
+           "tools/preview_server.py") + R2_RELEASE_INPUTS, parser="unittest", timeout=120,
           network="Synthetic loopback socket fixtures only; no external service requests",
           write="Synthetic temporary data/configuration and FakeR2 only; no real data, credentials or publishing"),
+    Check("r2_cas_local", "python", ("-B", "-m", "unittest", "tools.test_r2_cas_experiment", "tools.test_r2_cas_store"),
+          ("tools/test_r2_cas_experiment.py", "tools/test_r2_cas_store.py", "tools/r2_cas_experiment/protocol.py",
+           "tools/r2_cas_experiment/publisher.py", "tools/r2_cas_experiment/store.py", "tools/r2_cas_experiment/lab.py",
+           "tools/publish_data_r2.py", "tools/sync_r2.py") + R2_RELEASE_INPUTS, parser="unittest", timeout=120,
+          read="Listed source and synthetic JSON only; production configuration is not loaded",
+          write="Isolated output fixtures and SQLite stores only; no business data or remote writes",
+          network="None; local lab entrypoint blocks sockets and production client construction"),
+    Check("r2_cas_reader", "node", ("--test", "--test-reporter=tap", "tools/test_r2_cas_reader.mjs"),
+          ("tools/test_r2_cas_reader.mjs", "tools/r2_cas_experiment/reader.mjs", "tools/fixtures/r2_cas_v2.json",
+           "tools/r2_cas_experiment/protocol.py"), parser="node_test", timeout=90,
+          read="Synthetic protocol bytes and listed source; Python subprocess checks cross-language identity",
+          write="No business files; subprocess bytecode disabled", network="None; callbacks and synthetic bytes only"),
+    Check("r2_publisher", "python", ("-B", "-m", "unittest", "tools.test_publish_data_r2_v2", "tools.test_build_updates_index"),
+          ("tools/test_publish_data_r2_v2.py", "tools/test_publish_data_r2.py", "tools/test_build_updates_index.py",
+           "tools/build_updates_index.py") + R2_RELEASE_INPUTS, parser="unittest", timeout=120,
+          write="Synthetic temporary snapshots and local SQLite below output only; no business data or remote writes",
+          network="None; local CLI cases block sockets and production configuration loading"),
+    Check("r2_pool", "python", ("-B", "-m", "unittest", "tools.test_r2_connection_pool"),
+          ("tools/test_r2_connection_pool.py", "tools/sync_r2.py", "tools/r2_http_pool.py"), parser="unittest", timeout=90,
+          network="Loopback HTTP/CONNECT fixtures only; test factory redirects fake HTTPS endpoints to localhost",
+          write="Temporary synthetic bytes and loopback server only; no business files or remote uploads"),
+    Check("r2_protocol", "node", ("--test", "--test-reporter=tap", "tools/test_data_release.mjs"),
+          ("tools/test_data_release.mjs", "site/assets/data-release.js", "tools/r2_data_protocol.py",
+           "tools/fixtures/r2_cas_v2.json"), parser="node_test", timeout=90),
+    Check("r2_compat", "node", ("tools/test_r2_data_compat.mjs",),
+          ("tools/test_r2_data_compat.mjs", "workers/r2-data-compat/worker.js",
+           "workers/r2-data-compat/config.example.jsonc") + R2_READER_INPUTS,
+          r"^R2 data compatibility tests passed$", read="Synthetic bytes and in-memory bindings; no platform configuration or network"),
+    Check("r2_verifier_safety", "python", ("-B", "-m", "unittest", "tools.test_verify_r2_cas_integration", "tools.test_verify_r2_reading_browser"),
+          ("tools/test_verify_r2_cas_integration.py", "tools/test_verify_r2_reading_browser.py",
+           "tools/verify_r2_cas_integration.py", "tools/verify_r2_reading_browser.py",
+           "tools/verify_frontend_loading_recovery.py", "tools/verify_ui.py") + R2_RELEASE_INPUTS,
+          parser="unittest", timeout=90, write="Synthetic sentinel/output guard fixtures only; no real browser or business files"),
+    Check("r2_platform_cli_safety", "python", ("-B", "-m", "unittest", "tools.test_verify_r2_platform_s3", "tools.test_verify_r2_platform_http"),
+          ("tools/test_verify_r2_platform_s3.py", "tools/test_verify_r2_platform_http.py",
+           "tools/verify_r2_platform_s3.py", "tools/verify_r2_platform_http.py") + R2_RELEASE_INPUTS,
+          parser="unittest", timeout=90, write="Synthetic resource manifests and temporary output guards only; no platform requests",
+          network="None; mocks exercise default-plan and target/credential isolation, never --run against a real service"),
+    Check("r2_platform_worker", "node", ("tools/test_r2_platform_worker.mjs",),
+          ("tools/test_r2_platform_worker.mjs", "workers/r2-platform-test/worker.js",
+           "workers/r2-data-compat/worker.js") + R2_READER_INPUTS,
+          r"^R2 platform test Worker guards and synthetic cases passed$",
+          write="In-memory synthetic binding only; no deployment or real R2",
+          network="None; global fetch is replaced by a fail-closed stub"),
     Check("search_benchmark_public", "node", ("tools/test_benchmark_search_v1.mjs",),
           ("tools/test_benchmark_search_v1.mjs", "tools/benchmark_search_v1.mjs", "tools/fixtures/search_benchmark.json",
            "site/assets/app/search.js", "site/assets/app/search-directories.js", "site/assets/app/state.js",
@@ -163,6 +213,11 @@ CHECKS = (
           blocked_marker=r"^search V1 benchmark: BLOCKED \(.+\)$"),
 )
 PROFILES = {
+    "r2_platform_safety": ("r2_platform_cli_safety", "r2_platform_worker", "runner", "cache_buster"),
+    "r2_integration": ("r2_publisher", "r2_pool", "r2_protocol", "r2_compat", "r2_verifier_safety", "publish_safety", "publish_entrypoints",
+                       "data_source", "data_proxy", "share_backend", "frontend_loading_recovery",
+                       "r2_cas_local", "r2_cas_reader", "runner", "cache_buster"),
+    "r2_cas": ("r2_cas_local", "r2_cas_reader", "runner", "publish_safety", "data_source", "data_proxy", "share_backend", "cache_buster"),
     "quick": ("cache_buster", "data_source", "search_data", "search_directories", "masonry_viewport", "runner"),
     "ci": ("cache_buster", "data_source", "search_data", "search_directories", "masonry_viewport", "runner",
            "data_proxy", "share_backend", "site_metrics_backend", "community_rebuild", "community_submit_recovery",
@@ -349,6 +404,25 @@ def classify(check, process):
             return result
         if summaries[0]:
             result["reason"] = "unexpected unittest summary qualifiers: " + summaries[0]
+            return result
+    elif check.parser == "node_test":
+        fields = ("tests", "pass", "fail", "cancelled", "skipped", "todo")
+        summary = {}
+        for field in fields:
+            matches = re.findall(r"^# " + field + r" ([0-9]+)[ \t]*$", output, re.MULTILINE)
+            if len(matches) != 1:
+                result["reason"] = "missing/ambiguous Node test summary: " + field
+                return result
+            summary[field] = int(matches[0])
+        result["node_test_cases_reported"] = summary["tests"]
+        if not summary["tests"] or summary["fail"] or summary["cancelled"]:
+            result["reason"] = "zero, failed or cancelled Node test cases"
+            return result
+        if summary["skipped"] or summary["todo"]:
+            result.update(status="BLOCKED" if check.required else "SKIP", reason="Node test skipped/todo cases; not fully verified")
+            return result
+        if summary["pass"] != summary["tests"]:
+            result["reason"] = "incomplete Node test pass count"
             return result
     else:
         # A successful marker cannot cancel an explicit skip elsewhere in a script.

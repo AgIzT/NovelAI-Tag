@@ -1,5 +1,7 @@
 'use strict';
 
+import { createAtlasDataReader } from './_atlas_data.js';
+
 const APP_SHELL_PATH = '/index.html';
 /* 这条路由返回的是 App 外壳本体：浏览器侧必须每次回源校验（跟静态 / 一致），
    否则发版后有人会拿着旧外壳；边缘留 60 秒只为削抓取器和转发带来的并发峰值。 */
@@ -166,6 +168,22 @@ async function loadShareDataset(context) {
     // R2 是正式域/预览绑定的线上唯一副本。绑定已启用后，任何 current 或索引
     // 读取失败都必须交给上层 fail-closed，不能拿旧的静态快照补洞造成版本漂移。
     const prefix = normalizedDataPrefix(context.env);
+    const pointerPath = String(context.env.ATLAS_DATA_POINTER || 'current.json');
+    if (pointerPath === 'v2/current.json') {
+      const reader = createAtlasDataReader(context.env.ATLAS_DATA_BUCKET, prefix);
+      const selected = await reader.pointer(pointerPath);
+      // The selected release is captured before either file is read. Neither a
+      // later pointer change nor a missing shard can select another snapshot.
+      await reader.manifest(selected.release);
+      const read = async path => {
+        try { return await reader.json(selected.release, path); }
+        catch (ex) {
+          throw shareDataError(`share R2 v2 read failed: ${path}`, { transient: ex?.transient !== false, cause: ex });
+        }
+      };
+      return { index: await read('share-index.json'), read, release: selected.release, source: 'r2-v2' };
+    }
+    if (pointerPath !== 'current.json') throw new Error('share R2 pointer path is invalid');
     const current = await readR2Json(context.env.ATLAS_DATA_BUCKET, `${prefix}/current.json`);
     const release = String(current?.release || '');
     if (!RELEASE_RE.test(release)) throw new Error('share R2 current pointer is invalid');

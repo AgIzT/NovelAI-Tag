@@ -190,7 +190,8 @@ class PointerOverlapTests(unittest.TestCase):
 
 class PointerAdapterTests(unittest.TestCase):
     def client(self):
-        return publisher.R2DataClient({"account_id": "fake", "access_key_id": "fake", "secret_access_key": "fake", "bucket": "fake"})
+        # These adapter tests inspect the urllib Request; pooled transport has its own loopback suite.
+        return publisher.R2DataClient({"account_id": "fake", "access_key_id": "fake", "secret_access_key": "fake", "bucket": "fake", "http_pool_enabled": False})
 
     def test_signed_pointer_put_conditions_are_sent_without_retries(self):
         client = self.client()

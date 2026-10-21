@@ -29,10 +29,16 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import warnings
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PIL import Image
+
+if __package__:
+    from .r2_http_pool import HTTPSConnectionPool, proxy_route
+else:
+    from r2_http_pool import HTTPSConnectionPool, proxy_route
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -542,7 +548,7 @@ def update_index(apply_metadata=False, changed_files=None, books=None):
 
 
 class R2Client:
-    def __init__(self, cfg):
+    def __init__(self, cfg, *, connection_factory=None):
         self.account_id = cfg["account_id"]
         self.access_key = cfg["access_key_id"]
         self.secret_key = cfg["secret_access_key"]
@@ -553,6 +559,29 @@ class R2Client:
         self.request_timeout = float(cfg.get("request_timeout", DEFAULT_REQUEST_TIMEOUT))
         self.request_retries = max(0, int(cfg.get("request_retries", DEFAULT_REQUEST_RETRIES)))
         self.retry_base_delay = float(cfg.get("retry_base_delay", DEFAULT_RETRY_BASE_DELAY))
+        self._http_pool = None
+        self.transport_info = {"mode": "urllib", "proxy": False, "reason": "pool disabled by config"}
+        if cfg.get("http_pool_enabled", True):
+            proxy, fallback_reason = proxy_route(self.host)
+            if fallback_reason:
+                self.transport_info = {"mode": "urllib", "proxy": True, "reason": fallback_reason}
+                warnings.warn(fallback_reason, RuntimeWarning, stacklevel=2)
+            else:
+                self._http_pool = HTTPSConnectionPool(
+                    self.host,
+                    max_connections=cfg.get("http_pool_max_connections", 16),
+                    idle_timeout=cfg.get("http_pool_idle_timeout", 60.0),
+                    proxy=proxy,
+                    connection_factory=connection_factory,
+                )
+                self.transport_info = {"mode": "pool", "proxy": bool(proxy), "reason": ""}
+
+    def transport_metrics(self):
+        return self._http_pool.metrics() if self._http_pool is not None else {"mode": "urllib"}
+
+    def close(self):
+        if self._http_pool is not None:
+            self._http_pool.close()
 
     def _signing_key(self, datestamp):
         def sign(key, msg):
@@ -633,6 +662,10 @@ class R2Client:
         url = self.endpoint + canonical_uri
         if canonical_query:
             url += "?" + canonical_query
+        if self._http_pool is not None:
+            return self._http_pool.request(
+                method, url, body=body, headers=headers, timeout=timeout or self.request_timeout,
+            )
         # sendall() of one bytes body must finish within the socket timeout; a file
         # object goes out in small blocks, so the timeout only fires on a stall.
         data = None if method == "HEAD" else (io.BytesIO(body) if body else body)

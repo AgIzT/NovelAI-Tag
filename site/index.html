@@ -39,13 +39,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   if(['localhost','127.0.0.1','::1'].includes(loc.hostname)||loc.protocol==='file:')return;
   const j=u=>fetch(u,{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
   const config=j('data-source.json');
+  const boot={config,pointer:null,pointerPath:null,baseUrl:null};
   const pointer=config.then(c=>{
     const hosts=Array.isArray(c&&c.remoteHosts)?c.remoteHosts.map(String):[];
     if(!hosts.includes('*')&&!hosts.includes(loc.hostname))return null;
-    return j(String(c.baseUrl).replace(/\/+$/,'')+'/'+String(c.pointer||'current.json'));
+    const path=Object.prototype.hasOwnProperty.call(c,'v2Pointer')?c.v2Pointer:(c.pointer||'current.json');
+    boot.pointerPath=String(path);boot.baseUrl=String(c.baseUrl).replace(/\/+$/,'');
+    return j(boot.baseUrl+'/'+boot.pointerPath);
   });
   config.catch(()=>{});pointer.catch(()=>{});   // 没人认领时别冒 unhandled rejection
-  window.__atlasBoot={config,pointer};
+  boot.pointer=pointer;window.__atlasBoot=boot;
 }catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -59,6 +62,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/favorites-library.css">
 <link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="modulepreload" href="assets/data-source.js">
+<link rel="modulepreload" href="assets/data-release.js">
 <link rel="modulepreload" href="assets/app/state.js">
 <link rel="modulepreload" href="assets/app/utils.js">
 <link rel="modulepreload" href="assets/app/ui-motion.js">

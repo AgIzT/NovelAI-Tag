@@ -219,7 +219,7 @@ class R2IncompleteResponseTests(unittest.TestCase):
     def config(self):
         return {"account_id": "test", "access_key_id": "test", "secret_access_key": "test",
                 "bucket": "test", "image_prefix": "images", "original_prefix": "originals",
-                "request_retries": 2, "retry_base_delay": 0}
+                "request_retries": 2, "retry_base_delay": 0, "http_pool_enabled": False}
 
     def response(self, body, truncate=False):
         # Exercise the same HTTPResponse.read() failure seen on the real R2 request.
@@ -378,7 +378,7 @@ class R2NetworkStallTests(unittest.TestCase):
     def config(self, **extra):
         return {"account_id": "test", "access_key_id": "test", "secret_access_key": "test",
                 "bucket": "test", "image_prefix": "images", "original_prefix": "originals",
-                "retry_base_delay": 0, **extra}
+                "retry_base_delay": 0, "http_pool_enabled": False, **extra}
 
     def client(self, endpoint, **extra):
         client = sync_r2.R2Client(self.config(**extra))

@@ -233,7 +233,28 @@ def batch_date(batch_id: str) -> date | None:
         return None
 
 
-def build(data_dir: Path) -> tuple[dict, list[str]]:
+def same_index_content(previous: Any, payload: dict) -> bool:
+    """时间戳以外的实际内容相同，才复用旧文件；比较时保留 JSON 类型差异。"""
+    if not isinstance(previous, dict):
+        return False
+    stamp = previous.get("generatedAt")
+    if not isinstance(stamp, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\dZ", stamp
+    ):
+        return False
+    try:
+        date.fromisoformat(stamp[:10])
+    except ValueError:
+        return False
+    fields = ("schema", "batches", "previews")
+    if not all(key in previous for key in fields):
+        return False
+    old_content = {key: previous[key] for key in fields}
+    new_content = {key: payload[key] for key in fields}
+    return json.dumps(old_content, sort_keys=True) == json.dumps(new_content, sort_keys=True)
+
+
+def build(data_dir: Path, *, previous_path: Path | None = None) -> tuple[dict, list[str]]:
     notes: list[str] = []
     codexes = read_json(data_dir / "codexes.json", [])
     if not isinstance(codexes, list):
@@ -309,6 +330,9 @@ def build(data_dir: Path) -> tuple[dict, list[str]]:
         # 法典选择器 4 本卷「样张条」用的书内样图，按书 id 索引；与更新批次无关，只是借这份索引一起发布
         "previews": previews,
     }
+    previous = read_json(previous_path if previous_path is not None else data_dir / "updates.json")
+    if same_index_content(previous, payload):
+        payload["generatedAt"] = previous["generatedAt"]
     return payload, notes
 
 
@@ -327,7 +351,7 @@ def main() -> int:
 
     data_dir = args.data_dir
     output = args.output or (data_dir / "updates.json")
-    payload, notes = build(data_dir)
+    payload, notes = build(data_dir, previous_path=output)
 
     lines = [f"批次 {len(payload['batches'])} 个："]
     for batch in payload["batches"]:
@@ -337,6 +361,8 @@ def main() -> int:
 
     if args.dry_run:
         lines.append(f"[dry-run] 未写入 {output}")
+    elif same_index_content(read_json(output), payload):
+        lines.append(f"内容未变化，保留 {output}")
     else:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(
