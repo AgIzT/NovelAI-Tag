@@ -2288,8 +2288,10 @@ body.dark .lightbox{background:rgba(7,9,15,.58)}
     width .34s cubic-bezier(.22,1,.36,1),height .34s cubic-bezier(.22,1,.36,1),
     border-radius .34s ease;
 }
+/* 电脑上栏高跟内容走、在上下 18px 之间居中，内容多了才贴满再滚动；手机断点仍是固定高度的底部抽屉 */
 .lightbox-info{
   position:absolute;right:18px;top:18px;bottom:18px;width:var(--lb-info-width);cursor:default;
+  height:fit-content;max-height:calc(100% - 36px);margin-block:auto;
   background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-hover);
   padding:18px;overflow-y:auto;
@@ -2384,6 +2386,10 @@ a.lightbox-credit:hover{text-decoration:underline}
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
 .lightbox-section pre.sd-previewing{border-color:color-mix(in srgb,var(--accent) 48%,var(--line));background:color-mix(in srgb,var(--accent-soft) 52%,var(--tagbg))}
+/* 权重上色（prompt-weights.js）：加权绿、减权蓝，与 Tag 中转站共用 tag-relay.css 的两色；权重 1 的外壳与逗号淡化 */
+.lightbox-info pre .pw-up{color:var(--relay-up)}
+.lightbox-info pre .pw-down{color:var(--relay-down)}
+.lightbox-info pre :is(.pw-flat,.pw-sep){color:var(--muted)}
 .character-prompts{display:grid;gap:9px;margin-top:7px}
 .character-prompt{
   padding:9px;border:1px solid var(--line);border-left:3px solid var(--accent);

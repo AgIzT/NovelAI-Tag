@@ -9,6 +9,7 @@ import { relayKeyFor, snapshotFragment, snapshotLocked } from './tag-relay-snaps
 import { tokenizePrompt, serializeSelection } from './prompt-fragments.js';
 import { lookupTagZh } from './tag-zh-core.js';
 import { naiToSd } from './nai-sd.js';
+import { decoratePromptWeights } from './prompt-weights.js';
 import { recordRecentEntry } from './history.js';
 import { atlasUrlForRoute, syncUrlState } from './router.js';
 import { findCodexMeta } from './data.js';
@@ -904,9 +905,12 @@ function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
   const shards = isTagZhEnabled() ? peekTagZh(sourceCodexId) : null;
   const translated = Array.isArray(shards) && renderTagZhPrompt(pre, source, { shards, terms });
   pre.classList.toggle('tag-zh-on', translated);
-  if (translated) return;
-  if (highlighted) renderHighlightedText(pre, source, terms);
-  else pre.textContent = source;
+  if (!translated) {
+    if (highlighted) renderHighlightedText(pre, source, terms);
+    else pre.textContent = source;
+  }
+  // 三条渲染路径画完后统一给权重语法上色；只包 span，不改字
+  decoratePromptWeights(pre, source);
 }
 
 function forgetPromptBlock(pre, text) {
