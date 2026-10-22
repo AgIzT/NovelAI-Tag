@@ -24,7 +24,7 @@ import { openReportDialog } from './report.js';
 import { isContentBlocked } from './content-blocking.js';
 import { hideCard, promptBlockedEntry } from './content-blocking-ui.js';
 import { goBackFrom } from './browser-history.js';
-import { bindBackdropDismiss, isGlobalShortcutBlocked, trapFocus } from './modal.js';
+import { bindBackdropDismiss, bindOutsideDismiss, isGlobalShortcutBlocked, trapFocus } from './modal.js';
 import {
   flushDeferredFavoritesViewRefresh,
   isFav,
@@ -520,6 +520,7 @@ function cancelLightboxPreloads({ keepOriginal = false } = {}) {
 }
 
 function clearLightboxContent() {
+  closeLightboxMore();
   resetArtistStrip();
   clearTagZhDetails($('#lightboxInfo'));
   for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');
@@ -1210,6 +1211,7 @@ export function renderLightbox() {
   lbOriginalStatusTimer = 0;
   lbOriginalState = { status: '', readable: false };
   hideLightboxNotice({ immediate: true });
+  closeLightboxMore();
   $('#lightbox').dataset.original = '';
   const img = $('#lightboxImg');
   const stage = $('#lightboxStage');
@@ -1372,6 +1374,13 @@ export function renderLightbox() {
       } : null,
     });
   };
+  // 手机底栏的「复制正向」与小节里的同一个动作，复制反馈落在被点的那个按钮上
+  const dockCopy = $('#copyPositiveDock');
+  if (dockCopy) {
+    dockCopy.hidden = !hasPositive;
+    dockCopy.title = $('#copyPositive').title;
+    dockCopy.onclick = $('#copyPositive').onclick;
+  }
   $('#copyNegative').hidden = !negative;
   $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyNegative').onclick = ev => {
@@ -1462,7 +1471,8 @@ export function renderLightbox() {
         entry: e,
         imageIndex: lb.index,
         defaultType: 'card_content',
-        trigger: reportBtn,
+        // 手机上它收在「⋯」里，点完菜单就藏起来了，关反馈时把焦点还给「⋯」
+        trigger: reportBtn.offsetParent ? reportBtn : ($('#lightboxMore') || reportBtn),
       });
     };
   }
@@ -1471,6 +1481,12 @@ export function renderLightbox() {
     actions.hidden = [favoriteBtn, $('#copyAll'), $('#copyRawTag'), originalBtn, shareBtn, reportBtn]
       .filter(Boolean)
       .every(button => button.hidden);
+  }
+  // 「⋯」里一项都没有（本地版还会用样式藏掉反馈）就不出现
+  const more = $('#lightboxMore');
+  if (more) {
+    more.hidden = ![...document.querySelectorAll('#lightboxActionsMinor button')]
+      .some(button => !button.hidden && getComputedStyle(button).display !== 'none');
   }
 
   const thumbs = $('#lightboxThumbs');
@@ -1523,6 +1539,37 @@ function isPageZoomed() {
   return (window.visualViewport?.scale || 1) > 1.01;
 }
 
+/* 手机底栏的「⋯」：收着复制原始提示词、反馈、不想看。点外面、按 Esc、选了一项或换词条都收起。 */
+function isLightboxMoreOpen() {
+  return Boolean($('#lightboxActions')?.classList.contains('is-more-open'));
+}
+
+function setLightboxMoreOpen(open) {
+  $('#lightboxActions')?.classList.toggle('is-more-open', open);
+  $('#lightboxMore')?.setAttribute('aria-expanded', String(open));
+}
+
+/* 返回刚才是否开着，Esc 和遮罩点击据此只收菜单、不关灯箱 */
+function closeLightboxMore({ focus = false } = {}) {
+  if (!isLightboxMoreOpen()) return false;
+  setLightboxMoreOpen(false);
+  if (focus) $('#lightboxMore')?.focus();
+  return true;
+}
+
+/* 动作行在电脑上紧跟标题，手机上挪到栏尾，好让样式表把它吸在抽屉底部 */
+function placeLightboxActions() {
+  const actions = $('#lightboxActions');
+  const columns = document.querySelector('#lightboxInfo .lightbox-columns');
+  if (!actions || !columns) return;
+  closeLightboxMore();
+  if (window.matchMedia?.(LB_COMPACT_MEDIA).matches) {
+    if (actions.previousElementSibling !== columns) columns.after(actions);
+  } else if (actions.nextElementSibling !== columns) {
+    columns.before(actions);
+  }
+}
+
 export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-width:600px)') } = {}) {
   let suppressLightboxClick = false;
   bindBackdropDismiss($('#lightbox'), () => {
@@ -1530,8 +1577,28 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
       suppressLightboxClick = false;
       return;
     }
+    // 「⋯」开着时点遮罩只收菜单
+    if (closeLightboxMore()) return;
     closeLightbox();
   }, { isBackdrop: target => target.id === 'lightbox' || target.id === 'lightboxStage' });
+  placeLightboxActions();
+  window.matchMedia?.(LB_COMPACT_MEDIA).addEventListener?.('change', placeLightboxActions);
+  const more = $('#lightboxMore');
+  if (more) {
+    more.onclick = ev => {
+      ev.stopPropagation();
+      const open = !isLightboxMoreOpen();
+      setLightboxMoreOpen(open);
+      if (open) $('#lightboxActionsMinor')?.querySelector('button:not([hidden])')?.focus({ preventScroll: true });
+    };
+    // 各项自己的点击会 stopPropagation，在捕获阶段先收起菜单；收起后各项不可见，焦点交还「⋯」
+    $('#lightboxActionsMinor')?.addEventListener('click', () => {
+      if (!isLightboxMoreOpen()) return;
+      setLightboxMoreOpen(false);
+      more.focus({ preventScroll: true });
+    }, true);
+    bindOutsideDismiss(() => [more, $('#lightboxActionsMinor')], () => closeLightboxMore());
+  }
   $('#lightboxFold').onclick = ev => {
     ev.stopPropagation();
     const lbEl = $('#lightbox');
@@ -1655,7 +1722,10 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
       return;
     }
     if (isLightboxKeydownBlocked(ev)) return;
-    if (ev.key === 'Escape') { ev.preventDefault(); if (!closeArtistPeek()) closeLightbox(); }
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      if (!closeLightboxMore({ focus: true }) && !closeArtistPeek()) closeLightbox();
+    }
     if (ev.key === 'ArrowLeft') { ev.preventDefault(); stepLightbox(-1); }
     if (ev.key === 'ArrowRight') { ev.preventDefault(); stepLightbox(1); }
   });

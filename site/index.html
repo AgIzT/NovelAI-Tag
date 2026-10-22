@@ -1118,12 +1118,16 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div id="lightboxTip" class="lightbox-tip">拖入 NovelAI 获取元数据</div>
         <a id="lightboxCredit" class="lightbox-credit" hidden></a>
       </div>
-      <div class="lightbox-actions">
+      <div class="lightbox-actions" id="lightboxActions">
         <button class="ui-press" id="favoriteLightbox" type="button" aria-label="收藏" aria-pressed="false">☆</button>
         <button class="ui-press" id="copyAll" type="button">复制全部</button>
+        <button class="ui-press" id="copyPositiveDock" type="button">复制正向</button>
         <button class="ui-press" id="viewOriginal" type="button">查看原图</button>
         <button class="ui-press" id="shareLightbox" type="button">分享</button>
-        <div class="lightbox-actions-minor">
+        <button class="ui-press lightbox-more" id="lightboxMore" type="button" aria-label="更多操作" aria-expanded="false" aria-controls="lightboxActionsMinor">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>
+        </button>
+        <div class="lightbox-actions-minor" id="lightboxActionsMinor">
           <button class="ui-press" id="copyRawTag" type="button" title="复制当前这张图的原始提示词">复制原始提示词</button>
           <button class="ui-press" id="reportLightbox" type="button">反馈此图</button>
           <button class="ui-press" id="hideLightbox" type="button">不想看</button>

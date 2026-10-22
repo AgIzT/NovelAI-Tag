@@ -2358,6 +2358,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         click('#masonry .card-title')
         wait_for(cdp, "!document.querySelector('#lightbox').hidden", "text detail opens")
         detail_url = cdp.eval('location.href')
+        # 手机底栏把反馈收在「⋯」里
+        click('#lightboxMore')
         click('#reportLightbox')
         wait_for(cdp, "document.querySelector('#feedbackPanel').classList.contains('show')", "text feedback opens")
         feedback = cdp.eval("({type:document.querySelector('#feedbackType').value,context:document.querySelector('#feedbackContextPreview').textContent})")

@@ -2220,13 +2220,15 @@ body.lightbox-open{overflow:clip;overscroll-behavior:none}
   /* 灯箱里的次要字（meta、提示、小节标题、中文小字）：浅色下 --muted 在提示词框底上只有 3:1，
      往正文色掺一点，六套配色都过 4.5:1；深色下 --muted 本来就够，不掺。 */
   --lb-muted:color-mix(in srgb,var(--muted) 62%,var(--text));
+  /* 负面的字色：保留 --new 的色相、往正文色压一点，浅粉底上六套配色都过 4.5:1；深色下直接用 --new */
+  --neg-ink:color-mix(in srgb,var(--new) 70%,var(--text));
   position:fixed;inset:0;z-index:80;display:none;cursor:zoom-out;
   background:rgba(228,231,242,.52);
   backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
   opacity:0;transition:opacity .25s ease;
   pointer-events:none;   /* 仅在 is-open 时才接管交互；半开/淡出态不拦截页面点击，避免卡死整页 */
 }
-body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted)}
+body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted);--neg-ink:var(--new)}
 .lightbox:not([hidden]){display:block}
 .lightbox.is-open{opacity:1;pointer-events:auto}
 .lightbox.folded{--lb-right:18px}
@@ -2343,9 +2345,18 @@ a.lightbox-credit:hover{text-decoration:underline}
 }
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px)}
 #copyPositive{background:var(--accent);color:var(--on-accent)}
-#copyNegative{background:var(--new);color:#fff}
+/* 负面复制是描边按钮：--new 同时表示 NEW 和出错，实心粉红读起来像危险操作 */
+:is(#copyNegative,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)){
+  border:1px solid color-mix(in srgb,var(--new) 45%,var(--line));
+  background:color-mix(in srgb,var(--new) 8%,var(--card));color:var(--neg-ink);
+}
+:is(#copyNegative,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)):hover{
+  background:color-mix(in srgb,var(--new) 14%,var(--card));filter:none;
+}
 /* 动作行分三档：「复制全部」填色；收藏、原图、分享平底细边框；原始提示词、反馈、不想看是不带底的文字按钮，靠右。 */
-#copyAll{background:var(--accent);color:var(--on-accent);border:1px solid transparent}
+#copyAll,#copyPositiveDock{background:var(--accent);color:var(--on-accent);border:1px solid transparent}
+/* 底栏的「复制正向」和「⋯」只在手机抽屉里出现（见下方窄屏规则） */
+#copyPositiveDock,.lightbox-more{display:none}
 #favoriteLightbox,#viewOriginal,#shareLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
 #favoriteLightbox:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover{background:var(--tagbg-hover);filter:none}
 .lightbox-actions-minor{display:flex;flex-wrap:wrap;gap:2px;margin-left:auto}
@@ -2411,8 +2422,7 @@ a.lightbox-credit:hover{text-decoration:underline}
 .character-prompt > .section-head button:not(.prompt-selection-toggle){background:var(--accent);color:var(--on-accent)}
 .character-prompt pre{background:var(--glass)}
 .character-prompt-negative{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
-.character-prompt-negative .section-label{color:var(--new)}
-.character-prompt-negative .section-head button:not(.prompt-selection-toggle){background:var(--new);color:#fff}
+.character-prompt-negative .section-label{color:var(--neg-ink)}
 /* 画师串拆解：五列缩略图，倍率与版本角标叠在图上；点开的样张盖在大图位置 */
 .artist-strip-count{margin-left:3px;font-weight:600;opacity:.75}
 .section-head .artist-version{--seg-count:2;flex:none;gap:2px;padding:2px;border-radius:10px}
@@ -2586,8 +2596,28 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   }
   .lightbox.folded .lightbox-info{transform:translateY(calc(100% + 20px))}
   .lightbox-head h2{font-size:16px}
-  .lightbox-actions{gap:8px;margin:12px 0 8px}
+  /* 动作行由 lightbox.js 挪到栏尾、吸在抽屉底部，读到负面时也够得着。主按钮是「复制正向」，不放「复制全部」；
+     复制原始提示词、反馈、不想看收进「⋯」。拖图提示不显示：手机没法把图拖进 NovelAI，原图有没有看图上的标签。 */
+  .lightbox-tip{display:none}
+  .lightbox-actions{
+    position:sticky;bottom:-14px;z-index:4;gap:6px;margin:12px -14px -14px;padding:10px 14px 12px;
+    background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -8px 18px rgba(10,15,35,.07);
+  }
   .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
+  #copyAll{display:none}
+  #copyPositiveDock:not([hidden]){display:inline-block}
+  .lightbox-more:not([hidden]){
+    display:grid;place-items:center;margin-left:auto;min-width:38px;padding:0 10px;
+    border:1px solid var(--line);background:var(--tagbg);color:var(--text);
+  }
+  .lightbox-more[aria-expanded="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
+  .lightbox-more svg{width:16px;height:16px;fill:currentColor}
+  .lightbox-actions-minor{display:none}
+  .lightbox-actions.is-more-open .lightbox-actions-minor{
+    display:flex;flex-direction:column;align-items:stretch;gap:2px;position:absolute;right:14px;bottom:calc(100% + 6px);z-index:6;
+    min-width:168px;margin:0;padding:6px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--popover-shadow);
+  }
+  .lightbox-actions.is-more-open .lightbox-actions-minor button{text-align:left;color:var(--text)}
   .lightbox-section{margin-top:10px}
   .lightbox-thumbs{left:50%;bottom:calc(var(--lb-sheet-height) + 22px);max-width:94vw;transition:bottom .3s cubic-bezier(.22,1,.36,1)}
   .lightbox.folded .lightbox-thumbs{bottom:80px}
