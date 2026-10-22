@@ -478,10 +478,12 @@ export function refreshLightboxNavigation(navigation = null) {
   if (!entry || $('#lightbox').hidden || isLightboxEntryAccessBlocked(entry)) return;
   const nav = navigation || lightboxNavigationContext(entry, state.list);
   const emptyImage = lb.images[lb.index]?._editPlaceholder === true;
-  const entryPosition = nav.index >= 0 ? ` · 第 ${nav.position} / ${nav.total} 条` : '';
-  $('#lightboxMeta').textContent = emptyImage
-    ? `暂无图片 · ${entry.path.join(' › ')}`
-    : `${lb.index + 1} / ${lb.images.length}${entryPosition} · ${entry.path.join(' › ')}`;
+  // 第一行路径，第二行图号与条数（样式 pre-line）；单图不显示图号，只剩这一条时不显示条数
+  const position = emptyImage ? '暂无图片' : [
+    lb.images.length > 1 ? `第 ${lb.index + 1} / ${lb.images.length} 张` : '',
+    nav.index >= 0 && nav.total > 1 ? `第 ${nav.position} / ${nav.total} 条` : '',
+  ].filter(Boolean).join(' · ');
+  $('#lightboxMeta').textContent = [entry.path.join(' › '), position].filter(Boolean).join('\n');
   const configureNavButton = (button, target, direction) => {
     button.hidden = !target;
     if (!target) {

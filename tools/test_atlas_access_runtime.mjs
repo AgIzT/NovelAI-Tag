@@ -179,7 +179,7 @@ for (const [entry, neighbor, revoke] of [
     assert.equal(button.attributes.has('aria-label'), false);
     assert.equal(button.dataset.navLabel, undefined);
   }
-  assert.match($('#lightboxMeta').textContent, /第 1 \/ 1 条/);
+  assert.doesNotMatch($('#lightboxMeta').textContent, /第 \d+ \/ \d+ 条/, '只剩这一条时不显示条数，也不残留旧计数');
   assert.equal(state.lightbox.entry, entry);
   assert.equal(original.src, '/kept-safe-original.jpg');
   assert.equal(typeof original.onload, 'function');
