@@ -2617,11 +2617,15 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-more[aria-expanded="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
   .lightbox-more svg{width:16px;height:16px;fill:currentColor}
   .lightbox-actions-minor{display:none}
+  /* 菜单向上弹，会被抽屉的滚动区裁掉：限高到底栏以上的空间，放不下（短横屏）就折成并排几列 */
   .lightbox-actions.is-more-open .lightbox-actions-minor{
-    display:flex;flex-direction:column;align-items:stretch;gap:2px;position:absolute;right:14px;bottom:calc(100% + 6px);z-index:6;
-    min-width:168px;margin:0;padding:6px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--popover-shadow);
+    display:flex;flex-direction:column;flex-wrap:wrap;align-items:stretch;gap:2px;position:absolute;right:14px;bottom:calc(100% + 6px);z-index:6;
+    min-width:168px;max-height:calc(var(--lb-sheet-height) - 70px);overflow-y:auto;overscroll-behavior:contain;
+    margin:0;padding:6px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--popover-shadow);
   }
-  .lightbox-actions.is-more-open .lightbox-actions-minor button{text-align:left;color:var(--text)}
+  .lightbox-actions.is-more-open .lightbox-actions-minor button{flex:none;text-align:left;color:var(--text)}
+  /* 提示条挪到底栏上方（底栏距底 10px、高 61px，再让 10px），复制后「再复制负面」仍可点，也不挡底栏 */
+  html.lightbox-open .toast{bottom:81px}
   .lightbox-section{margin-top:10px}
   .lightbox-thumbs{left:50%;bottom:calc(var(--lb-sheet-height) + 22px);max-width:94vw;transition:bottom .3s cubic-bezier(.22,1,.36,1)}
   .lightbox.folded .lightbox-thumbs{bottom:80px}

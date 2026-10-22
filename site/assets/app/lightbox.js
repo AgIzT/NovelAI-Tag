@@ -24,7 +24,7 @@ import { openReportDialog } from './report.js';
 import { isContentBlocked } from './content-blocking.js';
 import { hideCard, promptBlockedEntry } from './content-blocking-ui.js';
 import { goBackFrom } from './browser-history.js';
-import { bindBackdropDismiss, bindOutsideDismiss, isGlobalShortcutBlocked, trapFocus } from './modal.js';
+import { bindBackdropDismiss, isGlobalShortcutBlocked, trapFocus } from './modal.js';
 import {
   flushDeferredFavoritesViewRefresh,
   isFav,
@@ -1402,7 +1402,7 @@ export function renderLightbox() {
     if (!refreshLightboxAccess(e)) return;
     /* raw tag 不能回流到最近复制，但仍属于当前词条，必须把权限快照交给
        copyText，以覆盖剪贴板请求期间发生的撤权。 */
-    copyText(item.rawTag, `已复制当前图原始提示词：${e.title}`, ev.currentTarget, { accessEntry: e });
+    copyText(item.rawTag, `已复制当前图原始提示词：${e.title}`, visibleLightboxAnchor(ev.currentTarget), { accessEntry: e });
   };
   const favoriteBtn = $('#favoriteLightbox');
   if (favoriteBtn) {
@@ -1460,8 +1460,7 @@ export function renderLightbox() {
         entry: e,
         imageIndex: lb.index,
         defaultType: 'card_content',
-        // 手机上它收在「⋯」里，点完菜单就藏起来了，关反馈时把焦点还给「⋯」
-        trigger: reportBtn.offsetParent ? reportBtn : ($('#lightboxMore') || reportBtn),
+        trigger: visibleLightboxAnchor(reportBtn),
       });
     };
   }
@@ -1546,6 +1545,11 @@ function closeLightboxMore({ focus = false } = {}) {
   return true;
 }
 
+/* 手机上收在「⋯」里的按钮点完就藏起来了：复制反馈、手动复制面板和反馈表单的回焦都落在「⋯」上 */
+function visibleLightboxAnchor(button) {
+  return button?.offsetParent ? button : ($('#lightboxMore') || button);
+}
+
 /* 动作行在电脑上紧跟标题，手机上挪到栏尾，好让样式表把它吸在抽屉底部 */
 function placeLightboxActions() {
   const actions = $('#lightboxActions');
@@ -1561,13 +1565,14 @@ function placeLightboxActions() {
 
 export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-width:600px)') } = {}) {
   let suppressLightboxClick = false;
+  let moreClosedByThisClick = false;
   bindBackdropDismiss($('#lightbox'), () => {
     if (suppressLightboxClick) {
       suppressLightboxClick = false;
       return;
     }
-    // 「⋯」开着时点遮罩只收菜单
-    if (closeLightboxMore()) return;
+    // 「⋯」开着时点遮罩只收菜单（菜单已在文档捕获阶段收起，这里吞掉这次关闭）
+    if (moreClosedByThisClick || closeLightboxMore()) return;
     closeLightbox();
   }, { isBackdrop: target => target.id === 'lightbox' || target.id === 'lightboxStage' });
   placeLightboxActions();
@@ -1586,7 +1591,14 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
       setLightboxMoreOpen(false);
       more.focus({ preventScroll: true });
     }, true);
-    bindOutsideDismiss(() => [more, $('#lightboxActionsMinor')], () => closeLightboxMore());
+    // 点菜单外任何地方都收起。放在文档捕获阶段：复制、选词等按钮自己会 stopPropagation，冒泡阶段收不到
+    document.addEventListener('click', ev => {
+      if (!isLightboxMoreOpen()) return;
+      if (ev.target instanceof Element && ev.target.closest('#lightboxMore,#lightboxActionsMinor')) return;
+      setLightboxMoreOpen(false);
+      moreClosedByThisClick = true;
+      window.setTimeout(() => { moreClosedByThisClick = false; }, 0);
+    }, true);
   }
   $('#lightboxFold').onclick = ev => {
     ev.stopPropagation();
