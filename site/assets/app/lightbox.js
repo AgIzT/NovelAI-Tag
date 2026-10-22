@@ -3,9 +3,9 @@ import { recordSiteEvent } from './site-analytics.js';
 import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
-import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
+import { copyText } from './copy.js';
 import { toast } from './feedback.js';
-import { relayKeyFor, snapshotFragment, snapshotLocked } from './tag-relay-snapshot.js';
+import { snapshotFragment, snapshotLocked } from './tag-relay-snapshot.js';
 import { tokenizePrompt, serializeSelection } from './prompt-fragments.js';
 import { lookupTagZh } from './tag-zh-core.js';
 import { naiToSd } from './nai-sd.js';
@@ -242,7 +242,7 @@ const LB_EDGE = 18;
 const LB_GAP = 18;
 const LB_NAV_LEFT = 62;
 const LB_NAV_RIGHT = 72;
-const LB_THUMBS_HEIGHT = 78;
+const LB_THUMBS_HEIGHT = 86;
 const LB_INFO_MAX = 1000;
 const LB_SINGLE_MAX = 480;
 const LB_TWO_COLUMNS = 540;
@@ -533,7 +533,7 @@ function clearLightboxContent() {
     const element = $(`#${id}`);
     if (element) element.hidden = true;
   }
-  for (const id of ['copyPositive', 'copyNegative', 'copyAll', 'copyRawTag', 'viewOriginal',
+  for (const id of ['copyPositive', 'copyPositiveDock', 'copyNegative', 'copyRawTag', 'viewOriginal',
     'shareLightbox', 'favoriteLightbox', 'reportLightbox', 'hideLightbox', 'sdPositivePreview', 'sdNegativePreview', 'artistPeekOpen']) {
     const button = $(`#${id}`);
     if (button) button.onclick = null;
@@ -844,7 +844,11 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   const all = makeButton('全选');
   const copy = makeButton('复制所选', 'prompt-selection-copy');
   const add = makeButton('加入当前方案');
-  const cancel = makeButton('取消');
+  // 退出放在行尾的 ×：窄栏折行时不会单独剩一个「取消」掉在第二行
+  const cancel = makeButton('', 'prompt-selection-close');
+  cancel.setAttribute('aria-label', '退出选择');
+  cancel.title = '退出选择';
+  cancel.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>';
   bar.append(count, all, copy, add, cancel);
   if (channel === 'character-negative') {
     const note = document.createElement('span');
@@ -1312,7 +1316,6 @@ export function renderLightbox() {
 
   const prompts = lightboxImagePrompts(e, lb.images, lb.index);
   const { tags: positive, negative, characterPrompts } = prompts;
-  const perImage = prompts.ownTags || prompts.ownNegative || prompts.ownCharacters;
   const imageLabel = `第 ${lb.index + 1} 张`;
   // 只有这张图自己的那一段才带「第 N 张」：中转站标题、复制提示都按段区分
   const labelFor = own => (own ? imageLabel : '');
@@ -1392,20 +1395,6 @@ export function renderLightbox() {
       sampleLabel: '已复制负面',
     });
   };
-  /* 「全部」与面板显示一致：这张图有自己的正向 / 负面 / 角色词就用它的，其余取顶层；
-     中转站按「词条 · 第 N 张」单独成卡，不顶掉整条词条那张。 */
-  const shownEntry = perImage
-    ? {
-      ...e, tags: positive, negative, characterPrompts,
-      title: `${e.title} · ${imageLabel}`, relayKey: `${relayKeyFor(e)}:image:${lb.index + 1}`,
-    }
-    : e;
-  $('#copyAll').hidden = !negative && !characterPrompts.length;
-  $('#copyAll').onclick = ev => {
-    ev.stopPropagation();
-    if (!refreshLightboxAccess(e)) return;
-    copyText(combinedPrompt(shownEntry), `已复制${combinedPromptLabel(shownEntry)}${noteFor(perImage)}：${e.title}`, ev.currentTarget, { entry: shownEntry });
-  };
   /* 逐图时正向框显示的就是这张图的 raw tag，按钮与「复制正向」重复。 */
   $('#copyRawTag').hidden = !item.rawTag || prompts.ownTags;
   $('#copyRawTag').onclick = ev => {
@@ -1478,7 +1467,7 @@ export function renderLightbox() {
   }
   const actions = document.querySelector('.lightbox-actions');
   if (actions) {
-    actions.hidden = [favoriteBtn, $('#copyAll'), $('#copyRawTag'), originalBtn, shareBtn, reportBtn]
+    actions.hidden = [favoriteBtn, $('#copyPositiveDock'), $('#copyRawTag'), originalBtn, shareBtn, reportBtn]
       .filter(Boolean)
       .every(button => button.hidden);
   }

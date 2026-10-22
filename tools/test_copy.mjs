@@ -534,13 +534,12 @@ function execDocument(result) {
   // 灯箱的「复制正向」保持只给正面段（那里角色词是分块展示的，语义不含糊）；套图非封面图给该图自己的正向
   assert.match(lightboxSource, /copyText\(positive, `已复制正向\$\{noteFor\(prompts\.ownTags\)\}：\$\{e\.title\}`/);
   assert.match(copySource, /（含 \$\{charCount\} 组角色词）/);
-  // 卡片和灯箱的「全部」都要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」
+  // 卡片的「全部」要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」；
+  // 灯箱 2026-10-23 起不提供「复制全部」，各段在自己的小节里复制
   assert.match(masonrySource, /allBtn\.hidden = !e\.negative && !charPrompts\.length/);
-  assert.match(lightboxSource, /\$\('#copyAll'\)\.hidden = !negative && !characterPrompts\.length/);
-  for (const source of [masonrySource, lightboxSource]) {
-    assert.match(source, /已复制\$\{combinedPromptLabel\((?:e|shownEntry)\)\}/);
-    assert.doesNotMatch(source, /已复制正向\+负面/);
-  }
+  assert.match(masonrySource, /已复制\$\{combinedPromptLabel\(e\)\}/);
+  assert.doesNotMatch(masonrySource, /已复制正向\+负面/);
+  assert.doesNotMatch(lightboxSource, /#copyAll|combinedPrompt/);
 }
 
 /* copyText 的实时判定探针：入库快照建不出来时不得 fail-open。

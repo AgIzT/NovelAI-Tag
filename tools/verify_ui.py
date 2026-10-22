@@ -1673,7 +1673,6 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
       pre?.querySelectorAll('.tag-zh-zh').forEach(node => node.remove());
       return pre?.textContent || '';
     }),
-    copyAllHidden: document.querySelector('#copyAll')?.hidden,
     horizontalOverflow: info ? info.scrollWidth > info.clientWidth + 1 : true,
   };
 })()
@@ -1682,8 +1681,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         expected_prompts = [item.get("prompt", "") for item in expected]
         if data["hidden"] or data["labels"] != expected_labels or data["prompts"] != expected_prompts:
             raise CheckFailed(f"Character prompt boxes do not match pack data: expected={expected_labels}, actual={data}")
-        if data["copyAllHidden"] or data["horizontalOverflow"]:
-            raise CheckFailed(f"Character prompt actions overflowed or copy-all stayed hidden: {data}")
+        if data["horizontalOverflow"]:
+            raise CheckFailed(f"Character prompt actions overflowed: {data}")
         cdp.eval("document.querySelector('#lightboxCharacterPrompts .character-prompt > .section-head button:not(.prompt-selection-toggle)')?.click()")
         copy_feedback = assert_copy_feedback("character prompt copy feedback", "已复制 char1")
         data["toast"] = copy_feedback["toast"]
@@ -2050,7 +2049,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const status = document.querySelector('#lightboxOriginalStatus');
   return {
     states: window.__qaOriginalStates || [],
-    status: status?.textContent?.trim() || '',
+    // 不能叫 status：结果会整体并进 run_check 的返回值，status 字段会被当成检查结论
+    statusText: status?.textContent?.trim() || '',
     statusState: status?.dataset.state || '',
     button: button?.textContent?.trim() || '',
     buttonDisabled: Boolean(button?.disabled),
@@ -2065,7 +2065,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         forbidden = [state for state in data["states"] if state.startswith("原图加载中") or state == "原图 ✓"]
         if forbidden:
             raise CheckFailed(f"No-original codex entered original loading/ready states: {data}")
-        if data["status"] != "无原图" or data["statusState"] != "unavailable":
+        if data["statusText"] != "无原图" or data["statusState"] != "unavailable":
             raise CheckFailed(f"No-original status is misleading: {data}")
         if data["button"] != "无原图" or not data["buttonDisabled"] or data["buttonHidden"]:
             raise CheckFailed(f"No-original action is not a visible disabled button: {data}")

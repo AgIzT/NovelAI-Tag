@@ -756,7 +756,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     { edge: 33, info: 480, right: 531, tight: false, columns: 1 }, '不够分两列时单列同样最宽 480');
   assert.deepEqual(lightboxWideLayout({ width: 1905, height: 1080, aspect: 1100 / 753, rich: true }),
     { edge: 18, info: 340, right: 376, tight: true, columns: 1 }, '横图图片优先，栏宽同现状');
-  assert.equal(lightboxWideLayout({ width: 1905, height: 1080, aspect: 629 / 1100, rich: true, thumbs: true }).edge, 100, '套图扣掉缩略条高度');
+  assert.equal(lightboxWideLayout({ width: 1905, height: 1080, aspect: 629 / 1100, rich: true, thumbs: true }).edge, 103, '套图扣掉缩略条高度和与图片的间距');
   assert.deepEqual(lightboxWideLayout({ width: 1351, height: 768, aspect: portrait, rich: true }).columns, 2, '1366 宽也能分两列');
   assert.deepEqual(lightboxSoloLayout({ width: 1425, rich: true }),
     { edge: 213, info: 1000, right: 1231, tight: false, columns: 2 }, '无图词条居中，有负面时两列最宽 1000');

@@ -2237,7 +2237,8 @@ body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted);--neg-in
   display:flex;align-items:center;justify-content:center;
   transition:right .3s cubic-bezier(.22,1,.36,1),bottom .3s cubic-bezier(.22,1,.36,1);
 }
-.lightbox.has-thumbs .lightbox-stage{bottom:96px}
+/* 缩略条 74px 高、底边 18px，图片区再让出 12px 间距；改这里要同步 lightbox.js 的 LB_THUMBS_HEIGHT（= 底距 − 18） */
+.lightbox.has-thumbs .lightbox-stage{bottom:104px}
 /* left/bottom 是图片还没尺寸时的退路；有尺寸后 lightbox.js 用内联位置把它贴到图片左下角。 */
 .lightbox-original-status{
   position:absolute;z-index:3;left:12px;bottom:12px;min-height:28px;display:flex;align-items:center;gap:6px;
@@ -2353,8 +2354,9 @@ a.lightbox-credit:hover{text-decoration:underline}
 :is(#copyNegative,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)):hover{
   background:color-mix(in srgb,var(--new) 14%,var(--card));filter:none;
 }
-/* 动作行分三档：「复制全部」填色；收藏、原图、分享平底细边框；原始提示词、反馈、不想看是不带底的文字按钮，靠右。 */
-#copyAll,#copyPositiveDock{background:var(--accent);color:var(--on-accent);border:1px solid transparent}
+/* 动作行：收藏、原图、分享平底细边框；原始提示词、反馈、不想看是不带底的文字按钮，靠右。
+   复制都在各小节标题栏里，灯箱不提供「复制全部」（正负面一起复制用处不大）。 */
+#copyPositiveDock{background:var(--accent);color:var(--on-accent);border:1px solid transparent}
 /* 底栏的「复制正向」和「⋯」只在手机抽屉里出现（见下方窄屏规则） */
 #copyPositiveDock,.lightbox-more{display:none}
 #favoriteLightbox,#viewOriginal,#shareLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
@@ -2514,6 +2516,8 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 /* 字形 ‹/› 的左右留白不对称，虽经 grid 居中仍会肉眼偏位；用与关闭/折叠一致的 SVG chevron，
    让 viewBox 的几何中心与 46px 圆心重合。 */
 .lightbox-nav{top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;padding:0}
+/* 套图时图片区上 18、下 104，中线比视口中线高 43px，翻页键跟着图片走 */
+.lightbox.has-thumbs .lightbox-nav{top:calc(50% - 43px)}
 .lightbox-nav svg{
   width:20px;height:20px;display:block;stroke:currentColor;stroke-width:2.8;
   stroke-linecap:round;stroke-linejoin:round;fill:none;
@@ -2584,9 +2588,10 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox{--lb-right:10px;--lb-sheet-height:45vh}
   @supports (height:1dvh){.lightbox{--lb-sheet-height:45dvh}}
   .lightbox-stage{left:10px;top:10px;right:10px;bottom:calc(var(--lb-sheet-height) + 20px);touch-action:pan-y pinch-zoom}
-  .lightbox.has-thumbs .lightbox-stage{bottom:calc(var(--lb-sheet-height) + 96px)}
+  /* 缩略条顶在抽屉上方 96px，图片区再让出 8px 间距 */
+  .lightbox.has-thumbs .lightbox-stage{bottom:calc(var(--lb-sheet-height) + 104px)}
   .lightbox.folded .lightbox-stage{bottom:74px}
-  .lightbox.folded.has-thumbs .lightbox-stage{bottom:152px}
+  .lightbox.folded.has-thumbs .lightbox-stage{bottom:162px}
   /* 横滑归脚本翻页，双指留给浏览器放大；放大后（page-zoomed）放开横向拖动，翻页由脚本暂停。 */
   #lightboxImg{max-height:100%;touch-action:pan-y pinch-zoom}
   .lightbox.page-zoomed .lightbox-stage,.lightbox.page-zoomed #lightboxImg{touch-action:auto}
@@ -2596,7 +2601,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   }
   .lightbox.folded .lightbox-info{transform:translateY(calc(100% + 20px))}
   .lightbox-head h2{font-size:16px}
-  /* 动作行由 lightbox.js 挪到栏尾、吸在抽屉底部，读到负面时也够得着。主按钮是「复制正向」，不放「复制全部」；
+  /* 动作行由 lightbox.js 挪到栏尾、吸在抽屉底部，读到负面时也够得着。主按钮是「复制正向」；
      复制原始提示词、反馈、不想看收进「⋯」。拖图提示不显示：手机没法把图拖进 NovelAI，原图有没有看图上的标签。 */
   .lightbox-tip{display:none}
   .lightbox-actions{
@@ -2604,7 +2609,6 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -8px 18px rgba(10,15,35,.07);
   }
   .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
-  #copyAll{display:none}
   #copyPositiveDock:not([hidden]){display:inline-block}
   .lightbox-more:not([hidden]){
     display:grid;place-items:center;margin-left:auto;min-width:38px;padding:0 10px;
@@ -2639,9 +2643,9 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     width:40px;height:40px;top:calc(50% - var(--lb-sheet-height) / 2 - 5px);
     transition:border-color .12s,color .12s,top .3s cubic-bezier(.22,1,.36,1),scale .14s ease;
   }
-  .lightbox.has-thumbs .lightbox-nav{top:calc(50% - var(--lb-sheet-height) / 2 - 43px)}
+  .lightbox.has-thumbs .lightbox-nav{top:calc(50% - var(--lb-sheet-height) / 2 - 47px)}
   .lightbox.folded .lightbox-nav{top:calc(50% - 32px)}
-  .lightbox.folded.has-thumbs .lightbox-nav{top:calc(50% - 71px)}
+  .lightbox.folded.has-thumbs .lightbox-nav{top:calc(50% - 76px)}
   .lightbox-nav[data-nav-label]::after{display:none}
   .lightbox-original-status{left:58px;bottom:8px}
 }
@@ -3318,6 +3322,12 @@ pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;
 .prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 10px;font:12px/1.5 var(--font-ui)}
 .prompt-selection-bar .prompt-selection-copy:not(:disabled){border-color:transparent;background:var(--accent);color:var(--on-accent);font-weight:700}
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
+.prompt-selection-bar .prompt-selection-close{
+  margin-left:auto;display:grid;place-items:center;min-width:30px;padding:0 7px;
+  border-color:transparent;background:transparent;color:var(--lb-muted,var(--muted));
+}
+.prompt-selection-bar .prompt-selection-close:hover{background:var(--tagbg-hover);color:var(--text)}
+.prompt-selection-close svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
 .prompt-selection-count{padding:0 4px;font:11px var(--font-ui);color:var(--lb-muted,var(--muted))}
 .prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
 /* 触屏详情里这几排跟上方动作行同高 38px（窄屏那条已给动作行 38px）；抬到 44px 会让 12px 字的胶囊比动作行还胖一圈。 */
