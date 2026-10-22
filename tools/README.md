@@ -52,7 +52,7 @@
 | `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |
 | `test_blocking_manager_motion.mjs` | 屏蔽清单节点复用、退场隔离、焦点、快速切页/关闭、跨标签更新与动效兜底回归 | 只读，内存 DOM/动画与存储夹具；真实几何仍须浏览器验证 |
-| `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；使用隔离 Chrome profile，自动接受测试页的离开确认，导航等待新文档，中转站操作核对草稿落盘；控制台输出 UTF-8。`--only <用例名片段>` 可只跑单项，`--out-dir` 支持相对路径；四态汇总，译名用例缺 core.json 为 BLOCKED，跳过不算通过 | 只读，写测试输出 |
+| `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；使用隔离 Chrome/Edge profile，自动接受测试页的离开确认，导航与刷新都等待新文档，每项开始激活测试页，中转站操作核对草稿落盘；控制台输出 UTF-8。`--only <用例名片段>` 可只跑单项，`--out-dir` 支持相对路径；四态汇总，译名用例缺 core.json 为 BLOCKED，跳过不算通过 | 只读，写测试输出 |
 | `verify_favorites_v2.py` | 收藏夹业务集成回归：迁移、归属、撤销、故障、多标签页及性能；关闭动效，含直接模块调用与 DOM 夹具；`--base-url` 指定工作区预览 | 仅接受无凭据的 HTTP localhost / 127.0.0.1；须指向只读 `preview_server.py`，不能连接编辑或生产服务；写隔离 Chrome profile 的测试存储和 `output/favorites-v2-validation/integration/`，`--out-dir` 可指定；不操作用户浏览器数据 |
 | `verify_favorites_experience.py` | 收藏夹真实操作链：开启动效，以 CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.insertText` 点击、按键和输入，核对实际命中、焦点、快捷键、断点与菜单几何；区别于上行的业务集成夹具 | 同样只接受无凭据的 HTTP localhost / 127.0.0.1；要求 `preview_server.py` 只读预览已启动，不接管服务生命周期；写独立测试 profile、结果/截图及程序版本哈希到 `output/favorites-experience/`，可用 `--out-dir` 分隔每轮；不使用用户 profile，不替代实体软键盘/读屏器验收 |
 | `benchmark_search_v1.mjs` | 搜索当前实现的冷暖交错微基准，每次核对完整排序结果；记录原字节数据摘要、源码与环境。`--baseline-report <报告>` 比较已冻结的成功输出，输入、环境、协议或结果不同为 BLOCKED；可比情况下 median 超过基准 10% 为 FAIL。`--compare-legacy` 仍先核对召回集合，不同或空数据/缺输入为 BLOCKED、退出 2 | 只读本地 JSON；私密输入的输出不可上传公共 CI。冷暖差异是缓存观测，同源码重复测量不证明代码提升/退化；主机调度与负载需另行控制 |
@@ -127,7 +127,7 @@
 
 测试文件也属于全量台账，按子系统分组；运行组合由被改功能的完成标准或对应 Playbook 决定。
 
-- Python · 工程自检：`test_run_project_checks.py` 验零用例、缺输入/运行时、跳过、超时、结果汇总、环境清理、路径及证据边界；使用合成临时文件。`test_project_audit_entrypoints.py` 在 Windows 用假 Python 验工程自检入口的退出码、GBK 恢复与总菜单动作委托；不运行真实发布或生产命令，不代替实体控制台键盘交互。公开 CI 仅运行 runner 的 ci/windows 两组，运行结果和已知基线缺口同时保留；main 默认尾段及公共搜索夹具纳入 ci；待合并社区入口、真实数据采样与旧实现比较单列 baseline，缺模块或不可比较保持 BLOCKED。发布安全测试依赖现有 Pillow，CI 只安装这一项。
+- Python · 工程自检：`test_run_project_checks.py` 验零用例、缺输入/运行时、跳过、超时、结果汇总、环境清理、路径及证据边界；使用合成临时文件。`test_project_audit_entrypoints.py` 在 Windows 用假 Python 验工程自检入口的退出码、GBK 恢复与总菜单动作委托；不运行真实发布或生产命令，不代替实体控制台键盘交互。公开 CI 仅运行 runner 的 ci/windows 两组，运行结果和已知基线缺口同时保留；main 默认尾段、公共搜索、渲染契约、统计只读权限、匹配工具与中转站缓存/存储协调回归纳入 ci，VM 模块测试由白名单显式传入所需 Node 参数；待合并社区入口、真实数据采样与旧实现比较单列 baseline，缺模块或不可比较保持 BLOCKED。CI 按 `requirements.txt` 安装项目测试依赖。
 
 - Node · 匿名产品统计：`test_site_analytics.mjs`（显式关闭工厂、DNT/GPC 零发送、内存队列、限频、超时、无重试/标识/持久化）；`test_site_metrics_backend.mjs`（真实内存 SQLite migration、同源、字节上限、严格字段枚举、未迁移 disabled、原子全站限额、保留期与已认证聚合报表）；`test_site_metrics_hooks.mjs`（实际复制/分享/导出/过滤函数体的内存依赖回放，成功时序与取消/失败排除）；`test_site_search_observation.mjs`（800ms 前清空/历史提前返回、导航及结果更新取消、无效回调、新旧代次与三个作用域的有效完成）；`test_site_metrics_production.mjs`（独立只读权限/到期、不能进入管理员接口、保留期清理边界及无关表不变）。只读源码和内存夹具，不联网、不写用户存储或生产；不代替真实 Pages Functions 与浏览器验收。
 - SQL · 匿名统计清理：`site_metrics_maintenance.sql` 只删除过期统计日聚合和全站限频桶，不碰互动/投稿/反馈表；执行即改指定 D1，本地/远端必须显式区分，远端需要另行授权。流程见私密运维文档 `docs/运维/匿名产品统计上线与回滚.md`。
@@ -138,7 +138,8 @@
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Node · 本地编辑器目录调序：`test_category_order.mjs`（真实节点与图片列表排序、组内原序、实际过滤链接线、收藏 / 全站搜索排序边界、空目录、旧书原序、分级及缓存失效；仅内存夹具，不写用户数据）。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
-- Python · UI 测试驱动：`test_verify_ui.py`（CDP 离开确认/导航，以及 PASS/FAIL/SKIP/BLOCKED 汇总、必需夹具缺失与 CLI 退出码；合成夹具，不启动浏览器）。
+- Python · UI 测试驱动：`test_verify_ui.py`（CDP 离开确认/刷新新文档等待，以及 PASS/FAIL/SKIP/BLOCKED 汇总、界面状态与结果状态不串用、必需夹具缺失与 CLI 退出码；合成夹具，不启动浏览器）。统计只读回归使用固定时钟，另验 token 到期前后边界；匹配工具测试兼容直接运行与 `python -m unittest`。
+- Node · 换书动效中断：`test_render_ui.mjs` 还会回放 `app.js` 的实际过渡函数，验证隐藏文档导致 ready/finished 拒绝时不产生未处理错误、清理 CSS 状态，且正文渲染失败仍向上传递；仅合成 Promise/DOM，不需要浏览器。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Node · 详情权重上色：`test_prompt_weights.mjs`（NAI `N::…::`、`{}` / `[]` 与 SD `(…:N)` 的标记位置和加权 / 减权方向；tag 名里的圆括号、转义括号与 tag 内数字不当权重）。
 - Python · 画师样张索引：`test_build_artist_index.py`（画师名夹具、去重顺序、书名推版本）；Node 侧对应 `test_artist_core.mjs`（倍率、索引归一、拆解兜底与跳过自身），两边共用 `fixtures/artist_keys.json`。

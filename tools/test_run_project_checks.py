@@ -341,6 +341,14 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("search_benchmark_public", runner.PROFILES["ci"])
         self.assertIn("audit_entrypoints", runner.PROFILES["windows"])
 
+    def test_ci_keeps_previously_manual_regressions_and_vm_flags(self):
+        selected = {check.id: check for check in runner.selected_checks("ci")}
+        self.assertTrue({"render_ui", "tag_relay_cache", "storage_fence", "codex_matching",
+                         "site_metrics_production"}.issubset(selected))
+        for name in ("tag_relay_cache", "storage_fence", "frontend_loading_recovery"):
+            self.assertEqual(selected[name].args[0], "--experimental-vm-modules")
+        self.assertTrue(selected["site_metrics_production"].sqlite)
+
     def test_r2_integration_keeps_old_readers_and_safety_checks(self):
         ids = set(runner.PROFILES["r2_integration"])
         self.assertTrue({"r2_publisher", "r2_pool", "r2_protocol", "r2_compat", "r2_verifier_safety",

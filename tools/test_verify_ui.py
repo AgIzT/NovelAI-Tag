@@ -150,6 +150,19 @@ class BeforeUnloadNavigationTests(unittest.TestCase):
             cdp.command("Page.navigate", {"url": "http://localhost/next"})
         self.assert_accepted(socket)
 
+    def test_reload_waits_for_the_new_document(self):
+        cdp = mock.Mock()
+        cdp.eval.side_effect = [None, False, True]
+        with mock.patch.object(ui.time, "sleep"):
+            ui.reload(cdp, ignore_cache=True)
+        cdp.command.assert_called_once_with("Page.reload", {"ignoreCache": True}, timeout=10)
+        self.assertEqual(cdp.eval.call_args_list[0], mock.call("window.__qaNavigating = true"))
+        self.assertEqual(cdp.eval.call_count, 3)
+        condition = cdp.eval.call_args_list[1].args[0]
+        self.assertIn("!window.__qaNavigating", condition)
+        self.assertIn("document.readyState", condition)
+        self.assertEqual(condition, cdp.eval.call_args_list[2].args[0])
+
 
 class ResultStatusTests(unittest.TestCase):
     def run_case(self, detail=None, error=None, **kwargs):
@@ -179,7 +192,7 @@ class ResultStatusTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "BLOCKED")
 
-    def test_actual_tag_case_blocks_when_core_is_absent(self):
+    def run_actual_case(self, only, cdp):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             data = root / "site" / "data"
@@ -192,17 +205,36 @@ class ResultStatusTests(unittest.TestCase):
                                     "image": "synthetic.webp", "path": ["画风组词典"]}]}
             (data / "nai45_community_pack.json").write_text(json.dumps(pack), encoding="utf-8")
             (data / "artist_nai45_personal.json").write_text(json.dumps(artist), encoding="utf-8")
-            cdp = mock.Mock()
             with mock.patch.object(ui, "ROOT", root), mock.patch.object(ui, "log"), \
                     mock.patch.object(ui, "first_imaged_entry_id", return_value="synthetic"), \
                     mock.patch.object(ui, "update_filter_config", return_value=[{"latest": True}, {"latest": False, "newOverlap": False}]), \
                     mock.patch.object(ui, "load_codex_list", return_value=[]):
-                results = ui.run_suite("http://127.0.0.1/", root, cdp, only="tag zh")
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]["status"], "BLOCKED")
-            self.assertFalse(results[0]["ok"])
-            self.assertIn("core.json", results[0]["detail"]["reason"])
-            cdp.eval.assert_not_called()
+                return ui.run_suite("http://127.0.0.1/", root, cdp, only=only)
+
+    def test_actual_tag_case_blocks_when_core_is_absent(self):
+        cdp = mock.Mock()
+        results = self.run_actual_case("tag zh", cdp)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "BLOCKED")
+        self.assertFalse(results[0]["ok"])
+        self.assertIn("core.json", results[0]["detail"]["reason"])
+        cdp.eval.assert_not_called()
+
+    def test_no_original_ui_status_is_not_a_check_result_status(self):
+        detail = {"states": ["无原图"], "statusText": "无原图", "statusState": "unavailable",
+                  "button": "无原图", "buttonDisabled": True, "buttonHidden": False,
+                  "originalRequests": []}
+        cdp = mock.Mock()
+        cdp.eval.side_effect = [True, detail, True]
+        with mock.patch.object(ui, "clear_errors"), mock.patch.object(ui, "navigate"), \
+                mock.patch.object(ui, "wait_for"), mock.patch.object(ui, "settle"), \
+                mock.patch.object(ui, "screenshot", return_value="synthetic.png"), \
+                mock.patch.object(ui, "check_no_errors"):
+            results = self.run_actual_case("no-original", cdp)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "PASS", results[0])
+        self.assertEqual(results[0]["detail"]["original"]["statusText"], "无原图")
+        cdp.command.assert_any_call("Page.bringToFront")
 
     def test_assertion_is_fail(self):
         result = self.run_case(error=AssertionError("wrong value"))

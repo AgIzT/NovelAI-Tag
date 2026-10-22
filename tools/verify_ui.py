@@ -447,6 +447,15 @@ def navigate(cdp: CDP, url: str) -> None:
     wait_for(cdp, new_document + "(document.readyState === 'complete' || document.readyState === 'interactive')", "document ready", timeout=10)
 
 
+def reload(cdp: CDP, *, ignore_cache: bool = False) -> None:
+    # The old document can still satisfy every history/DOM assertion after the
+    # reload command returns. Wait for its replacement before resuming actions.
+    cdp.eval("window.__qaNavigating = true")
+    cdp.command("Page.reload", {"ignoreCache": ignore_cache}, timeout=10)
+    wait_for(cdp, "!window.__qaNavigating && (document.readyState === 'complete' || document.readyState === 'interactive')",
+             "reloaded document ready", timeout=10)
+
+
 def settle(cdp: CDP, ms: int = 350) -> None:
     cdp.command("Runtime.evaluate", {"expression": f"new Promise(r => setTimeout(r, {ms}))", "awaitPromise": True}, timeout=5)
 
@@ -1557,7 +1566,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         # Legacy ?new=1 links still resolve to the latest batch after deploy.
         navigate(cdp, base + "?codex=suozhang&new=1")
         wait_for(cdp, f"document.querySelector('[data-update-filter=\"{latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true'", "legacy NEW update URL", timeout=12)
-        cdp.command("Page.reload", {"ignoreCache": True})
+        reload(cdp, ignore_cache=True)
         wait_for(cdp, f"document.querySelector('[data-update-filter=\"{latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true' && document.querySelector('#resultInfo')?.textContent.includes({json.dumps(latest_update['label'], ensure_ascii=False)})", "NEW update reload", timeout=12)
 
         # The same data switch is enabled independently for the R18 codex.
@@ -2049,7 +2058,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const status = document.querySelector('#lightboxOriginalStatus');
   return {
     states: window.__qaOriginalStates || [],
-    // 不能叫 status：结果会整体并进 run_check 的返回值，status 字段会被当成检查结论
+    // 界面状态文案与框架的 PASS/FAIL 结论分开记录。
     statusText: status?.textContent?.trim() || '',
     statusState: status?.dataset.state || '',
     button: button?.textContent?.trim() || '',
@@ -2074,7 +2083,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         shot = screenshot(cdp, out_dir, "no-original-lightbox")
         cdp.eval("window.__qaOriginalObserver?.disconnect(); document.querySelector('#lightboxClose')?.click()")
         check_no_errors(cdp)
-        return {**data, "entry": no_original_entry_id, "screenshot": shot}
+        return {"original": data, "entry": no_original_entry_id, "screenshot": shot}
 
     def random_explore():
         clear_errors(cdp)
@@ -2105,10 +2114,10 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
     scrollY:420,
     at:Date.now()
   }));
-  location.reload();
   return true;
 })()
 """)
+        reload(cdp)
         wait_for(cdp, "document.querySelector('#moreBtn') && document.querySelectorAll('.card').length >= 1", "reloaded app")
         cdp.eval("document.querySelector('#moreBtn').click(); document.querySelector('#historyBtn').click();")
         wait_for(cdp, "!document.querySelector('#historyPanel')?.hidden", "history panel")
@@ -2125,7 +2134,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         clear_errors(cdp)
         navigate(cdp, base + "?codex=suozhang")
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "recent source cards")
-        cdp.eval("localStorage.removeItem('fadian-recent'); location.reload(); true")
+        cdp.eval("localStorage.removeItem('fadian-recent'); true")
+        reload(cdp)
         wait_for(cdp, "document.querySelectorAll('.card').length >= 1", "recent source cards after reset")
         cdp.eval("""
 (() => {
@@ -2374,7 +2384,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "!document.querySelector('#lightbox').hidden", "text detail forward")
         if cdp.eval('location.href') != detail_url:
             raise CheckFailed('Forward lost the text detail URL')
-        cdp.command('Page.reload')
+        reload(cdp)
         wait_for(cdp, "document.readyState === 'complete' && !document.querySelector('#lightbox').hidden && document.querySelector('#lightboxTitle').textContent === " + js_string(text_entry['title']), "text detail reload")
         if cdp.eval('location.href') != detail_url:
             raise CheckFailed('Reload lost the text detail URL')
@@ -2562,7 +2572,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         navigate(cdp, base + "?codex=suozhang")
         cdp.eval("localStorage.setItem('fadian-nsfw-ok','0'); localStorage.setItem('fadian-onboarding-v1-done','1'); localStorage.setItem('fadian-sidebar','closed')")
-        cdp.command("Page.reload", {"ignoreCache": True})
+        reload(cdp, ignore_cache=True)
         wait_for(cdp, "history.state?.page === 'atlas' && document.querySelectorAll('.card').length >= 1", "managed atlas history")
         initial = cdp.eval("({length:history.length,id:history.state.id,url:location.href})")
         initial_scroll = cdp.eval("Math.min(500, Math.max(0, document.documentElement.scrollHeight - innerHeight - 20))") or 0
@@ -2818,7 +2828,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval(f"scrollTo(0,{int(reload_scroll)})")
         settle(cdp, 260)
         saved_id = cdp.eval("history.state.id")
-        cdp.command("Page.reload", {})
+        reload(cdp)
         wait_for(cdp, "history.state?.page === 'atlas' && document.querySelectorAll('.card').length >= 1", "atlas reload keeps managed state")
         if cdp.eval("history.state.id") != saved_id:
             raise CheckFailed("Reload did not adopt the persisted managed history record")
@@ -2832,7 +2842,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("document.querySelector('#settingsBtn')?.click()")
         wait_for(cdp, "document.querySelector('#settings')?.classList.contains('show') && history.state?.layers?.at(-1)?.id === 'settings'", "reload ghost settings layer")
         reload_layer_length = cdp.eval("history.length")
-        cdp.command("Page.reload", {})
+        reload(cdp)
         wait_for(
             cdp,
             "!document.querySelector('#settings')?.classList.contains('show') && history.state?.id === " + js_string(reload_layer_parent),
@@ -2892,7 +2902,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   localStorage.removeItem('fadian-r18g-ok');
 })()
 """)
-        cdp.command("Page.reload", {"ignoreCache": True})
+        reload(cdp, ignore_cache=True)
         try:
             wait_for(cdp, "history.state?.page === 'community' && document.querySelectorAll('.community-card').length >= 1", "managed community history", timeout=12)
         except CheckFailed as exc:
@@ -3009,7 +3019,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
         # The strings.html list context lives only in history.state; reload must
         # restore category/search from the persisted managed record.
-        cdp.command("Page.reload", {})
+        reload(cdp)
         wait_for(cdp, "history.state?.page === 'community' && document.querySelector('#search')?.value === 'sample composition'", "community reload restores context", timeout=12)
         if cdp.eval("history.state?.route?.q") != "sample composition":
             raise CheckFailed("Community reload lost the search query")
@@ -3042,7 +3052,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         reload_detail = cdp.eval(
             "({length:history.length,id:history.state.id,parentId:history.state.parentId,entry:history.state.route.entry})"
         )
-        cdp.command("Page.reload", {})
+        reload(cdp)
         wait_for(
             cdp,
             "document.querySelector('#detailMask')?.classList.contains('show')"
@@ -3173,6 +3183,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if not checks:
             raise CheckFailed(f"No UI check matched --only={only!r}")
     for name, func in checks:
+        # Hidden documents suppress media/animation callbacks. Keep the target
+        # active so these foreground UI checks exercise their actual precondition.
+        cdp.command("Page.bringToFront")
         run_check(results, name, func)
     return results
 

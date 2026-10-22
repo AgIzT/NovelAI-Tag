@@ -210,6 +210,8 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
     const h = document.documentElement;
     h.classList.add('vt-codex');
     const vt = document.startViewTransition(render);
+    // 隐藏文档或导航中断会单独拒绝 ready；正文渲染错误仍由 updateCallbackDone 向上传递。
+    vt.ready.catch(() => {});
     vt.finished.catch(() => {}).finally(() => h.classList.remove('vt-codex'));
     await vt.updateCallbackDone;
   } else {

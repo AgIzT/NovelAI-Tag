@@ -29,9 +29,9 @@ jobs:
         with:
           node-version: '24.14.0'
           package-manager-cache: false
-      # Existing image-library dependency only; no private data, credentials, publishing or live API tests.
-      - name: Install the existing media-test dependency
-        run: python -m pip install "Pillow>=10.0.0"
+      # Project libraries for synthetic fixtures; no private data or live API tests.
+      - name: Install the project test dependencies
+        run: python -m pip install -r requirements.txt
       - name: Run the explicit public check list
         run: python -B tools/run_project_checks.py --profile ci --output-dir output/project-audit/ci-public
       - name: Preserve results, including failures and blocked checks

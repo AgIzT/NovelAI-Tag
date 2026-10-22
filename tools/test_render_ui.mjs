@@ -1978,4 +1978,53 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   });
 }
 
+// A hidden/interrupted transition rejects ready independently of finished.
+// Replay the actual helper and observe Node's unhandled-rejection boundary.
+{
+  const source = await readFile(new URL('../site/assets/app.js', import.meta.url), 'utf8');
+  const start = source.indexOf('async function runCodexViewTransition(');
+  const end = source.indexOf('\nexport async function init()', start);
+  assert.ok(start >= 0 && end > start, 'codex transition helper must be present');
+  const unhandled = [];
+  const capture = reason => unhandled.push(reason);
+  process.on('unhandledRejection', capture);
+  try {
+    for (const failRender of [false, true]) {
+      const classes = new Set();
+      const aborted = new Error('Transition was aborted: Document hidden');
+      const renderError = new Error('synthetic render failure');
+      let renders = 0;
+      const context = {
+        codexLoadSeq: 1,
+        prefersReducedMotion: () => false,
+        setTimeout: callback => queueMicrotask(callback),
+        document: {
+          documentElement: { classList: { add: name => classes.add(name), remove: name => classes.delete(name) } },
+          startViewTransition(render) {
+            const updateCallbackDone = Promise.resolve().then(render);
+            return {
+              ready: Promise.reject(aborted),
+              finished: updateCallbackDone.then(() => { throw aborted; }),
+              updateCallbackDone,
+            };
+          },
+        },
+      };
+      runInNewContext(source.slice(start, end) + ';globalThis.run = runCodexViewTransition;', context);
+      const result = context.run(1, () => {
+        renders += 1;
+        if (failRender) throw renderError;
+      }, { wasSwitching: true, transition: 'route' });
+      if (failRender) await assert.rejects(result, error => error === renderError);
+      else await result;
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(renders, 1, 'skipped animation still renders exactly once');
+      assert.equal(classes.has('vt-codex'), false, 'aborted transition clears its CSS state');
+    }
+  } finally {
+    process.off('unhandledRejection', capture);
+  }
+  assert.deepEqual(unhandled, [], 'transition ready rejection must not escape to the page');
+}
+
 console.log('render UI regressions: PASS');
