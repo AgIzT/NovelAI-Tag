@@ -106,6 +106,7 @@ const {
   lightboxOriginalAction,
   lightboxOriginalCopy,
   lightboxOriginalDragHint,
+  lightboxSoloLayout,
   lightboxWideLayout,
   preloadImage,
   preloadLightboxNeighbors,
@@ -757,6 +758,12 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     { edge: 18, info: 340, right: 376, tight: true, columns: 1 }, '横图图片优先，栏宽同现状');
   assert.equal(lightboxWideLayout({ width: 1905, height: 1080, aspect: 629 / 1100, rich: true, thumbs: true }).edge, 100, '套图扣掉缩略条高度');
   assert.deepEqual(lightboxWideLayout({ width: 1351, height: 768, aspect: portrait, rich: true }).columns, 2, '1366 宽也能分两列');
+  assert.deepEqual(lightboxSoloLayout({ width: 1425, rich: true }),
+    { edge: 213, info: 1000, right: 1231, tight: false, columns: 2 }, '无图词条居中，有负面时两列最宽 1000');
+  assert.deepEqual(lightboxSoloLayout({ width: 1425 }),
+    { edge: 473, info: 480, right: 971, tight: false, columns: 1 }, '无图词条只有正向时单列最宽 480');
+  assert.deepEqual(lightboxSoloLayout({ width: 680, rich: true }),
+    { edge: 100, info: 480, right: 598, tight: false, columns: 1 }, '两侧让出翻页键后不够 540 就单列');
   assert.equal(lightboxImageAspect({ imageWidth: 753, imageHeight: 1100 }, [{ width: 1100, height: 753 }, {}]), 1100 / 753, '套图按最宽的那张排版');
   assert.equal(lightboxImageAspect({}, [{}]), 0);
 }

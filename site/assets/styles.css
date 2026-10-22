@@ -2340,8 +2340,17 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px)}
 #copyPositive{background:var(--accent);color:var(--on-accent)}
 #copyNegative{background:var(--new);color:#fff}
-#favoriteLightbox,#copyAll,#copyRawTag,#viewOriginal,#shareLightbox,#reportLightbox,#hideLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
-#favoriteLightbox:hover,#copyAll:hover,#copyRawTag:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover,#reportLightbox:hover,#hideLightbox:not(:disabled):hover{background:var(--tagbg-hover);filter:none}
+/* 动作行分三档：「复制全部」填色；收藏、原图、分享平底细边框；原始提示词、反馈、不想看是不带底的文字按钮，靠右。 */
+#copyAll{background:var(--accent);color:var(--on-accent);border:1px solid transparent}
+#favoriteLightbox,#viewOriginal,#shareLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
+#favoriteLightbox:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover{background:var(--tagbg-hover);filter:none}
+.lightbox-actions-minor{display:flex;flex-wrap:wrap;gap:2px;margin-left:auto}
+.lightbox-actions .lightbox-actions-minor button{
+  border:1px solid transparent;background:transparent;padding-inline:9px;font-weight:700;
+  color:color-mix(in srgb,var(--muted) 45%,var(--text));
+}
+.lightbox-actions .lightbox-actions-minor button:not(:disabled):hover{background:var(--tagbg-hover);color:var(--text);filter:none;transform:none}
+.lightbox-actions .lightbox-actions-minor button:disabled{opacity:.55;cursor:default}
 #viewOriginal:disabled{cursor:not-allowed;opacity:.58;color:var(--muted)}
 #viewOriginal:disabled:hover{background:var(--tagbg);filter:none;transform:none;box-shadow:none}
 #favoriteLightbox{min-width:38px;color:var(--muted);font-size:0;line-height:1}
@@ -2356,15 +2365,13 @@ a.lightbox-credit:hover{text-decoration:underline}
 .section-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-bottom:6px}
 .section-label{flex:none;margin-right:auto;white-space:nowrap;font-size:12px;font-weight:700;color:var(--muted)}
 .section-head button{flex:none;margin-left:0;white-space:nowrap;padding:5px 9px;font-size:12px;line-height:1.35}
-/* 「选择 tag」不是复制动作：保持细边框平按钮，角色词区也不跟着染色。 */
-.section-head .prompt-selection-toggle{border:1px solid var(--line)}
-.section-head .prompt-selection-toggle:hover{background:var(--tagbg-hover);filter:none}
-.section-head .sd-preview-toggle{border:1px solid color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent);box-shadow:none}
-.section-head .sd-preview-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
-/* tag 中文对照：开关与 SD 预览同款同位；打开后每个 tag 变成「英文 + 下方中文小字」的盒子 */
-.section-head .tag-zh-toggle{border:1px solid var(--line);background:var(--tagbg);color:var(--muted);box-shadow:none}
-.section-head .tag-zh-toggle[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
-.section-head .tag-zh-toggle[aria-pressed="true"]::before{content:"✓ "}
+/* 三个视图开关（中文对照 / SD 预览 / 选择 tag）同一套样子：关着平底细边框，开着浅强调底 + ✓。
+   开着也不填实色——实色只留给「复制」，角色词区也不跟着染色。
+   中文对照打开后每个 tag 变成「英文 + 下方中文小字」的盒子。 */
+.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle){border:1px solid var(--line);background:var(--tagbg);color:var(--text);box-shadow:none}
+.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle):hover{background:var(--tagbg-hover);filter:none}
+.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
+.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]::before{content:"✓ "}
 .lightbox-section pre.tag-zh-on{max-height:min(56vh,520px);line-height:1.3;padding-bottom:5px}
 .tag-zh-tok{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;border-radius:4px;cursor:pointer}
 .tag-zh-gap{margin-right:5px}
@@ -2539,6 +2546,8 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
 }
 .lightbox.lb-settling :is(.lightbox-stage,.lightbox-info,.lb-circle,.lb-fold,.lightbox-thumbs){transition:none}
 .lightbox.lb-wide .artist-strip{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}
+/* 无图词条：信息栏居中（lightboxSoloLayout），关闭键留在左上角；翻页只走有图词条，无图时没有翻页键 */
+.lightbox.no-image.lb-wide .lightbox-close{left:18px}
 /* 有负面或角色词、栏宽够 540px 时分两列：左列正向 + 画师，右列角色 + 负面 + 备注，两列各自滚动。
    其余情况列容器是 display:contents，排版与单栏完全一样；本地编辑面板打开时也退回单栏。
    edit.js 显式标记面板挂载，避免 :has 后代查询让普通内容更新扩大样式重算。 */
@@ -3266,15 +3275,19 @@ html.motion-off{scroll-behavior:auto!important}
 
 /* 详情选词：译名仅辅助阅读，选择与复制使用原始英文片段。 */
 .prompt-selection-toggle{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:5px 9px;font:600 11px var(--font-ui)}
-.prompt-selection-toggle[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
 pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;white-space:normal;max-height:330px;overflow-y:auto}
 .prompt-selection-token{display:flex;flex-direction:column;gap:3px;max-width:100%;text-align:left;overflow-wrap:anywhere;white-space:normal;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);padding:6px 8px;font:12px/1.5 monospace}
 .prompt-selection-token[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
-.prompt-selection-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:7px 0 12px}
+/* 操作栏在框上方、吸在滚动区顶部：两栏时框不限高，选到下面的 tag 也看得到计数和「复制所选」 */
+.prompt-selection-bar{
+  position:sticky;top:0;z-index:2;display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 8px;padding:6px;
+  border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow);
+}
 .prompt-selection-bar[hidden]{display:none}
 .prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 10px;font:12px/1.5 var(--font-ui)}
+.prompt-selection-bar .prompt-selection-copy:not(:disabled){border-color:transparent;background:var(--accent);color:var(--on-accent);font-weight:700}
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
-.prompt-selection-count{font:11px var(--font-ui);color:var(--muted)}
+.prompt-selection-count{padding:0 4px;font:11px var(--font-ui);color:var(--muted)}
 .prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
 /* 触屏详情里这几排跟上方动作行同高 38px（窄屏那条已给动作行 38px）；抬到 44px 会让 12px 字的胶囊比动作行还胖一圈。 */
 @media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle,.lightbox-actions button,.section-head button{min-height:38px}}

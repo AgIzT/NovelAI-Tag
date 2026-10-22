@@ -1121,11 +1121,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div class="lightbox-actions">
         <button class="ui-press" id="favoriteLightbox" type="button" aria-label="收藏" aria-pressed="false">☆</button>
         <button class="ui-press" id="copyAll" type="button">复制全部</button>
-        <button class="ui-press" id="copyRawTag" type="button" title="复制当前这张图的原始提示词">复制原始提示词</button>
         <button class="ui-press" id="viewOriginal" type="button">查看原图</button>
         <button class="ui-press" id="shareLightbox" type="button">分享</button>
-        <button class="ui-press" id="reportLightbox" type="button">反馈此图</button>
-        <button class="ui-press" id="hideLightbox" type="button">不想看</button>
+        <div class="lightbox-actions-minor">
+          <button class="ui-press" id="copyRawTag" type="button" title="复制当前这张图的原始提示词">复制原始提示词</button>
+          <button class="ui-press" id="reportLightbox" type="button">反馈此图</button>
+          <button class="ui-press" id="hideLightbox" type="button">不想看</button>
+        </div>
       </div>
       <div class="lightbox-columns">
         <div class="lightbox-column lightbox-column-main">

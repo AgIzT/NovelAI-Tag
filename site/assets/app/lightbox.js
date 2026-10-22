@@ -266,6 +266,16 @@ export function lightboxWideLayout({ width, height, aspect, rich = false, thumbs
   return { edge, info, right: edge + info + LB_GAP, tight, columns };
 }
 
+/* 无图词条没有图片区：信息栏按同样的栏宽规则（两列最宽 1000、单列最宽 480）放到屏幕正中，
+   左右各让出一个翻页键的位置。 */
+export function lightboxSoloLayout({ width, rich = false }) {
+  const room = width - (LB_EDGE + LB_NAV_LEFT) * 2;
+  const columns = rich && room >= LB_TWO_COLUMNS ? 2 : 1;
+  const info = Math.round(Math.max(260, Math.min(room, columns === 2 ? LB_INFO_MAX : LB_SINGLE_MAX)));
+  const edge = Math.round((width - info) / 2);
+  return { edge, info, right: edge + info + LB_GAP, tight: false, columns };
+}
+
 /* 一条词条只用一个比例排版：取各图里最宽的那张，翻套图时栏宽不变，窄一点的图在图片区里居中。 */
 export function lightboxImageAspect(entry, images = []) {
   let aspect = 0;
@@ -290,13 +300,18 @@ function layoutLightboxFrame() {
   // 量灯箱自身：根元素的 scrollbar-gutter 会让它比 innerWidth 窄一条滚动条槽
   const width = lbEl.clientWidth;
   const height = lbEl.clientHeight;
-  if (!aspect || compact || !width || !height || item?._editPlaceholder) {
+  // 本地编辑器在舞台上画「暂无图片」占位、在栏里补图，无图词条保留原来的靠右布局
+  const empty = item?._editPlaceholder === true;
+  const solo = empty && !document.getElementById('editModeCss');
+  if (compact || !width || !height || (empty ? !solo : !aspect)) {
     lbEl.classList.remove('lb-wide', 'lb-wide-tight', 'lb-two-columns');
     return;
   }
   const prompts = lightboxImagePrompts(lb.entry, lb.images, lb.index);
   const rich = Boolean(String(prompts.negative || '').trim() || prompts.characterPrompts?.length);
-  const layout = lightboxWideLayout({ width, height, aspect, rich, thumbs: lb.images.length > 1 });
+  const layout = solo
+    ? lightboxSoloLayout({ width, rich })
+    : lightboxWideLayout({ width, height, aspect, rich, thumbs: lb.images.length > 1 });
   lbEl.style.setProperty('--lb-wide-left', `${layout.edge}px`);
   lbEl.style.setProperty('--lb-wide-info', `${layout.info}px`);
   lbEl.style.setProperty('--lb-wide-right', `${layout.right}px`);
@@ -813,7 +828,10 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   };
   const toggle = makeButton('选择 tag', 'prompt-selection-toggle');
   toggle.setAttribute('aria-pressed', 'false');
-  head.append(toggle);
+  // 和中文对照、SD 预览排在一起，「复制」留在行尾
+  const copyButton = [...head.children]
+    .find(el => el.tagName === 'BUTTON' && !el.matches('.tag-zh-toggle,.sd-preview-toggle'));
+  head.insertBefore(toggle, copyButton || null);
   const bar = document.createElement('div');
   bar.className = 'prompt-selection-bar';
   bar.hidden = true;
@@ -821,7 +839,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   count.className = 'prompt-selection-count';
   count.setAttribute('role', 'status');
   const all = makeButton('全选');
-  const copy = makeButton('复制所选');
+  const copy = makeButton('复制所选', 'prompt-selection-copy');
   const add = makeButton('加入当前方案');
   const cancel = makeButton('取消');
   bar.append(count, all, copy, add, cancel);
@@ -832,7 +850,8 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     add.title = '角色负面不能加入方案';
     bar.append(note);
   }
-  pre.after(bar);
+  // 放在框上方并吸顶：tag 多时框很长，挂在下面就要滚好几屏才找得到「复制所选」
+  pre.before(bar);
   const selection = {
     active: false, ids: new Set(), pieces: tokenizePrompt(text), text: String(text),
     entry, channel, characterIndex, label, codexId: lightboxEntrySourceId(entry),
@@ -851,9 +870,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     selection.active = true;
     bar.hidden = false;
     toggle.setAttribute('aria-pressed', 'true');
-    const sdPreview = head.querySelector('.sd-preview-toggle');
-    sdPreview?.setAttribute('aria-pressed', 'false');
-    if (sdPreview) sdPreview.textContent = 'SD 预览';
+    head.querySelector('.sd-preview-toggle')?.setAttribute('aria-pressed', 'false');
     pre.classList.remove('sd-previewing');
     clearTagZhDetails(pre.parentElement);
     renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
@@ -1318,14 +1335,12 @@ export function renderLightbox() {
     const available = Boolean(state.sdMode && String(source || '').trim());
     button.hidden = !available;
     button.setAttribute('aria-pressed', 'false');
-    button.textContent = 'SD 预览';
     pre.classList.remove('sd-previewing');
     button.onclick = available ? event => {
       event.stopPropagation();
       stopPromptSelection(pre);
       const enabled = button.getAttribute('aria-pressed') !== 'true';
       button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-      button.textContent = enabled ? '恢复原文' : 'SD 预览';
       pre.classList.toggle('sd-previewing', enabled);
       clearTagZhDetails(pre.parentElement);
       if (enabled) renderPromptBlock(pre, naiToSd(source));

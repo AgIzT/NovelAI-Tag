@@ -1684,7 +1684,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed(f"Character prompt boxes do not match pack data: expected={expected_labels}, actual={data}")
         if data["copyAllHidden"] or data["horizontalOverflow"]:
             raise CheckFailed(f"Character prompt actions overflowed or copy-all stayed hidden: {data}")
-        cdp.eval("document.querySelector('#lightboxCharacterPrompts .character-prompt > .section-head button')?.click()")
+        cdp.eval("document.querySelector('#lightboxCharacterPrompts .character-prompt > .section-head button:not(.prompt-selection-toggle)')?.click()")
         copy_feedback = assert_copy_feedback("character prompt copy feedback", "已复制 char1")
         data["toast"] = copy_feedback["toast"]
         data["copyFeedback"] = copy_feedback
