@@ -525,21 +525,28 @@ function execDocument(result) {
 // 一键复制 = 正面 + 角色词（普通模式保留标记、SD 模式去掉）；「全部」在只有角色词时也要出现。
 // （entryPromptText / combinedPromptLabel 的行为断言在 test_render_ui.mjs，那边有 DOM 桩）
 {
-  const [copySource, masonrySource, lightboxSource] = await Promise.all([
+  const [copySource, masonrySource, lightboxSource, styleSource, indexSource] = await Promise.all([
     readFile(new URL('../site/assets/app/copy.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/masonry.js', import.meta.url), 'utf8'),
     readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8'),
+    readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8'),
+    readFile(new URL('../site/index.html', import.meta.url), 'utf8'),
   ]);
   assert.match(copySource, /return copyText\(entryPromptText\(e\), message, node/);
   // 灯箱的「复制正向」保持只给正面段（那里角色词是分块展示的，语义不含糊）；套图非封面图给该图自己的正向
   assert.match(lightboxSource, /copyText\(positive, `已复制正向\$\{noteFor\(prompts\.ownTags\)\}：\$\{e\.title\}`/);
   assert.match(copySource, /（含 \$\{charCount\} 组角色词）/);
-  // 卡片的「全部」要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」；
-  // 灯箱 2026-10-23 起不提供「复制全部」，各段在自己的小节里复制
+  // 卡片和灯箱的「全部」都要在只有角色词、没有负面时出现，文案也不能再写死「正向+负面」
   assert.match(masonrySource, /allBtn\.hidden = !e\.negative && !charPrompts\.length/);
-  assert.match(masonrySource, /已复制\$\{combinedPromptLabel\(e\)\}/);
-  assert.doesNotMatch(masonrySource, /已复制正向\+负面/);
-  assert.doesNotMatch(lightboxSource, /#copyAll|combinedPrompt/);
+  assert.match(lightboxSource, /\$\('#copyAll'\)\.hidden = !negative && !characterPrompts\.length/);
+  for (const source of [masonrySource, lightboxSource]) {
+    assert.match(source, /已复制\$\{combinedPromptLabel\((?:e|shownEntry)\)\}/);
+    assert.doesNotMatch(source, /已复制正向\+负面/);
+  }
+  // 灯箱的「复制全部」只在手机「⋯」里：电脑由样式藏掉（瀑布流卡片上有「全部」），窄屏规则再放出来
+  assert.match(indexSource, /id="lightboxActionsMinor">\s*<button class="ui-press" id="copyAll"/);
+  assert.match(styleSource, /#copyPositiveDock,\.lightbox-more,#copyAll\{display:none\}/);
+  assert.match(styleSource, /#copyPositiveDock:not\(\[hidden\]\),#copyAll:not\(\[hidden\]\)\{display:inline-block\}/);
 }
 
 /* copyText 的实时判定探针：入库快照建不出来时不得 fail-open。

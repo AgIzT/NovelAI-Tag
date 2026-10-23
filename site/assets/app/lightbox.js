@@ -3,9 +3,9 @@ import { recordSiteEvent } from './site-analytics.js';
 import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
-import { copyText } from './copy.js';
+import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
 import { toast } from './feedback.js';
-import { snapshotFragment, snapshotLocked } from './tag-relay-snapshot.js';
+import { relayKeyFor, snapshotFragment, snapshotLocked } from './tag-relay-snapshot.js';
 import { tokenizePrompt, serializeSelection } from './prompt-fragments.js';
 import { lookupTagZh } from './tag-zh-core.js';
 import { naiToSd } from './nai-sd.js';
@@ -533,7 +533,7 @@ function clearLightboxContent() {
     const element = $(`#${id}`);
     if (element) element.hidden = true;
   }
-  for (const id of ['copyPositive', 'copyPositiveDock', 'copyNegative', 'copyRawTag', 'viewOriginal',
+  for (const id of ['copyPositive', 'copyPositiveDock', 'copyNegative', 'copyAll', 'copyRawTag', 'viewOriginal',
     'shareLightbox', 'favoriteLightbox', 'reportLightbox', 'hideLightbox', 'sdPositivePreview', 'sdNegativePreview', 'artistPeekOpen']) {
     const button = $(`#${id}`);
     if (button) button.onclick = null;
@@ -1316,6 +1316,7 @@ export function renderLightbox() {
 
   const prompts = lightboxImagePrompts(e, lb.images, lb.index);
   const { tags: positive, negative, characterPrompts } = prompts;
+  const perImage = prompts.ownTags || prompts.ownNegative || prompts.ownCharacters;
   const imageLabel = `第 ${lb.index + 1} 张`;
   // 只有这张图自己的那一段才带「第 N 张」：中转站标题、复制提示都按段区分
   const labelFor = own => (own ? imageLabel : '');
@@ -1394,6 +1395,22 @@ export function renderLightbox() {
       fragment: { text: negative, channel: 'negative', scope: 'negative', label: labelFor(prompts.ownNegative) },
       sampleLabel: '已复制负面',
     });
+  };
+  /* 「复制全部」只在手机「⋯」里（电脑由样式藏掉，瀑布流卡片上有「全部」），给要一次粘贴正负面的人。
+     内容与面板显示一致：这张图有自己的正向 / 负面 / 角色词就用它的，其余取顶层；
+     中转站按「词条 · 第 N 张」单独成卡，不顶掉整条词条那张。 */
+  const shownEntry = perImage
+    ? {
+      ...e, tags: positive, negative, characterPrompts,
+      title: `${e.title} · ${imageLabel}`, relayKey: `${relayKeyFor(e)}:image:${lb.index + 1}`,
+    }
+    : e;
+  $('#copyAll').hidden = !negative && !characterPrompts.length;
+  $('#copyAll').onclick = ev => {
+    ev.stopPropagation();
+    if (!refreshLightboxAccess(e)) return;
+    copyText(combinedPrompt(shownEntry), `已复制${combinedPromptLabel(shownEntry)}${noteFor(perImage)}：${e.title}`,
+      visibleLightboxAnchor(ev.currentTarget), { entry: shownEntry });
   };
   /* 逐图时正向框显示的就是这张图的 raw tag，按钮与「复制正向」重复。 */
   $('#copyRawTag').hidden = !item.rawTag || prompts.ownTags;

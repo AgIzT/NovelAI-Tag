@@ -2355,10 +2355,10 @@ a.lightbox-credit:hover{text-decoration:underline}
   background:color-mix(in srgb,var(--new) 14%,var(--card));filter:none;
 }
 /* 动作行：收藏、原图、分享平底细边框；原始提示词、反馈、不想看是不带底的文字按钮，靠右。
-   复制都在各小节标题栏里，灯箱不提供「复制全部」（正负面一起复制用处不大）。 */
+   电脑上复制都在各小节标题栏里，不放「复制全部」（瀑布流卡片上有「全部」）。 */
 #copyPositiveDock{background:var(--accent);color:var(--on-accent);border:1px solid transparent}
-/* 底栏的「复制正向」和「⋯」只在手机抽屉里出现（见下方窄屏规则） */
-#copyPositiveDock,.lightbox-more{display:none}
+/* 底栏的「复制正向」「⋯」和菜单里的「复制全部」只在手机抽屉里出现（见下方窄屏规则） */
+#copyPositiveDock,.lightbox-more,#copyAll{display:none}
 #favoriteLightbox,#viewOriginal,#shareLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
 #favoriteLightbox:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover{background:var(--tagbg-hover);filter:none}
 .lightbox-actions-minor{display:flex;flex-wrap:wrap;gap:2px;margin-left:auto}
@@ -2602,14 +2602,14 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox.folded .lightbox-info{transform:translateY(calc(100% + 20px))}
   .lightbox-head h2{font-size:16px}
   /* 动作行由 lightbox.js 挪到栏尾、吸在抽屉底部，读到负面时也够得着。主按钮是「复制正向」；
-     复制原始提示词、反馈、不想看收进「⋯」。拖图提示不显示：手机没法把图拖进 NovelAI，原图有没有看图上的标签。 */
+     复制全部（手机卡片上没有「全部」，给要一次粘贴正负面的人）、复制原始提示词、反馈、不想看收进「⋯」。拖图提示不显示：手机没法把图拖进 NovelAI，原图有没有看图上的标签。 */
   .lightbox-tip{display:none}
   .lightbox-actions{
     position:sticky;bottom:-14px;z-index:4;gap:6px;margin:12px -14px -14px;padding:10px 14px 12px;
     background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -8px 18px rgba(10,15,35,.07);
   }
   .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
-  #copyPositiveDock:not([hidden]){display:inline-block}
+  #copyPositiveDock:not([hidden]),#copyAll:not([hidden]){display:inline-block}
   .lightbox-more:not([hidden]){
     display:grid;place-items:center;margin-left:auto;min-width:38px;padding:0 10px;
     border:1px solid var(--line);background:var(--tagbg);color:var(--text);
