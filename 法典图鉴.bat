@@ -1,51 +1,47 @@
 @echo off
-REM Encoding: GBK/936 - do NOT re-save as UTF-8 (Chinese menu would break)
-REM ============================================================
-REM  法典图鉴 总控台 —— 唯一入口
-REM  本文件只做菜单和分发, 每个动作的真正实现都在 单项工具\*.bat
-REM  注意: 别把实现抄回这里。抄过一次, 结果两边各改各的, 菜单那份漏了 R2
-REM     数据发布, 线上会静默停在旧数据。改动作请改 单项工具\ 里那一份。
-REM ============================================================
+REM Encoding: GBK/936 - do NOT re-save as UTF-8.
+REM 只做菜单与分发；动作实现统一放在 单项工具\。
 setlocal EnableExtensions
 chcp 936 >nul
 cd /d "%~dp0"
 title 法典图鉴 - 总控台
+set "more="
 
 :menu
 cls
-echo ============================================================
-echo                     法典图鉴  总控台
-echo ============================================================
+echo ==================== 法典图鉴 ====================
 echo.
-echo   [ 日常维护 ]
-echo      1.  法典编辑器      浏览 + 编辑一体          :18769
-echo      2.  配图工具        批量拖图配词条           :18767
-echo      3.  转换法典        法典源\ 新 docx 转数据
+if defined more goto more
+echo   日常维护
+echo      1. 法典编辑器        2. 配图工具
+echo      3. 转换法典
 echo.
-echo   [ 上线 ]
-echo      4.  发布数据        图片 + 分享索引 + R2 数据版本 ^(不动 Git^)
-echo      5.  发布程序        仅推 GitHub 自动部署, 数据另走 4
-echo      6.  回滚数据        切回上一个 R2 数据版本
+echo   发布与回滚
+echo      4. 发布数据          5. 发布程序
+echo      6. 回滚数据
 echo.
-echo   [ 发行 ]
-echo      7.  打包本地版      生成独立发行包 + zip
+echo      7. 打包本地版        8. 只读预览
+echo      M. 更多工具          0. 退出
+goto input
+
+:more
+echo   更多工具
+echo      9. 投稿本地测试     10. 画风串编辑
+echo     11. 回归验证         17. 工程自检
 echo.
-echo   [ 开发 / 测试 ]
-echo      8.  只读预览        访客视角                 :8766
-echo      9.  投稿本地测试    站 + 后端 + R2 + D1      :8788
-echo     10.  画风串编辑                               :18768
-echo     11.  回归验证        UI 自检
-echo     12.  清理输出        按保留策略清 output
-echo     13.  互动数据库迁移  生产 D1, 谨慎
-echo     14.  生成中文对照    重建 tag 译名分片
-echo     15.  补译中文对照    AI 补长尾译名, 要花钱
-echo     16.  清理默认标签    本地正向尾段, 自动备份
-echo     17.  工程自检        有限离线检查, 不发布
+echo   数据维护
+echo     14. 生成中文对照     15. 补译中文对照 ^(付费^)
+echo     16. 清理默认标签     12. 清理输出
+echo     13. 互动数据库迁移 ^(生产 D1^)
 echo.
-echo      0.  退出
-echo ------------------------------------------------------------
+echo      B. 返回首页          0. 退出
+
+:input
+echo --------------------------------------------------
 set "c="
-set /p "c=  请输入序号后回车: "
+set /p "c=  输入编号或字母，回车执行: "
+if /i "%c%"=="M" set "more=1"
+if /i "%c%"=="B" set "more="
 if "%c%"=="1" goto act_editor
 if "%c%"=="2" goto act_imgserver
 if "%c%"=="3" goto act_convert
@@ -67,13 +63,11 @@ if "%c%"=="0" goto end
 goto menu
 
 :act_editor
-echo 编辑模式请点顶栏铅笔; 每次保存前自动备份到 output\edit-backups\
-echo 注意: 别和配图工具 ^(菜单 2^) 同时开, 两者都会写同一份数据
-call :window "fadian-editor-18769" "法典编辑器.bat"
+call :window "fadian-editor" "法典编辑器.bat"
 goto menu
 
 :act_imgserver
-call :window "fadian-imgserver-18767" "配图工具.bat"
+call :window "fadian-imgserver" "配图工具.bat"
 goto menu
 
 :act_convert
@@ -97,15 +91,15 @@ call :run "打包本地版.bat"
 goto menu
 
 :act_preview
-call :window "fadian-preview-8766" "启动预览.bat"
+call :window "fadian-preview" "启动预览.bat"
 goto menu
 
 :act_wrangler
-call :window "fadian-wrangler-8788" "投稿本地测试.bat"
+call :window "fadian-wrangler" "投稿本地测试.bat"
 goto menu
 
 :act_strings
-call :window "fadian-strings-18768" "画师串编辑.bat"
+call :window "fadian-strings" "画师串编辑.bat"
 goto menu
 
 :act_verify
@@ -136,14 +130,13 @@ goto menu
 call :run "互动数据库迁移.bat"
 goto menu
 
-REM 前台跑完再回菜单。被调用的 bat 自己会 chcp 65001, 回来必须切回 936,
-REM 否则本文件的 GBK 中文菜单会变乱码。
+REM 前台动作结束后恢复 GBK，再回菜单。
 :run
 call "单项工具\%~1"
 chcp 936 >nul
 exit /b 0
 
-REM 常驻服务丢到新窗口, 菜单不被占住; 新窗口有自己的代码页, 不影响这里。
+REM 常驻服务在独立窗口运行。
 :window
 echo 已在新窗口启动: %~2
 start "%~1" /D "%~dp0" cmd /c call "单项工具\%~2"
