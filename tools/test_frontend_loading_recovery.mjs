@@ -134,7 +134,8 @@ async function relayDemandCaller(env, { visible = false, enabled = true, positiv
   const context = vm.createContext({
     structuredClone, console, Promise, setTimeout, clearTimeout,
     state: { codex: { id: 'a' } },
-    document: { createElement: element, addEventListener() {} }, window: { addEventListener() {} },
+    document: { createElement: element, addEventListener() {} },
+    window: { addEventListener() {}, matchMedia: () => ({ matches: false, addEventListener() {} }) },
     isTagZhEnabled: () => enabled, isRelayRailOpen: () => visible, isTagZhComplete: tag.isTagZhComplete,
     loadTagZh: tag.loadTagZh, lookupLoadedTagZh: tag.lookupLoadedTagZh,
     onTagZhChange(listener) { listeners.push(listener); },

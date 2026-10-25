@@ -219,7 +219,41 @@ export function markRailDirty(changed) {
   flush();
 }
 
+/* 软键盘只缩小视觉视口时，sheet 跟着可见区收高并抬到底边；不改焦点或页面滚动。
+   双指缩放不应被当作键盘挤压，离开手机断点也立即交回 CSS 的高度。 */
+function bindMobileViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const phoneQuery = window.matchMedia('(max-width:600px)');
+  let queued = false, height = '', bottom = '';
+  const update = () => {
+    queued = false;
+    if (!phoneQuery.matches || viewport.scale !== 1 || !Number.isFinite(viewport.height) || viewport.height <= 0) {
+      if (height) rail.style.removeProperty('--relay-visible-height');
+      if (bottom) rail.style.removeProperty('--relay-viewport-bottom');
+      height = bottom = '';
+      return;
+    }
+    const nextHeight = `${viewport.height}px`;
+    const nextBottom = `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`;
+    if (height !== nextHeight) rail.style.setProperty('--relay-visible-height', nextHeight);
+    if (bottom !== nextBottom) rail.style.setProperty('--relay-viewport-bottom', nextBottom);
+    height = nextHeight; bottom = nextBottom;
+  };
+  const schedule = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(update);
+  };
+  viewport.addEventListener('resize', schedule, { passive: true });
+  viewport.addEventListener('scroll', schedule, { passive: true });
+  window.addEventListener('resize', schedule, { passive: true });
+  phoneQuery.addEventListener?.('change', schedule);
+  update();
+}
+
 function bindRail() {
+  bindMobileViewport();
   window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => {
     settleRelayMotion();
     finishDockMotion();
@@ -262,7 +296,7 @@ function bindRail() {
   ].some(selector => {
     const layer = rail.querySelector(selector);
     return layer && !layer.hidden;
-  });
+  }) || ['#relayOutputMoreToggle', '#relayMobileSources'].some(selector => rail.querySelector(selector)?.getAttribute('aria-expanded') === 'true');
   rail.addEventListener('keydown', event => {
     if (isRelayRailModal()) trapFocus(event, rail);
     if (event.key !== 'Escape') return;

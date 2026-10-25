@@ -672,6 +672,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
     def tag_relay_responsive():
         """Exercise the relay as dock, drawer, and bottom sheet with real geometry."""
+        image_fixture = "data:image/svg+xml," + urllib.parse.quote(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160">'
+            '<rect width="120" height="160" fill="#9cafd0"/>'
+            '<circle cx="60" cy="55" r="28" fill="#f2cfb6"/></svg>'
+        )
         fixture = {
             "version": 3,
             # 一屏化之后素材区必须一起验：它和编排区共用同一列高度，
@@ -685,7 +690,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 "negative": "lowres" if index % 2 == 0 else "",
                 "book": "UI 回归法典",
                 "path": ["各种风格"],
-                "image": "",
+                "image": image_fixture,
                 "access": {"nsfw": False, "r18g": False},
                 "accessKnown": True,
                 "addedAt": "2026-08-19T00:00:00.000Z",
@@ -698,7 +703,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 "name": "UI 回归方案",
                 "items": [{
                     "id": f"qa-block-{index}",
-                    "kind": "block",
+                    "kind": "entry",
+                    "codexId": "qa",
+                    "entryId": f"qa-plan-image-{index}",
                     "nodeType": "group",
                     "channel": "positive",
                     "access": {"nsfw": False, "r18g": False},
@@ -706,6 +713,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                     "title": f"测试块 {index}",
                     "prompt": f"portrait test segment {index}, detailed lighting, balanced composition",
                     "negative": f"artifact {index}, low quality",
+                    "image": image_fixture,
                     "weight": 1,
                     "enabled": True,
                 } for index in range(1, 9)],
@@ -904,6 +912,10 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
       && firstSourceRect.bottom <= Math.min(sourceListRect.bottom, innerHeight) + 1,
     outputCollapsed: document.querySelector('#relayOutputBoxes')?.hidden === true
       && getComputedStyle(document.querySelector('#relayOutputBoxes')).display === 'none',
+    mobileSourceHidden: document.querySelector('#relaySourceDrawer')?.hidden === true,
+    mobileSourceEntryHeight: document.querySelector('#relayMobileSources')?.getBoundingClientRect().height || 0,
+    mobileMoreHidden: document.querySelector('#relayOutputMore')?.hidden === true,
+    mobilePicsHidden: document.querySelector('.relay-pics')?.hidden === true,
     sourceTabCount: sourceButtons.length,
     sourceTabWidthDelta: first && last ? Math.abs(first.width - last.width) : 999,
     sourceRightGap: last ? Math.abs(sr.right - last.right) : 999,
@@ -943,16 +955,19 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   };
 })()
 """)
-            # 一屏化的核心不变式：素材与编排必须同时可见，不再有「当前页签」。
-            if shell["planZoneH"] < 40 or shell["sourceZoneH"] < 40:
+            # 手机优先保留正文，素材默认只占一行入口；桌面继续同时显示两个分区。
+            if shell["planZoneH"] < 40 or shell["sourceZoneH"] < (30 if shape == "sheet" else 40):
                 raise CheckFailed(f"Relay {mode} does not show both zones at once: {shell}")
             if shell["planChips"] < 1 or shell["sourceChips"] < 1:
                 raise CheckFailed(f"Relay {mode} did not render chips in both zones: {shell}")
-            if shell["sourceListH"] < 30 or not shell["firstSourceFullyVisible"]:
+            if shape != "sheet" and (shell["sourceListH"] < 30 or not shell["firstSourceFullyVisible"]):
                 raise CheckFailed(f"Relay {mode} does not leave one complete clickable source row: {shell}")
+            if shape == "sheet" and (not shell["mobileSourceHidden"] or not shell["mobileMoreHidden"]
+                                     or not shell["mobilePicsHidden"] or not 30 <= shell["mobileSourceEntryHeight"] <= 44):
+                raise CheckFailed(f"Relay {mode} auxiliary panels should start collapsed: {shell}")
             if not shell["outputCollapsed"]:
                 raise CheckFailed(f"Relay {mode} output should start collapsed: {shell}")
-            if shell["sourceTabCount"] != 2 or shell["sourceTabWidthDelta"] > 2 or shell["sourceRightGap"] > 8:
+            if shell["sourceTabCount"] != 2 or (shape != "sheet" and (shell["sourceTabWidthDelta"] > 2 or shell["sourceRightGap"] > 8)):
                 raise CheckFailed(f"Relay {mode} source tabs do not fill two equal segments: {shell}")
             if (
                 not shell["planPickerVisible"]
@@ -960,7 +975,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 or not shell["planListInitiallyHidden"]
             ):
                 raise CheckFailed(f"Relay {mode} plan picker did not replace the legacy select cleanly: {shell}")
-            if shell["sourceSliderWidth"] <= 8:
+            if shape != "sheet" and shell["sourceSliderWidth"] <= 8:
                 raise CheckFailed(f"Relay {mode} source slider has no usable geometry: {shell}")
             if not shell["relayFloatTopmost"] or not shell["relayFloatMatchesGroup"]:
                 raise CheckFailed(f"Relay {mode} floating entry is not the topmost matching quick action: {shell}")
@@ -1003,8 +1018,24 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 ):
                     raise CheckFailed(f"Relay mobile sheet shape is wrong: {shell}")
 
-            # Collapsing gives the editor the released space and retains two
-            # wrapped source rows. Hidden rows are not focusable.
+            if shape == "sheet":
+                cdp.eval("document.querySelector('#relayMobileSources').click()")
+                wait_for(cdp, "document.querySelector('#relaySourceDrawer').hidden === false", f"relay {mode} source drawer")
+                drawer = cdp.eval(r"""
+(() => {
+ const tabs=document.querySelector('.tag-relay-source-tabs'),buttons=[...tabs.querySelectorAll('[role=tab]')];
+ const rect=tabs.getBoundingClientRect(),first=buttons[0].getBoundingClientRect(),last=buttons.at(-1).getBoundingClientRect();
+ const surface=document.querySelector('.relay-editor-frame:not([hidden]) .relay-editor-surface');
+ return {widthDelta:Math.abs(first.width-last.width),rightGap:Math.abs(rect.right-last.right),
+   sliderWidth:tabs.querySelector('.tag-relay-source-slider').getBoundingClientRect().width,
+   editorHeight:surface.getBoundingClientRect().height,hiddenFocus:!!document.activeElement.closest('[hidden],[inert]')};
+})()
+""")
+                if drawer["widthDelta"] > 2 or drawer["rightGap"] > 8 or drawer["sliderWidth"] <= 8 or drawer["editorHeight"] < 150 or drawer["hiddenFocus"]:
+                    raise CheckFailed(f"Relay {mode} source drawer squeezes or hides controls: {drawer}")
+
+            # Desktop collapse retains two wrapped source rows; mobile uses the
+            # separate disclosure above, whose hidden subtree is not focusable.
             shelf = cdp.eval(r"""
 (() => {
  const rail=document.querySelector('#tagRelayRail'),list=document.querySelector('#relaySourceList');
@@ -1021,21 +1052,27 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
    canExpand:!document.querySelector('#relayShelfToggle').hidden};
 })()
 """)
-            if shelf['visibleRows'] != min(2, shelf['rows']) or not shelf['firstTwoComplete'] or not shelf['clippedInert']:
+            if shape != "sheet" and (shelf['visibleRows'] != min(2, shelf['rows']) or not shelf['firstTwoComplete'] or not shelf['clippedInert']):
                 raise CheckFailed(f"Relay {mode} collapsed source rows are clipped or focusable: {shelf}")
-            if not 0 <= shelf['blankBelowRows'] <= 18:
+            if shape != "sheet" and not 0 <= shelf['blankBelowRows'] <= 18:
                 raise CheckFailed(f"Relay {mode} collapsed rail retained blank space: {shelf}")
-            if shelf['canExpand']:
+            if shape != "sheet" and shelf['canExpand']:
                 cdp.eval("document.querySelector('#relayShelfToggle').click()")
                 wait_for(cdp, "[...document.querySelectorAll('#relaySourceList>*')].every(e=>!e.inert&&e.getAttribute('aria-hidden')!== 'true')", f"relay {mode} expanded sources accessible")
                 settle(cdp, 120)
                 shelf['expandedHeight'] = cdp.eval("document.querySelector('#tagRelayRail').getBoundingClientRect().height")
                 shelf['expandedPlanHeight'] = cdp.eval("document.querySelector('.tag-relay-zone-plan').getBoundingClientRect().height")
-                if abs(shelf['collapsedHeight'] - shelf['expandedHeight']) > 1 or shelf['collapsedPlanHeight'] < shelf['expandedPlanHeight']:
-                    raise CheckFailed(f"Relay {mode} shelf collapse shrank the rail instead of giving space to the editor: {shelf}")
+                shelf['expandedSourcesReachable'] = cdp.eval("(() => { const list=document.querySelector('#relaySourceList'); return list.clientHeight>=30 && (list.scrollHeight<=list.clientHeight+1 || ['auto','scroll'].includes(getComputedStyle(list).overflowY)); })()")
+                # 短桌面展开态允许素材内部滚动，实际可比两行 peek 更矮；
+                # 守住侧栏尺寸与可用正文，不假定展开必然占更多高度。
+                if abs(shelf['collapsedHeight'] - shelf['expandedHeight']) > 1 or shelf['expandedPlanHeight'] < 100 or not shelf['expandedSourcesReachable']:
+                    raise CheckFailed(f"Relay {mode} shelf expansion changed the rail or squeezed the editor: {shelf}")
                 cdp.eval("document.querySelector('#relayShelfToggle').click()")
                 wait_for(cdp, "document.querySelector('.tag-relay-zone-source').classList.contains('is-peek') && [...document.querySelectorAll('#relaySourceList>*')].some(e=>e.inert)", f"relay {mode} shelf recollapse")
                 settle(cdp, 120)
+                shelf['restoredPlanHeight'] = cdp.eval("document.querySelector('.tag-relay-zone-plan').getBoundingClientRect().height")
+                if abs(shelf['collapsedPlanHeight'] - shelf['restoredPlanHeight']) > 1:
+                    raise CheckFailed(f"Relay {mode} recollapsed shelf did not restore editor space: {shelf}")
 
             cdp.eval("document.querySelector('#relayPlanPickerBtn')?.click()")
             wait_for(cdp, "document.querySelector('#relayPlanList')?.hidden === false", f"relay {mode} plan picker")
@@ -1049,13 +1086,24 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
             # The source chip inserts one fold; its source remains available.
             original = cdp.eval("document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea').value")
+            if shape == "sheet":
+                cdp.eval("if (document.querySelector('#relaySourceDrawer').hidden) document.querySelector('#relayMobileSources').click()")
             cdp.eval("document.querySelector('#relaySourceList .tag-relay-chip-main')?.click()")
             wait_for(cdp, "document.querySelectorAll('#relayPlanLane .relay-editor-surface:not([hidden]) .relay-token.is-fold').length === 9", f"relay {mode} source insertion")
+            insertions = 1
+            if shape == "sheet":
+                # 手机抽屉加入后保持打开、焦点留在芯片上，才能连续加且不弹软键盘。
+                cdp.eval("document.querySelectorAll('#relaySourceList .tag-relay-chip-main')[1]?.click()")
+                wait_for(cdp, "document.querySelectorAll('#relayPlanLane .relay-editor-surface:not([hidden]) .relay-token.is-fold').length === 10", f"relay {mode} consecutive source insertion")
+                insertions = 2
+                kept = cdp.eval("({open: document.querySelector('#relaySourceDrawer').hidden === false && document.querySelector('#relayMobileSources').getAttribute('aria-expanded') === 'true', chipFocused: !!document.activeElement?.closest('#relaySourceList')})")
+                if not kept["open"] or not kept["chipFocused"]:
+                    raise CheckFailed(f"Relay {mode} source drawer did not stay open for consecutive insertion: {kept}")
             cdp.eval("import('./assets/app/tag-relay-compose.js').then(module => module.flushCompose())")
             wait_for(cdp, "JSON.parse(localStorage.getItem('fadian-tag-relay-v4') || '{}').plans?.find(plan => plan.id === 'qa-plan')?.positive.text.includes('厚涂')", f"relay {mode} source persisted")
 
             # Undo is the editor's existing text operation, not removed chip UI.
-            cdp.eval("(() => { const input = document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea'); input.focus(); document.execCommand('undo'); })()")
+            cdp.eval("(() => { const input = document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea'); input.focus(); for (let i = 0; i < " + str(insertions) + "; i++) document.execCommand('undo'); })()")
             wait_for(cdp, "document.querySelector('#relayPlanLane .relay-editor-surface:not([hidden]) textarea').value === " + js_string(original), f"relay {mode} native undo insertion")
             flush_relay_plan(f"relay {mode} undo insertion persisted", original)
 
@@ -1095,6 +1143,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
    touch: matchMedia('(pointer:coarse)').matches,
    editorHeight: surface.getBoundingClientRect().height,
    primaryHeight: copy.height,
+   moreHeight: rail.querySelector('#relayOutputMoreToggle').getBoundingClientRect().height,
+   samePrimaryRow: Math.abs(copy.top-rail.querySelector('#relayOutputMoreToggle').getBoundingClientRect().top)<2,
+   moreCollapsed: rail.querySelector('#relayOutputMore').hidden,
+   photosCollapsed: rail.querySelector('.relay-pics').hidden,
+   repeatedPictureHidden: ![...rail.querySelectorAll('.relay-token-pic')].some(e=>e.getBoundingClientRect().height>0),
    secondaryHeights: [...rail.querySelectorAll('.tag-relay-output-actions>button')].map(e=>e.getBoundingClientRect().height),
    secondaryRows: new Set([...rail.querySelectorAll('.tag-relay-output-actions>button')].map(e=>Math.round(e.getBoundingClientRect().top))).size,
    copyVisible: copy.left >= rect.left - 1 && copy.right <= rect.right + 1 && copy.top >= 0 && copy.bottom <= innerHeight + 1,
@@ -1115,21 +1168,24 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f"Relay {mode} editor/copy actions are inaccessible: {compose}")
             if compose["documentOverflow"] > 1 or compose["editorOverflow"] > 1:
                 raise CheckFailed(f"Relay {mode} horizontal overflow: {compose}")
-            if mobile and (not compose['touch'] or compose['editorHeight'] < 100
-                           or not 38 <= compose['primaryHeight'] <= 42
-                           or any(not 32 <= h <= 36 for h in compose['secondaryHeights'])
-                           or compose['secondaryRows'] != (2 if width <= 360 else 1)):
+            if shape == "sheet" and ((mobile and not compose['touch']) or compose['editorHeight'] < 150
+                                      or not 38 <= compose['primaryHeight'] <= 48 or not 38 <= compose['moreHeight'] <= 48
+                                      or not compose['samePrimaryRow'] or not compose['moreCollapsed']
+                                      or not compose['photosCollapsed'] or not compose['repeatedPictureHidden']):
                 raise CheckFailed(f"Relay {mode} touch controls squeeze the editor: {compose}")
             if compose["mainAction"] != "relayCopyPositive" or "复制正向提示词" not in compose["caption"] or compose["secondaryCaption"] != "复制全部提示词" or not re.fullmatch(r"(NAI|SD|纯文本) · (逗号|逗号换行)", compose["summary"]):
                 raise CheckFailed(f"Relay {mode} output labels differ: {compose}")
             shots.append(screenshot(cdp, out_dir, f"tag-relay-{mode}"))
 
-            if mobile:
+            if shape == "sheet":
+                cdp.eval("document.querySelector('#relayOutputMoreToggle').click(); document.querySelector('#relayOutputToggle').click()")
+                wait_for(cdp, "!document.querySelector('#relayOutputMore').hidden && !document.querySelector('#relayOutputBoxes').hidden", f"relay {mode} output options")
                 cdp.eval("document.querySelector('[data-format=plain]').click(); document.querySelector('[data-join=newline]').click()")
                 wait_for(cdp, "document.querySelector('#relayOutputSummary').textContent === '纯文本 · 逗号换行'", f"relay {mode} long format summary")
                 if cdp.eval("[...document.querySelectorAll('.tag-relay-output-actions>button')].some(e=>e.scrollWidth>e.clientWidth+1)"):
                     raise CheckFailed(f"Relay {mode} long format label overlaps adjacent controls")
                 cdp.eval("document.querySelector('[data-format=nai]').click(); document.querySelector('[data-join=comma]').click()")
+                cdp.eval("document.querySelector('#relayOutputToggle').click(); document.querySelector('#relayOutputMoreToggle').click()")
 
             # Closing and reopening must not discard the input's unblurred tail.
             tail = f", tail-{mode}"
@@ -1151,9 +1207,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         # A keyboard-sized viewport must keep a usable editor even with token
         # actions open. The whole rail may scroll when all controls cannot fit.
         cdp.command("Emulation.setDeviceMetricsOverride", {"width":390,"height":440,"deviceScaleFactor":1,"mobile":True})
-        cdp.eval("(() => {document.querySelector('#tagRelayBtn').click(); const i=document.querySelector('.relay-editor-surface:not([hidden]) textarea'); i.focus(); i.setSelectionRange(0,i.value.length)})()")
-        cdp.command("Input.insertText", {"text":"blue sky, forest, soft lighting"})
-        cdp.eval("(() => {const i=document.querySelector('.relay-editor-surface:not([hidden]) textarea'); i.setSelectionRange(2,2); i.dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true})); i.dispatchEvent(new KeyboardEvent('keyup',{key:'Home',bubbles:true}))})()")
+        cdp.eval("document.querySelector('#tagRelayBtn').click(); document.querySelector('.relay-pics-toggle').click(); document.querySelector('.relay-pic').click()")
+        short_original = cdp.eval("document.querySelector('.relay-editor-frame:not([hidden]) textarea').value")
+        cdp.eval("document.querySelector('.relay-editor-frame:not([hidden]) textarea').focus()")
         settle(cdp, 120)
         short = cdp.eval(r"""
 (() => {
@@ -1163,7 +1219,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
    railScrollable:rail.scrollHeight>rail.clientHeight&&getComputedStyle(rail).overflowY==='auto'};
 })()
 """)
-        if short['editorHeight'] < 56 or short['editorTop'] < 0 or short['editorBottom'] > 440 or not short['panelVisible'] or not short['railScrollable']:
+        if short['editorHeight'] < 150 or short['editorTop'] < 0 or short['editorBottom'] > 440 or not short['panelVisible']:
             raise CheckFailed(f"Relay short viewport squeezed away the editor: {short}")
         shots.append(screenshot(cdp, out_dir, 'tag-relay-keyboard-height'))
         cdp.eval("document.querySelector('#relayCopyPositive').scrollIntoView({block:'nearest'})")
@@ -1172,7 +1228,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed(f"Relay short viewport copy button is unreachable: {short}")
         cdp.eval("document.querySelector('#tagRelayRailClose')?.click()")
         wait_for(cdp, "document.querySelector('#tagRelayRail')?.inert === true", "relay short viewport final close")
-        flush_relay_plan("relay short viewport draft persisted", "blue sky, forest, soft lighting")
+        flush_relay_plan("relay short viewport draft persisted", short_original)
         check_no_errors(cdp)
         cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
         return {"viewports": details, "shortViewport": short, "screenshots": shots}

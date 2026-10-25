@@ -16,6 +16,7 @@ import { createSelectMenu } from './select-menu.js';
 
 export const RELAY_SOURCE_MIME = 'application/x-relay-source';
 let refs, editor, picker, ready;
+let mobileOutputQuery, closeMobileOutput = () => {};
 let activeId = '', loading = false, outputFormat = 'nai', joinMode = 'comma';
 let latest = { positive: '', negative: '' };
 const drafts = new Map(), requestedZh = new Set();
@@ -334,7 +335,7 @@ function renderHistory() {
       refs.history.hidden = true;
       refs.historyToggle.setAttribute('aria-expanded', 'false');
       openPlan(getActivePlan(relayState()));
-      refs.historyToggle.focus({ preventScroll: true });
+      (mobileOutputQuery?.matches ? refs.moreToggle : refs.historyToggle)?.focus({ preventScroll: true });
     }
     };
     actions.append(copy, restore); card.append(actions); refs.historyList.append(card);
@@ -356,6 +357,56 @@ function bindSegment(buttons, apply) {
     };
   });
   select(buttons.find(button => button.getAttribute('aria-checked') === 'true') || buttons[0]);
+}
+function setupMobileOutput(scope, q) {
+  const panel = q('#relayOutputMore'), toggle = q('#relayOutputMoreToggle');
+  if (!panel || !toggle) return;
+  mobileOutputQuery = window.matchMedia('(max-width:600px)');
+  const setOpen = (open, restoreFocus = false) => {
+    const mobile = mobileOutputQuery.matches;
+    panel.hidden = mobile && !open;
+    toggle.setAttribute('aria-expanded', String(mobile && open));
+    if (restoreFocus) toggle.focus({ preventScroll: true });
+  };
+  closeMobileOutput = () => { if (mobileOutputQuery.matches) setOpen(false); };
+  toggle.onclick = () => {
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    if (open) {
+      refs.history.hidden = true;
+      refs.historyToggle.setAttribute('aria-expanded', 'false');
+    }
+    setOpen(open);
+  };
+  panel.addEventListener('click', event => {
+    if (mobileOutputQuery.matches && event.target.closest?.('#relayCopyAll, #relayCopyNegative')) setOpen(false, true);
+  });
+  scope.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.key !== 'Escape' || !mobileOutputQuery.matches) return;
+    if (!refs.history.hidden) {
+      event.preventDefault(); event.stopPropagation();
+      refs.history.hidden = true; refs.historyToggle.setAttribute('aria-expanded', 'false');
+      toggle.focus({ preventScroll: true });
+    } else if (!panel.hidden) {
+      event.preventDefault(); event.stopPropagation(); setOpen(false, true);
+    }
+  });
+  document.addEventListener('pointerdown', event => {
+    if (mobileOutputQuery.matches && !panel.hidden && !panel.contains(event.target) && !toggle.contains(event.target)) setOpen(false);
+  });
+  scope.addEventListener('focusin', event => {
+    if (mobileOutputQuery.matches && !panel.hidden && !panel.contains(event.target) && !toggle.contains(event.target)) setOpen(false);
+  });
+  scope.addEventListener('relayclose', () => {
+    closeMobileOutput();
+    if (mobileOutputQuery.matches) { refs.history.hidden = true; refs.historyToggle.setAttribute('aria-expanded', 'false'); }
+  });
+  mobileOutputQuery.addEventListener('change', () => {
+    const focusHidden = mobileOutputQuery.matches && panel.contains(document.activeElement);
+    setOpen(false);
+    if (focusHidden) toggle.focus({ preventScroll: true });
+    else if (!mobileOutputQuery.matches && document.activeElement === toggle) refs.copyPositive.focus({ preventScroll: true });
+  });
+  setOpen(false);
 }
 function setupPlanActions(scope, q) {
   const menu = q('#relayPlanMenu'), trigger = q('#relayPlanMenuBtn');
@@ -432,7 +483,7 @@ export function setupRelayCompose(root) {
   refs = { lane: q('#relayPlanLane'), inlineAction: q('#relayInlineAction'),
     planStats: q('#relayPlanStats'), dedupe: q('#relayDedupe'), planSelect: q('#relayPlanSelect'),
     positiveOut: q('#relayPositiveOutput'), negativeOut: q('#relayNegativeOutput'), positiveMeta: q('#relayPositiveMeta'), negativeMeta: q('#relayNegativeMeta'),
-    copyPositive: q('#relayCopyPositive'), copyNegative: q('#relayCopyNegative'), copyAll: q('#relayCopyAll'), copyPositiveHint: q('#relayCopyPositiveHint'),
+    copyPositive: q('#relayCopyPositive'), copyNegative: q('#relayCopyNegative'), copyAll: q('#relayCopyAll'), copyPositiveHint: q('#relayCopyPositiveHint'), moreToggle: q('#relayOutputMoreToggle'),
     outputSummary: q('#relayOutputSummary'), outputNote: q('#relayOutputNote'), history: q('#relayCopyHistory'), historyList: q('#relayHistoryList'), historyToggle: q('#relayHistoryToggle'),
     historyStatus: q('#relayHistoryStatus'), historyClear: q('#relayHistoryClear'), saveState: element('div', 'relay-save-state') };
   refs.saveState.setAttribute('role', 'status'); q('#relayPlanLane').before(refs.saveState);
@@ -452,14 +503,22 @@ export function setupRelayCompose(root) {
     const button = event.currentTarget, open = button.getAttribute('aria-expanded') !== 'true';
     button.setAttribute('aria-expanded', String(open)); q('#relayOutputBoxes').hidden = !open;
   };
-  q('#relayHistoryToggle').onclick = () => { refs.history.hidden = !refs.history.hidden; q('#relayHistoryToggle').setAttribute('aria-expanded', String(!refs.history.hidden)); renderHistory(); };
-  q('#relayHistoryClose').onclick = () => { refs.history.hidden = true; q('#relayHistoryToggle').setAttribute('aria-expanded', 'false'); q('#relayHistoryToggle').focus(); renderHistory(); };
+  q('#relayHistoryToggle').onclick = () => {
+    refs.history.hidden = !refs.history.hidden;
+    refs.historyToggle.setAttribute('aria-expanded', String(!refs.history.hidden)); renderHistory();
+    if (mobileOutputQuery?.matches && !refs.history.hidden) { closeMobileOutput(); q('#relayHistoryClose').focus({ preventScroll: true }); }
+  };
+  q('#relayHistoryClose').onclick = () => {
+    refs.history.hidden = true; refs.historyToggle.setAttribute('aria-expanded', 'false');
+    (mobileOutputQuery?.matches ? refs.moreToggle : refs.historyToggle)?.focus({ preventScroll: true }); renderHistory();
+  };
   refs.historyClear.onclick = async () => {
     if (await requestRelayAction({ title: '清空成品记录？', confirmLabel: '清空', danger: true })) await commitRelay(next => clearCopyHistory(next), { changed: 'history' });
   };
   refs.copyPositive.onclick = event => copyOutput('positive', event.currentTarget);
   refs.copyNegative.onclick = event => copyOutput('negative', event.currentTarget);
   refs.copyAll.onclick = event => copyOutput('both', event.currentTarget);
+  setupMobileOutput(scope, q);
   setupPlanActions(scope, q); openPlan(getActivePlan(relayState())); subscribeRelay(syncStoredState);
   onTagZhChange(() => { warmComposeTranslations(); editor.render(); });
   root.addEventListener('focusout', async () => { await flushCompose(); });
