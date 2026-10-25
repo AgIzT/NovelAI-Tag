@@ -10,7 +10,7 @@ import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter, splitSearchPhrases } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
 import { renderHistoryPanel, resumeLastBrowse, openRecentEntry, saveRecentEntries, scheduleBrowseStateSave } from './history.js';
-import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, refreshCardPrompts, refreshCopyHints, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout } from './masonry.js';
+import { captureMasonryAnchor, restoreMasonryAnchor, relayoutVisible, refreshCardPrompts, refreshCopyHints, updateVirtualCards, scheduleVirtualUpdate, scheduleRelayout, beginMasonryResize, endMasonryResize } from './masonry.js';
 import { bindLightboxControls, refreshLightboxAccess, refreshLightboxNavigation } from './lightbox.js';
 import { isTagZhEnabled, onTagZhChange, setTagZhEnabled } from './tag-zh.js';
 import { scrubClipboardFallback } from './clipboard-fallback.js';
@@ -19,7 +19,7 @@ import { setupAnnouncements, openAnnouncementsPanel, updateAnnouncementBadge } f
 import { loadUpdates, renderUpdatesDigest, handleUpdateRowClick } from './updates.js';
 import { setupReport, openReportDialog, refreshReportAccess } from './report.js';
 import { openOnboarding, setupOnboarding } from './onboarding.js';
-import { closeRelayRail, isRelayRailModal } from './tag-relay-rail.js';
+import { closeRelayRail, isRelayRailModal, setRelayRailLayoutActions } from './tag-relay-rail.js';
 import { refreshRelayAccess } from './tag-relay.js';
 import { dismissResumePrompt } from './resume-prompt.js';
 import {
@@ -148,6 +148,7 @@ export function applyDensity(value, { render = true, announce = false, persist =
 }
 
 export function bindUI() {
+  setRelayRailLayoutActions({ begin: beginMasonryResize, end: endMasonryResize });
   document.querySelectorAll('.settings-mask[id], .favorites-backup-mask[id]')
     .forEach(registerMaskHistory);
   let st;

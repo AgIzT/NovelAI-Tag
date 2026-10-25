@@ -32,7 +32,7 @@
 
 /* ---------- 浏览页：中转站侧栏 ---------- */
 /* 形态与左侧目录栏 .sidebar 镜像对称：宽屏贴边常驻并把瀑布流挤窄（走 .layout 的 flex，
-   重排由 ui.js 那个观察 #main 的 ResizeObserver 自动接管），窄屏转浮层抽屉 + 遮罩，
+   开合先提交瀑布流终态，再同步播放两边的过渡），窄屏转浮层抽屉 + 遮罩，
    手机再转底部 sheet。这样它不像外挂上去的东西——站里本来就有一个长得一样的。 */
 .tag-relay-rail{
   --relay-rail-height:calc(100dvh - var(--topbar-h) - 12px);
@@ -43,8 +43,8 @@
   border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);
   /* 顶栏显隐时 top / height / max-height 同步过渡，保持底边稳定。
      漏掉 max-height 会先瞬间压短栏高，再随 top 下移，素材区因此回弹。 */
-  transition:flex-basis .26s cubic-bezier(.22,1,.36,1),width .26s cubic-bezier(.22,1,.36,1),
-    top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1),max-height .3s cubic-bezier(.22,1,.36,1);
+  /* 宽度交给外壳的受控动画：先测终态，不能让 RO 把中间宽度反复交给卡片。 */
+  transition:top .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1),max-height .3s cubic-bezier(.22,1,.36,1);
 }
 .tag-relay-rail.closed{flex-basis:0;width:0;padding:0;border-color:transparent;box-shadow:none}
 .tag-relay-rail-backdrop{display:none}
@@ -80,9 +80,8 @@
 .tag-relay-inline-action-buttons button{min-height:30px;padding:5px 10px;font-size:10.5px}
 .tag-relay-inline-action-buttons .is-danger{border-color:var(--new);background:var(--new);color:#fff;box-shadow:none}
 
-/* 侧栏常驻时右下浮动按钮会压在栏上，整组左移让位。
-   ⚠ 必须给 right 补过渡：侧栏是 .26s 滑进来的，浮动按钮组不跟着走就会在开栏的瞬间瞬移一次。 */
-.float-actions{transition:right .26s cubic-bezier(.22,1,.36,1)}
+/* 侧栏常驻时右下浮动按钮会压在栏上，整组左移让位；与停靠栏、卡片同为 .32s。 */
+.float-actions{transition:right .32s cubic-bezier(.22,1,.36,1)}
 body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 
 /* 补：新增控件与角色负面提示 */
