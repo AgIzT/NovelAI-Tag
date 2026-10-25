@@ -520,6 +520,8 @@ if (installedTestNavigator) {
 }
 const testNavigator = globalThis.navigator;
 const savedNavigatorLocks = Object.getOwnPropertyDescriptor(testNavigator, 'locks');
+const savedNavigatorClipboard = Object.getOwnPropertyDescriptor(testNavigator, 'clipboard');
+const clipboardWrites = [];
 const storage = new Map();
 const pool = new Map();
 const relayShell = fakeElement('aside');
@@ -600,6 +602,11 @@ Object.defineProperty(testNavigator, 'locks', {
       return callback();
     },
   },
+});
+// 保留 compose → copyText → writeClipboardText 的真实导入链，只替换系统剪贴板边界。
+Object.defineProperty(testNavigator, 'clipboard', {
+  configurable: true,
+  value: { writeText: async text => { clipboardWrites.push(text); } },
 });
 globalThis.localStorage = {
   getItem: key => (storage.has(key) ? storage.get(key) : null),
@@ -710,6 +717,35 @@ try {
     assert.doesNotMatch(ref('#relayNegativeOutput').value, /adult-negative/, '负向通道同样要摘掉受限块');
     assert.equal(ref('#relayCopyPositive').disabled, false);
 
+    /* 三个复制按钮必须走到剪贴板，并按实际通道保存成品记录。
+       不向 compose 注入 v4 导出，才能捕获生产 import 漏项。 */
+    const copiedRecords = [];
+    const positive = '1.2::{sunlight}::', negative = '1.2::blurry::';
+    for (const [id, channel, expectedPositive, expectedNegative, text] of [
+      ['#relayCopyPositive', 'positive', positive, '', positive],
+      ['#relayCopyNegative', 'negative', '', negative, negative],
+      ['#relayCopyAll', 'both', positive, negative, `${positive}\n\nNegative:\n${negative}`],
+    ]) {
+      const beforeHistory = JSON.parse(storage.get(v4.TAG_RELAY_STORAGE_KEY)).history.length;
+      const beforeWrites = clipboardWrites.length;
+      assert.equal(ref(id).disabled, false, `${id} 有可复制内容时应启用`);
+      await fireAsync(ref(id), 'click');
+      assert.deepEqual(clipboardWrites.slice(beforeWrites), [text], `${id} 只写入本通道成品一次`);
+      const saved = JSON.parse(storage.get(v4.TAG_RELAY_STORAGE_KEY));
+      assert.equal(saved.history.length, beforeHistory + 1, `${id} 成功后保存一条成品记录`);
+      const record = saved.history[0];
+      assert.equal(record.channel, channel);
+      assert.equal(record.positive, expectedPositive);
+      assert.equal(record.negative, expectedNegative);
+      assert.equal(record.snapshotComplete, true);
+      assert.doesNotMatch(JSON.stringify(record), /adult-positive|adult-negative|private-adult-source|成人词条/,
+        '复制成品及其快照不能携带被锁定的来源');
+      for (const omitted of ['positive', 'negative'].filter(value => channel !== 'both' && value !== channel)) {
+        assert.deepEqual(record.plan[omitted], { text: '', folds: {} }, '未复制通道不得夹带到成品快照');
+      }
+      copiedRecords.push({ id: record.id, text });
+    }
+
     // 开关打开后同一方案要能编出完整成品，证明锁定没有永久删除数据。
     state.allowNsfw = true;
     compose.refreshComposeAccess();
@@ -772,7 +808,22 @@ try {
     view.render();
     ref('#relayHistoryToggle').fire('click');   // 展开成品记录面板
 
-    const cards = () => ref('#relayHistoryList').children;
+    const copyIds = new Set(copiedRecords.map(record => record.id));
+    const allCards = () => ref('#relayHistoryList').children;
+    const cards = () => allCards().filter(card => !copyIds.has(card.dataset.historyId));
+    assert.equal(allCards().length, 7, '三次成功复制与原有四条历史都应显示');
+    for (const { id, text } of copiedRecords) {
+      const card = allCards().find(item => item.dataset.historyId === id);
+      assert.ok(card, '新成品记录能打开');
+      assert.ok(visibleText(card).includes(text), '记录预览与已复制文本相同');
+      const copy = elementsIn(card, item => item.tagName === 'BUTTON' && item.textContent === '再次复制')[0];
+      assert.ok(copy, '完整成品记录提供再次复制');
+      const beforeWrites = clipboardWrites.length;
+      await fireAsync(copy, 'click');
+      assert.deepEqual(clipboardWrites.slice(beforeWrites), [text], '成品记录能再次复制原文');
+    }
+    assert.equal(JSON.parse(storage.get(v4.TAG_RELAY_STORAGE_KEY)).history.length, 7,
+      '再次复制历史不应重复收录成品');
     assert.equal(cards().length, 4);
     const [usable, locked, emptyItems, noAccess] = cards();
 
@@ -899,6 +950,8 @@ try {
 } finally {
   if (savedNavigatorLocks) Object.defineProperty(testNavigator, 'locks', savedNavigatorLocks);
   else delete testNavigator.locks;
+  if (savedNavigatorClipboard) Object.defineProperty(testNavigator, 'clipboard', savedNavigatorClipboard);
+  else delete testNavigator.clipboard;
   if (installedTestNavigator) delete globalThis.navigator;
   for (const [name, value] of Object.entries(savedGlobals)) {
     if (value === undefined) delete globalThis[name];

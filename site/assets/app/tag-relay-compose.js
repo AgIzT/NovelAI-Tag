@@ -8,7 +8,7 @@ import { isRelayRailOpen } from './tag-relay-rail.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { foldRanges, tokens } from './tag-relay-text.js';
 import { clearCopyHistory, compilePlanChannel, copyPlan, createPlan, deletePlan, getActivePlan, getPlan,
-  planForSession, recordCopyHistory, renamePlan, replacePlanText, restoreHistoryAsPlan, setActivePlan } from './tag-relay-v4.js';
+  planFolds, planForSession, recordCopyHistory, renamePlan, replacePlanText, restoreHistoryAsPlan, setActivePlan } from './tag-relay-v4.js';
 import { commitRelay, getRelayStorageIssue, initializeRelay, relayState, subscribeRelay } from './tag-relay-store.js';
 import { cancelRelayAction, requestRelayAction } from './tag-relay-action.js';
 import { setupRelayBackup } from './tag-relay-backup.js';
