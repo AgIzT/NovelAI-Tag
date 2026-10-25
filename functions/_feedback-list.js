@@ -1,9 +1,9 @@
 'use strict';
 
+import { listRecordMetadata, decodeCanonical } from './_record-store.js';
 import { sanitizeAdminFeedbackRecord } from './_feedback.js';
 
 const BODY_LIMIT = 200;
-const LIST_LIMIT = 1000;
 const MAX_LIST_PAGES = 100;
 const MAX_RECORDS = 50000;
 const MAX_INDEX_BYTES = 8 * 1024 * 1024;
@@ -37,31 +37,10 @@ function sortTime(item) {
   }, 0);
 }
 
-// 必须枚举完整元数据才能保持「最近处理优先」，不能用按 key 排序的前 200 项代替。
-async function listRecords(bucket, prefix) {
-  const records = new Map(), cursors = new Set();
-  let cursor;
-  for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    const result = await bucket.list({ prefix, limit: LIST_LIMIT, ...(cursor ? { cursor } : {}) });
-    for (const object of result.objects) {
-      if (!object.key.startsWith(prefix) || !object.key.endsWith('.json')) continue;
-      if (!object.etag) throw new Error('Feedback listing has no version');
-      records.set(object.key, { key: object.key, etag: object.etag });
-      if (records.size > MAX_RECORDS) throw new Error('Feedback listing budget exceeded');
-    }
-    if (!result.truncated) return [...records.values()];
-    if (!result.cursor || cursors.has(result.cursor)) throw new Error('Feedback listing cursor did not advance');
-    cursor = result.cursor;
-    cursors.add(cursor);
-  }
-  throw new Error('Feedback listing page budget exceeded');
-}
-
 // 桶可能公开：索引地址用管理口令 HMAC，内容用域分离密钥 AES-GCM 加密，禁止落明文目录。
 // 口令轮换或密文损坏后重建；不删除历史对象。记录内容与 ETag 是真相。
 // 冷启动分多次请求建立，任何一次最多读取 BODY_LIMIT 个正文；不返回半份「最新」列表。
 export async function readAdminFeedbackList(bucket, status, secret) {
-  const prefix = `feedback/${status}/`;
   const { key: encryptionKey, indexKey } = await cacheSecrets(secret, status);
   const additionalData = encoder.encode(indexKey);
   const object = await bucket.get(indexKey);
@@ -82,7 +61,7 @@ export async function readAdminFeedbackList(bucket, status, secret) {
     if (entry && typeof entry.key === 'string' && typeof entry.etag === 'string'
       && (entry.time === null || Number.isFinite(entry.time) && entry.time >= 0)) cached.set(entry.key, entry);
   }
-  const records = await listRecords(bucket, prefix);
+  const records = await listRecordMetadata(bucket, 'feedback', [status], { maxPages: MAX_LIST_PAGES, maxRecords: MAX_RECORDS });
   const entries = new Map();
   for (const meta of records) {
     const entry = cached.get(meta.key);
@@ -105,7 +84,11 @@ export async function readAdminFeedbackList(bucket, status, secret) {
         const text = await body.text();
         let item = null;
         try {
-          const record = JSON.parse(text);
+          let record = JSON.parse(text);
+          if (meta.canonical) {
+            const envelope = decodeCanonical(record, meta.id, 'feedback');
+            record = !envelope.deleted && envelope.status === status ? envelope.record : null;
+          }
           if (record && typeof record === 'object' && !Array.isArray(record)) item = sanitizeAdminFeedbackRecord(record, status);
         } catch { /* 与旧列表一样不展示损坏 JSON；版本变化后再读取 */ }
         const entry = { key: meta.key, etag: meta.etag, time: item ? sortTime(item) : null };

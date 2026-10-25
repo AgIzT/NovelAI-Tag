@@ -1,6 +1,7 @@
 'use strict';
 
-import { cleanLine, cleanText, listAll, readJson, readJsonBatch } from './_lib.js';
+import { readCanonical, listRecordMetadata, readListedRecords, storageError } from './_record-store.js';
+import { cleanLine, cleanText, listAll } from './_lib.js';
 
 export const FEEDBACK_STATUSES = Object.freeze(['pending', 'resolved', 'ignored']);
 export const FEEDBACK_REPLY_LIMIT = 2000;
@@ -88,13 +89,15 @@ export function feedbackRecordKey(status, id, date = new Date()) {
 
 export async function findFeedbackRecord(bucket, id, preferredStatus = '') {
   const preferred = normalizeFeedbackStatus(preferredStatus);
+  const current = await readCanonical(bucket, 'feedback', id);
+  if (current) return !current.deleted && (!preferred || current.status === preferred) ? current : null;
   const statuses = preferred ? [preferred] : FEEDBACK_STATUSES;
   for (const status of statuses) {
     const keys = await listAll(bucket, `feedback/${status}/`);
     const key = keys.find(item => item.endsWith(`/${id}.json`));
     if (!key) continue;
-    const record = await readJson(bucket, key);
-    if (record) return { status, key, record };
+    const object = await bucket.get(key);
+    if (object) return { status, key, etag: object.etag, record: await object.json() };
   }
   return null;
 }
@@ -206,9 +209,7 @@ export function sanitizePublicFeedbackProjection(value) {
   };
 }
 
-/* 公开快照是「读整份 → 内存里改一条 → 写回整份」。两个后台操作同时进行时，后写的一方会用自己读到的旧快照
-   把另一方刚做的修改（例如撤回公开）整份盖回去。所以写回只在快照仍是刚读到的那个版本时才写（etag 条件写），
-   版本变了就重读、重做这次修改再写。快照还不存在时只能直接写，这只会在第一次生成时发生。 */
+// 每轮必须先读索引版本，再读当前权威记录，最后 CAS。冲突从头重读，不能重放旧调用者意图。
 const PUBLIC_INDEX_WRITE_ATTEMPTS = 5;
 
 async function readPublicFeedbackIndex(bucket) {
@@ -218,7 +219,7 @@ async function readPublicFeedbackIndex(bucket) {
 }
 
 function publicIndexConflict() {
-  return new Error('公开反馈列表同时有其它修改，重新保存这条反馈');
+  return storageError('公开反馈列表更新冲突，请刷新核对后重试');
 }
 
 export async function updatePublicFeedbackIndex(
@@ -228,48 +229,29 @@ export async function updatePublicFeedbackIndex(
   for (let attempt = 0; attempt < PUBLIC_INDEX_WRITE_ATTEMPTS; attempt += 1) {
     const { index, etag } = await readPublicFeedbackIndex(bucket);
     const byId = publicFeedbackMap(index?.items);
-    const sizeBeforeRemoval = byId.size;
-    let removedFromIndex = false;
-    for (const id of removeIds || []) {
-      removedFromIndex = byId.delete(String(id || '')) || removedFromIndex;
+    const ids = new Set([...removeIds, upsertRecord?.id].filter(Boolean).map(String));
+    let removed = false;
+    for (const id of ids) {
+      const current = await findFeedbackRecord(bucket, id);
+      const item = current && sanitizePublicFeedbackRecord(current.record, current.status);
+      if (item) byId.set(id, item);
+      else removed = byId.delete(id) || removed;
     }
-    if (
-      removedFromIndex
-      && sizeBeforeRemoval >= FEEDBACK_PUBLIC_LIMIT
-      && !upsertRecord
-    ) {
-      return rebuildPublicFeedbackIndex(bucket, { excludeIds: removeIds });
-    }
-    if (upsertRecord && typeof upsertRecord === 'object') {
-      const id = String(upsertRecord.id || '');
-      const item = sanitizePublicFeedbackRecord(upsertRecord, upsertStatus);
-      if (item) byId.set(item.id, item);
-      else if (id) byId.delete(id);
-    }
+    if (removed && index?.items?.length >= FEEDBACK_PUBLIC_LIMIT) return rebuildPublicFeedbackIndex(bucket);
     const written = await writePublicFeedbackIndex(bucket, byId.values(), etag);
     if (written) return written;
   }
   throw publicIndexConflict();
 }
 
-export async function rebuildPublicFeedbackIndex(bucket, { excludeIds = [] } = {}) {
-  const excluded = new Set(Array.from(excludeIds || [], value => String(value || '')));
+export async function rebuildPublicFeedbackIndex(bucket) {
   for (let attempt = 0; attempt < PUBLIC_INDEX_WRITE_ATTEMPTS; attempt += 1) {
     const { etag } = await readPublicFeedbackIndex(bucket);
-    const groups = await Promise.all(FEEDBACK_STATUSES.map(async status => {
-      const keys = (await listAll(bucket, `feedback/${status}/`))
-        .filter(key => key.endsWith('.json'));
-      const records = await readJsonBatch(bucket, keys);
-      return records
-        .map(record => sanitizePublicFeedbackRecord(record, status))
-        .filter(item => item && !excluded.has(item.id));
-    }));
-    const byId = new Map();
-    for (const item of groups.flat()) {
-      const current = byId.get(item.id);
-      if (!current || item.updatedAt >= current.updatedAt) byId.set(item.id, item);
-    }
-    const written = await writePublicFeedbackIndex(bucket, byId.values(), etag);
+    const metadata = await listRecordMetadata(bucket, 'feedback', FEEDBACK_STATUSES);
+    const records = await readListedRecords(bucket, metadata);
+    const items = records.map(({ record, status }) => sanitizePublicFeedbackRecord(record, status)).filter(Boolean);
+    // 旧状态迁移可能留下同 ID 的多个副本，沿用 updatedAt 取最新，去重后再截取公开上限。
+    const written = await writePublicFeedbackIndex(bucket, publicFeedbackMap(items).values(), etag);
     if (written) return written;
   }
   throw publicIndexConflict();
@@ -286,11 +268,12 @@ function publicFeedbackMap(items) {
   return byId;
 }
 
-// etag 为 null 表示快照原本不存在，直接写；否则只在版本未变时写，版本变了返回 null 交给调用方重试。
+// 首建也必须条件写；随机 revision 防止同内容/同毫秒 ETag 的 ABA。
 async function writePublicFeedbackIndex(bucket, items, etag) {
   const now = new Date();
   const payload = {
     version: 1,
+    revision: crypto.randomUUID(),
     updatedAt: now.getTime(),
     updatedAtIso: now.toISOString(),
     items: [...items]
@@ -299,7 +282,7 @@ async function writePublicFeedbackIndex(bucket, items, etag) {
   };
   const written = await bucket.put(FEEDBACK_PUBLIC_INDEX_KEY, JSON.stringify(payload), {
     httpMetadata: { contentType: 'application/json; charset=utf-8' },
-    ...(etag ? { onlyIf: { etagMatches: etag } } : {}),
+    onlyIf: etag ? { etagMatches: etag } : new Headers({ 'if-none-match': '*' }),
   });
   return written ? payload : null;
 }

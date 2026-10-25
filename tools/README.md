@@ -32,7 +32,7 @@
 | `publish_data_r2_v2.py`、`r2_data_protocol.py`、`r2_data_snapshot.py` | **库文件**：现役发布器显式 v2/dual 模式的内容寻址协议、冻结输入、条件创建对象及 CAS 指针；稳定协议单 JSON 上限 32 MiB，根 `manifest.json` 保留；dual 先准备两套再依次激活，两个指针不具事务原子性 | 仅由发布器调用；冻结器只写并清理 output 的新临时快照；v2 复用共享对象、无变化零写；dual 部分激活失败后停止，先核两指针，不自动回滚或删除。独立旧实验协议保留原样用于历史复现 |
 | `r2_local_client.py` | **库文件**：现役发布器的显式本地 SQLite 适配器 | 仅当 `publish_data_r2.py --local-store <output子目录>` 时使用，不读 R2 配置、不联网；只写本地对象与指针 |
 | `r2_http_pool.py` | **库文件**：`sync_r2.R2Client` 默认有界 HTTPS 连接池；16 连接、60 秒闲置淘汰，完整消费正文才复用，支持 HTTP CONNECT 与 bypass | 传输本身零重试；重试仍由原请求/上传层决定，原始 PUT 零重试。`http_pool_enabled:false` 可用 urllib；不支持的代理方案明确回退 urllib，避免绕过代理 |
-| `run_project_checks.py` | **现役**：显式白名单工程自检，`--profile quick\|ci\|windows\|baseline\|r2_cas\|r2_integration\|r2_platform_safety`；双击 `单项工具/工程自检.bat` 或总菜单 17 跑 quick。命令、输入、运行时与副作用清单以 `--profile <组> --list` 为唯一执行台账；只证明所选检查，不能代替独立审查 | 默认在新的 `output/project-audit/checks/<run>/` 写 JSON/Markdown 报告及日志；Python 测试可写隔离临时文件，不写真实业务数据。`--list` 不执行、不写。`--output-dir` 只接受仓库内未存在、无联接/符号链接的目录。子进程环境清理不是网络/文件系统沙箱，脚本及依赖变化后仍须复核；发布安全测试只在假存储/合成目录调用发布函数，不继承生产凭据。baseline 只读本地私密数据，已知失败/缺模块保持 FAIL/BLOCKED，报告不进公开 CI |
+| `run_project_checks.py` | **现役**：显式白名单工程自检，`--profile quick\|ci\|windows\|baseline\|r2_cas\|r2_integration\|r2_platform_safety\|p1`；双击 `单项工具/工程自检.bat` 或总菜单 17 跑 quick。命令、输入、运行时与副作用清单以 `--profile <组> --list` 为唯一执行台账；只证明所选检查，不能代替独立审查 | 默认在新的 `output/project-audit/checks/<run>/` 写 JSON/Markdown 报告及日志；Python 测试可写隔离临时文件，不写真实业务数据。`--list` 不执行、不写。`--output-dir` 只接受仓库内未存在、无联接/符号链接的目录。子进程环境清理不是网络/文件系统沙箱，脚本及依赖变化后仍须复核；发布安全测试只在假存储/合成目录调用发布函数，不继承生产凭据。baseline 只读本地私密数据，已知失败/缺模块保持 FAIL/BLOCKED，报告不进公开 CI |
 | `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 默认重写法典 JSON / 总索引；处理梦神内嵌图时还写 `originals/`、`site/images/`，并可能创建或删除待复核 TXT；`--archive-sources` 再移动源 DOCX，源文件被锁定时改为复制并写归档清单 |
 | `codex_update_match.py` | 新旧法典增量匹配、基线回放与门禁应用；流程见本地私有文档 `docs/经验/Word法典增量更新.md` | 默认不改正式数据，但会创建或覆盖 `output/` 匹配报告；`--apply` 才另写正式数据 |
 | `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上。9.25 起源稿分四卷，主流程不再适用，只作为合并、勘误与号段分配的公共库被导入 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
@@ -65,8 +65,9 @@
 | 文件 | 用途 | 默认副作用 |
 | --- | --- | --- |
 | `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器：主站“编辑模式”的写后端，词条/分类/图片编辑及同级目录上移/下移，顺序独立保存，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
-| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器。⚠ 别和法典编辑器同时开 | 页面操作才写 |
-| `strings_server.py` + `strings_editor.html` | `画师串编辑.bat` 背后的画师串编辑器 | 页面操作才写 |
+| `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器。⚠ 别和法典编辑器同时开 | 页面保存先完整编码，再备份将修改的原图、缩略图、分书和总索引；单文件原子替换，异常补偿旧字节。返回 `backupDir`，备份不自动清理；强杀或补偿失败需按清单恢复，不保证断电时多文件原子提交 |
+| `strings_server.py` + `strings_editor.html` | `画师串编辑.bat` 背后的画师串编辑器；已载入文件身份和请求代次约束异步回写 | 保存/上传核对载入版本，冲突拒写并保留草稿；写前备份、异常补偿，图片使用内容摘要文件名防覆盖。旧版页面缺版本会拒绝覆盖已有合集，重开编辑器后再操作 |
+| `local_file_transaction.py` | **库文件**：本地配图与画师串工具共用的修改前备份、原子替换和异常补偿；调用者持有写锁 | 在当前工具根目录 `output/local-tool-backups/` 保存精确修改前文件与 SHA-256 清单；成功和失败均保留备份，原先不存在的文件在补偿时移除。拒绝联接/符号链接路径，不提供跨进程或断电原子性 |
 | `takedown_pack_entries.py` | **计划器已纳入版本，执行端未上线**：按稳定词条 ID 生成图包下架计划；设计中的应用步骤会同步收口法典、总索引和本地同步清单，不直接操作 R2 | 默认预演也会写 `output/` 计划；跨文件事务、正式资产隔离与失败回滚门闭合前，`--apply` 被代码硬阻断 |
 | `retire_r2_assets.py` | **只读预演已纳入版本，执行端未上线**：消费下架报告中的精确对象键，计划退役或删除已不再被发布数据引用的 R2 资源；无通配删除 | 默认计划会对 R2 发带鉴权的只读 HEAD；历史 release / 激活隔离、clean rollback、失败恢复与逐次授权门闭合前，`--apply` 被代码硬阻断 |
 | `pack_import_core.py` | 图片型来源导入的公共内核：清洗、哈希、元数据、目录树、并行处理、原图/展示图写入与校验 | 库文件，不单独运行 |
@@ -166,6 +167,11 @@
 
 ### 工程风险专项回归
 
+- `test_local_tool_transactions.py`：合成图片/JSON，验证配图各写入点故障、补偿失败、响应丢失、画师串版本冲突与备份；只写临时目录，不读真实数据。
+- `test_strings_editor_state.mjs`：实际画师串编辑脚本配合合成 DOM/fetch，控制跨册迟到加载、失败加载、在途保存及后续编辑；不联网，不替代真实浏览器验收。
+- `test_pei_editor_state.mjs`：实际配图编辑器脚本配合合成 DOM/FileReader/fetch，验证迟到载入及读取图片/上传期间切册的身份归属；不联网，不写真实图片。
+- `test_moderation_concurrency.mjs`：真实投稿/反馈管理 handler 配合内存 R2，控制旧编辑、下架、撤回、索引首建与失败交错；不使用生产 binding，不替代真实 R2 平台并发验收。
+- `run_project_checks.py --profile p1`：集中运行上述用例及受影响的本地工具、投稿、反馈、喜欢、通知、聚合与列表回归；完整执行白名单与副作用以 `--profile p1 --list` 为准。上述新增核心回归同时纳入 `ci`。
 - `test_frontend_loading_recovery.mjs`：实际 ES module 图的译名失败恢复、搜索截止/取消/权限/release、主站和中转站重试接线；Node 需 `--experimental-vm-modules`，合成 fetch/时钟，不联网。
 - `test_feedback_list_budget.mjs`、`test_feedback_list_client.mjs`：假 R2 分页、读正文预算、最新排序/版本冲突、加密缓存和 202 有界客户端续载；仅合成对象与口令。
 - `test_benchmark_search_v1.mjs`：固定公共语义、数据摘要、采样分布、完整排序结果、冻结报告可比性、10% 回退判定、空数据及旧比较不可比闸门；写临时合成 JSON，不读取私密法典。

@@ -8,6 +8,7 @@ export class MemoryR2 {
     this.objects = new Map();
     this.etags = new Map();
     this.metas = new Map();
+    this.customMetas = new Map();
     this.version = 0;
     this.listCalls = 0;
     this.afterGet = null;
@@ -61,6 +62,7 @@ export class MemoryR2 {
     this.objects.set(key, raw);
     this.etags.set(key, etag);
     this.metas.set(key, options.httpMetadata);
+    this.customMetas.set(key, options.customMetadata);
     return { key, etag };
   }
 
@@ -70,6 +72,7 @@ export class MemoryR2 {
       this.objects.delete(key);
       this.etags.delete(key);
       this.metas.delete(key);
+      this.customMetas.delete(key);
     }
   }
 
@@ -77,7 +80,7 @@ export class MemoryR2 {
     await this.wait();
     this.listCalls += 1;
     return {
-      objects: [...this.objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key, etag: this.etags.get(key) })),
+      objects: [...this.objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key, etag: this.etags.get(key), customMetadata: this.customMetas.get(key) })),
       truncated: false,
     };
   }

@@ -121,8 +121,12 @@ function publicContext(targetEnv = env) {
 }
 
 function keysFor(status, id) {
-  return [...bucket.objects.keys()]
-    .filter(key => key.startsWith(`feedback/${status}/`) && key.endsWith(`/${id}.json`));
+  const key = `feedback/records/${id}.json`;
+  if (bucket.objects.has(key)) {
+    const envelope = JSON.parse(bucket.objects.get(key));
+    return !envelope.deleted && envelope.status === status ? [key] : [];
+  }
+  return [...bucket.objects.keys()].filter(key => key.startsWith(`feedback/${status}/`) && key.endsWith(`/${id}.json`));
 }
 
 const id = 'feed0001';
@@ -156,7 +160,7 @@ assert.equal(
 assert.equal(initial.items[0].publicVisible, false);
 assert.deepEqual(initial.items[0].context.entry.path, ['人物', '发型']);
 
-const pendingKey = keysFor('pending', id)[0];
+const pendingKey = `feedback/records/${id}.json`;
 const investigating = await readOk(await updateFeedback(updateContext({
   id,
   action: 'update',
@@ -284,14 +288,16 @@ assert.equal(ignoredList.items[0].status, 'ignored');
 assert.equal(ignoredList.items[0].progressStatus, 'declined');
 assert.equal(ignoredList.items[0].previousStatus, 'pending');
 
+const beforeWrongSource = bucket.objects.get(`feedback/records/${id}.json`);
 const wrongSource = await readError(await updateFeedback(updateContext({
   id,
   action: 'update',
   sourceStatus: 'resolved',
   progressStatus: 'accepted',
   adminReply: '不会写入',
-})), 404);
-assert.match(wrongSource.error, /不存在|状态不匹配/);
+})), 409);
+assert.match(wrongSource.error, /状态已变化/);
+assert.equal(bucket.objects.get(`feedback/records/${id}.json`), beforeWrongSource, '状态不匹配只修公开投影，不改记录');
 assert.equal(keysFor('ignored', id).length, 1);
 
 const tooLong = await readError(await updateFeedback(updateContext({
@@ -385,9 +391,9 @@ const submissionResponse = await submitFeedback({
 const submissionData = await submissionResponse.json();
 assert.equal(submissionResponse.status, 201, JSON.stringify(submissionData));
 const submittedKey = [...submissionBucket.objects.keys()]
-  .find(key => key.startsWith('feedback/pending/') && key.endsWith('.json'));
-assert.ok(submittedKey, '新反馈应写入 pending 目录');
-const submittedRecord = JSON.parse(submissionBucket.objects.get(submittedKey));
+  .find(key => key.startsWith('feedback/records/') && key.endsWith('.json'));
+assert.ok(submittedKey, '新反馈应写入 canonical 记录');
+const submittedRecord = JSON.parse(submissionBucket.objects.get(submittedKey)).record;
 assert.equal(submittedRecord.status, 'pending');
 assert.equal(submittedRecord.progressStatus, 'unread');
 assert.equal(submittedRecord.adminReply, '');
@@ -429,8 +435,8 @@ const privateSubmissionResponse = await submitFeedback({
 const privateSubmissionData = await privateSubmissionResponse.json();
 assert.equal(privateSubmissionResponse.status, 201, JSON.stringify(privateSubmissionData));
 const privateSubmittedKey = [...privateSubmissionBucket.objects.keys()]
-  .find(key => key.startsWith('feedback/pending/') && key.endsWith('.json'));
-const privateSubmittedRecord = JSON.parse(privateSubmissionBucket.objects.get(privateSubmittedKey));
+  .find(key => key.startsWith('feedback/records/') && key.endsWith('.json'));
+const privateSubmittedRecord = JSON.parse(privateSubmissionBucket.objects.get(privateSubmittedKey)).record;
 assert.equal(
   Object.prototype.hasOwnProperty.call(privateSubmittedRecord, 'publicConsent'),
   false,

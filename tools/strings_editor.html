@@ -206,6 +206,9 @@ let dirty=false,editId=null,uploadFiles=[];
 let removedOld=[],activePath=[];
 let imgLabelCache={};
 let collections=[],currentFile='strings.json';
+let loadedFile=null,loadedRevision='',loadedDocument={};
+let loadGeneration=0,editGeneration=0,loading=false,saving=false,uploading=false;
+let collectionBusy=false,formContext=null;
 const COLL_FILE='data/strings_index.json';
 
 const LABELS=['face','scene','nsfw','gallery'];
@@ -213,6 +216,21 @@ const LABEL_NAMES={face:'面部',scene:'场景',nsfw:'NSFW',gallery:'图库'};
 
 function normImg(img){return typeof img==='string'?{file:img,label:'gallery'}:img;}
 function imgFile(img){return typeof img==='string'?img:img.file;}
+
+function updateWriteState(){
+  const ready=loadedFile===currentFile&&!loading&&!collectionBusy;
+  $('#saveAllBtn').disabled=!ready||saving||uploading;
+  $('#libSelect').disabled=saving||uploading||collectionBusy;
+  $('#newLibBtn').disabled=loading||saving||uploading||collectionBusy;
+  $('#delLibBtn').disabled=!ready||saving||uploading;
+  $('#addBtn').disabled=!ready||uploading;
+  $('#newCatBtn').disabled=!ready||uploading;
+  document.querySelectorAll('.form-overlay input,.form-overlay textarea,.form-overlay button,.form-overlay select')
+    .forEach(control=>{control.disabled=uploading||collectionBusy;});
+  $('#dirty').textContent=dirty?'是':'否';
+}
+function canEdit(){return loadedFile===currentFile&&!loading&&!uploading&&!collectionBusy;}
+function markDirty(){editGeneration++;dirty=true;updateWriteState();}
 
 async function loadCollections(){
   try{
@@ -230,9 +248,12 @@ async function loadCollections(){
 }
 
 async function addCollection(){
+  if(loading||saving||uploading||collectionBusy)return;
+  if(dirty&&!confirm('当前修改尚未保存，继续创建并切换合集？'))return;
   let name=prompt('请输入新合集名称（如：小雫的画风串合集）');
   if(!name||!name.trim()) return;
   name=name.trim();
+  collectionBusy=true;updateWriteState();
   try{
     const r=await fetch(API+'?action=new-collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
     const j=await r.json();
@@ -244,15 +265,19 @@ async function addCollection(){
     await loadData(currentFile);
     toast('已创建合集: '+name);
   }catch(e){toast('创建失败');}
+  finally{collectionBusy=false;updateWriteState();}
 }
 
 async function deleteCollection(){
+  if(!canEdit()||saving)return;
   if(collections.length<=1){toast('至少保留一个合集');return;}
   const cur=collections.find(c=>c.file===currentFile);
   const name=cur?cur.name:currentFile;
   if(!confirm('确定删除合集「'+name+'」？\nJSON 文件将被删除，图片文件保留。')) return;
+  const file=loadedFile;
+  collectionBusy=true;updateWriteState();
   try{
-    const r=await fetch(API+'?action=delete-collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:currentFile})});
+    const r=await fetch(API+'?action=delete-collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file})});
     const j=await r.json();
     if(!j.ok){toast('删除失败: '+j.error);return;}
     await loadCollections();
@@ -261,29 +286,44 @@ async function deleteCollection(){
     await loadData(currentFile);
     toast('已删除合集: '+name);
   }catch(e){toast('删除失败');}
+  finally{collectionBusy=false;updateWriteState();}
 }
 
 async function switchLibrary(){
+  if(saving||uploading||collectionBusy){$('#libSelect').value=currentFile;return;}
   if(dirty&&!confirm('你有未保存的修改，切换库将丢失修改。确定继续？')){
     $('#libSelect').value=currentFile;return;
   }
   currentFile=$('#libSelect').value;
+  closeForm();
   localStorage.setItem('strings_editor_file',currentFile);
   await loadData(currentFile);
 }
 
 async function loadData(file){
+  if(saving||uploading)return;
+  closeForm();
+  const generation=++loadGeneration;
+  loading=true;loadedFile=null;loadedRevision='';updateWriteState();
   try{
-    const r=await fetch('data/'+file+'?_='+Date.now());
-    if(!r.ok) throw new Error();
-    const data=await r.json();
+    const r=await fetch(API+'?action=read&file='+encodeURIComponent(file),{cache:'no-store'});
+    const result=await r.json();
+    if(generation!==loadGeneration||file!==currentFile)return;
+    if(!r.ok||!result.ok||result.file!==file||!/^[a-f0-9]{64}$/.test(result.revision||''))throw new Error(result.error||'合集载入失败');
+    const data=result.data;
+    if(!data||!Array.isArray(data.entries))throw new Error('合集格式不正确');
     entries=(data.entries||[]).map(e=>({...e,images:(e.images||[]).map(normImg)}));
     categories=data.categories||collectCategories();
-    dirty=false;$('#dirty').textContent='否';
+    loadedFile=file;loadedRevision=result.revision;loadedDocument={...data};
+    dirty=false;editGeneration=0;
     activePath=[];
     $('#total').textContent=entries.length;
     renderTree();renderList();
-  }catch(e){console.error(e);}
+  }catch(e){
+    if(generation===loadGeneration&&file===currentFile)toast('载入失败：'+e.message+'；重新选择合集后再保存');
+  }finally{
+    if(generation===loadGeneration){loading=false;updateWriteState();}
+  }
 }
 
 function collectCategories(){
@@ -403,6 +443,9 @@ function renderList(filter=''){
 }
 
 function openForm(id){
+  if(!canEdit())return;
+  closeForm();
+  const context=formContext={file:loadedFile,generation:loadGeneration};
   editId=id||null;
   const e=id?entries.find(x=>x.id===id):null;
   uploadFiles=[];removedOld=[];imgLabelCache={};
@@ -429,21 +472,23 @@ function openForm(id){
     });
   }
 
-  $('#fSubmit').onclick=()=>submitForm();
-  $('#fCancel').onclick=()=>tpl.remove();
-  tpl.querySelector('.close-btn').onclick=()=>tpl.remove();
-  tpl.onclick=ev=>{if(ev.target.classList.contains('form-overlay')) tpl.remove();};
+  $('#fSubmit').onclick=()=>submitForm(context);
+  $('#fCancel').onclick=()=>{if(!uploading&&!collectionBusy)closeForm();};
+  tpl.querySelector('.close-btn').onclick=$('#fCancel').onclick;
+  tpl.onclick=ev=>{if(!uploading&&!collectionBusy&&ev.target.classList.contains('form-overlay')) closeForm();};
 
   const uz=$('#uploadZone');
   uz.onclick=()=>$('#fImages').click();
   uz.ondragover=ev=>{ev.preventDefault();uz.style.borderColor='var(--accent)';};
   uz.ondragleave=()=>uz.style.borderColor='';
   uz.ondrop=ev=>{ev.preventDefault();uz.style.borderColor='';
+    if(!canEdit()||formContext!==context)return;
     for(const f of ev.dataTransfer.files) if(f.type.startsWith('image/')){
       uploadFiles.push(f);addUploadThumb(f);
     }
   };
   $('#fImages').onchange=()=>{
+    if(!canEdit()||formContext!==context)return;
     for(const f of $('#fImages').files){uploadFiles.push(f);addUploadThumb(f);}
     $('#fImages').value='';
   };
@@ -482,7 +527,10 @@ function addUploadThumb(f){
   c.appendChild(w);
 }
 
-function submitForm(){
+function submitForm(context=formContext){
+  if(!canEdit())return;
+  if(!context||context!==formContext||context.file!==loadedFile||context.generation!==loadGeneration)return;
+  if(saving&&uploadFiles.length){toast('保存完成后再确认上传图片');return;}
   const title=$('#fTitle').value.trim();
   const prompt=$('#fPrompt').value.trim();
   if(!title||!prompt){alert('标题和 Prompt 不能为空');return;}
@@ -520,56 +568,80 @@ function submitForm(){
   }else{
     entries.push(data);
   }
+  // 图片失败后再次确认仍编辑同一份草稿，不重复新建条目。
+  editId=data.id;
 
-  dirty=true;$('#dirty').textContent='是';
+  markDirty();
   syncCategories();renderTree();
 
   if(uploadFiles.length){uploadImages(data);}else{closeForm();renderList($('#search').value);$('#total').textContent=entries.length;}
 }
 
 function removeEntry(id){
+  if(!canEdit())return;
   entries=entries.filter(e=>e.id!==id);
-  dirty=true;$('#dirty').textContent='是';
+  markDirty();
   syncCategories();renderTree();
   renderList($('#search').value);$('#total').textContent=entries.length;
 }
 
 function closeForm(){
+  formContext=null;
   const ov=document.querySelector('.form-overlay');
   if(ov) ov.remove();
 }
 
 async function uploadImages(entry){
-  for(const f of uploadFiles){
-    const fd=new FormData();
-    fd.append('image',f);
-    fd.append('entryId',entry.id);
-    fd.append('existingImages',JSON.stringify(entry.images));
-    fd.append('label',imgLabelCache[f.name]||'gallery');
-    fd.append('stringsFile',currentFile);
-    try{
-      const r=await fetch(API+'?action=upload&file='+encodeURIComponent(currentFile),{method:'POST',body:fd});
+  if(!canEdit()||saving)return;
+  const file=loadedFile,generation=loadGeneration,files=[...uploadFiles];
+  uploading=true;updateWriteState();
+  let complete=false;
+  try{
+    for(const f of files){
+      const fd=new FormData();
+      fd.append('image',f);
+      fd.append('entryId',entry.id);
+      fd.append('existingImages',JSON.stringify(entry.images));
+      fd.append('label',imgLabelCache[f.name]||'gallery');
+      fd.append('stringsFile',file);
+      fd.append('revision',loadedRevision);
+      const r=await fetch(API+'?action=upload&file='+encodeURIComponent(file),{method:'POST',body:fd});
       const j=await r.json();
-      if(j.ok){
-        const imgs=(j.images||[]).map(normImg);
-        const idx=entries.findIndex(e=>e.id===entry.id);
-        if(idx>=0) entries[idx].images=imgs;
-      }
-    }catch(e){toast('图片上传失败: '+f.name);}
+      if(generation!==loadGeneration||loadedFile!==file)return;
+      if(!r.ok||!j.ok||!/^[a-f0-9]{64}$/.test(j.revision||''))throw new Error(j.error||'图片保存结果未确认');
+      loadedRevision=j.revision;
+      const imgs=(j.images||[]).map(normImg);
+      const idx=entries.findIndex(e=>e.id===entry.id);
+      if(idx>=0){entries[idx].images=imgs;entry=entries[idx];}
+      uploadFiles=uploadFiles.filter(item=>item!==f);
+      markDirty();
+    }
+    complete=true;
+  }catch(e){toast('图片保存未完成：'+e.message+'；当前草稿已保留');}
+  finally{
+    uploading=false;updateWriteState();
+    if(complete)closeForm();
+    renderTree();renderList($('#search').value);$('#total').textContent=entries.length;
   }
-  uploadFiles=[];
-  closeForm();renderTree();
-  renderList($('#search').value);$('#total').textContent=entries.length;
 }
 
 async function saveAll(){
+  if(!canEdit()||saving)return;
   syncCategories();
-  const data={title:'NAI Prompt',author:'小雫',categories,entries:entries.map(e=>({...e,images:e.images||[]}))};
+  const file=loadedFile,generation=loadGeneration,edit=editGeneration,revision=loadedRevision;
+  const data={...loadedDocument,categories,entries:entries.map(e=>({...e,images:e.images||[]}))};
+  const body=JSON.stringify(data);
+  saving=true;updateWriteState();
   try{
-    const r=await fetch(API+'?action=save&file='+encodeURIComponent(currentFile),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    if(r.ok){dirty=false;$('#dirty').textContent='否';toast('已保存到 '+currentFile);}
-    else toast('保存失败');
-  }catch(e){toast('保存失败: '+e.message);}
+    const r=await fetch(API+'?action=save&file='+encodeURIComponent(file),{method:'POST',headers:{'Content-Type':'application/json','If-Match':revision},body});
+    const result=await r.json();
+    if(generation!==loadGeneration||loadedFile!==file)return;
+    if(!r.ok||!result.ok||!/^[a-f0-9]{64}$/.test(result.revision||''))throw new Error(result.error||'保存结果未确认');
+    loadedRevision=result.revision;
+    dirty=editGeneration!==edit;
+    toast(dirty?'已保存提交时的内容，后续修改尚未保存':'已保存到 '+file);
+  }catch(e){toast('保存未完成：'+e.message+'；当前草稿已保留');}
+  finally{saving=false;updateWriteState();}
 }
 
 function toast(msg){
@@ -580,15 +652,18 @@ function toast(msg){
 }
 
 function createCategory(){
+  if(!canEdit())return;
   const val=$('#newCatInput').value.trim();
   if(!val){toast('请输入目录路径');return;}
   if(categories.includes(val)){toast('目录已存在');return;}
   categories.push(val);categories.sort();
+  markDirty();
   renderTree();$('#newCatInput').value='';
   toast('已添加目录: '+val);
 }
 
 function deleteCategory(path){
+  if(!canEdit())return;
   const has=entries.some(e=>(e.category||[]).join('/')===path);
   if(has){toast('该目录下有条目，请先移动或删除条目');return;}
   const sub=path+'/';
@@ -597,6 +672,7 @@ function deleteCategory(path){
   const idx=categories.indexOf(path);
   if(idx<0) return;
   categories.splice(idx,1);
+  markDirty();
   renderTree();
   toast('已删除目录: '+path);
 }

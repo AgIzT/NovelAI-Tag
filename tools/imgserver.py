@@ -11,6 +11,10 @@
 """
 import http.server, socketserver, json, base64, io, os, threading, hashlib, mimetypes, urllib.parse, re, tempfile
 from PIL import Image
+try:
+    from .local_file_transaction import atomic_write_bytes, run_file_transaction, TransactionError
+except ImportError:
+    from local_file_transaction import atomic_write_bytes, run_file_transaction, TransactionError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
@@ -167,25 +171,21 @@ def save_image(cid, eid, durl):
             source.load()
             im = source.copy()
 
-        # 1) 原图：原始字节直接落盘，不经 Pillow 重编码（保留 NAI 在 PNG 里的元数据）
+        # 编码完成前不动磁盘上的旧图；原图仍保持上传字节与参数。
         odir = _safe_child_path(ORIG, cid)
-        os.makedirs(odir, exist_ok=True)
         ofn = eid + "." + ext
         op = _safe_child_path(odir, ofn)
-        with open(op, "wb") as f:
-            f.write(raw)
-
-        # 2) 缩略图：压到 MAXDIM，存 JPEG（展示/部署用）
         if im.mode not in ("RGB", "L"):
             im = im.convert("RGB")
         im.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
         thumb_w, thumb_h = im.size
         tdir = _safe_child_path(os.path.join(SITE, "images"), cid)
-        os.makedirs(tdir, exist_ok=True)
         tfn = eid + ".jpg"
         tp = _safe_child_path(tdir, tfn)
-        im.save(tp, "JPEG", quality=86, optimize=True)
-        rev = _asset_rev(tp, op)
+        thumb = io.BytesIO()
+        im.save(thumb, "JPEG", quality=86, optimize=True)
+        thumb_bytes = thumb.getvalue()
+        rev = hashlib.sha256((hashlib.sha256(thumb_bytes).hexdigest() + hashlib.sha256(raw).hexdigest()).encode("ascii")).hexdigest()[:16]
 
         # 3) 更新 JSON（entry.image 指向缩略图，沿用旧字段）
         for e in d["entries"]:
@@ -198,8 +198,13 @@ def save_image(cid, eid, durl):
                 e.pop("assetCodexId", None)
                 break
         d["imagedCount"] = sum(1 for e in d["entries"] if e.get("image"))
-        _write_json_like(jp, d)
-        _update_index_counts(cid, d.get("entryCount", len(d["entries"])), d["imagedCount"])
+        def commit():
+            atomic_write_bytes(op, raw)
+            atomic_write_bytes(tp, thumb_bytes)
+            _write_json_like(jp, d)
+            _update_index_counts(cid, d.get("entryCount", len(d["entries"])), d["imagedCount"])
+
+        _, backup_dir = run_file_transaction(os.path.dirname(SITE), [op, tp, jp, INDEX], commit, "images")
 
     return {
         "ok": True,
@@ -209,6 +214,7 @@ def save_image(cid, eid, durl):
         "original": ofn,
         "assetRev": rev,
         "imagedCount": d["imagedCount"],
+        "backupDir": backup_dir,
     }
 
 
@@ -271,9 +277,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             ln = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(ln))
             res = save_image(data["codexId"], data["entryId"], data["dataURL"])
-            self._json(res)
         except Exception as ex:
-            self._json({"ok": False, "error": str(ex)}, 500)
+            error = {"ok": False, "error": str(ex)}
+            if isinstance(ex, TransactionError):
+                error.update({"backupDir": ex.backup_dir, "rollbackErrors": ex.rollback_errors})
+            self._json(error, 500)
+            return
+        # 响应丢失不等于提交失败；发送异常不得触发第二次写入或回滚。
+        self._json(res)
 
     def _json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")

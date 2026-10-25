@@ -7,6 +7,7 @@ import { MemoryR2 } from './memory-r2-test-harness.mjs';
 import {
   consumeSubmissionRate, reservePendingSlot, releasePendingSlot, PENDING_RESERVATION_TTL_MS,
 } from '../functions/_submission_guards.js';
+import { readCanonical, writeCanonical, listRecordMetadata } from '../functions/_record-store.js';
 import { LIMITS } from '../functions/_lib.js';
 import { FEEDBACK_PUBLIC_INDEX_KEY, updatePublicFeedbackIndex } from '../functions/_feedback.js';
 import { onRequestPost as feedbackPost } from '../functions/api/feedback.js';
@@ -76,7 +77,7 @@ function feedbackRequest(ip, n) {
   const env = { STRINGS_BUCKET: bucket, COMMUNITY_DB: new SqliteD1(migration), RATE_LIMIT_SALT: 'test' };
   const responses = await Promise.all(Array.from({ length: 7 }, (_, i) => feedbackPost({ env, request: feedbackRequest('203.0.113.7', i), waitUntil() {} })));
   assert.deepEqual(responses.map(r => r.status).sort(), [201, 201, 201, 201, 201, 429, 429]);
-  const pending = [...bucket.objects.keys()].filter(key => key.startsWith('feedback/pending/'));
+  const pending = await listRecordMetadata(bucket, 'feedback', ['pending']);
   assert.equal(pending.length, 5, '只写入放行的 5 条');
   assert.equal([...bucket.objects.keys()].some(key => key.startsWith('feedback/ratelimit/')), false, '走 D1 时不再往 R2 写限流记录');
 
@@ -99,7 +100,7 @@ function feedbackRequest(ip, n) {
   const env = { STRINGS_BUCKET: bucket, COMMUNITY_DB: new SqliteD1(migration), RATE_LIMIT_SALT: 'test' };
   const responses = await Promise.all(['198.51.100.1', '198.51.100.2', '198.51.100.3'].map((ip, i) => feedbackPost({ env, request: feedbackRequest(ip, i), waitUntil() {} })));
   assert.deepEqual(responses.map(r => r.status).sort(), [201, 429, 429]);
-  const pending = [...bucket.objects.keys()].filter(key => key.startsWith('feedback/pending/'));
+  const pending = await listRecordMetadata(bucket, 'feedback', ['pending']);
   assert.equal(pending.length, LIMITS.pendingMax, '并发下也不超过上限');
   console.log('  ok  feedback: 待审上限在并发下成立');
 }
@@ -118,7 +119,7 @@ function feedbackRequest(ip, n) {
   };
   const responses = await Promise.all([submitPost({ env, request: submitRequest(1) }), submitPost({ env, request: submitRequest(2) })]);
   assert.deepEqual(responses.map(r => r.status).sort(), [201, 429]);
-  const pending = [...bucket.objects.keys()].filter(key => key.startsWith('community/pending/') && key.endsWith('.json'));
+  const pending = await listRecordMetadata(bucket, 'community', ['pending']);
   assert.equal(pending.length, LIMITS.pendingMax, '并发下也不超过上限');
   assert.equal([...bucket.objects.keys()].filter(key => key.startsWith('community/img/')).length, 1, '被拒的投稿不写图片');
   console.log('  ok  submit: 待审上限在并发下成立');
@@ -131,6 +132,8 @@ function feedbackRequest(ip, n) {
     id, type: 'suggestion', description: `公开反馈 ${id} 的内容`, publicVisible: true, publicConsent: true,
     progressStatus: 'accepted', adminReply: '', createdAt: 1, updatedAt, progressStatusUpdatedAt: updatedAt, context: {},
   });
+  await writeCanonical(bucket, 'feedback', 'aaaa1111', null, { status: 'pending', record: record('aaaa1111', 10) });
+  await writeCanonical(bucket, 'feedback', 'bbbb2222', null, { status: 'pending', record: record('bbbb2222', 20) });
   await updatePublicFeedbackIndex(bucket, { upsertRecord: record('aaaa1111', 10), upsertStatus: 'pending' });
   const publicIds = async () => JSON.parse(bucket.objects.get(FEEDBACK_PUBLIC_INDEX_KEY)).items.map(item => item.id).sort();
   assert.deepEqual(await publicIds(), ['aaaa1111']);
@@ -141,6 +144,8 @@ function feedbackRequest(ip, n) {
     if (interleaved || key !== FEEDBACK_PUBLIC_INDEX_KEY) return;
     interleaved = true;
     bucket.afterGet = null;
+    const current = await readCanonical(bucket, 'feedback', 'aaaa1111');
+    await writeCanonical(bucket, 'feedback', 'aaaa1111', current, { status: 'pending', record: { ...current.record, publicVisible: false } });
     await updatePublicFeedbackIndex(bucket, { removeIds: ['aaaa1111'] });
   };
   await updatePublicFeedbackIndex(bucket, { upsertRecord: record('bbbb2222', 20), upsertStatus: 'pending' });
@@ -170,11 +175,12 @@ function feedbackRequest(ip, n) {
       bucket.afterGet = async readKey => {
         if (readKey !== key) return;
         bucket.afterGet = null;
-        await bucket.delete(key);
+        const current = await readCanonical(bucket, 'feedback', id);
+        await writeCanonical(bucket, 'feedback', id, current, { status: 'pending', deleted: true });
       };
       releasePush();
       await Promise.all(waits);
-      assert.equal([...bucket.objects.keys()].some(k => k.endsWith(`${id}.json`)), false, '已删除的反馈不得被推送回写重新写出来');
+      assert.equal((await readCanonical(bucket, 'feedback', id)).deleted, true, '已删除的反馈不得被推送回写重新写出来');
     }
     // 8b. 回写读到记录之后、写回之前，维护者保存了回复
     {
@@ -187,12 +193,12 @@ function feedbackRequest(ip, n) {
       bucket.afterGet = async readKey => {
         if (readKey !== key) return;
         bucket.afterGet = null;
-        const current = JSON.parse(bucket.objects.get(key));
-        await bucket.put(key, JSON.stringify({ ...current, adminReply: '维护者的回复' }));
+        const current = await readCanonical(bucket, 'feedback', id);
+        await writeCanonical(bucket, 'feedback', id, current, { status: 'pending', record: { ...current.record, adminReply: '维护者的回复' } });
       };
       releasePush();
       await Promise.all(waits);
-      const final = JSON.parse(bucket.objects.get(key));
+      const final = JSON.parse(bucket.objects.get(key)).record;
       assert.equal(final.adminReply, '维护者的回复', '推送回写不得覆盖维护者刚保存的内容');
       assert.equal(final.notification.status, 'sent', '推送结果仍然写上');
     }

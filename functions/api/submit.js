@@ -5,6 +5,7 @@ import {
   cleanLine, cleanText, normTags, normCategory, defaultSubmissionTitle,
   normImageParams, COMMUNITY_STATUSES,
 } from '../_lib.js';
+import { canonicalKey, writeCanonical, listRecordMetadata } from '../_record-store.js';
 import { sniffImageKind, readPngSize, extractTextParams } from '../_params_core.js';
 import { reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
 
@@ -45,7 +46,7 @@ async function compensateMedia(bucket, keys) {
 
 async function storeSubmission(env, { id, record, uploads, slot }) {
   const bucket = env.STRINGS_BUCKET;
-  const pendingKey = `community/pending/${id}.json`;
+  const pendingKey = canonicalKey('community', id);
   const recoveryKey = `community/submission-recovery/${id}.json`;
   const confirmedMediaKeys = [];
   let intent, intentObject, attemptId;
@@ -71,7 +72,7 @@ async function storeSubmission(env, { id, record, uploads, slot }) {
 
   try {
     // 只读五个精确记录 key；损坏 JSON 也算已占用，不能复用其 ID。
-    const existing = await Promise.all(COMMUNITY_STATUSES.map(status => bucket.head(`community/${status}/${id}.json`)));
+    const existing = await Promise.all([...COMMUNITY_STATUSES.map(status => `community/${status}/${id}.json`), pendingKey].map(key => bucket.head(key)));
     if (existing.some(Boolean)) throw new Error('Submission ID already exists');
     attemptId = crypto.randomUUID();
     intent = { version: 1, id, attemptId, pendingKey, mediaKeys: uploads.map(upload => upload.key), createdAt: record.createdAt };
@@ -86,10 +87,11 @@ async function storeSubmission(env, { id, record, uploads, slot }) {
     }
     phase = 'pending';
     pendingUnknown = true;
-    const saved = await create(pendingKey, JSON.stringify(record), { contentType: 'application/json; charset=utf-8' });
-    if (!saved) {
-      pendingUnknown = false;
-      throw new Error('Submission pending key already exists');
+    try {
+      await writeCanonical(bucket, 'community', id, null, { status: 'pending', record });
+    } catch (error) {
+      if (error.status === 409) pendingUnknown = false;
+      throw error;
     }
   } catch (error) {
     // pending 写入一旦结果不明，可能已经提交或稍后提交；保留媒体及占位，避免生成缺图记录。
@@ -135,8 +137,7 @@ export async function onRequestPost({ request, env }) {
     return err(`图片总体积超过 ${Math.round(LIMITS.totalBytes / 1024 / 1024)} MB，减少图片后重新提交`, 413);
   }
   // 待审区容量保险丝，防恶意灌水撑爆存储。放在读表单、解析原图之前：队列已满时不再花力气处理上传内容
-  const pend = await env.STRINGS_BUCKET.list({ prefix: 'community/pending/', limit: 1000 });
-  const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
+  const pendCount = (await listRecordMetadata(env.STRINGS_BUCKET, 'community', ['pending'])).length;
   if (pendCount >= LIMITS.pendingMax) return err('待审投稿已满，过几天再投稿', 429);
 
   let form;

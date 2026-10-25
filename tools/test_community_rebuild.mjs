@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { MemoryR2 } from './memory-r2-test-harness.mjs';
-import { rebuildCommunity, moveCommunityRecord, emptyCollection } from '../functions/_lib.js';
+import { rebuildCommunity, moveCommunityRecord, emptyCollection, findCommunityRecord } from '../functions/_lib.js';
 import { onRequestPost as adminPost } from '../functions/api/admin/community/[[path]].js';
 import { onRequestGet as communityGet } from '../functions/api/community.js';
 
@@ -32,7 +32,7 @@ class AggregateR2 extends MemoryR2 {
     const start = Number(cursor || 0);
     const next = start + this.pageSize;
     return {
-      objects: keys.slice(start, next).map(key => ({ key })),
+      objects: keys.slice(start, next).map(key => ({ key, etag: this.etags.get(key), customMetadata: this.customMetas.get(key) })),
       truncated: next < keys.length,
       cursor: next < keys.length ? String(next) : undefined,
     };
@@ -112,8 +112,8 @@ async function staleWriter({ initial = 'populated', phase = 'put', approve = fal
   if (completed.error) throw completed.error;
   if (approve) assert.equal(completed.value.status, 200);
   assert.deepEqual(await publicIds(env), approve ? [NEW_ID] : [], 'stale aggregate resurrected the hidden entry');
-  assert.equal(bucket.objects.has(`community/approved/${ID}.json`), false);
-  assert.equal(bucket.objects.has(`community/hidden/${ID}.json`), true);
+  assert.equal(!!await findCommunityRecord(env, ID, ['approved']), false);
+  assert.equal(!!await findCommunityRecord(env, ID, ['hidden']), true);
 }
 
 function installConflicts(bucket, count = Infinity) {
@@ -177,7 +177,7 @@ const cases = [
     const response = await admin(env, 'unpublish', { id: ID });
     assert.equal(response.status, 503);
     assert.equal((await response.json()).ok, false);
-    assert.equal(bucket.objects.has(`community/hidden/${ID}.json`), true, 'record move is not rolled back');
+    assert.equal(!!await findCommunityRecord(env, ID, ['hidden']), true, 'record move is not rolled back');
   }],
   ['batch final rebuild failure cannot return succeeded as success', async () => {
     const { bucket, env } = fixture();
@@ -212,7 +212,7 @@ const cases = [
     for (let i = 1; i <= 5; i++) await seed(bucket, `c000000${i}`);
     const data = await rebuildCommunity(env);
     assert.equal(data.entries.length, 5);
-    assert.equal(bucket.listCalls, 3);
+    assert.equal(bucket.listCalls, 4);
     assert.equal(bucket.aggregateAttempts, 1);
     assert.deepEqual(data.categories, ['画风']);
   }],
