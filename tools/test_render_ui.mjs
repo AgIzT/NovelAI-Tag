@@ -1717,7 +1717,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(await bridge.addSource(source, placement), entryResult);
   assert.equal(inserted[0].entry, source, '不能以 key 回查丢掉收藏/选段快照');
   assert.equal(inserted[0].options, placement, '负向、字符落点与焦点偏好必须传到编辑器');
-  assert.deepEqual(warmed, ['book']); assert.equal(flushed, 1);
+  assert.deepEqual(warmed, [], '加入素材不直接预加载译名；实际需求由编辑器变化回调判断');
+  assert.equal(flushed, 1);
   assert.match(editorSource, /target\.folds\.set\(name, \{ \.\.\.normalizeRelayEntry\(entry\)/);
   assert.match(editorSource, /Array\.isArray\(entry\.parts\)[\s\S]*structuredClone\(entry\.parts\)/);
   // 文本允许独立重复词组；去重只影响输出，不能吞掉原文或破坏浏览器撤销。
