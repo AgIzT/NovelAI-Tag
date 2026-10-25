@@ -1,5 +1,6 @@
 const HISTORY_APP = 'novelai-tag';
 const HISTORY_VERSION = 1;
+const RETIRED_LAYER_LIMIT = 32;
 
 let config = null;
 let initialized = false;
@@ -9,9 +10,11 @@ let restoreToken = 0;
 let currentEntry = null;
 let scrollTimer = 0;
 let idCounter = 0;
+let navigationVersion = 0;
 let reloadCollapse = null;
 let deferredLayerOpens = [];
 const layerRegistry = new Map();
+let retiredLayerTraversal = null;
 
 const cloneValue = value => {
   if (value == null) return value;
@@ -22,6 +25,9 @@ const cloneValue = value => {
 const nextId = () => `${Date.now().toString(36)}-${(++idCounter).toString(36)}`;
 const layerIds = entry => Array.isArray(entry?.layers) ? entry.layers.map(layer => layer?.id).filter(Boolean) : [];
 const hasDetailRoute = route => Boolean(String(route?.entry || ''));
+const retiredLayerIds = entry => [...new Set((Array.isArray(entry?.retiredLayerIds) ? entry.retiredLayerIds : [])
+  .filter(id => typeof id === 'string' && id.length > 0 && id.length <= 128))].slice(0, RETIRED_LAYER_LIMIT);
+const isRetiredLayerOpening = entry => entry?.retiredLayerOpening === true && entry.transition === 'layer' && Boolean(entry.parentId);
 
 /* 刷新会重建 DOM：浮层必然消失；共创广场也有意只恢复详情下方的列表。
    若仍保留这类 transient 子记录，首次 Back 只会走到一个与当前画面相同的
@@ -31,6 +37,7 @@ function discardedTransientOnReload(previous, restoredRoute) {
     previous?.parentId &&
     (
       layerIds(previous).length > 0 ||
+      isRetiredLayerOpening(previous) ||
       (
         previous.transition === 'detail' &&
         hasDetailRoute(previous.route) &&
@@ -48,8 +55,11 @@ export function createManagedHistoryEntry({
   sessionId = null,
   route = {},
   layers = [],
+  retiredLayerIds: retiredIds = [],
+  retiredLayerOpening = false,
   scrollY = 0,
 } = {}) {
+  const retiredIdsToKeep = retiredLayerIds({ retiredLayerIds: retiredIds });
   return {
     app: HISTORY_APP,
     version: HISTORY_VERSION,
@@ -60,6 +70,8 @@ export function createManagedHistoryEntry({
     sessionId,
     route: cloneValue(route || {}),
     layers: cloneValue(layers || []),
+    ...(retiredIdsToKeep.length ? { retiredLayerIds: retiredIdsToKeep } : {}),
+    ...(retiredLayerOpening === true && transition === 'layer' && parentId ? { retiredLayerOpening: true } : {}),
     scrollY: Math.max(0, Math.round(Number(scrollY) || 0)),
   };
 }
@@ -145,6 +157,7 @@ export function configureBrowserHistory(options = {}) {
   currentEntry = null;
   reloadCollapse = null;
   deferredLayerOpens = [];
+  retiredLayerTraversal = null;
   if ('scrollRestoration' in win.history) win.history.scrollRestoration = 'manual';
   win.addEventListener('popstate', handlePopState);
   win.addEventListener('pagehide', checkpointHistoryScroll);
@@ -172,6 +185,8 @@ export function initializeBrowserHistory({ transition = 'initial', route: routeO
     sessionId: previous?.sessionId ?? null,
     route,
     layers: [],
+    retiredLayerIds: retiredLayerIds(previous),
+    retiredLayerOpening: previous?.retiredLayerOpening === true,
     scrollY: previous ? previous.scrollY : currentScrollY(),
   });
   initialized = true;
@@ -203,6 +218,12 @@ export function isHistoryRestoreToken(token) {
 
 export function getManagedHistoryEntry() {
   return cloneValue(currentEntry);
+}
+
+/* Scroll checkpoints keep their identity. Navigation actions, including an ABA
+   Back/Forward, invalidate pending work even when the final URL is identical. */
+export function getHistoryNavigationVersion() {
+  return navigationVersion;
 }
 
 export function topHistoryLayerId() {
@@ -256,6 +277,7 @@ export function openHistoryLayer(id, { mode = 'push' } = {}) {
   }
   const ids = layerIds(currentEntry);
   if (ids[ids.length - 1] === id) return true;
+  navigationVersion += 1;
   const layers = ids.map(layerId => ({ id: layerId }));
   if (mode === 'replace' && layers.length) {
     const oldId = layers[layers.length - 1].id;
@@ -288,12 +310,26 @@ export function forgetHistoryLayer(id) {
   if (!id || !initialized || restoring || !currentEntry) return;
   const ids = layerIds(currentEntry);
   if (!ids.includes(id)) return;
+  navigationVersion += 1;
   const entry = replaceManagedHistoryEntry(currentEntry, {
     layers: ids.filter(layerId => layerId !== id).map(layerId => ({ id: layerId })),
     route: captureRoute(),
     scrollY: currentScrollY(),
   });
   writeState('replace', entry);
+}
+
+/* A responsive layer can become furniture while a newer dialog still owns the
+   foreground. Remove its ownership now, then skip its old opening record when
+   the user eventually traverses it. Never Back through the foreground here. */
+export function retireHistoryLayer(id) {
+  if (typeof id !== 'string' || !id || id.length > 128 || !currentEntry || !layerIds(currentEntry).includes(id)) return false;
+  const ids = new Set(retiredLayerIds(currentEntry));
+  ids.add(id);
+  if (ids.size > RETIRED_LAYER_LIMIT) return false;
+  currentEntry = replaceManagedHistoryEntry(currentEntry, { retiredLayerIds: [...ids] });
+  forgetHistoryLayer(id);
+  return true;
 }
 
 export function closeHistoryLayer(id) {
@@ -321,6 +357,7 @@ export function commitHistoryRoute({
   parentScrollY,
 } = {}) {
   if (mode === 'none' || !initialized || restoring || !currentEntry) return false;
+  navigationVersion += 1;
   const route = routeOverride === undefined ? captureRoute() : cloneValue(routeOverride);
   const ids = layerIds(currentEntry);
   if (consumeLayer && ids.length) {
@@ -402,6 +439,7 @@ export function canGoBackFrom(transition) {
    pendingBack 挡住这段窗口里的重复回退（快速双击关闭按钮 / 连按 Esc），
    否则会多退一级。popstate 一到即清除。 */
 function requestHistoryBack() {
+  navigationVersion += 1;
   pendingBack = true;
   browserWindow().history.back();
 }
@@ -439,6 +477,7 @@ export function scheduleHistoryScrollCheckpoint(delay = 150) {
 }
 
 async function handlePopState(event) {
+  navigationVersion += 1;
   pendingBack = false;
   if (!config || !isManagedHistoryEntry(event.state, config.page)) return;
   /* 每个托管 popstate 都会取代上一轮恢复；早退分支同样必须作废旧 token，
@@ -450,6 +489,54 @@ async function handlePopState(event) {
   scrollTimer = 0;
   const departing = currentEntry;
   let target = cloneValue(event.state);
+  if (retiredLayerTraversal) {
+    const traversal = retiredLayerTraversal;
+    retiredLayerTraversal = null;
+    if (departing?.id === traversal.departingId && target.id === traversal.parentId) {
+      target = replaceManagedHistoryEntry(target, { route: traversal.route, scrollY: traversal.scrollY });
+      writeState('replace', target);
+    }
+  }
+  /* Each record remembers only retirements pending on its own parent chain.
+     Newly pushed records do not copy a session-wide table. Once an obsolete
+     opener is reached, its own persisted flag handles future Forward/reload. */
+  const retiredIds = new Set(departing?.parentId === target.id ? retiredLayerIds(departing) : []);
+  if (retiredIds.size || isRetiredLayerOpening(target)) {
+    const originalIds = layerIds(target);
+    const removed = originalIds.filter(id => retiredIds.has(id));
+    if (removed.length) {
+      const openingRetiredLayer = target.transition === 'layer' && retiredIds.has(originalIds.at(-1));
+      const pending = new Set(retiredLayerIds(target));
+      for (const id of removed) {
+        if (openingRetiredLayer && id === originalIds.at(-1)) pending.delete(id);
+        else pending.add(id);
+      }
+      target = replaceManagedHistoryEntry(target, {
+        layers: originalIds.filter(id => !retiredIds.has(id)).map(id => ({ id })),
+        retiredLayerIds: [...pending],
+        retiredLayerOpening: openingRetiredLayer || isRetiredLayerOpening(target),
+      });
+      writeState('replace', target);
+    }
+    if (isRetiredLayerOpening(target)) {
+      const movingForward = target.parentId === departing?.id;
+      const collapsingReload = reloadCollapse?.departingId === departing?.id && reloadCollapse?.parentId === target.id;
+      if (collapsingReload) {
+        target = replaceManagedHistoryEntry(target, { route: reloadCollapse.route, scrollY: reloadCollapse.scrollY });
+        reloadCollapse = { ...reloadCollapse, departingId: target.id, parentId: target.parentId };
+      }
+      if (!movingForward) retiredLayerTraversal = {
+        departingId: target.id, parentId: target.parentId, route: target.route, scrollY: target.scrollY,
+      };
+      writeState('replace', target);
+      browserWindow().queueMicrotask(() => {
+        if (currentEntry?.id !== target.id) return;
+        if (movingForward) browserWindow().history.forward();
+        else requestHistoryBack();
+      });
+      return;
+    }
+  }
   const departingLayers = layerIds(departing);
   const targetLayers = layerIds(target);
   if (reloadCollapse) {

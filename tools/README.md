@@ -32,7 +32,7 @@
 | `publish_data_r2_v2.py`、`r2_data_protocol.py`、`r2_data_snapshot.py` | **库文件**：现役发布器显式 v2/dual 模式的内容寻址协议、冻结输入、条件创建对象及 CAS 指针；稳定协议单 JSON 上限 32 MiB，根 `manifest.json` 保留；dual 先准备两套再依次激活，两个指针不具事务原子性 | 仅由发布器调用；冻结器只写并清理 output 的新临时快照；v2 复用共享对象、无变化零写；dual 部分激活失败后停止，先核两指针，不自动回滚或删除。独立旧实验协议保留原样用于历史复现 |
 | `r2_local_client.py` | **库文件**：现役发布器的显式本地 SQLite 适配器 | 仅当 `publish_data_r2.py --local-store <output子目录>` 时使用，不读 R2 配置、不联网；只写本地对象与指针 |
 | `r2_http_pool.py` | **库文件**：`sync_r2.R2Client` 默认有界 HTTPS 连接池；16 连接、60 秒闲置淘汰，完整消费正文才复用，支持 HTTP CONNECT 与 bypass | 传输本身零重试；重试仍由原请求/上传层决定，原始 PUT 零重试。`http_pool_enabled:false` 可用 urllib；不支持的代理方案明确回退 urllib，避免绕过代理 |
-| `run_project_checks.py` | **现役**：显式白名单工程自检，`--profile quick\|ci\|windows\|baseline\|r2_cas\|r2_integration\|r2_platform_safety\|p1`；双击 `单项工具/工程自检.bat` 或总菜单 17 跑 quick。命令、输入、运行时与副作用清单以 `--profile <组> --list` 为唯一执行台账；只证明所选检查，不能代替独立审查 | 默认在新的 `output/project-audit/checks/<run>/` 写 JSON/Markdown 报告及日志；Python 测试可写隔离临时文件，不写真实业务数据。`--list` 不执行、不写。`--output-dir` 只接受仓库内未存在、无联接/符号链接的目录。子进程环境清理不是网络/文件系统沙箱，脚本及依赖变化后仍须复核；发布安全测试只在假存储/合成目录调用发布函数，不继承生产凭据。baseline 只读本地私密数据，已知失败/缺模块保持 FAIL/BLOCKED，报告不进公开 CI |
+| `run_project_checks.py` | **现役**：显式白名单工程自检，`--profile quick\|ci\|windows\|baseline\|r2_cas\|r2_integration\|r2_platform_safety\|p1\|p2`；双击 `单项工具/工程自检.bat` 或总菜单 17 跑 quick。命令、输入、运行时与副作用清单以 `--profile <组> --list` 为唯一执行台账；只证明所选检查，不能代替独立审查 | 默认在新的 `output/project-audit/checks/<run>/` 写 JSON/Markdown 报告及日志；Python 测试可写隔离临时文件，不写真实业务数据。`--list` 不执行、不写。`--output-dir` 只接受仓库内未存在、无联接/符号链接的目录。子进程环境清理不是网络/文件系统沙箱，脚本及依赖变化后仍须复核；发布安全测试只在假存储/合成目录调用发布函数，不继承生产凭据。baseline 只读本地私密数据，已知失败/缺模块保持 FAIL/BLOCKED，报告不进公开 CI |
 | `convert.py` | `法典源/*.docx` → `site/data/*.json`；`--archive-sources` 转换成功后归档源文件 | 默认重写法典 JSON / 总索引；处理梦神内嵌图时还写 `originals/`、`site/images/`，并可能创建或删除待复核 TXT；`--archive-sources` 再移动源 DOCX，源文件被锁定时改为复制并写归档清单 |
 | `codex_update_match.py` | 新旧法典增量匹配、基线回放与门禁应用；流程见本地私有文档 `docs/经验/Word法典增量更新.md` | 默认不改正式数据，但会创建或覆盖 `output/` 匹配报告；`--apply` 才另写正式数据 |
 | `suozhang_r18_merge_match.py` | 所长色色上下册先合并、再全局匹配的专用流程；流程同上。9.25 起源稿分四卷，主流程不再适用，只作为合并、勘误与号段分配的公共库被导入 | 默认不改正式数据，但会创建或覆盖 `output/` 合并快照与匹配报告；`--apply` 才另写正式数据 |
@@ -53,6 +53,7 @@
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |
 | `test_blocking_manager_motion.mjs` | 屏蔽清单节点复用、退场隔离、焦点、快速切页/关闭、跨标签更新与动效兜底回归 | 只读，内存 DOM/动画与存储夹具；真实几何仍须浏览器验证 |
 | `verify_ui.py` | 浏览器 UI 冒烟/视觉回归（报告在 `output/ui-regression/`）；使用隔离 Chrome/Edge profile，自动接受测试页的离开确认，导航与刷新都等待新文档，每项开始激活测试页，中转站操作核对草稿落盘；控制台输出 UTF-8。`--only <用例名片段>` 可只跑单项，`--out-dir` 支持相对路径；四态汇总，译名用例缺 core.json 为 BLOCKED，跳过不算通过 | 只读，写测试输出 |
+| `verify_history_resume.py` | **本地验证**：完整主站浏览恢复、Back/Forward、收藏上下文、套图图序与中转站断点回归；`--source baseline\|fixed --out-dir <新output目录>`，基线明确指定 Git ref | 只读本工作区源码或具名 Git 字节，内存双书/套图夹具与精确回环白名单；独立 Chromium profile、禁外网，不读真实法典数据，只写新 output 证据并关闭自建进程；不替代真机/生产验收 |
 | `verify_favorites_v2.py` | 收藏夹业务集成回归：迁移、归属、撤销、故障、多标签页及性能；关闭动效，含直接模块调用与 DOM 夹具；`--base-url` 指定工作区预览 | 仅接受无凭据的 HTTP localhost / 127.0.0.1；须指向只读 `preview_server.py`，不能连接编辑或生产服务；写隔离 Chrome profile 的测试存储和 `output/favorites-v2-validation/integration/`，`--out-dir` 可指定；不操作用户浏览器数据 |
 | `verify_favorites_experience.py` | 收藏夹真实操作链：开启动效，以 CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.insertText` 点击、按键和输入，核对实际命中、焦点、快捷键、断点与菜单几何；区别于上行的业务集成夹具 | 同样只接受无凭据的 HTTP localhost / 127.0.0.1；要求 `preview_server.py` 只读预览已启动，不接管服务生命周期；写独立测试 profile、结果/截图及程序版本哈希到 `output/favorites-experience/`，可用 `--out-dir` 分隔每轮；不使用用户 profile，不替代实体软键盘/读屏器验收 |
 | `benchmark_search_v1.mjs` | 搜索当前实现的冷暖交错微基准，每次核对完整排序结果；记录原字节数据摘要、源码与环境。`--baseline-report <报告>` 比较已冻结的成功输出，输入、环境、协议或结果不同为 BLOCKED；可比情况下 median 超过基准 10% 为 FAIL。`--compare-legacy` 仍先核对召回集合，不同或空数据/缺输入为 BLOCKED、退出 2 | 只读本地 JSON；私密输入的输出不可上传公共 CI。冷暖差异是缓存观测，同源码重复测量不证明代码提升/退化；主机调度与负载需另行控制 |
@@ -64,7 +65,7 @@
 
 | 文件 | 用途 | 默认副作用 |
 | --- | --- | --- |
-| `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器：主站“编辑模式”的写后端，词条/分类/图片编辑及同级目录上移/下移，顺序独立保存，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份 |
+| `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器：主站“编辑模式”的写后端，词条/分类/图片编辑及同级目录上移/下移，顺序独立保存，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份。删除词条前在同一事务保存本书发号高水位和分隔符，删除全部后仍不复用已发出的本书编号，不重新编号历史词条 |
 | `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器。⚠ 别和法典编辑器同时开 | 页面保存先完整编码，再备份将修改的原图、缩略图、分书和总索引；单文件原子替换，异常补偿旧字节。返回 `backupDir`，备份不自动清理；强杀或补偿失败需按清单恢复，不保证断电时多文件原子提交 |
 | `strings_server.py` + `strings_editor.html` | `画师串编辑.bat` 背后的画师串编辑器；已载入文件身份和请求代次约束异步回写 | 保存/上传核对载入版本，冲突拒写并保留草稿；写前备份、异常补偿，图片使用内容摘要文件名防覆盖。旧版页面缺版本会拒绝覆盖已有合集，重开编辑器后再操作 |
 | `local_file_transaction.py` | **库文件**：本地配图与画师串工具共用的修改前备份、原子替换和异常补偿；调用者持有写锁 | 在当前工具根目录 `output/local-tool-backups/` 保存精确修改前文件与 SHA-256 清单；成功和失败均保留备份，原先不存在的文件在补偿时移除。拒绝联接/符号链接路径，不提供跨进程或断电原子性 |
@@ -167,6 +168,11 @@
 
 ### 工程风险专项回归
 
+- `test_edit_server.py` 的 `StableEntryIdTest`：导入后删除最高号、删类/全删、计数缺失/落后、分隔符、历史前缀及事务失败的合成数据回归；定向类纳入 ci，完整编辑器回归在 p2 组运行。
+- `test_params_inflate_budget.mjs`：两份参数核心镜像、超限丢弃/错误流输出的累计预算、边界与取消/释放；仅合成 PNG 和流，不接媒体或网络。
+- `test_feedback_pagination.mjs`、`test_feedback_pagination_ui.mjs`：全局稳定排序、游标版本冲突、旧记录可达、每请求正文预算，以及实际 admin 模块的翻页/刷新/迁移/取消/草稿保护；UI 测试需 `--experimental-vm-modules`，合成存储、DOM 和 fetch。
+- `test_history_resume.mjs`、`test_tag_relay_rail.mjs`：实际历史/中转站脚本的完整恢复契约、未决导航、迟到回调、断点焦点和历史所有权；只用合成状态与受控时序。
+- `run_project_checks.py --profile p2`：上述六项 P2 的定向检查与受影响的编辑器、后台、历史/收藏/模态回归；执行白名单和副作用以 `--profile p2 --list` 为准，新核心检查纳入 ci。
 - `test_local_tool_transactions.py`：合成图片/JSON，验证配图各写入点故障、补偿失败、响应丢失、画师串版本冲突与备份；只写临时目录，不读真实数据。
 - `test_strings_editor_state.mjs`：实际画师串编辑脚本配合合成 DOM/fetch，控制跨册迟到加载、失败加载、在途保存及后续编辑；不联网，不替代真实浏览器验收。
 - `test_pei_editor_state.mjs`：实际配图编辑器脚本配合合成 DOM/FileReader/fetch，验证迟到载入及读取图片/上传期间切册的身份归属；不联网，不写真实图片。

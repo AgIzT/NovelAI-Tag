@@ -14,6 +14,8 @@ import {
   openHistoryLayer,
   registerHistoryLayer,
   replaceManagedHistoryEntry,
+  retireHistoryLayer,
+  getHistoryNavigationVersion,
 } from '../site/assets/app/browser-history.js';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -112,6 +114,14 @@ assert.equal(isManagedHistoryEntry(entry, 'community'), false);
 const replaced = replaceManagedHistoryEntry(entry, { route: { view: 'favorites' } });
 assert.equal(replaced.id, entry.id);
 assert.equal(replaced.parentId, entry.parentId);
+assert.equal(Object.hasOwn(entry, 'retiredLayerIds'), false, 'legacy history keeps its original shape');
+const malformedRetirement = createManagedHistoryEntry({ page: 'atlas', retiredLayerOpening: true,
+  retiredLayerIds: [null, {}, 7, '', 'x'.repeat(129), 'rail', 'rail'] });
+assert.deepEqual(malformedRetirement.retiredLayerIds, ['rail']);
+assert.equal(Object.hasOwn(malformedRetirement, 'retiredLayerOpening'), false, 'opening flag requires a layer record with a parent');
+const boundedRetirement = createManagedHistoryEntry({ page: 'atlas',
+  retiredLayerIds: Array.from({ length: 100 }, (_, n) => 'layer-' + n) });
+assert.equal(boundedRetirement.retiredLayerIds.length, 32, 'retirement metadata has a fixed per-record bound');
 
 // Initial entries have no parent; push creates a child and replace keeps its identity.
 {
@@ -643,6 +653,88 @@ assert.equal(replaced.parentId, entry.parentId);
   await tick();
   assert.equal(getManagedHistoryEntry().id, initial.id);
   assert.deepEqual(getManagedHistoryEntry().route.searchFilters, undefined);
+}
+
+// A responsive rail retired underneath a route detail cannot consume that
+// foreground. Its obsolete opening record must disappear in both directions.
+{
+  let visibleEntry = '';
+  const env = configure('atlas', async route => { env.route = route; visibleEntry = route.entry || ''; return route; });
+  const initial = initializeBrowserHistory();
+  let modal = true;
+  registerHistoryLayer('retiring-rail', { isOpen: () => modal, open() {}, close() {} });
+  openHistoryLayer('retiring-rail');
+  env.route = { view: 'all', q: '', entry: 'detail' };
+  visibleEntry = 'detail';
+  commitHistoryRoute({ mode: 'push', transition: 'detail' });
+  const detail = getManagedHistoryEntry();
+  modal = false;
+  retireHistoryLayer('retiring-rail');
+  assert.equal(getManagedHistoryEntry().id, detail.id);
+  assert.equal(visibleEntry, 'detail');
+  assert.deepEqual(getManagedHistoryEntry().layers, []);
+  const version = getHistoryNavigationVersion();
+  checkpointHistoryScroll();
+  assert.equal(getHistoryNavigationVersion(), version, 'scroll checkpoints do not invalidate navigation');
+  env.window.history.back(); await tick(); await tick();
+  assert.equal(getManagedHistoryEntry().id, initial.id, 'one Back skips the retired layer record');
+  assert.equal(visibleEntry, '');
+  env.window.history.forward(); await tick(); await tick();
+  assert.equal(getManagedHistoryEntry().id, detail.id, 'one Forward also skips the retired layer record');
+  assert.equal(visibleEntry, 'detail');
+  assert.deepEqual(getManagedHistoryEntry().layers, []);
+  assert.ok(getHistoryNavigationVersion() > version);
+}
+
+// Retirement must survive a document reload without reviving the old rail.
+// Keep a real route between the rail opener and detail so only obsolete layer
+// records collapse; legitimate list navigation must retain its own Back step.
+{
+  let visibleEntry = '';
+  const applyRoute = async route => { env.route = route; visibleEntry = route.entry || ''; return route; };
+  const env = configure('atlas', applyRoute);
+  const initial = initializeBrowserHistory();
+  let modal = true;
+  registerHistoryLayer('reload-retiring-rail', { isOpen: () => modal, open() { modal = true; }, close() { modal = false; } });
+  openHistoryLayer('reload-retiring-rail');
+  env.route = { view: 'all', q: 'directory' };
+  commitHistoryRoute({ mode: 'push', transition: 'route' });
+  const directory = getManagedHistoryEntry();
+  env.route = { ...env.route, entry: 'detail' };
+  visibleEntry = 'detail';
+  commitHistoryRoute({ mode: 'push', transition: 'detail' });
+  const detail = getManagedHistoryEntry();
+  modal = false;
+  retireHistoryLayer('reload-retiring-rail');
+  const reload = () => {
+    configureBrowserHistory({ window: env.window, page: 'atlas', captureRoute: () => env.route, applyRoute });
+    initializeBrowserHistory();
+  };
+  reload();
+  assert.equal(getManagedHistoryEntry().id, detail.id);
+  assert.equal(visibleEntry, 'detail');
+  env.window.history.back(); await tick(); await tick();
+  assert.equal(getManagedHistoryEntry().id, directory.id, 'the intervening real route remains navigable');
+  assert.deepEqual(getManagedHistoryEntry().layers, [], 'reload restores retirement for non-opening ancestors');
+  assert.equal(visibleEntry, '');
+  reload();
+  env.window.history.back(); await tick(); await tick();
+  assert.equal(getManagedHistoryEntry().id, initial.id, 'retirement propagates across a second reload and skips its opener');
+  reload();
+  env.window.history.forward(); await tick(); await tick();
+  assert.equal(getManagedHistoryEntry().id, directory.id, 'Forward skips the retired opener after reloading its parent');
+  env.window.history.forward(); await tick(); await tick();
+  assert.equal(getManagedHistoryEntry().id, detail.id);
+  assert.equal(visibleEntry, 'detail');
+  assert.deepEqual(getManagedHistoryEntry().layers, []);
+  modal = true;
+  openHistoryLayer('reload-retiring-rail');
+  const reopened = getManagedHistoryEntry();
+  assert.deepEqual(reopened.layers, [{ id: 'reload-retiring-rail' }], 'same layer id can be opened as a new record');
+  assert.equal(Object.hasOwn(reopened, 'retiredLayerIds'), false, 'new records do not copy the parent retirement list');
+  assert.equal(closeHistoryLayer('reload-retiring-rail'), true);
+  await tick(); await tick();
+  assert.equal(getManagedHistoryEntry().id, detail.id, 'closing the new rail consumes only its own record');
 }
 
 console.log('browser history tests passed');

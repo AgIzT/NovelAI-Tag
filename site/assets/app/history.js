@@ -1,7 +1,7 @@
 import { state, RECENT_ENTRY_LIMIT, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY } from './state.js';
 import { $, esc, updateSearchClear, updateScrollProgress } from './utils.js';
 import { hasEntryImage, thumbUrl } from './media.js';
-import { syncUrlState } from './router.js';
+import { captureAtlasRoute, syncUrlState } from './router.js';
 import { normalizeCodexRoutePath } from './codex-route-compat.js';
 import { firstUnlockedCodex, isCodexLocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { toast } from './feedback.js';
@@ -10,7 +10,7 @@ import { canonicalizeAtlasFavorite } from './favorites-backup-core.js';
 import { getBlockingPreferences, isContentBlocked } from './content-blocking.js';
 import { FAVORITES_CODEX_ID } from './fav-codex.js';
 import { SITE_SEARCH_CODEX_ID } from './site-search.js';
-import { isHistoryRestoreToken } from './browser-history.js';
+import { getHistoryNavigationVersion, isHistoryRestoreToken } from './browser-history.js';
 
 const historyActions = {
   loadCodex: async () => {},
@@ -20,6 +20,8 @@ const historyActions = {
   renderTree: () => {},
   applyFilter: () => {},
   updateVirtualCards: () => {},
+  updateSearchScopeControl: () => {},
+  favoritesFolderCode: () => '',
 };
 
 export function setHistoryActions(actions = {}) {
@@ -89,8 +91,13 @@ export function normalizeLastBrowse(value) {
     onlyFav: Boolean(value.onlyFav),
     favoritesView: Boolean(value.favoritesView || value.favMode || value.onlyFav || value.codexId === FAVORITES_CODEX_ID),
     siteSearchView: Boolean(value.siteSearchView || value.searchView || value.codexId === SITE_SEARCH_CODEX_ID),
-    searchScope: value.searchScope === 'codex' ? 'codex' : 'site',
+    searchScope: value.searchScope === 'site' || value.siteSearchView || value.searchView || value.codexId === SITE_SEARCH_CODEX_ID ? 'site' : 'codex',
+    ...(typeof value.favFolder === 'string' ? { favFolder: value.favFolder } : {}),
+    folderCode: String(value.folderCode || ''),
+    favSource: String(value.favSource || ''),
+    favSort: ['recent', 'oldest', 'title'].includes(value.favSort) ? value.favSort : 'recent',
     entryId: String(value.entryId || ''),
+    imageIndex: Math.max(0, Math.floor(Number(value.imageIndex) || 0)),
     access: {
       nsfw: value.access?.nsfw === true || value.nsfw === true || value.sourceNsfw === true || isHistoryNsfw(value),
       r18g: value.access?.r18g === true || value.r18g === true || value.sourceR18g === true || isHistoryR18g(value),
@@ -170,12 +177,19 @@ export function currentBrowseSnapshot(entryId = state.lightbox.entry?.id || '', 
     favoritesView,
     siteSearchView,
     searchScope: state.searchScope,
+    ...(favoritesView ? {
+      favFolder: String(state.favFolder || ''),
+      folderCode: historyActions.favoritesFolderCode(state.favFolder),
+      favSource: String(state.favSource || ''),
+      favSort: state.favSort || 'recent',
+    } : {}),
     path: state.activePath || [],
     q: state.query.trim(),
     searchFilters: normalizeSearchFilterValues(state.searchFilterValues),
     updateFilter: String(state.updateFilter || ''),
     onlyFav: favoritesView,
     entryId,
+    imageIndex: entryId ? Math.max(0, Math.floor(Number(state.lightbox.index) || 0)) : 0,
     access: {
       nsfw: entryMeta?.nsfw === true || isHistoryNsfw({ ...entry, path: entryPath }) || routeCodex?.nsfw === true,
       r18g: isHistoryR18g({ ...entry, path: entryPath }),
@@ -369,6 +383,8 @@ export function applyBrowseControls(snapshot) {
 }
 
 export function applyBrowseState(snapshot, options = {}) {
+  state.searchScope = snapshot.searchScope === 'site' ? 'site' : 'codex';
+  historyActions.updateSearchScopeControl();
   state.activePath = normalizeCodexRoutePath(state.codex, snapshot.path || [], snapshot.codexId);
   state.query = snapshot.q || '';
   state.searchFilterValues = normalizeSearchFilterValues(snapshot.searchFilters);
@@ -392,20 +408,33 @@ export function applyBrowseState(snapshot, options = {}) {
 let browseScrollRestoreSeq = 0;
 export function restoreBrowseScroll(top, { token } = {}) {
   const seq = ++browseScrollRestoreSeq;
+  const navigationVersion = getHistoryNavigationVersion();
   const target = Math.max(0, Number(top) || 0);
   let attempts = 0;
   const stopListening = () => {
     window.removeEventListener?.('wheel', cancelForUserInput);
     window.removeEventListener?.('touchmove', cancelForUserInput);
+    window.removeEventListener?.('keydown', cancelForKey);
+    window.removeEventListener?.('pointerdown', cancelForScrollbar);
   };
   const cancelForUserInput = () => {
     if (seq === browseScrollRestoreSeq) browseScrollRestoreSeq += 1;
     stopListening();
   };
+  const cancelForKey = event => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey
+        || event.target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
+    if (['Home', 'End', 'PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) cancelForUserInput();
+  };
+  const cancelForScrollbar = event => {
+    if (event.button === 0 && event.clientX >= document.documentElement?.clientWidth) cancelForUserInput();
+  };
   window.addEventListener?.('wheel', cancelForUserInput, { once: true, passive: true });
   window.addEventListener?.('touchmove', cancelForUserInput, { once: true, passive: true });
+  window.addEventListener?.('keydown', cancelForKey);
+  window.addEventListener?.('pointerdown', cancelForScrollbar, { passive: true });
   const run = () => {
-    if (seq !== browseScrollRestoreSeq) { stopListening(); return; }
+    if (seq !== browseScrollRestoreSeq || navigationVersion !== getHistoryNavigationVersion()) { stopListening(); return; }
     if (token !== undefined && !isHistoryRestoreToken(token)) { stopListening(); return; }
     window.scrollTo({ top: target, left: 0, behavior: 'auto' });
     historyActions.updateVirtualCards(true);
@@ -418,9 +447,31 @@ export function restoreBrowseScroll(top, { token } = {}) {
   window.setTimeout(run, 160);
 }
 
+let browseIntentSeq = 0;
+function beginBrowseIntent() {
+  const seq = ++browseIntentSeq;
+  return () => seq === browseIntentSeq;
+}
+
+/* The view renderer checks before touching state/DOM/history. Its completion
+   signal distinguishes a rendered view from an aborted or failed load. */
+async function renderBrowseIntent(current, action, options = {}) {
+  const version = getHistoryNavigationVersion();
+  const route = JSON.stringify(captureAtlasRoute());
+  let rendered = null;
+  const isCurrent = () => current() && version === getHistoryNavigationVersion()
+    && route === JSON.stringify(captureAtlasRoute());
+  await action({ ...options, autoOpenEntry: false, isCurrent, onViewRendered: () => {
+    rendered = { version: getHistoryNavigationVersion(), route: JSON.stringify(captureAtlasRoute()) };
+  } });
+  return Boolean(current() && rendered && rendered.version === getHistoryNavigationVersion()
+    && rendered.route === JSON.stringify(captureAtlasRoute()));
+}
+
 export async function resumeLastBrowse(options = {}) {
-  const snapshot = state.lastBrowse;
+  const snapshot = normalizeLastBrowse(state.lastBrowse);
   if (!snapshot) return;
+  const current = beginBrowseIntent();
   const locked = isHistoryItemLocked(snapshot);
   if (locked === 'r18g') {
     showR18gLockedHint();
@@ -443,38 +494,41 @@ export async function resumeLastBrowse(options = {}) {
     consumeLayer: Boolean(options.consumeLayer),
     saveBrowse: false,
   };
+  const urlState = {
+    codex: requestedCodexId, path: snapshot.path, q: snapshot.q,
+    searchFilters: snapshot.searchFilters, entry: snapshot.entryId,
+    scope: snapshot.searchScope, imageIndex: snapshot.imageIndex,
+    updateFilter: snapshot.updateFilter,
+  };
   if (meta && isCodexLocked(meta)) {
     showNsfwLockedHint();
     return;
   }
   if (wantsFavorites) {
-    if (!state.codex || state.codex.id !== targetId || state.favoritesView) {
-      await historyActions.loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
-    }
-    applyBrowseControls({ ...snapshot, favoritesView: true });
-    await historyActions.openFavoritesView({
-      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', searchFilters: normalizeSearchFilterValues(snapshot.searchFilters), entry: snapshot.entryId || '', favorites: true },
+    if (!await renderBrowseIntent(current, historyActions.openFavoritesView, {
+      browseCodexId: targetId,
+      urlState: { ...urlState, codex: targetId, favorites: true,
+        folderCode: typeof snapshot.favFolder === 'string' ? historyActions.favoritesFolderCode(snapshot.favFolder) : snapshot.folderCode,
+        favSource: snapshot.favSource, favSort: snapshot.favSort },
       ...finalHistory,
-    });
+    })) return;
   } else if (wantsSiteSearch) {
-    if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
-      await historyActions.loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
-    }
-    applyBrowseControls({ ...snapshot, favoritesView: false, onlyFav: false });
-    await historyActions.openSiteSearchView({
-      urlState: { codex: targetId, path: snapshot.path || [], q: snapshot.q || '', searchFilters: normalizeSearchFilterValues(snapshot.searchFilters), entry: snapshot.entryId || '', scope: 'site' },
+    if (!await renderBrowseIntent(current, historyActions.openSiteSearchView, {
+      browseCodexId: targetId,
+      urlState: { ...urlState, codex: targetId, scope: 'site' },
       ...finalHistory,
-    });
+    })) return;
   } else if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
-    applyBrowseControls(snapshot);
-    await historyActions.loadCodex(targetId, {
-      urlState: { codex: requestedCodexId, path: snapshot.path || [], q: snapshot.q || '', searchFilters: normalizeSearchFilterValues(snapshot.searchFilters), entry: snapshot.entryId || '', updateFilter: String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : '')) },
+    if (!await renderBrowseIntent(current, options => historyActions.loadCodex(targetId, options), {
+      urlState,
       ...finalHistory,
-    });
+    })) return;
   } else {
     applyBrowseControls(snapshot);
     applyBrowseState(snapshot, finalHistory);
-    if (snapshot.entryId) window.setTimeout(() => historyActions.openEntryDeepLink(snapshot.entryId), 120);
+  }
+  if (snapshot.entryId && historyActions.openEntryDeepLink(snapshot.entryId, { imageIndex: snapshot.imageIndex })) {
+    syncUrlState({ historyMode: 'replace', saveBrowse: false });
   }
   if (!snapshot.entryId) {
     restoreBrowseScroll(snapshot.scrollY);
@@ -484,6 +538,7 @@ export async function resumeLastBrowse(options = {}) {
 
 export async function openRecentEntry(item, options = {}) {
   if (!item?.codexId || !item.entryId) return;
+  const current = beginBrowseIntent();
   const locked = isHistoryItemLocked(item);
   if (locked === 'r18g') {
     showR18gLockedHint();
@@ -508,15 +563,13 @@ export async function openRecentEntry(item, options = {}) {
     transition: landOnCard ? 'route' : 'detail',
     consumeLayer: Boolean(options.consumeLayer),
   };
-  const openDetail = delay => window.setTimeout(() => historyActions.openEntryDeepLink(
-    item.entryId,
-    landOnCard ? { historyMode: 'push' } : undefined,
-  ), delay);
+  const openDetail = () => {
+    const opened = historyActions.openEntryDeepLink(item.entryId, landOnCard ? { historyMode: 'push' } : undefined);
+    if (opened && !landOnCard) syncUrlState({ historyMode: 'replace', saveBrowse: false });
+  };
   if (!state.codex || state.codex.id !== targetId || state.siteSearchView) {
-    state.onlyFav = false;
-    applyBrowseControls({ onlyFav: false });
-    await historyActions.loadCodex(targetId, { urlState, ...finalHistory });
-    if (landOnCard && state.codex?.id === targetId && !state.favoritesView && !state.siteSearchView) openDetail(180);
+    if (!await renderBrowseIntent(current, options => historyActions.loadCodex(targetId, options), { urlState, ...finalHistory })) return;
+    if (state.codex?.id === targetId && !state.favoritesView && !state.siteSearchView) openDetail();
   } else {
     state.query = '';
     state.searchFilters = [];
@@ -531,6 +584,6 @@ export async function openRecentEntry(item, options = {}) {
     historyActions.renderTree();
     historyActions.applyFilter({ resetScroll: true });
     syncUrlState({ ...finalHistory, entry: urlState.entry });
-    openDetail(120);
+    openDetail();
   }
 }
