@@ -166,7 +166,7 @@
 
 ### 工程风险专项回归
 
-- `test_frontend_loading_recovery.mjs`：实际 ES module 图的译名失败恢复、搜索截止/取消/权限/release、主站和中转站重试接线；Node 需 `--experimental-vm-modules`，合成 fetch/时钟，不联网。
+- `test_frontend_loading_recovery.mjs`：实际 ES module 图的译名失败恢复、搜索截止/取消/权限/release、主站和中转站重试接线；中转站另验隐藏/关闭/空白零请求、输入与正负栏按需加载、来源分片及迟到重画。Node 需 `--experimental-vm-modules`，合成 fetch/时钟，不联网；`verify_frontend_loading_recovery.py --only-relay` 用真实页面补验按需请求和故障恢复。
 - `test_feedback_list_budget.mjs`、`test_feedback_list_client.mjs`：假 R2 分页、读正文预算、最新排序/版本冲突、加密缓存和 202 有界客户端续载；仅合成对象与口令。
 - `test_benchmark_search_v1.mjs`：固定公共语义、数据摘要、采样分布、完整排序结果、冻结报告可比性、10% 回退判定、空数据及旧比较不可比闸门；写临时合成 JSON，不读取私密法典。
 

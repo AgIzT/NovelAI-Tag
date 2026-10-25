@@ -76,10 +76,222 @@ async function relayTranslationCaller(env) {
   let renders = 0;
   const context = vm.createContext({
     requestedZh: new Set(), loadTagZh: tag.loadTagZh, isTagZhComplete: tag.isTagZhComplete,
+    isTagZhEnabled: () => true, isRelayRailOpen: () => true,
     editor: { render() { renders++; vm.runInContext("warmTranslations('a')", context); } },
   });
   vm.runInContext(source.slice(start, end), context);
   return { tag, warm: () => vm.runInContext("warmTranslations('a')", context), renders: () => renders };
+}
+
+// Execute the production compose setup/callers, replacing only DOM, editor and storage.
+// Requests still pass through the real tag-zh and data-source modules above.
+async function relayDemandCaller(env, { visible = false, enabled = true, positive = '', negative = '', folds = {} } = {}) {
+  const tag = await env.load('app/tag-zh.js');
+  const text = await env.load('app/tag-relay-text.js');
+  const v4 = await env.load('app/tag-relay-v4.js');
+  const source = readFileSync(path.join(root, 'app/tag-relay-compose.js'), 'utf8')
+    .replace(/^import\s[\s\S]*?;\r?\n/gm, '').replace(/^export\s+/gm, '');
+  const nodes = new Map(), renders = [], listeners = [];
+  let session, translate, change;
+  const plan = { id: 'test-plan', revision: 0, positive: { text: positive, folds }, negative: { text: negative, folds: {} } };
+  const element = () => {
+    const classes = new Set(), attributes = new Map();
+    return {
+      hidden: false, inert: false, isConnected: true, children: [],
+      classList: {
+        add(...names) { names.forEach(name => classes.add(name)); },
+        remove(...names) { names.forEach(name => classes.delete(name)); },
+        contains(name) { return classes.has(name); },
+        toggle(name, force) { const on = force ?? !classes.has(name); on ? classes.add(name) : classes.delete(name); return on; },
+      },
+      setAttribute(name, value) { attributes.set(name, String(value)); },
+      getAttribute(name) { return attributes.get(name) ?? null; },
+      append(...children) { this.children.push(...children); }, before() {},
+      replaceChildren(...children) { this.children = children; },
+      contains() { return false; }, addEventListener() {},
+      getClientRects() { return visible ? [{}] : []; },
+      closest(selector) { return selector.includes('tag-relay-rail') ? rail : selector.includes('relay-pane') ? pane : null; },
+      querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, element()); return nodes.get(selector); },
+      querySelectorAll() { return []; },
+    };
+  };
+  const rail = element(), pane = element();
+  const setVisible = value => {
+    visible = value; pane.hidden = !value; rail.inert = !value;
+    rail.classList.toggle('closed', !value); rail.setAttribute('aria-hidden', String(!value));
+  };
+  setVisible(visible);
+  const editor = {
+    loadPlan(value) {
+      session = { ...structuredClone(value), channel: 'positive' };
+      for (const channel of ['positive', 'negative']) session[channel].folds = new Map(Object.entries(value[channel].folds));
+    },
+    getSnapshot() { return structuredClone(session); },
+    getSession() { return session; },
+    render() { renders.push({ positive: session.positive.text, negative: session.negative.text,
+      zh: translate({ name: session[session.channel].text, codexId: 'a' }) }); },
+  };
+  const context = vm.createContext({
+    structuredClone, console, Promise, setTimeout, clearTimeout,
+    state: { codex: { id: 'a' } },
+    document: { createElement: element, addEventListener() {} }, window: { addEventListener() {} },
+    isTagZhEnabled: () => enabled, isRelayRailOpen: () => visible, isTagZhComplete: tag.isTagZhComplete,
+    loadTagZh: tag.loadTagZh, lookupLoadedTagZh: tag.lookupLoadedTagZh,
+    onTagZhChange(listener) { listeners.push(listener); },
+    createRelayEditor(options) { translate = options.translate; change = options.onChange; return editor; },
+    createSelectMenu: () => ({ element: element(), button: element(), list: element() }),
+    initializeRelay: async () => {}, subscribeRelay() {}, relayState: () => ({ plans: [plan], activePlanId: plan.id }),
+    getActivePlan: () => plan, getPlan: (_, id) => id === plan.id ? plan : null,
+    planFolds: v4.planFolds, planForSession: (value, snapshot) => ({ ...value, ...snapshot }),
+    snapshotLocked: fold => Boolean(fold.locked), cancelRelayAction() {},
+    tokens: text.tokens, foldRanges: text.foldRanges,
+  });
+  vm.runInContext(`${source}\n
+    renderOutput = () => {}; renderManager = () => {}; renderSaveState = () => {};
+    renderHistory = () => {}; setupPlanActions = () => {}; bindSegment = () => {};
+    globalThis.composeTest = { setupRelayCompose, renderCompose };
+  `, context);
+  context.composeTest.setupRelayCompose(pane);
+  await flush();
+  return {
+    tag, renders, render: () => context.composeTest.renderCompose(), setVisible,
+    setEnabled(value) { enabled = value; for (const listener of listeners) listener(value); },
+    input(value, nextNegative = '') {
+      session.positive.text = value; session.negative.text = nextNegative;
+      change({ content: false });
+    },
+    setChannel(channel) { session.channel = channel; change({ content: false }); },
+  };
+}
+
+test('translation demand: hidden homepage compose does not fetch even with a saved draft', async () => {
+  const env = await environment(() => response(shard(['a'], { cat: '猫' })));
+  const caller = await relayDemandCaller(env, { positive: 'cat' });
+  caller.render(); await flush();
+  assert.equal(env.calls.length, 0, 'hidden compose must not compete with homepage resources');
+});
+
+test('translation demand: disabled Chinese annotations never start a compose request', async () => {
+  const env = await environment(() => response(shard(['a'], { cat: '猫' })));
+  const caller = await relayDemandCaller(env, { visible: true, enabled: false, positive: 'cat' });
+  caller.render(); await flush();
+  assert.equal(env.calls.length, 0, 'disabled annotations must gate network loading, not only painting');
+});
+
+test('translation demand: visible empty compose waits for meaningful content', async () => {
+  const env = await environment(() => response(shard(['a'], { cat: '猫' })));
+  const caller = await relayDemandCaller(env, { visible: true, positive: '  ', negative: '\n' });
+  caller.render(); await flush();
+  assert.equal(env.calls.length, 0, 'opening an empty editor is not translation demand');
+});
+
+test('translation demand: opening populated compose loads core and current book once', async () => {
+  const env = await environment(call => response(call.url.endsWith('/core.json') ? shard(['a']) : shard([], { cat: '猫' })));
+  const caller = await relayDemandCaller(env, { positive: 'cat' });
+  assert.equal(env.calls.length, 0);
+  caller.setVisible(true);
+  for (let i = 0; i < 25; i++) caller.render();
+  await flush();
+  assert.deepEqual(env.calls.map(call => new URL(call.url).pathname).sort(), ['/data/tag_zh/a.json', '/data/tag_zh/core.json']);
+  assert.equal(caller.renders.at(-1).zh, '猫');
+  caller.render(); await flush();
+  assert.equal(env.calls.length, 2, 'already loaded translation sources stay cached');
+});
+
+test('translation demand: enabling annotations starts current visible content without reopening', async () => {
+  const env = await environment(() => response(shard([], { cat: '猫' })));
+  const caller = await relayDemandCaller(env, { visible: true, enabled: false, positive: 'cat' });
+  assert.equal(env.calls.length, 0);
+  caller.setEnabled(true); await flush();
+  assert.equal(env.calls.length, 1);
+  assert.equal(caller.renders.at(-1).zh, '猫');
+});
+
+test('translation demand: input and channel changes load only the current visible channel', async () => {
+  const env = await environment(() => response(shard([], { cat: '猫' })));
+  const caller = await relayDemandCaller(env, { visible: true, negative: 'cat' });
+  assert.equal(env.calls.length, 0, 'inactive negative text does not start positive-channel translation');
+  caller.setChannel('negative'); await flush();
+  assert.equal(env.calls.length, 1);
+  assert.equal(caller.renders.at(-1).zh, '猫');
+
+  const inputEnv = await environment(() => response(shard([], { cat: '猫' })));
+  const inputCaller = await relayDemandCaller(inputEnv, { visible: true });
+  assert.equal(inputEnv.calls.length, 0);
+  inputCaller.input('cat'); await flush();
+  assert.equal(inputEnv.calls.length, 1, 'typing into an empty visible channel creates demand');
+  assert.equal(inputCaller.renders.at(-1).zh, '猫');
+});
+
+test('translation demand: folded source waits until its text is expanded', async () => {
+  const env = await environment(() => response(shard([], { cat: '猫' })));
+  const caller = await relayDemandCaller(env, { visible: true, positive: '\u200b#source\u200b',
+    folds: { source: { name: 'source', body: 'cat', codexId: 'a' } } });
+  assert.equal(env.calls.length, 0, 'collapsed source paints a count instead of translated tags');
+  caller.input('cat'); await flush();
+  assert.equal(env.calls.length, 1);
+  assert.equal(caller.renders.at(-1).zh, '猫');
+});
+
+test('translation demand: reopening a saved plan loads its unlocked source shard', async () => {
+  const env = await environment(call => response(call.url.endsWith('/core.json') ? shard(['a', 'old-book', 'locked-book'])
+    : shard([], call.url.endsWith('/old-book.json') ? { cat: '旧书译名' } : {})));
+  const caller = await relayDemandCaller(env, { positive: 'cat', folds: {
+    source: { name: 'source', body: 'cat', codexId: 'old-book' },
+    locked: { name: 'locked', body: 'cat', codexId: 'locked-book', locked: true },
+  } });
+  assert.equal(env.calls.length, 0, 'saved plan source metadata alone is not homepage demand');
+  caller.setVisible(true); caller.render(); await flush();
+  assert.deepEqual(env.calls.map(call => new URL(call.url).pathname).sort(),
+    ['/data/tag_zh/a.json', '/data/tag_zh/core.json', '/data/tag_zh/old-book.json']);
+  assert.equal(caller.renders.at(-1).zh, '旧书译名', 'expanded old source still contributes its own translations');
+});
+
+test('translation demand: delayed response repaints current input instead of the requesting snapshot', async () => {
+  let release;
+  const env = await environment(() => new Promise(resolve => { release = resolve; }));
+  const caller = await relayDemandCaller(env, { visible: true, positive: 'cat' });
+  assert.equal(env.calls.length, 1);
+  caller.input('dog');
+  release(response(shard([], { cat: '猫', dog: '狗' }))); await flush();
+  assert.equal(caller.renders.at(-1).positive, 'dog');
+  assert.equal(caller.renders.at(-1).zh, '狗');
+});
+
+for (const stop of ['close', 'disable']) {
+  test(`translation demand: ${stop} suppresses a late asynchronous repaint`, async () => {
+    let release;
+    const env = await environment(() => new Promise(resolve => { release = resolve; }));
+    const caller = await relayDemandCaller(env, { visible: true, positive: 'cat' });
+    if (stop === 'close') caller.setVisible(false);
+    else caller.setEnabled(false);
+    const painted = caller.renders.length;
+    release(response(shard([], { cat: '猫' }))); await flush();
+    assert.equal(caller.renders.length, painted, 'finished fetch must not redraw hidden/disabled annotations');
+    caller.setVisible(true); caller.setEnabled(true); caller.render(); await flush();
+    assert.equal(caller.renders.at(-1).zh, '猫');
+    assert.equal(env.calls.length, 1, 'late data remains usable after returning to the editor');
+  });
+}
+
+for (const failingPath of ['core.json', 'a.json']) {
+  test(`translation demand: real compose retries ${failingPath} on later demand`, async () => {
+    let fail = true;
+    const env = await environment(call => fail && call.url.endsWith('/' + failingPath) ? response({}, 503)
+      : response(call.url.endsWith('/core.json') ? shard(['a']) : shard([], { cat: '猫' })));
+    const caller = await relayDemandCaller(env, { visible: true, positive: 'cat' });
+    assert.equal(caller.tag.isTagZhComplete('a'), false);
+    const failedCalls = env.calls.length;
+    for (let i = 0; i < 25; i++) caller.render();
+    await flush();
+    assert.equal(env.calls.length, failedCalls, 'immediate demand respects loader cooldown');
+    fail = false; await env.advance(1000);
+    for (let i = 0; i < 25; i++) caller.render();
+    await flush();
+    assert.equal(caller.tag.isTagZhComplete('a'), true);
+    assert.equal(caller.renders.at(-1).zh, '猫');
+    assert.equal(env.calls.length, 3, 'failed source retries once; successful core is reused');
+  });
 }
 
 for (const failingPath of ['core.json', 'a.json']) {

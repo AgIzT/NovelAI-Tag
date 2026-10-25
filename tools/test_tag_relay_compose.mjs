@@ -56,7 +56,7 @@ function fixture({ issue = 'conflict', globalIssue = null, localRevision = 0 } =
       });
     },
     snapshotLocked: () => false, cancelRelayAction() {}, loadTagZh: async () => {},
-    isTagZhEnabled: () => false, document: { createElement: node }, tokens: () => [],
+    isTagZhEnabled: () => false, isRelayRailOpen: () => false, document: { createElement: node }, tokens: () => [],
     setTimeout(fn) { timers.set(++timer, fn); return timer; },
     clearTimeout(id) { timers.delete(id); },
   };

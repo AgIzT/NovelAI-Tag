@@ -4,10 +4,11 @@ import { dismissToast, toast } from './feedback.js';
 import { state } from './state.js';
 import { isTagZhComplete, isTagZhEnabled, loadTagZh, lookupLoadedTagZh, onTagZhChange } from './tag-zh.js';
 import { createRelayEditor } from './tag-relay-editor.js';
+import { isRelayRailOpen } from './tag-relay-rail.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { foldRanges, tokens } from './tag-relay-text.js';
 import { clearCopyHistory, compilePlanChannel, copyPlan, createPlan, deletePlan, getActivePlan, getPlan,
-  planFolds, planForSession, recordCopyHistory, renamePlan, replacePlanText, restoreHistoryAsPlan, setActivePlan } from './tag-relay-v4.js';
+  planForSession, recordCopyHistory, renamePlan, replacePlanText, restoreHistoryAsPlan, setActivePlan } from './tag-relay-v4.js';
 import { commitRelay, getRelayStorageIssue, initializeRelay, relayState, subscribeRelay } from './tag-relay-store.js';
 import { cancelRelayAction, requestRelayAction } from './tag-relay-action.js';
 import { setupRelayBackup } from './tag-relay-backup.js';
@@ -27,12 +28,23 @@ const element = (tag, className, text) => {
   return node;
 };
 function warmTranslations(codexId) {
+  if (!isRelayRailOpen() || !isTagZhEnabled()) return;
   const id = String(codexId || '');
   if (requestedZh.has(id)) return;
-  requestedZh.add(id); void loadTagZh(id).then(() => editor?.render()).finally(() => {
+  requestedZh.add(id); void loadTagZh(id).then(() => {
+    if (isRelayRailOpen() && isTagZhEnabled()) editor?.render();
+  }).finally(() => {
     // 保留在途/重绘重入守卫；临时失败交还给下一次打开或加入素材，冷却由 loader 统一管理。
     if (!isTagZhComplete(id)) requestedZh.delete(id);
   });
+}
+function warmComposeTranslations() {
+  if (!editor || !isRelayRailOpen() || !isTagZhEnabled()) return;
+  const session = editor.getSession(), value = session[session.channel];
+  // 空栏和折叠块只显示原文或项数；出现普通 tag 时才需要对照表。
+  if (!value || !tokens(value.text).some(token => !value.folds.has(token.fold))) return;
+  warmTranslations(state.codex?.id);
+  for (const fold of value.folds.values()) if (!snapshotLocked(fold)) warmTranslations(fold.codexId);
 }
 function translate(token) {
   return isTagZhEnabled() ? lookupLoadedTagZh(token.name || token.core || '', [token.codexId, state.codex?.id])?.zh || '' : '';
@@ -58,7 +70,7 @@ function openPlan(plan) {
   const draft = draftFor(plan);
   activeId = plan.id; loading = true;
   try { editor.loadPlan(draft.plan); } finally { loading = false; }
-  for (const fold of planFolds(draft.plan)) if (!snapshotLocked(fold)) warmTranslations(fold.codexId);
+  warmComposeTranslations();
   renderOutput(); renderManager(); renderSaveState();
 }
 function editorChanged(meta = {}) {
@@ -71,7 +83,7 @@ function editorChanged(meta = {}) {
     scheduleDraftSave(draft);
     renderSaveState();
   }
-  renderOutput();
+  warmComposeTranslations(); renderOutput();
 }
 async function saveDraft(draft) {
   clearTimeout(draft.timer); draft.timer = 0;
@@ -215,7 +227,7 @@ export async function addSourceToPlan(entry, options = {}) {
   if (!editor || !entry || snapshotLocked(entry)) { toast('该素材当前无法加入方案', '!'); return null; }
   if (entry.channel === 'character-negative') { toast('角色负面不能加入方案，复制后粘贴到对应角色的负面栏', '!'); return null; }
   const result = editor.insertSource(entry, options);
-  if (result) { warmTranslations(entry.codexId); await flushCompose(); }
+  if (result) await flushCompose();
   return result;
 }
 function mergedTotal(records = []) { return records.reduce((sum, item) => sum + item.dropped, 0); }
@@ -256,7 +268,7 @@ export function refreshComposeAccess() {
 }
 export function renderCompose() {
   if (!editor) return;
-  warmTranslations(state.codex?.id); syncStoredState(); editor.render(); renderOutput();
+  syncStoredState(); warmComposeTranslations(); editor.render(); renderOutput();
 }
 function safeSnapshot(plan, channels) {
   const safe = structuredClone(plan);
@@ -449,7 +461,7 @@ export function setupRelayCompose(root) {
   refs.copyNegative.onclick = event => copyOutput('negative', event.currentTarget);
   refs.copyAll.onclick = event => copyOutput('both', event.currentTarget);
   setupPlanActions(scope, q); openPlan(getActivePlan(relayState())); subscribeRelay(syncStoredState);
-  onTagZhChange(() => editor.render());
+  onTagZhChange(() => { warmComposeTranslations(); editor.render(); });
   root.addEventListener('focusout', async () => { await flushCompose(); });
   scope.addEventListener('relayclose', async () => { await flushCompose(); });
   document.addEventListener('visibilitychange', async () => { if (document.hidden) await flushCompose(); });
