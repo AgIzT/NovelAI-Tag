@@ -185,6 +185,16 @@ function bindDelegates() {
       loadCurrent();
       return;
     }
+    const feedbackPage = event.target.closest('[data-feedback-page]');
+    if (feedbackPage) {
+      const previous = feedbackPage.dataset.feedbackPage === 'previous';
+      if (state.view !== 'feedback' || state.busy || state.loading
+        || (previous ? !state.feedbackPage.offset : !state.feedbackPage.nextCursor)
+        || !confirmDiscardChanges()) return;
+      clearDirty(false);
+      loadCurrent({ feedbackCursor: previous ? state.feedbackPage.previousCursor : state.feedbackPage.nextCursor });
+      return;
+    }
     if (event.target.closest('[data-clear-selection]')) {
       resetSelection();
       resetBatchFailures();
@@ -317,7 +327,7 @@ function bindKeyboard() {
   });
 }
 
-async function loadCurrent() {
+async function loadCurrent({ feedbackCursor = '' } = {}) {
   const seq = ++loadSeq;
   if (loadController) loadController.abort();
   const controller = new AbortController();
@@ -328,6 +338,12 @@ async function loadCurrent() {
   const view = state.view;
   const status = state.status;
   const feedbackStatus = state.feedbackStatus;
+  if (view === 'feedback') {
+    state.selectedFeedbackId = '';
+    state.feedbackItems = [];
+    state.feedbackPage = { offset: 0, total: 0, nextCursor: '', previousCursor: '' };
+    renderHeader(); renderToolbar(); renderDetail();
+  }
   try {
     if (view === 'dashboard') {
       const data = await getStats({ signal: controller.signal });
@@ -338,9 +354,12 @@ async function loadCurrent() {
       state.selectedId = '';
       state.selectedFeedbackId = '';
     } else if (view === 'feedback') {
-      const data = await getFeedback(feedbackStatus, { signal: controller.signal });
+      const data = await getFeedback(feedbackStatus, { cursor: feedbackCursor, signal: controller.signal });
       if (seq !== loadSeq) return;
       state.feedbackItems = data.items || [];
+      state.feedbackPage = { offset: data.offset || 0, total: data.total ?? state.feedbackItems.length,
+        nextCursor: data.nextCursor || '', previousCursor: data.previousCursor || '' };
+      if (data.paginationReset) toast('反馈列表已变化，已返回第一页');
       if (!state.feedbackItems.some(item => item.id === state.selectedFeedbackId)) {
         state.selectedFeedbackId = shouldAutoOpenDetail() ? state.feedbackItems[0]?.id || '' : '';
       }
@@ -359,6 +378,7 @@ async function loadCurrent() {
   } catch (error) {
     if (error?.name === 'AbortError' || seq !== loadSeq) return;
     state.loading = false;
+    if (view === 'feedback') renderToolbar();
     handleError(error, true);
   } finally {
     if (seq === loadSeq) loadController = null;
@@ -519,7 +539,7 @@ async function runFeedbackAction(action) {
         : `已更新为「${savedProgress.label}」，归入「${FEEDBACK_LABELS[saved.status] || saved.status}」· ${visibility}`);
     }
     clearDirty(false);
-    renderWorkspace();
+    await loadCurrent();
   } catch (error) {
     handleError(error);
   } finally {
@@ -862,6 +882,7 @@ function setBusy(busy) {
   }
   const selectAll = $('#selectAllVisible');
   if (selectAll) selectAll.disabled = busy || currentItems().length === 0;
+  if (state.view === 'feedback') renderToolbar();
 }
 
 function cancelActiveLoad() {

@@ -358,12 +358,13 @@ await checked('legacy duplicate rebuild keeps the newest public reply before app
   assert.equal(afterDelete.items.some(item => item.id === id), false);
 });
 
-await checked('legacy same-status copies retain prior count semantics without exceeding the admin body budget', async () => {
+await checked('legacy raw counts stay conservative while admin pagination shows the newest unique ID within its body budget', async () => {
   const bucket = new Bucket();
   for (let i = 1; i <= 201; i++) bucket.seed(`feedback/pending/2026/${String(i).padStart(3, '0')}/${id}.json`, feedbackRecord({ createdAt: i }));
   let bodyReads = 0;
   const get = bucket.get.bind(bucket);
-  bucket.get = async key => { if (key.startsWith('feedback/pending/')) bodyReads++; return get(key); };
+  bucket.get = async key => { if (/^feedback\/(pending|resolved|records)\//.test(key)) bodyReads++; return get(key); };
+  // 原始候选保留 201，容量/建索引预算不能把它们提前当成一个对象。
   assert.equal((await listRecordMetadata(bucket, 'feedback', ['pending'])).length, 201);
   let result;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -373,12 +374,27 @@ await checked('legacy same-status copies retain prior count semantics without ex
     if (!result.indexing) break;
   }
   assert.equal(result.indexing, false);
-  assert.equal(result.items.length, 200);
+  // BE-05 的展示和 total 都以唯一反馈 ID 计数，最新副本决定正文。
+  assert.equal(result.items.length, 1);
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].id, id);
   assert.equal(result.items[0].createdAt, 201);
-  assert.equal(result.items.at(-1).createdAt, 2);
+  assert.equal(result.nextCursor, '');
   await writeCanonical(bucket, 'feedback', id, null, { status: 'resolved', record: feedbackRecord({ status: 'resolved' }) });
   assert.equal((await listRecordMetadata(bucket, 'feedback', ['pending'])).length, 0);
   assert.equal((await listRecordMetadata(bucket, 'feedback', ['resolved'])).length, 1);
+  bodyReads = 0;
+  const pending = await readAdminFeedbackList(bucket, 'pending', 'synthetic-secret');
+  assert.ok(bodyReads <= 200);
+  assert.equal(pending.indexing, false);
+  assert.equal(pending.total, 0);
+  assert.deepEqual(pending.items, []);
+  bodyReads = 0;
+  const resolved = await readAdminFeedbackList(bucket, 'resolved', 'synthetic-secret');
+  assert.ok(bodyReads <= 200);
+  assert.equal(resolved.indexing, false);
+  assert.equal(resolved.total, 1);
+  assert.deepEqual(resolved.items.map(item => item.id), [id]);
 });
 
 await checked('soft-delete retry repairs the projection without replaying the old request', async () => {

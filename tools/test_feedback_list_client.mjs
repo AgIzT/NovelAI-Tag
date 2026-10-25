@@ -31,6 +31,36 @@ const cases = [
     globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ ok: false, error: 'storage failure' }), { status: 503 }); };
     await assert.rejects(getFeedback('resolved'), /storage failure/); assert.equal(calls, 1);
   }],
+  ['page cursor survives 202 preparation and signal is preserved', async () => {
+    const controller = new AbortController(); let calls = 0;
+    globalThis.fetch = async (url, opts) => {
+      assert.equal(new URL(url, 'https://local.test').searchParams.get('cursor'), 'synthetic-cursor');
+      assert.equal(opts.signal, controller.signal); calls++; return response(calls === 1 ? preparing : ready);
+    };
+    assert.deepEqual(await getFeedback('resolved', { cursor: 'synthetic-cursor', signal: controller.signal }), ready);
+    assert.equal(calls, 2);
+  }],
+  ['version conflict restarts from the first page with a visible reset flag', async () => {
+    const urls = [];
+    globalThis.fetch = async url => {
+      urls.push(url);
+      return urls.length === 1
+        ? new Response(JSON.stringify({ ok: false, error: 'changed', resetPagination: true }), { status: 409 })
+        : response(ready);
+    };
+    const data = await getFeedback('resolved', { cursor: 'old-cursor' });
+    assert.equal(data.paginationReset, true); assert.equal(data.items[0].id, 'latest');
+    assert.equal(new URL(urls[1], 'https://local.test').searchParams.has('cursor'), false);
+  }],
+  ['cancelled version conflict must not restart pagination', async () => {
+    const controller = new AbortController(); let calls = 0;
+    globalThis.fetch = async () => {
+      calls++; controller.abort();
+      return new Response(JSON.stringify({ ok: false, error: 'changed', resetPagination: true }), { status: 409 });
+    };
+    await assert.rejects(getFeedback('resolved', { cursor: 'old', signal: controller.signal }), error => error.name === 'AbortError');
+    assert.equal(calls, 1);
+  }],
 ];
 try {
   for (const [name, test] of cases) {
