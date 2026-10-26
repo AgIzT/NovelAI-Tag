@@ -2630,6 +2630,8 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-info{--prompt-fold:120px}
   .prompt-fold-toggle{min-height:38px;scroll-margin-bottom:76px}
   #copyPositiveDock:not([hidden]),#copyAll:not([hidden]){display:inline-block}
+  /* 选 tag 时底栏主按钮改成「复制所选 / 复制 N 项」，一项没选时不可点 */
+  #copyPositiveDock:disabled{opacity:.45;cursor:default;filter:none;transform:none}
   .lightbox-more:not([hidden]){
     display:grid;place-items:center;margin-left:auto;min-width:38px;padding:0 10px;
     border:1px solid var(--line);background:var(--tagbg);color:var(--text);
@@ -3337,13 +3339,14 @@ html.motion-off{scroll-behavior:auto!important}
 pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;white-space:normal}
 .prompt-selection-token{display:flex;flex-direction:column;gap:3px;max-width:100%;text-align:left;overflow-wrap:anywhere;white-space:normal;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-prompt)}
 .prompt-selection-token[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
-/* 操作栏在框上方、吸在滚动区顶部：框不限高，选到下面的 tag 也看得到计数和「复制所选」 */
+/* 操作栏在框上方、吸在滚动区顶部：框不限高，选到下面的 tag 也看得到「复制 N 项」。
+   计数并进复制按钮、按钮收窄，两栏约 290px 的窄列里也排成一行；× 留着，滚远了标题栏的开关就看不到了。 */
 .prompt-selection-bar{
-  position:sticky;top:0;z-index:2;display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 8px;padding:6px;
+  position:sticky;top:0;z-index:2;display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:0 0 8px;padding:5px;
   border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow);
 }
 .prompt-selection-bar[hidden]{display:none}
-.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 10px;font:12px/1.5 var(--font-ui)}
+.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-ui)}
 .prompt-selection-bar .prompt-selection-copy:not(:disabled){border-color:transparent;background:var(--accent);color:var(--on-accent);font-weight:700}
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
 .prompt-selection-bar .prompt-selection-close{
@@ -3352,7 +3355,7 @@ pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;
 }
 .prompt-selection-bar .prompt-selection-close:hover{background:var(--tagbg-hover);color:var(--text)}
 .prompt-selection-close svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
-.prompt-selection-count{padding:0 4px;font:11px var(--font-ui);color:var(--lb-muted,var(--muted))}
+.prompt-selection-count{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
 /* 触屏详情里这几排跟上方动作行同高 38px（窄屏那条已给动作行 38px）；抬到 44px 会让 12px 字的胶囊比动作行还胖一圈。 */
 @media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle,.lightbox-actions button,.section-head button{min-height:38px}}

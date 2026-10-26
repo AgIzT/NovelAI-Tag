@@ -1984,6 +1984,17 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "prompt folded again")
         cdp.eval("document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-selection-toggle').click()")
         selecting = wait_for(cdp, f"(() => {{ const s = {state_expr}; return !s.folded && !s.toggleShown ? s : null; }})()", "selection shows whole prompt")
+        # 两栏窄列里操作栏排成一行，计数并进复制按钮
+        bar = cdp.eval("""(() => {
+  const pre = document.querySelector('#lightboxTags');
+  const bar = pre.parentElement.querySelector('.prompt-selection-bar');
+  [...pre.querySelectorAll('.prompt-selection-token')].slice(0, 2).forEach(token => token.click());
+  const rows = new Set([...bar.querySelectorAll('button')].map(b => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)));
+  return { rows: rows.size, copy: bar.querySelector('.prompt-selection-copy').textContent,
+    columns: document.querySelector('#lightbox').classList.contains('lb-two-columns') };
+})()""")
+        if bar["copy"] != "复制 2 项" or (bar["columns"] and bar["rows"] != 1):
+            raise CheckFailed(f"选择操作栏没有压成一行或计数不对：{bar}")
         cdp.eval("document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-selection-toggle').click()")
         wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "prompt folded after selection")
         navigate(cdp, base + f"?codex=nai5_community_pack&entry={short_entry['id']}")
@@ -1995,7 +2006,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "prompt fold lightbox close")
         check_no_errors(cdp)
         return {"long": long_entry["id"], "short": short_entry["id"], "folded": folded, "opened": opened["height"],
-                "selecting": selecting["height"], "screenshot": shot}
+                "selecting": selecting["height"], "selectionBar": bar, "screenshot": shot}
 
     def theme_axes():
         """换肤/字体/深浅色三条轴：六套皮肤都能挂上、素墨深色档的前景色压得住、
@@ -2488,6 +2499,22 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         # 底栏放不下中文对照，手机上它留在正向标题栏
         if not cdp.eval("!!document.querySelector('#lightboxTags').parentElement.querySelector('.section-head > #tagZhToggle')"):
             raise CheckFailed("手机上中文对照开关不在正向标题栏")
+        # 选 tag 时底栏主按钮改为复制所选，没选时不可点，退出后恢复「复制正向」
+        dock = cdp.eval("""(() => {
+  const pre = document.querySelector('#lightboxTags');
+  const toggle = pre.parentElement.querySelector('.prompt-selection-toggle');
+  const dock = document.querySelector('#copyPositiveDock');
+  if (!toggle) return null;
+  const read = () => [dock.textContent, dock.disabled];
+  toggle.click();
+  const empty = read();
+  pre.querySelector('.prompt-selection-token')?.click();
+  const one = read();
+  toggle.click();
+  return { empty, one, after: read() };
+})()""")
+        if dock and (dock["empty"] != ["复制所选", True] or dock["one"] != ["复制 1 项", False] or dock["after"] != ["复制正向", False]):
+            raise CheckFailed(f"选 tag 时手机底栏没有跟着切换：{dock}")
         # 手机底栏把反馈收在「⋯」里
         click('#lightboxMore')
         click('#reportLightbox')

@@ -521,6 +521,7 @@ function cancelLightboxPreloads({ keepOriginal = false } = {}) {
 
 function clearLightboxContent() {
   closeLightboxMore();
+  dockSelection = null;
   resetArtistStrip();
   clearTagZhDetails($('#lightboxInfo'));
   for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');
@@ -760,10 +761,43 @@ const promptSelections = new WeakMap();
 
 function updateSelectionControls(selection) {
   const count = selection.ids.size;
+  // 计数并进复制按钮：两栏窄列里操作栏才排得下一行；单独的计数只留给读屏
   selection.count.textContent = `已选 ${count} 项`;
+  selection.copy.textContent = selectionCopyLabel(selection);
   selection.copy.disabled = !count;
   selection.add.disabled = !count || selection.channel === 'character-negative';
   selection.all.textContent = count === selection.pieces.length ? '清空选择' : '全选';
+  if (selection === dockSelection) syncSelectionDock();
+}
+
+function selectionCopyLabel(selection) {
+  return selection.ids.size ? `复制 ${selection.ids.size} 项` : '复制所选';
+}
+
+/* 手机底栏的主按钮平时是「复制正向」。有框在选 tag 时改成复制那一框的所选（没选时不可点），
+   免得选完顺手点底栏把全文复制走；退出选择或换词条后恢复。 */
+let dockSelection = null;
+
+function syncSelectionDock() {
+  const dock = $('#copyPositiveDock');
+  if (!dock) return;
+  const selection = dockSelection?.active && dockSelection.bar.isConnected ? dockSelection : null;
+  if (selection) {
+    dock.hidden = false;
+    dock.disabled = !selection.ids.size;
+    dock.textContent = selectionCopyLabel(selection);
+    dock.onclick = event => {
+      event.stopPropagation();
+      selection.copySelected(dock);
+    };
+    return;
+  }
+  dockSelection = null;
+  const copyPositive = $('#copyPositive');
+  dock.hidden = Boolean(copyPositive?.hidden);
+  dock.disabled = false;
+  dock.textContent = '复制正向';
+  dock.onclick = copyPositive?.onclick || null;
 }
 
 function renderPromptSelection(pre, selection) {
@@ -811,6 +845,7 @@ function stopPromptSelection(pre) {
   selection.bar.hidden = true;
   selection.toggle.setAttribute('aria-pressed', 'false');
   pre.classList.remove('prompt-selecting');
+  if (selection === dockSelection) syncSelectionDock();
 }
 
 function bindPromptSelection(pre, text, { entry, channel = 'positive', characterIndex, label = '' } = {}) {
@@ -818,6 +853,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   const previous = promptSelections.get(pre);
   previous?.toggle.remove();
   previous?.bar.remove();
+  if (previous && previous === dockSelection) syncSelectionDock();
   promptSelections.delete(pre);
   pre.classList.remove('prompt-selecting');
   if (!String(text || '').trim()) return;
@@ -878,6 +914,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     selection.active = true;
     bar.hidden = false;
     toggle.setAttribute('aria-pressed', 'true');
+    dockSelection = selection;
     head.querySelector('.sd-preview-toggle')?.setAttribute('aria-pressed', 'false');
     pre.classList.remove('sd-previewing');
     clearTagZhDetails(pre.parentElement);
@@ -895,11 +932,15 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     text: serializeSelection(text, selection.ids), channel, characterIndex,
     scope: 'selection', label,
   });
-  copy.onclick = event => {
-    event.stopPropagation();
+  // 反馈落在被点的按钮上：操作栏的复制，或手机底栏（syncSelectionDock）
+  selection.copySelected = anchor => {
     if (!selection.ids.size || !refreshLightboxAccess(entry)) return;
     const fragment = selectedFragment();
-    void copyText(fragment.text, `已复制 ${selection.ids.size} 项：${entry.title}`, copy, { entry, fragment });
+    void copyText(fragment.text, `已复制 ${selection.ids.size} 项：${entry.title}`, anchor, { entry, fragment });
+  };
+  copy.onclick = event => {
+    event.stopPropagation();
+    selection.copySelected(copy);
   };
   add.onclick = async event => {
     event.stopPropagation();
@@ -1478,11 +1519,10 @@ export function renderLightbox() {
   };
   // 手机底栏的「复制正向」与小节里的同一个动作，复制反馈落在被点的那个按钮上
   const dockCopy = $('#copyPositiveDock');
-  if (dockCopy) {
-    dockCopy.hidden = !hasPositive;
-    dockCopy.title = $('#copyPositive').title;
-    dockCopy.onclick = $('#copyPositive').onclick;
-  }
+  if (dockCopy) dockCopy.title = $('#copyPositive').title;
+  // 换词条时各框都已退出选择（角色词框是重建的），底栏回到「复制正向」
+  dockSelection = null;
+  syncSelectionDock();
   $('#copyNegative').hidden = !negative;
   $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyNegative').onclick = ev => {
