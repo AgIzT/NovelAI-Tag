@@ -1,5 +1,7 @@
 'use strict';
 
+import { cleanRecordMarkers } from '../../../_record-index.js';
+
 import {
   json, err, requireAdmin, requireStorage, validId, cleanLine, normImageParams,
   COMMUNITY_STATUSES, DEFAULT_COMMUNITY_STATUS,
@@ -230,6 +232,7 @@ async function purgeItem(env, body, operation) {
   const id = String(body.id || '');
   if (!validId(id)) throw httpError('无效的内容 id');
   let found = await readCanonical(env.STRINGS_BUCKET, 'community', id);
+  if (found?.deleted) await cleanRecordMarkers(env.STRINGS_BUCKET, 'community', found);
   if (!found?.deleted) {
     found = await requireItem(env, id, statusSearch(body.status), operation);
     found = await writeCanonical(env.STRINGS_BUCKET, 'community', id, found, { status: found.status, deleted: true });

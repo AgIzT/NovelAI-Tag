@@ -1,7 +1,7 @@
 'use strict';
 
 import { json, err, LIMITS, cleanLine, cleanText, readJson } from '../_lib.js';
-import { canonicalKey, writeCanonical, listRecordMetadata } from '../_record-store.js';
+import { canonicalKey, writeCanonical, countPendingRecords } from '../_record-store.js';
 import { findFeedbackRecord } from '../_feedback.js';
 import { consumeSubmissionRate, reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
 
@@ -42,6 +42,12 @@ export async function onRequestPost(context) {
   const contactRaw = cleanLine(body?.contact, LIMIT.contact + 1);
   if (contactRaw.length > LIMIT.contact) return err(`联系方式最多 ${LIMIT.contact} 个字`);
 
+  // 目录准备可能需要多次刷新；尚未就绪时不消耗来源频率额度。
+  let pendCount;
+  try { pendCount = await countPendingRecords(env.STRINGS_BUCKET, 'feedback', LIMITS.pendingMax); }
+  catch (error) { return err(error.message || '待审目录暂不可用，请稍后重试', error.status || 503); }
+  if (pendCount >= LIMITS.pendingMax) return err('反馈队列已满，过几天再试', 429);
+
   // 限额走 D1 原子计数；D1 不可用（未绑定 / 0004 迁移未跑）时退回原来的 R2 软限额
   const ipHash = await hashIp(request, env);
   const rate = await consumeSubmissionRate(env, {
@@ -50,8 +56,6 @@ export async function onRequestPost(context) {
   const limited = rate ? !rate.allowed : await applySoftRateLimit(env.STRINGS_BUCKET, ipHash);
   if (limited) return err('反馈太频繁，10 分钟后再试', 429);
 
-  const pendCount = (await listRecordMetadata(env.STRINGS_BUCKET, 'feedback', ['pending'])).length;
-  if (pendCount >= LIMITS.pendingMax) return err('反馈队列已满，过几天再试', 429);
   // 并发保险：上面的计数只负责尽早拒绝，写入前再用 D1 原子占位守住上限
   const slot = await reservePendingSlot(env, { queue: 'feedback', pendingCount: pendCount, max: LIMITS.pendingMax });
   if (slot && !slot.reserved) return err('反馈队列已满，过几天再试', 429);
@@ -88,7 +92,7 @@ export async function onRequestPost(context) {
     if (await findFeedbackRecord(env.STRINGS_BUCKET, id)) throw Object.assign(new Error('反馈 ID 已占用'), { status: 409 });
     await writeCanonical(env.STRINGS_BUCKET, 'feedback', id, null, { status: 'pending', record });
   } catch (error) {
-    if (error.status === 409) await releasePendingSlot(env, { queue: 'feedback', id: slot?.id });
+    if (error.status === 409 || error.canonicalNotAttempted) await releasePendingSlot(env, { queue: 'feedback', id: slot?.id });
     return err(error.message || '反馈提交结果未确认，请稍后核对', error.status || 503);
   }
 

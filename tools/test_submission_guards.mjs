@@ -171,7 +171,7 @@ function feedbackRequest(ip, n) {
       const env = { STRINGS_BUCKET: bucket, SERVERCHAN_KEY: 'test-key', RATE_LIMIT_SALT: 'test' };
       const res = await feedbackPost({ env, request: feedbackRequest('192.0.2.1', 1), waitUntil: p => waits.push(p) });
       const { id } = await res.json();
-      const key = [...bucket.objects.keys()].find(k => k.endsWith(`${id}.json`));
+      const key = `feedback/records/${id}.json`;
       bucket.afterGet = async readKey => {
         if (readKey !== key) return;
         bucket.afterGet = null;
@@ -189,7 +189,7 @@ function feedbackRequest(ip, n) {
       const env = { STRINGS_BUCKET: bucket, SERVERCHAN_KEY: 'test-key', RATE_LIMIT_SALT: 'test' };
       const res = await feedbackPost({ env, request: feedbackRequest('192.0.2.2', 2), waitUntil: p => waits.push(p) });
       const { id } = await res.json();
-      const key = [...bucket.objects.keys()].find(k => k.endsWith(`${id}.json`));
+      const key = `feedback/records/${id}.json`;
       bucket.afterGet = async readKey => {
         if (readKey !== key) return;
         bucket.afterGet = null;

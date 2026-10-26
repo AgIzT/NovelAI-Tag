@@ -178,6 +178,7 @@
 - `test_strings_editor_state.mjs`：实际画师串编辑脚本配合合成 DOM/fetch，控制跨册迟到加载、失败加载、在途保存及后续编辑；不联网，不替代真实浏览器验收。
 - `test_pei_editor_state.mjs`：实际配图编辑器脚本配合合成 DOM/FileReader/fetch，验证迟到载入及读取图片/上传期间切册的身份归属；不联网，不写真实图片。
 - `test_moderation_concurrency.mjs`：真实投稿/反馈管理 handler 配合内存 R2，控制旧编辑、下架、撤回、索引首建与失败交错；不使用生产 binding，不替代真实 R2 平台并发验收。
+- `test_record_store_edges.mjs`：分页合成 R2 核验逾五万历史记录/永久墓碑不阻塞待审、旧 JSON 损坏隔离、权威/I/O 严格失败及索引准备超时；只读写内存，不联网、不迁移生产。纳入 ci/p1/p2。
 - `run_project_checks.py --profile p1`：集中运行上述用例及受影响的本地工具、投稿、反馈、喜欢、通知、聚合与列表回归；完整执行白名单与副作用以 `--profile p1 --list` 为准。上述新增核心回归同时纳入 `ci`。
 - `test_frontend_loading_recovery.mjs`：实际 ES module 图的译名失败恢复、搜索截止/取消/权限/release、主站和中转站重试接线；中转站另验隐藏/关闭/空白零请求、输入与正负栏按需加载、来源分片及迟到重画。Node 需 `--experimental-vm-modules`，合成 fetch/时钟，不联网；`verify_frontend_loading_recovery.py --only-relay` 用真实页面补验按需请求和故障恢复。
 - `test_feedback_list_budget.mjs`、`test_feedback_list_client.mjs`：假 R2 分页、读正文预算、最新排序/版本冲突、加密缓存和 202 有界客户端续载；仅合成对象与口令。

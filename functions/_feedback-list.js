@@ -2,6 +2,7 @@
 
 import { listRecordMetadata, decodeCanonical, storageError } from './_record-store.js';
 import { sanitizeAdminFeedbackRecord } from './_feedback.js';
+import { matchesMarker, pendingMarker, abortedMarker } from './_record-index.js';
 
 const BODY_LIMIT = 200;
 const MAX_LIST_PAGES = 100;
@@ -111,22 +112,34 @@ export async function readAdminFeedbackList(bucket, status, secret, { cursor = '
     for (let i = 0; i < recordsToRead.length; i += 20) {
       await Promise.all(recordsToRead.slice(i, i + 20).map(async meta => {
         reads++;
-        const body = await bucket.get(meta.key);
-        if (!body || body.etag !== meta.etag) {
+        const body = await bucket.get(meta.recordKey || meta.key);
+        if (!body && meta.recordKey && await abortedMarker(bucket, 'feedback', meta)) {
+          entries.set(meta.key, { key: meta.key, etag: meta.etag, time: null }); dirty = true; return;
+        }
+        if (!body || !meta.recordKey && body.etag !== meta.etag) {
           entries.delete(meta.key); dirty = true; changed = true;
           return;
         }
         // 先完整读取流；传输失败不能被当作坏 JSON 按 ETag 永久记为不可展示。
         const text = await body.text();
         let item = null;
-        try {
-          let record = JSON.parse(text);
+        let parsed;
+        try { parsed = JSON.parse(text); }
+        catch (error) { if (meta.canonical || !(error instanceof SyntaxError)) throw storageError('权威记录正文不可读取'); }
+        {
+          let record = parsed;
           if (meta.canonical) {
             const envelope = decodeCanonical(record, meta.id, 'feedback');
-            record = !envelope.deleted && envelope.status === status ? envelope.record : null;
+            if (meta.recordKey && !matchesMarker(meta, envelope, body.etag)) {
+              if (pendingMarker(meta, envelope) && !await abortedMarker(bucket, 'feedback', meta)) {
+                entries.delete(meta.key); dirty = true; changed = true; return;
+              }
+              record = null;
+            } else record = !envelope.deleted && envelope.status === status ? envelope.record : null;
           }
           if (record && typeof record === 'object' && !Array.isArray(record)) item = sanitizeAdminFeedbackRecord(record, status);
-        } catch { /* 与旧列表一样不展示损坏 JSON；版本变化后再读取 */ }
+        }
+        if (entries.get(meta.key)?.time !== null && entries.has(meta.key) && item === null) changed = true;
         const entry = { key: meta.key, etag: meta.etag, time: item ? sortTime(item) : null };
         if (entries.get(meta.key)?.time !== entry.time || entries.get(meta.key)?.etag !== entry.etag) dirty = true;
         entries.set(meta.key, entry);

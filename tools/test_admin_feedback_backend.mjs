@@ -14,6 +14,7 @@ import {
 } from '../site/assets/app/feedback-progress.js';
 import { renderFeedbackDetail } from '../site/assets/admin/editor.js';
 import { MemoryR2 } from './memory-r2-test-harness.mjs';
+import { requireRecordIndex } from '../functions/_record-index.js';
 
 const bucket = new MemoryR2();
 const env = {
@@ -500,6 +501,8 @@ const incrementalUpdate = body => updateFeedback({
   env: incrementalEnv,
   request: request('POST', '/api/admin/feedback-decide', body),
 });
+// 首次升级只准备一次 canonical 目录；下面核验暖路径增量更新不扫描历史。
+await requireRecordIndex(incrementalBucket, 'feedback');
 for (const incrementalId of ['aaaaaaaa', 'bbbbbbbb']) {
   const listCallsBefore = incrementalBucket.listCalls;
   await readOk(await incrementalUpdate({

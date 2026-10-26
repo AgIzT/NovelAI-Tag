@@ -1,5 +1,8 @@
 'use strict';
 
+import { requireRecordIndex, prepareRecordMarker, recordIndexPrefix, listedMarker, canonicalMetadata,
+  matchesMarker, pendingMarker, abortedMarker, maintainRecordIndex, previousMarkerKeys, cleanRecordMarkers } from './_record-index.js';
+
 // 固定 key 是唯一写入权威。旧目录只读兼容；墓碑永不删除，避免迟到请求复活记录。
 export const canonicalKey = (kind, id) => `${kind}/records/${id}.json`;
 
@@ -9,7 +12,7 @@ export function storageError(message, status = 503) {
 
 export function decodeCanonical(value, id, kind) {
   const statuses = kind === 'community' ? ['pending', 'approved', 'hidden', 'rejected', 'deleted'] : ['pending', 'resolved', 'ignored'];
-  if (!value || value.version !== 1 || value.id !== id
+  if (!value || ![1, 2].includes(value.version) || value.id !== id
     || !Number.isSafeInteger(value.revision) || value.revision < 1
     || typeof value.operationId !== 'string' || !value.operationId
     || !statuses.includes(value.status) || typeof value.deleted !== 'boolean'
@@ -33,16 +36,27 @@ export async function readCanonical(bucket, kind, id) {
 // found 是本次编辑实际读取的版本，不能在这里刷新后重放旧编辑。
 export async function writeCanonical(bucket, kind, id, found, { status, record = null, deleted = false }) {
   if (found?.deleted) throw storageError('记录已永久删除', 409);
+  let previous;
+  try {
+    await requireRecordIndex(bucket, kind);
+    await cleanRecordMarkers(bucket, kind, found);
+    previous = await previousMarkerKeys(kind, id, found);
+  } catch (error) {
+    throw Object.assign(error.status ? error : storageError('记录目录暂不可读取'), { canonicalNotAttempted: true });
+  }
   const payload = {
-    version: 1, id, revision: (found?.canonical ? found.revision : 0) + 1,
+    version: 2, id, revision: (found?.canonical ? found.revision : 0) + 1,
     operationId: crypto.randomUUID(), status, deleted,
     ...(deleted ? {} : { record }),
+    ...(previous.length ? { indexCleanupKeys: previous } : {}),
   };
   decodeCanonical(payload, id, kind);
+  const marker = deleted ? '' : await prepareRecordMarker(bucket, kind, id, payload);
   const key = canonicalKey(kind, id);
   const options = {
     httpMetadata: { contentType: 'application/json; charset=utf-8' },
-    customMetadata: { schema: 'moderation-v1', status, deleted: String(deleted) },
+    customMetadata: { schema: 'moderation-v2', status, deleted: String(deleted),
+      revision: String(payload.revision), operationId: payload.operationId },
     onlyIf: found?.canonical ? { etagMatches: found.etag } : new Headers({ 'if-none-match': '*' }),
   };
   let written;
@@ -51,17 +65,28 @@ export async function writeCanonical(bucket, kind, id, found, { status, record =
     // 超时可能已提交，也可能稍后提交。只确认本次 operationId；不补写、不删除。
     try {
       const current = await readCanonical(bucket, kind, id);
-      if (current?.operationId === payload.operationId) return current;
+      if (current?.operationId === payload.operationId) {
+        await cleanRecordMarkers(bucket, kind, current);
+        return current;
+      }
     } catch { /* 不可读也不能推断提交失败 */ }
     throw storageError('记录提交结果未确认，请刷新核对后重试');
   }
-  if (!written) throw storageError('记录已被其它操作更新，请刷新后重试', 409);
+  if (!written) {
+    // CAS 已明确失败，该唯一操作目录不会再成为权威；清理不影响其它写入者。
+    if (marker) try { await bucket.delete(marker); } catch { /* 派生垃圾可随后核对 */ }
+    throw storageError('记录已被其它操作更新，请刷新后重试', 409);
+  }
+  try { await cleanRecordMarkers(bucket, kind, payload); }
+  catch { throw storageError('记录状态已提交，旧目录清理未完成；请刷新核对后重试'); }
   return { ...payload, key, etag: written.etag, canonical: true };
 }
 
 // 先枚举旧目录，再读新目录，避免迁移期间将旧副本重新选为权威。
 // include customMetadata 不读取正文，保留反馈列表每次 200 正文的预算。
-export async function listRecordMetadata(bucket, kind, statuses, { maxPages = 100, maxRecords = 50000 } = {}) {
+export async function listRecordMetadata(bucket, kind, statuses, { maxPages = 100, maxRecords = 50000, canonicalHeads = new Map() } = {}) {
+  await requireRecordIndex(bucket, kind);
+  for (const status of statuses) await maintainRecordIndex(bucket, kind, status);
   async function list(prefix, canonical = false) {
     const items = [], cursors = new Set();
     let cursor;
@@ -71,7 +96,10 @@ export async function listRecordMetadata(bucket, kind, statuses, { maxPages = 10
         if (!object.key.startsWith(prefix) || !object.key.endsWith('.json')) continue;
         if (!object.etag) throw storageError('记录目录缺少版本');
         items.push(object);
-        if (items.length > maxRecords) throw storageError('记录目录超过读取预算');
+        if (items.length > maxRecords) {
+          if (canonical) await maintainRecordIndex(bucket, kind, prefix.split('/').at(-2), true);
+          throw storageError('记录目录超过读取预算');
+        }
       }
       if (!result.truncated) return items;
       if (!result.cursor || cursors.has(result.cursor)) throw storageError('记录目录游标未前进');
@@ -89,29 +117,119 @@ export async function listRecordMetadata(bucket, kind, statuses, { maxPages = 10
       byId.get(id).push({ ...object, id, status, canonical: false });
     }
   }
-  for (const object of await list(`${kind}/records/`, true)) {
-    const id = object.key.split('/').at(-1).slice(0, -5);
-    const meta = object.customMetadata;
-    if (meta?.schema !== 'moderation-v1' || !meta.status || !['true', 'false'].includes(meta.deleted)) {
-      throw storageError('权威记录目录版本不可读取');
-    }
-    byId.delete(id);
-    if (meta.deleted === 'false' && statuses.includes(meta.status)) {
-      byId.set(id, [{ ...object, id, status: meta.status, canonical: true }]);
-    }
+  const indexed = [];
+  for (const status of statuses) for (const object of await list(recordIndexPrefix(kind, status), true)) {
+    indexed.push(listedMarker(object, kind, status));
   }
-  return [...byId.values()].flat();
+  // 旧副本只有有限的遗留集合；逐ID的HEAD只用于抑制这些旧副本，不扫描终身权威目录。
+  const indexedIds = new Set(indexed.map(item => item.id));
+  const ids = [...byId.keys()];
+  for (let i = 0; i < ids.length; i += 20) await Promise.all(ids.slice(i, i + 20).map(async id => {
+    if (!canonicalHeads.has(id)) canonicalHeads.set(id, await bucket.head(canonicalKey(kind, id)));
+    const object = canonicalHeads.get(id);
+    if (!object) return;
+    const meta = canonicalMetadata(object, kind);
+    byId.delete(id);
+    if (meta.deleted === 'false' && statuses.includes(meta.status) && !indexedIds.has(id)) {
+      indexed.push({ ...object, key: canonicalKey(kind, id), id, status: meta.status, canonical: true });
+    }
+  }));
+  for (const item of indexed) {
+    if (!byId.has(item.id)) byId.set(item.id, []);
+    byId.get(item.id).push(item);
+  }
+  const result = [...byId.values()].flat();
+  if (result.length > maxRecords) {
+    // 各状态分别未超限，总和仍可能由过期目录撑满；同时启动分批回收，
+    // 首轮共享200候选预算，后续由各状态持久游标继续，不能总卡在首个状态。
+    if (indexed.length) {
+      for (const status of statuses) {
+        try { await maintainRecordIndex(bucket, kind, status, true, Math.max(1, Math.floor(200 / statuses.length))); }
+        catch (error) { if (!error.indexing) throw error; }
+      }
+      throw Object.assign(storageError('记录目录正在分批核对，请稍后刷新重试'), { indexing: true });
+    }
+    throw storageError('当前状态记录超过读取预算');
+  }
+  return result;
+}
+
+export async function countPendingRecords(bucket, kind, limit) {
+  // 满旧队列在任何索引写入/表单解析前拒绝；先核对权威状态，不能把旧副本算满。
+  const heads = new Map();
+  let cursor, legacyCount = 0;
+  const seenCursors = new Set(), canonicalIds = new Set();
+  for (let page = 0; ; page++) {
+    if (page >= 100) throw storageError('旧待审目录超过分页预算');
+    const result = await bucket.list({ prefix: `${kind}/pending/`, limit: 1000, ...(cursor ? { cursor } : {}) });
+    for (const object of result.objects) {
+      if (!object.key.startsWith(`${kind}/pending/`) || !object.key.endsWith('.json')) continue;
+      const id = object.key.split('/').at(-1).slice(0, -5);
+      if (!heads.has(id)) heads.set(id, await bucket.head(canonicalKey(kind, id)));
+      const current = heads.get(id);
+      if (!current) legacyCount++;
+      else {
+        const meta = canonicalMetadata(current, kind);
+        if (meta.deleted === 'false' && meta.status === 'pending' && !canonicalIds.has(id)) {
+          legacyCount++; canonicalIds.add(id);
+        }
+      }
+      if (legacyCount >= limit) return limit;
+    }
+    if (!result.truncated) break;
+    if (!result.cursor || seenCursors.has(result.cursor)) throw storageError('旧待审目录游标未前进');
+    cursor = result.cursor; seenCursors.add(cursor);
+  }
+  const records = await listRecordMetadata(bucket, kind, ['pending'], { canonicalHeads: heads });
+  const groups = new Map();
+  for (const meta of records) {
+    if (!groups.has(meta.id)) groups.set(meta.id, []);
+    groups.get(meta.id).push(meta);
+  }
+  let count = 0;
+  for (const [id, candidates] of groups) {
+    if (!heads.has(id)) heads.set(id, await bucket.head(canonicalKey(kind, id)));
+    const object = heads.get(id);
+    if (!object) {
+      const markers = candidates.filter(x => x.canonical);
+      if (!markers.length) count += candidates.length;
+      else for (const marker of markers) if (!await abortedMarker(bucket, kind, marker)) { count++; break; }
+    }
+    else {
+      const meta = canonicalMetadata(object, kind);
+      if (meta.deleted === 'false' && meta.status === 'pending') count++;
+      else if (meta.deleted === 'false') for (const marker of candidates) {
+        if (marker.revision > Number(meta.revision || 0) && !await abortedMarker(bucket, kind, marker)) { count++; break; }
+      }
+    }
+    if (count >= limit) return limit;
+  }
+  return count;
 }
 
 export async function readListedRecords(bucket, metadata) {
   const records = [];
   for (let i = 0; i < metadata.length; i += 20) {
     const group = await Promise.all(metadata.slice(i, i + 20).map(async meta => {
-      const object = await bucket.get(meta.key);
+      const object = await bucket.get(meta.recordKey || meta.key);
       if (!object) return null;
-      const value = await object.json();
+      // 先完成读取；仅旧记录的JSON语法损坏可隔离，传输/I/O错误仍传播。
+      const text = await object.text();
+      let value;
+      try { value = JSON.parse(text); }
+      catch (error) {
+        if (meta.canonical || !(error instanceof SyntaxError)) throw storageError('权威记录正文不可读取');
+        console.warn(JSON.stringify({ event: 'malformed_legacy_record', key: meta.key }));
+        return null;
+      }
       if (!meta.canonical) return { status: meta.status, record: value };
-      const current = decodeCanonical(value, meta.id, meta.key.split('/')[0]);
+      const current = decodeCanonical(value, meta.id, (meta.recordKey || meta.key).split('/')[0]);
+      if (meta.recordKey && !matchesMarker(meta, current, object.etag)) {
+        if (pendingMarker(meta, current) && !await abortedMarker(bucket, (meta.recordKey || meta.key).split('/')[0], meta)) {
+          throw Object.assign(storageError('记录写入正在确认，请刷新重试'), { indexing: true });
+        }
+        return null;
+      }
       return current.deleted ? null : { status: current.status, record: current.record };
     }));
     records.push(...group.filter(Boolean));

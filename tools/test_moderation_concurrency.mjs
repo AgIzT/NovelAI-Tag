@@ -241,7 +241,10 @@ await checked('unknown put confirmed by operationId does not submit twice', asyn
   const bucket = new Bucket();
   const originalPut = bucket.put.bind(bucket);
   let puts = 0;
-  bucket.put = async (...args) => { puts++; await originalPut(...args); throw new Error('response lost'); };
+  bucket.put = async (key, ...args) => {
+    if (key !== `feedback/records/${id}.json`) return originalPut(key, ...args);
+    puts++; await originalPut(key, ...args); throw new Error('response lost');
+  };
   const saved = await writeCanonical(bucket, 'feedback', id, null, { status: 'pending', record: feedbackRecord() });
   assert.equal(saved.revision, 1);
   assert.equal(puts, 1);
@@ -252,7 +255,7 @@ await checked('unknown late first create cannot overwrite a competing committed 
   const bucket = new Bucket();
   let late;
   bucket.hook = async (op, key, value, options) => {
-    if (op === 'put') { bucket.hook = null; late = () => bucket.put(key, value, options); throw new Error('unknown pending write'); }
+    if (op === 'put' && key === `feedback/records/${id}.json`) { bucket.hook = null; late = () => bucket.put(key, value, options); throw new Error('unknown pending write'); }
   };
   await assert.rejects(writeCanonical(bucket, 'feedback', id, null, { status: 'pending', record: feedbackRecord({ description: 'old' }) }), error => error.status === 503);
   const winner = await writeCanonical(bucket, 'feedback', id, null, { status: 'pending', record: feedbackRecord({ description: 'winner' }) });
@@ -264,7 +267,7 @@ await checked('unknown stale update cannot overwrite a newer tombstone even if i
   const bucket = new Bucket();
   const current = await writeCanonical(bucket, 'feedback', id, null, { status: 'pending', record: feedbackRecord() });
   let late;
-  bucket.hook = async (op, key, value, options) => { if (op === 'put') { bucket.hook = null; late = () => bucket.put(key, value, options); throw new Error('lost'); } };
+  bucket.hook = async (op, key, value, options) => { if (op === 'put' && key === `feedback/records/${id}.json`) { bucket.hook = null; late = () => bucket.put(key, value, options); throw new Error('lost'); } };
   await assert.rejects(writeCanonical(bucket, 'feedback', id, current, { status: 'pending', record: feedbackRecord({ description: 'old' }) }), error => error.status === 503);
   await writeCanonical(bucket, 'feedback', id, current, { status: 'pending', deleted: true });
   assert.equal(await late(), null);
@@ -326,9 +329,15 @@ await checked('feedback UUID revisions prevent identical-byte ABA with a frozen 
 
 await checked('unknown put with unavailable confirmation remains 503 and is never replayed', async () => {
   const bucket = new Bucket();
+  // 只在权威 PUT 之后令确认不可用，派生目录准备另有独立失败用例。
+  await listRecordMetadata(bucket, 'feedback', ['pending']);
+  const put = bucket.put.bind(bucket), get = bucket.get.bind(bucket);
   let puts = 0;
-  bucket.put = async () => { puts++; throw new Error('put unavailable'); };
-  bucket.get = async () => { throw new Error('get unavailable'); };
+  bucket.put = async (key, ...args) => {
+    if (key !== `feedback/records/${id}.json`) return put(key, ...args);
+    puts++; throw new Error('put unavailable');
+  };
+  bucket.get = async key => { if (key === `feedback/records/${id}.json`) throw new Error('get unavailable'); return get(key); };
   await assert.rejects(writeCanonical(bucket, 'feedback', id, null, { status: 'pending', record: feedbackRecord() }), error => error.status === 503);
   assert.equal(puts, 1);
 });

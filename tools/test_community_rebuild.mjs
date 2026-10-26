@@ -1,5 +1,6 @@
 // Deterministic aggregate interleavings; memory only, no credentials or network.
 import assert from 'node:assert/strict';
+import { requireRecordIndex } from '../functions/_record-index.js';
 import { createHash } from 'node:crypto';
 import { MemoryR2 } from './memory-r2-test-harness.mjs';
 import { rebuildCommunity, moveCommunityRecord, emptyCollection, findCommunityRecord } from '../functions/_lib.js';
@@ -209,10 +210,12 @@ const cases = [
   ['normal paginated rebuild preserves all records and one aggregate write', async () => {
     const { bucket, env } = fixture();
     bucket.pageSize = 2;
+    await requireRecordIndex(bucket, 'community');
+    const listsBefore = bucket.listCalls;
     for (let i = 1; i <= 5; i++) await seed(bucket, `c000000${i}`);
     const data = await rebuildCommunity(env);
     assert.equal(data.entries.length, 5);
-    assert.equal(bucket.listCalls, 4);
+    assert.equal(bucket.listCalls - listsBefore, 4, '暖状态只扫描 approved 旧目录与状态索引');
     assert.equal(bucket.aggregateAttempts, 1);
     assert.deepEqual(data.categories, ['画风']);
   }],

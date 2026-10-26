@@ -5,7 +5,7 @@ import {
   cleanLine, cleanText, normTags, normCategory, defaultSubmissionTitle,
   normImageParams, COMMUNITY_STATUSES,
 } from '../_lib.js';
-import { canonicalKey, writeCanonical, listRecordMetadata } from '../_record-store.js';
+import { canonicalKey, writeCanonical, countPendingRecords } from '../_record-store.js';
 import { sniffImageKind, readPngSize, extractTextParams } from '../_params_core.js';
 import { reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
 
@@ -90,7 +90,7 @@ async function storeSubmission(env, { id, record, uploads, slot }) {
     try {
       await writeCanonical(bucket, 'community', id, null, { status: 'pending', record });
     } catch (error) {
-      if (error.status === 409) pendingUnknown = false;
+      if (error.status === 409 || error.canonicalNotAttempted) pendingUnknown = false;
       throw error;
     }
   } catch (error) {
@@ -137,7 +137,9 @@ export async function onRequestPost({ request, env }) {
     return err(`图片总体积超过 ${Math.round(LIMITS.totalBytes / 1024 / 1024)} MB，减少图片后重新提交`, 413);
   }
   // 待审区容量保险丝，防恶意灌水撑爆存储。放在读表单、解析原图之前：队列已满时不再花力气处理上传内容
-  const pendCount = (await listRecordMetadata(env.STRINGS_BUCKET, 'community', ['pending'])).length;
+  let pendCount;
+  try { pendCount = await countPendingRecords(env.STRINGS_BUCKET, 'community', LIMITS.pendingMax); }
+  catch (error) { return err(error.message || '待审目录暂不可用，请稍后重试', error.status || 503); }
   if (pendCount >= LIMITS.pendingMax) return err('待审投稿已满，过几天再投稿', 429);
 
   let form;

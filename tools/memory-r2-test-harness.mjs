@@ -31,7 +31,7 @@ export class MemoryR2 {
 
   async head(key) {
     await this.wait();
-    return this.objects.has(key) ? { key, etag: this.etags.get(key) } : null;
+    return this.objects.has(key) ? { key, etag: this.etags.get(key), customMetadata: this.customMetas.get(key) } : null;
   }
 
   // 派生夹具可同步生成内容 ETag；不得在提交完成后再异步替换 token。
@@ -76,12 +76,13 @@ export class MemoryR2 {
     }
   }
 
-  async list({ prefix }) {
+  async list({ prefix, limit = 1000, cursor = '', startAfter = '' }) {
     await this.wait();
     this.listCalls += 1;
-    return {
-      objects: [...this.objects.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key, etag: this.etags.get(key), customMetadata: this.customMetas.get(key) })),
-      truncated: false,
-    };
+    const keys = [...this.objects.keys()].filter(key => key.startsWith(prefix) && key > startAfter).sort();
+    const offset = Number(cursor || 0), page = keys.slice(offset, offset + limit);
+    const truncated = offset + page.length < keys.length;
+    return { objects: page.map(key => ({ key, etag: this.etags.get(key), customMetadata: this.customMetas.get(key) })),
+      truncated, ...(truncated ? { cursor: String(offset + page.length) } : {}) };
   }
 }

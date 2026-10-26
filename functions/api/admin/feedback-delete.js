@@ -2,6 +2,7 @@
 
 import { json, err, requireAdmin, validId, cleanLine } from '../../_lib.js';
 import { readCanonical, writeCanonical, deleteLegacyRecords } from '../../_record-store.js';
+import { cleanRecordMarkers } from '../../_record-index.js';
 import { updatePublicFeedbackIndex, findFeedbackRecord, FEEDBACK_STATUSES } from '../../_feedback.js';
 
 const STATUSES = new Set(['pending', 'resolved', 'ignored']);
@@ -21,6 +22,7 @@ export async function onRequestPost(context) {
 
   try {
     let found = await readCanonical(env.STRINGS_BUCKET, 'feedback', id);
+    if (found?.deleted) await cleanRecordMarkers(env.STRINGS_BUCKET, 'feedback', found);
     if (!found?.deleted) {
       found = await findFeedbackRecord(env.STRINGS_BUCKET, id, status);
       if (!found) return err('这条反馈不存在或状态已变化，点「刷新反馈」重新加载', 404);

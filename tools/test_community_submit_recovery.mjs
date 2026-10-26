@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { onRequestPost } from '../functions/api/submit.js';
 import { MemoryR2 } from './memory-r2-test-harness.mjs';
+import { requireRecordIndex } from '../functions/_record-index.js';
 import { SqliteD1, readMigrations } from './sqlite-d1-test-harness.mjs';
 
 const migration = await readMigrations('0004_submission_guards.sql');
@@ -264,6 +265,8 @@ cases.push(
   })],
   ...['pending', 'approved', 'hidden', 'rejected', 'deleted', 'records'].map(status => [`existing ${status} ID (even invalid JSON) is not reused`, async () => fixedId(async () => {
     const { bucket, env, db } = fixture();
+    // 此组隔离检查 ID 冲突；首次目录升级和坏 canonical 由 record_store_edges 单独验证。
+    await requireRecordIndex(bucket, 'community');
     const key = `community/${status}/${ID}.json`;
     await rawPut(bucket, key, 'historical invalid JSON');
     await rawPut(bucket, `${MEDIA}${ID}/1.jpg`, 'historical image');
@@ -291,6 +294,20 @@ cases.push(
     await assert.rejects(post(env), caught => caught === error);
     assert.equal(keys(bucket, MEDIA).length, 0);
     recovery(bucket);
+  }],
+  ['unconfirmed index preparation never issued canonical PUT and compensates confirmed media', async () => {
+    const { bucket, env, db } = fixture();
+    let canonicalPuts = 0;
+    bucket.beforePut = key => {
+      if (key.startsWith(PENDING)) canonicalPuts++;
+      if (key.startsWith('community/record-index/v1/')) throw new Error('prepare unavailable');
+    };
+    await assert.rejects(post(env), error => error.status === 503);
+    assert.equal(canonicalPuts, 0);
+    assert.equal(keys(bucket, MEDIA).length, 0);
+    assert.equal(keys(bucket, RECOVERY).length, 0);
+    assert.equal(reservations(db), 0);
+    assert.equal(keys(bucket, 'community/record-index-aborted/').length, 1);
   }],
   ['a new submission after failure does not reuse or delete the earlier attempt', async () => {
     const { bucket, env } = fixture();
