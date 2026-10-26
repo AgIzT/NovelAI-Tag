@@ -2021,6 +2021,85 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         return {"long": long_entry["id"], "short": short_entry["id"], "folded": folded, "opened": opened["height"],
                 "selecting": selecting["height"], "selectionBar": bar, "screenshot": shot}
 
+    def lightbox_shift_selection():
+        """Shift 连选双端包含、正反向补选、清空与退出重置、分框隔离及重画后保留起点。"""
+        book_path = ROOT / "site" / "data" / "nai5_community_pack.json"
+        if not book_path.exists():
+            return {"status": "BLOCKED", "reason": "社区图包夹具不存在"}
+        entries = json.loads(book_path.read_text(encoding="utf-8")).get("entries", [])
+        target = next((item for item in entries if (item.get("image") or item.get("images"))
+                       and item.get("rating") not in ("r18", "r18g")
+                       and len(item.get("tags") or "") > 900 and item.get("negative")), None)
+        if not target:
+            return {"status": "BLOCKED", "reason": "找不到公开的长提示词及负面夹具"}
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + f"?codex=nai5_community_pack&entry={target['id']}")
+        wait_for(cdp, "document.querySelector('#lightbox.is-open #lightboxTags')?.textContent.trim()", "shift selection detail")
+        clear_errors(cdp)
+        result = cdp.eval("""(() => {
+  const pre = document.querySelector('#lightboxTags');
+  const toggle = box => box.parentElement.querySelector('.prompt-selection-toggle').click();
+  const tokens = box => [...box.querySelectorAll('.prompt-selection-token')];
+  const click = (box, index, shiftKey = false) => tokens(box)[index].dispatchEvent(
+    new MouseEvent('click', { bubbles: true, shiftKey }));
+  const selected = box => tokens(box).flatMap((token, i) => token.getAttribute('aria-pressed') === 'true' ? [i] : []);
+  const checks = [];
+  const expect = (name, box, wanted) => {
+    const actual = selected(box);
+    if (JSON.stringify(actual) !== JSON.stringify(wanted)) throw new Error(name + ': ' + JSON.stringify(actual));
+    checks.push({ name, selected: actual });
+  };
+  const range = (start, end) => Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  toggle(pre);
+  if (tokens(pre).length < 12) throw new Error('Expected at least twelve selectable fragments');
+  click(pre, 10);
+  click(pre, 2);
+  click(pre, 6, true);
+  expect('forward preserves other picks', pre, [...range(2, 6), 10]);
+  click(pre, 0, true);
+  expect('reverse keeps original anchor', pre, [...range(0, 6), 10]);
+  click(pre, 4);
+  click(pre, 8, true);
+  expect('ordinary click moves anchor', pre, [...range(0, 8), 10]);
+  const all = pre.parentElement.querySelector('.prompt-selection-bar button');
+  all.click();
+  all.click();
+  click(pre, 1, true);
+  expect('clear resets anchor', pre, [1]);
+  click(pre, 3, true);
+  expect('shift without anchor becomes start', pre, range(1, 3));
+  const zh = document.querySelector('#tagZhToggle');
+  if (!zh.hidden) zh.click();
+  click(pre, 5, true);
+  expect('annotation redraw keeps anchor', pre, range(1, 5));
+  toggle(pre);
+  toggle(pre);
+  click(pre, 6, true);
+  expect('exit resets anchor', pre, [6]);
+  const negative = document.querySelector('#lightboxNegative');
+  toggle(negative);
+  if (tokens(negative).length < 7) throw new Error('Expected seven negative fragments');
+  click(negative, 3, true);
+  click(negative, 6, true);
+  expect('negative has its own anchor', negative, range(3, 6));
+  click(pre, 9, true);
+  expect('positive anchor survives other box', pre, range(6, 9));
+  tokens(pre)[11].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', shiftKey: true, bubbles: true }));
+  expect('shift space', pre, range(6, 11));
+  tokens(pre)[4].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
+  expect('shift enter', pre, range(4, 11));
+  click(pre, 5);
+  expect('ordinary deselection still works', pre, [4, ...range(6, 11)]);
+  return { checks, copyLabel: pre.parentElement.querySelector('.prompt-selection-copy').textContent };
+})()""")
+        if result["copyLabel"] != "复制 7 项":
+            raise CheckFailed(f"连选后的复制计数不对：{result}")
+        shot = screenshot(cdp, out_dir, "lightbox-shift-selection")
+        cdp.eval("document.querySelector('#lightboxClose').click()")
+        wait_for(cdp, "document.querySelector('#lightbox').hidden", "shift selection closes")
+        check_no_errors(cdp)
+        return {**result, "screenshot": shot}
+
     def theme_axes():
         """换肤/字体/深浅色三条轴：六套皮肤都能挂上、素墨深色档的前景色压得住、
         字体换档不碰 prompt 等宽、纯黑档压到真黑、auto 跟随系统且旧键继续同步。"""
@@ -3324,6 +3403,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("lightbox preserves scrolled page chrome", lightbox_scrolled_chrome),
         ("tag zh lightbox", tag_zh_lightbox),
         ("lightbox long prompt folds", lightbox_prompt_fold),
+        ("lightbox shift range selection", lightbox_shift_selection),
         ("theme axes", theme_axes),
         ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),

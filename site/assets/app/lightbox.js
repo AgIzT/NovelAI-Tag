@@ -886,23 +886,39 @@ function renderPromptSelection(pre, selection) {
       zh.textContent = `${piece.negative ? '−' : ''}${hit.zh}`;
       token.append(zh);
     }
-    if (piece.opaque) token.title = '这段语法作为整体选取，以保留原意';
-    const toggle = () => {
-      if (selection.ids.has(piece.id)) selection.ids.delete(piece.id);
-      else selection.ids.add(piece.id);
-      token.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+    token.title = `${piece.opaque ? '这段语法作为整体选取，以保留原意；' : ''}按住 Shift 点选一段`;
+    const toggle = event => {
+      // 连选以最近一次普通点选为起点，只补选这段，保留框里其它已选项。
+      if (event.shiftKey && selection.anchor !== null) {
+        const start = Math.min(selection.anchor, index);
+        const end = Math.max(selection.anchor, index);
+        for (let i = start; i <= end; i++) selection.ids.add(selection.pieces[i].id);
+        pre.querySelectorAll('.prompt-selection-token').forEach(item => {
+          item.setAttribute('aria-pressed', String(selection.ids.has(item.dataset.fragmentId)));
+        });
+      } else {
+        if (selection.ids.has(piece.id)) selection.ids.delete(piece.id);
+        else selection.ids.add(piece.id);
+        selection.anchor = index;
+        token.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+      }
       dockSelection = selection;   // 点过 tag 的框接管底栏
       updateSelectionControls(selection);
     };
+    token.onmousedown = event => {
+      // Shift 点击不同时触发浏览器的原生文字扩选。
+      if (event.button === 0 && event.shiftKey) event.preventDefault();
+    };
     token.onclick = event => {
       event.stopPropagation();
-      toggle();
+      toggle(event);
+      if (event.shiftKey) token.focus({ preventScroll: true });
     };
     token.onkeydown = event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       event.stopPropagation();
-      toggle();
+      toggle(event);
     };
     fragment.append(token);
   }
@@ -919,6 +935,7 @@ function stopPromptSelection(pre) {
   if (!selection) return;
   selection.active = false;
   selection.ids.clear();
+  selection.anchor = null;
   cancelUiMotion(selection.bar);
   selection.bar.hidden = true;
   selection.bar.inert = true;
@@ -948,6 +965,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   };
   const toggle = makeButton('选择 tag', 'prompt-selection-toggle');
   toggle.setAttribute('aria-pressed', 'false');
+  toggle.title = '先点起点，再按住 Shift 点击终点，连续选择一段 tag';
   // 和中文对照、SD 预览排在一起，「复制」留在行尾
   const copyButton = [...head.children]
     .find(el => el.tagName === 'BUTTON' && !el.matches('.tag-zh-toggle,.sd-preview-toggle'));
@@ -977,7 +995,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   // 放在框上方并吸顶：tag 多时框很长，挂在下面就要滚好几屏才找得到「复制所选」
   pre.before(bar);
   const selection = {
-    active: false, ids: new Set(), pieces: tokenizePrompt(text), text: String(text),
+    active: false, ids: new Set(), anchor: null, pieces: tokenizePrompt(text), text: String(text),
     entry, channel, characterIndex, label, codexId: lightboxEntrySourceId(entry),
     toggle, bar, count, all, copy, add,
   };
@@ -1010,6 +1028,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     event.stopPropagation();
     if (selection.ids.size === selection.pieces.length) selection.ids.clear();
     else selection.pieces.forEach(piece => selection.ids.add(piece.id));
+    selection.anchor = null;
     dockSelection = selection;
     pre.querySelectorAll('.prompt-selection-token').forEach(token => {
       token.setAttribute('aria-pressed', String(selection.ids.has(token.dataset.fragmentId)));
