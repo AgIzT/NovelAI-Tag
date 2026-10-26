@@ -2384,11 +2384,12 @@ a.lightbox-credit:hover{text-decoration:underline}
 .section-head button{flex:none;margin-left:0;white-space:nowrap;padding:5px 9px;font-size:12px;line-height:1.35}
 /* 三个视图开关（中文对照 / SD 预览 / 选择 tag）同一套样子：关着平底细边框，开着浅强调底 + ✓。
    开着也不填实色——实色只留给「复制」，角色词区也不跟着染色。
-   中文对照打开后每个 tag 变成「英文 + 下方中文小字」的盒子。 */
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle){border:1px solid var(--line);background:var(--tagbg);color:var(--text);box-shadow:none}
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle):hover{background:var(--tagbg-hover);filter:none}
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]::before{content:"✓ "}
+   中文对照打开后每个 tag 变成「英文 + 下方中文小字」的盒子。
+   中文对照电脑上在动作行、手机上在正向标题栏（lightbox.js 的 placeTagZhToggle），两处同一套样子。 */
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle){border:1px solid var(--line);background:var(--tagbg);color:var(--text);box-shadow:none}
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle):hover{background:var(--tagbg-hover);filter:none}
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]::before{content:"✓ "}
 .lightbox-section pre.tag-zh-on{line-height:1.3;padding-bottom:5px}
 .tag-zh-tok{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;border-radius:4px;cursor:pointer}
 .tag-zh-gap{margin-right:5px}
@@ -2403,13 +2404,29 @@ a.lightbox-credit:hover{text-decoration:underline}
 .tag-zh-detail-weight{color:var(--new);font-size:11px}
 .tag-zh-detail a{color:var(--accent);font-size:11px;text-decoration:none}
 .tag-zh-detail a:hover{text-decoration:underline}
-/* 提示词框不限高、不自己滚动：单栏和手机交给信息栏整体滚，两栏交给各列滚，免得手指卡在框里 */
+/* 提示词框不自己滚动：单栏和手机交给信息栏整体滚，两栏交给各列滚，免得手指卡在框里；长的折起见下方 */
 .lightbox-section pre{
   margin:0;white-space:pre-wrap;word-break:break-word;
   background:var(--tagbg);border:1px solid var(--line);border-radius:10px;padding:10px;
   color:var(--text);font:12px/1.55 var(--font-prompt);
 }
 .lightbox-section pre.sd-previewing{border-color:color-mix(in srgb,var(--accent) 48%,var(--line));background:color-mix(in srgb,var(--accent-soft) 52%,var(--tagbg))}
+/* 长提示词折起（lightbox.js 的 syncPromptFold 判断够不够长）：限高、底部 40px 渐隐，框下一行「展开全部 / 收起」。
+   折起时框里也不滚动，展开后照旧由信息栏或各列滚。 */
+.lightbox-info{--prompt-fold:240px}
+.lightbox-section pre.prompt-folded{
+  max-height:var(--prompt-fold);overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 40px),rgba(0,0,0,.12));
+  mask-image:linear-gradient(#000 calc(100% - 40px),rgba(0,0,0,.12));
+}
+.prompt-fold-toggle{
+  display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:4px;padding:5px 8px;
+  border:0;border-radius:8px;background:transparent;color:var(--lb-muted,var(--muted));
+  font:600 12px/1.4 var(--font-ui);cursor:pointer;
+}
+.prompt-fold-toggle::after{content:"";width:6px;height:6px;margin-top:-3px;border:solid currentColor;border-width:0 1.6px 1.6px 0;rotate:45deg}
+.prompt-fold-toggle[aria-expanded="true"]::after{margin-top:3px;rotate:225deg}
+.prompt-fold-toggle:hover{background:var(--tagbg-hover);color:var(--text)}
 /* 权重上色（prompt-weights.js）：加权绿、减权蓝，与 Tag 中转站共用 tag-relay.css 的两色；权重 1 的外壳与逗号淡化 */
 .lightbox-info pre .pw-up{color:var(--relay-up)}
 .lightbox-info pre .pw-down{color:var(--relay-down)}
@@ -2609,7 +2626,12 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -8px 18px rgba(10,15,35,.07);
   }
   .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
+  /* 抽屉矮，折起高度跟着收到「展开全部」在首屏露在吸底动作行之上；收起后滚回按钮时也让开动作行 */
+  .lightbox-info{--prompt-fold:120px}
+  .prompt-fold-toggle{min-height:38px;scroll-margin-bottom:76px}
   #copyPositiveDock:not([hidden]),#copyAll:not([hidden]){display:inline-block}
+  /* 选 tag 时底栏主按钮改成「复制所选 / 复制 N 项」，一项没选时不可点 */
+  #copyPositiveDock:disabled{opacity:.45;cursor:default;filter:none;transform:none}
   .lightbox-more:not([hidden]){
     display:grid;place-items:center;margin-left:auto;min-width:38px;padding:0 10px;
     border:1px solid var(--line);background:var(--tagbg);color:var(--text);
@@ -3314,16 +3336,28 @@ html.motion-off{scroll-behavior:auto!important}
 
 /* 详情选词：译名仅辅助阅读，选择与复制使用原始英文片段。 */
 .prompt-selection-toggle{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:5px 9px;font:600 11px var(--font-ui)}
-pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;white-space:normal}
-.prompt-selection-token{display:flex;flex-direction:column;gap:3px;max-width:100%;text-align:left;overflow-wrap:anywhere;white-space:normal;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-prompt)}
-.prompt-selection-token[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
-/* 操作栏在框上方、吸在滚动区顶部：框不限高，选到下面的 tag 也看得到计数和「复制所选」 */
+/* 选 tag 沿用阅读排版（lightbox.js 的 renderPromptSelection）：有中文的 tag 与中文对照的小块同尺寸，
+   没中文的是行内文字、能跨行；进出选择模式版面基本不跳。每个 tag 垫一层很淡的底表示可点（行内的用外扩阴影，
+   不占排版宽度），点中的换成浅强调底加细框；框边染一点强调色，看得出在选择状态。 */
+pre.prompt-selecting{border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.prompt-selection-token{
+  --sel-bg:color-mix(in srgb,var(--accent-soft) 45%,transparent);
+  border-radius:3px;background:var(--sel-bg);box-shadow:0 0 0 1px var(--sel-bg);cursor:pointer;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;
+}
+.prompt-selection-token.has-zh{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;box-shadow:none}
+.prompt-selection-token:hover{--sel-bg:color-mix(in srgb,var(--accent-soft) 85%,transparent)}
+.prompt-selection-token[aria-pressed=true]{--sel-bg:var(--accent-soft);box-shadow:0 0 0 1px var(--sel-bg),0 0 0 2px color-mix(in srgb,var(--accent) 60%,transparent)}
+.prompt-selection-token.has-zh[aria-pressed=true]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 60%,transparent)}
+.prompt-selection-token:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 操作栏在框上方、吸在滚动区顶部：框不限高，选到下面的 tag 也看得到「复制 N 项」。
+   计数并进复制按钮、按钮收窄，两栏约 290px 的窄列里也排成一行；× 留着，滚远了标题栏的开关就看不到了。 */
 .prompt-selection-bar{
-  position:sticky;top:0;z-index:2;display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 8px;padding:6px;
+  position:sticky;top:0;z-index:2;display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:0 0 8px;padding:5px;
   border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow);
 }
 .prompt-selection-bar[hidden]{display:none}
-.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 10px;font:12px/1.5 var(--font-ui)}
+.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-ui)}
 .prompt-selection-bar .prompt-selection-copy:not(:disabled){border-color:transparent;background:var(--accent);color:var(--on-accent);font-weight:700}
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
 .prompt-selection-bar .prompt-selection-close{
@@ -3332,10 +3366,12 @@ pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;
 }
 .prompt-selection-bar .prompt-selection-close:hover{background:var(--tagbg-hover);color:var(--text)}
 .prompt-selection-close svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
-.prompt-selection-count{padding:0 4px;font:11px var(--font-ui);color:var(--lb-muted,var(--muted))}
+.prompt-selection-count{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
 /* 触屏详情里这几排跟上方动作行同高 38px（窄屏那条已给动作行 38px）；抬到 44px 会让 12px 字的胶囊比动作行还胖一圈。 */
-@media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle,.lightbox-actions button,.section-head button{min-height:38px}}
+@media(pointer:coarse){.prompt-selection-bar button,.prompt-selection-toggle,.lightbox-actions button,.section-head button{min-height:38px}}
+/* 触屏上行内 tag 的可点区域上下各扩 3px（行内的上下内边距不改行距），不再撑成 38px 一块 */
+@media(pointer:coarse){.prompt-selection-token:not(.has-zh){padding-block:3px}}
 
 /* 详情动作与定位分开：停用动效时保留折叠/导航的定位终态。 */
 @media(prefers-reduced-motion:reduce){

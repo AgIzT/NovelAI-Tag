@@ -1919,6 +1919,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed(f"中文小字仍可被选中复制：{before['selectable']}")
         if cdp.eval(raw_text) != target["tags"]:
             raise CheckFailed("对照排版去掉中文后与词条原文不一致")
+        if cdp.eval("document.querySelector('#tagZhToggle')?.previousElementSibling?.id") != "shareLightbox":
+            raise CheckFailed("电脑上中文对照开关应排在动作行「分享」后面")
         shot = screenshot(cdp, out_dir, "tag-zh-lightbox")
         cdp.eval("document.querySelector('#lightboxTags .tag-zh-tok')?.click()")
         detail = wait_for(cdp, "document.querySelector('#lightboxInfo .tag-zh-detail')?.textContent || ''", "tag zh detail row")
@@ -1935,6 +1937,89 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "tag zh lightbox close")
         check_no_errors(cdp)
         return {"entry": target["id"], "boxes": before["boxes"], "detail": detail, "screenshot": shot}
+
+    def lightbox_prompt_fold():
+        """长提示词折起：限高带「展开全部」，展开 / 收起、选择 tag 时整框显示；短提示词不折。"""
+        book_path = ROOT / "site" / "data" / "nai5_community_pack.json"
+        if not book_path.exists():
+            return {"status": "BLOCKED", "reason": "site/data/nai5_community_pack.json 不存在"}
+        book = json.loads(book_path.read_text(encoding="utf-8"))
+        usable = [
+            item for item in book.get("entries", [])
+            if (item.get("image") or item.get("images")) and item.get("rating") not in ("r18", "r18g")
+        ]
+        long_entry = next((item for item in usable if len(item.get("tags") or "") > 900), None)
+        short_entry = next((item for item in usable if 0 < len(item.get("tags") or "") < 60), None)
+        if not long_entry or not short_entry:
+            return {"status": "BLOCKED", "reason": "社区图包里找不到公开的长 / 短提示词词条"}
+        state_expr = """(() => {
+  const pre = document.querySelector('#lightboxTags');
+  const toggle = pre?.parentElement.querySelector('.prompt-fold-toggle');
+  return {
+    folded: pre?.classList.contains('prompt-folded'),
+    height: Math.round(pre?.getBoundingClientRect().height || 0),
+    limit: parseFloat(getComputedStyle(pre).getPropertyValue('--prompt-fold')) || 0,
+    toggleShown: Boolean(toggle && !toggle.hidden),
+    toggleText: toggle?.textContent || '',
+    expanded: toggle?.getAttribute('aria-expanded') || '',
+    title: document.querySelector('#lightboxTitle')?.textContent || '',
+  };
+})()"""
+        click_toggle = "document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-fold-toggle').click()"
+        navigate(cdp, base)
+        wait_for(cdp, "document.readyState === 'complete'", "prompt fold home ready")
+        clear_errors(cdp)
+        navigate(cdp, base + f"?codex=nai5_community_pack&entry={long_entry['id']}")
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "long prompt folded", timeout=15)
+        folded = cdp.eval(state_expr)
+        if not folded["toggleShown"] or folded["toggleText"] != "展开全部" or folded["expanded"] != "false" \
+                or folded["height"] > folded["limit"] + 1:
+            raise CheckFailed(f"长提示词没有按限高折起：{folded}")
+        shot = screenshot(cdp, out_dir, "prompt-fold")
+        cdp.eval(click_toggle)
+        opened = wait_for(cdp, f"(() => {{ const s = {state_expr}; return !s.folded && s.toggleText === '收起' ? s : null; }})()", "prompt expanded")
+        if opened["expanded"] != "true" or opened["height"] <= folded["limit"] + 56:
+            raise CheckFailed(f"展开后没有显示全文：{opened}")
+        cdp.eval(click_toggle)
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "prompt folded again")
+        cdp.eval("document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-selection-toggle').click()")
+        selecting = wait_for(cdp, f"(() => {{ const s = {state_expr}; return !s.folded && !s.toggleShown ? s : null; }})()", "selection shows whole prompt")
+        # 两栏窄列里操作栏排成一行，计数并进复制按钮
+        bar = cdp.eval("""(() => {
+  const pre = document.querySelector('#lightboxTags');
+  const bar = pre.parentElement.querySelector('.prompt-selection-bar');
+  [...pre.querySelectorAll('.prompt-selection-token')].slice(0, 2).forEach(token => token.click());
+  const rows = new Set([...bar.querySelectorAll('button')].map(b => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)));
+  // 正向还在选时，负面开了又退出，底栏仍复制正向的所选（底栏在电脑上藏着，但文字照样同步）
+  const negativeToggle = document.querySelector('#negativeBlock:not([hidden]) .prompt-selection-toggle');
+  let dockAfterOther = null;
+  if (negativeToggle) {
+    negativeToggle.click();
+    negativeToggle.click();
+    dockAfterOther = document.querySelector('#copyPositiveDock').textContent;
+  }
+  return { rows: rows.size, copy: bar.querySelector('.prompt-selection-copy').textContent,
+    columns: document.querySelector('#lightbox').classList.contains('lb-two-columns'), dockAfterOther };
+})()""")
+        if bar["copy"] != "复制 2 项" or (bar["columns"] and bar["rows"] != 1):
+            raise CheckFailed(f"选择操作栏没有压成一行或计数不对：{bar}")
+        if bar["dockAfterOther"] is not None and bar["dockAfterOther"] != "复制 2 项":
+            raise CheckFailed(f"另一框退出选择后底栏没有交回正向的所选：{bar}")
+        # 选 tag 沿用阅读排版：框高与展开后的阅读状态相近，不再变成一块块卡片
+        if selecting["height"] > opened["height"] * 1.15:
+            raise CheckFailed(f"选择状态比阅读状态高出太多：阅读 {opened['height']}px，选择 {selecting['height']}px")
+        cdp.eval("document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-selection-toggle').click()")
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "prompt folded after selection")
+        navigate(cdp, base + f"?codex=nai5_community_pack&entry={short_entry['id']}")
+        wait_for(cdp, f"document.querySelector('#lightboxTitle')?.textContent === {js_string(short_entry['title'])}", "short prompt opened", timeout=15)
+        short = cdp.eval(state_expr)
+        if short["folded"] or short["toggleShown"]:
+            raise CheckFailed(f"短提示词不应折起：{short}")
+        cdp.eval("document.querySelector('#lightboxClose')?.click()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "prompt fold lightbox close")
+        check_no_errors(cdp)
+        return {"long": long_entry["id"], "short": short_entry["id"], "folded": folded, "opened": opened["height"],
+                "selecting": selecting["height"], "selectionBar": bar, "screenshot": shot}
 
     def theme_axes():
         """换肤/字体/深浅色三条轴：六套皮肤都能挂上、素墨深色档的前景色压得住、
@@ -2424,6 +2509,25 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         click('#masonry .card-title')
         wait_for(cdp, "!document.querySelector('#lightbox').hidden", "text detail opens")
         detail_url = cdp.eval('location.href')
+        # 底栏放不下中文对照，手机上它留在正向标题栏
+        if not cdp.eval("!!document.querySelector('#lightboxTags').parentElement.querySelector('.section-head > #tagZhToggle')"):
+            raise CheckFailed("手机上中文对照开关不在正向标题栏")
+        # 选 tag 时底栏主按钮改为复制所选，没选时不可点，退出后恢复「复制正向」
+        dock = cdp.eval("""(() => {
+  const pre = document.querySelector('#lightboxTags');
+  const toggle = pre.parentElement.querySelector('.prompt-selection-toggle');
+  const dock = document.querySelector('#copyPositiveDock');
+  if (!toggle) return null;
+  const read = () => [dock.textContent, dock.disabled];
+  toggle.click();
+  const empty = read();
+  pre.querySelector('.prompt-selection-token')?.click();
+  const one = read();
+  toggle.click();
+  return { empty, one, after: read() };
+})()""")
+        if dock and (dock["empty"] != ["复制所选", True] or dock["one"] != ["复制 1 项", False] or dock["after"] != ["复制正向", False]):
+            raise CheckFailed(f"选 tag 时手机底栏没有跟着切换：{dock}")
         # 手机底栏把反馈收在「⋯」里
         click('#lightboxMore')
         click('#reportLightbox')
@@ -3219,6 +3323,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("entry deep-link opens lightbox", deep_link_lightbox),
         ("lightbox preserves scrolled page chrome", lightbox_scrolled_chrome),
         ("tag zh lightbox", tag_zh_lightbox),
+        ("lightbox long prompt folds", lightbox_prompt_fold),
         ("theme axes", theme_axes),
         ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),

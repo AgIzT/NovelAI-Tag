@@ -521,6 +521,7 @@ function cancelLightboxPreloads({ keepOriginal = false } = {}) {
 
 function clearLightboxContent() {
   closeLightboxMore();
+  dockSelection = null;
   resetArtistStrip();
   clearTagZhDetails($('#lightboxInfo'));
   for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');
@@ -760,46 +761,113 @@ const promptSelections = new WeakMap();
 
 function updateSelectionControls(selection) {
   const count = selection.ids.size;
+  // 计数并进复制按钮：两栏窄列里操作栏才排得下一行；单独的计数只留给读屏
   selection.count.textContent = `已选 ${count} 项`;
+  selection.copy.textContent = selectionCopyLabel(selection);
   selection.copy.disabled = !count;
   selection.add.disabled = !count || selection.channel === 'character-negative';
   selection.all.textContent = count === selection.pieces.length ? '清空选择' : '全选';
+  if (selection === dockSelection) syncSelectionDock();
 }
 
+function selectionCopyLabel(selection) {
+  return selection.ids.size ? `复制 ${selection.ids.size} 项` : '复制所选';
+}
+
+/* 手机底栏的主按钮平时是「复制正向」。有框在选 tag 时改成复制那一框的所选（没选时不可点），
+   免得选完顺手点底栏把全文复制走；退出选择或换词条后恢复。几个框同时在选时，最近打开或点过 tag 的框
+   接管底栏；它退出就交给另一个还在选的框，全都退出才恢复。 */
+let dockSelection = null;
+
+function liveSelection(selection) {
+  return Boolean(selection?.active && selection.bar.isConnected);
+}
+
+function syncSelectionDock() {
+  const dock = $('#copyPositiveDock');
+  if (!dock) return;
+  if (!liveSelection(dockSelection)) {
+    dockSelection = [...document.querySelectorAll('#lightboxInfo pre')]
+      .map(pre => promptSelections.get(pre))
+      .find(liveSelection) || null;
+  }
+  const selection = dockSelection;
+  if (selection) {
+    dock.hidden = false;
+    dock.disabled = !selection.ids.size;
+    dock.textContent = selectionCopyLabel(selection);
+    dock.onclick = event => {
+      event.stopPropagation();
+      selection.copySelected(dock);
+    };
+    return;
+  }
+  const copyPositive = $('#copyPositive');
+  dock.hidden = Boolean(copyPositive?.hidden);
+  dock.disabled = false;
+  dock.textContent = '复制正向';
+  dock.onclick = copyPositive?.onclick || null;
+}
+
+/* 选 tag 沿用阅读排版（同 tag-zh.js 的 renderTagZhPrompt）：有中文的 tag 是「英文 + 中文小字」小块，
+   没中文的是行内文字、能跨行接着排；逗号、空格、换行照原文，权重照样上色。只是每个 tag 都能点，点中的高亮。
+   进出选择模式版面基本不跳。tag 用 span 而不是 button：button 不能行内折行。 */
 function renderPromptSelection(pre, selection) {
   const shards = isTagZhEnabled() ? peekTagZh(selection.codexId) : null;
+  const hits = selection.pieces.map(piece => lookupTagZh(shards, piece.key));
   const fragment = document.createDocumentFragment();
-  for (const piece of selection.pieces) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'prompt-selection-token ui-press';
-    button.dataset.fragmentId = piece.id;
-    button.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+  const last = selection.pieces.length - 1;
+  let cursor = 0;
+  for (const [index, piece] of selection.pieces.entries()) {
+    // tag 之间照原文：有换行就换行（框是 pre-wrap），否则一个空格
+    const at = selection.text.indexOf(piece.label, cursor);
+    const between = at >= 0 ? selection.text.slice(cursor, at) : '';
+    if (at >= 0) cursor = at + piece.label.length;
+    if (index) fragment.append('\n'.repeat((between.match(/\n/g) || []).length) || ' ');
+    const hit = hits[index];
+    const token = document.createElement('span');
+    token.className = `prompt-selection-token${hit ? ' has-zh' : ''}`;
+    token.dataset.fragmentId = piece.id;
+    token.tabIndex = 0;
+    token.setAttribute('role', 'button');
+    token.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
     const en = document.createElement('span');
     en.className = 'tag-zh-en';
-    en.textContent = piece.raw;
-    button.append(en);
-    const hit = lookupTagZh(shards, piece.key);
+    en.textContent = index < last ? `${piece.raw},` : piece.raw;
+    decoratePromptWeights(en, en.textContent);
+    token.append(en);
     if (hit) {
       const zh = document.createElement('span');
       zh.className = `tag-zh-zh${hit.source === 'a' ? ' is-ai' : ''}`;
       zh.textContent = `${piece.negative ? '−' : ''}${hit.zh}`;
-      button.append(zh);
+      token.append(zh);
     }
-    if (piece.opaque) button.title = '这段语法作为整体选取，以保留原意';
-    button.onclick = event => {
-      event.stopPropagation();
+    if (piece.opaque) token.title = '这段语法作为整体选取，以保留原意';
+    const toggle = () => {
       if (selection.ids.has(piece.id)) selection.ids.delete(piece.id);
       else selection.ids.add(piece.id);
-      button.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+      token.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+      dockSelection = selection;   // 点过 tag 的框接管底栏
       updateSelectionControls(selection);
     };
-    fragment.append(button);
+    token.onclick = event => {
+      event.stopPropagation();
+      toggle();
+    };
+    token.onkeydown = event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggle();
+    };
+    fragment.append(token);
   }
   pre.replaceChildren(fragment);
   pre.classList.add('prompt-selecting');
-  pre.classList.remove('tag-zh-on');
+  // 与阅读时同一套行高：有中文小字才是对照排版
+  pre.classList.toggle('tag-zh-on', hits.some(Boolean));
   updateSelectionControls(selection);
+  syncPromptFold(pre);
 }
 
 function stopPromptSelection(pre) {
@@ -810,6 +878,7 @@ function stopPromptSelection(pre) {
   selection.bar.hidden = true;
   selection.toggle.setAttribute('aria-pressed', 'false');
   pre.classList.remove('prompt-selecting');
+  if (selection === dockSelection) syncSelectionDock();
 }
 
 function bindPromptSelection(pre, text, { entry, channel = 'positive', characterIndex, label = '' } = {}) {
@@ -817,6 +886,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   const previous = promptSelections.get(pre);
   previous?.toggle.remove();
   previous?.bar.remove();
+  if (previous && previous === dockSelection) syncSelectionDock();
   promptSelections.delete(pre);
   pre.classList.remove('prompt-selecting');
   if (!String(text || '').trim()) return;
@@ -877,16 +947,18 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     selection.active = true;
     bar.hidden = false;
     toggle.setAttribute('aria-pressed', 'true');
+    dockSelection = selection;
     head.querySelector('.sd-preview-toggle')?.setAttribute('aria-pressed', 'false');
     pre.classList.remove('sd-previewing');
     clearTagZhDetails(pre.parentElement);
     renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
-    pre.querySelector('button')?.focus();
+    pre.querySelector('.prompt-selection-token')?.focus();
   };
   all.onclick = event => {
     event.stopPropagation();
     if (selection.ids.size === selection.pieces.length) selection.ids.clear();
     else selection.pieces.forEach(piece => selection.ids.add(piece.id));
+    dockSelection = selection;
     renderPromptSelection(pre, selection);
   };
   cancel.onclick = event => { event.stopPropagation(); finish(); };
@@ -894,11 +966,15 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     text: serializeSelection(text, selection.ids), channel, characterIndex,
     scope: 'selection', label,
   });
-  copy.onclick = event => {
-    event.stopPropagation();
+  // 反馈落在被点的按钮上：操作栏的复制，或手机底栏（syncSelectionDock）
+  selection.copySelected = anchor => {
     if (!selection.ids.size || !refreshLightboxAccess(entry)) return;
     const fragment = selectedFragment();
-    void copyText(fragment.text, `已复制 ${selection.ids.size} 项：${entry.title}`, copy, { entry, fragment });
+    void copyText(fragment.text, `已复制 ${selection.ids.size} 项：${entry.title}`, anchor, { entry, fragment });
+  };
+  copy.onclick = event => {
+    event.stopPropagation();
+    selection.copySelected(copy);
   };
   add.onclick = async event => {
     event.stopPropagation();
@@ -935,14 +1011,108 @@ function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
   }
   // 三条渲染路径画完后统一给权重语法上色；只包 span，不改字
   decoratePromptWeights(pre, source);
+  syncPromptFold(pre);
 }
 
 function forgetPromptBlock(pre, text) {
   if (!pre) return;
   promptBlocks.delete(pre);
   bindPromptSelection(pre, '');
-  pre.classList.remove('tag-zh-on');
+  pre.classList.remove('tag-zh-on', 'prompt-folded');
   pre.textContent = text;
+  const toggle = promptFoldToggles.get(pre);
+  if (toggle) toggle.hidden = true;
+  promptFoldObserver?.unobserve(pre);
+}
+
+/* 长提示词默认折起：框限高（--prompt-fold，样式表按断点给）、底部渐隐，框下一行「展开全部」。
+   复制按钮在框上方，复制的始终是全文。展开状态按正向 / 负面 / 角色词分开记，本页内翻词条沿用（同画师栏）；
+   选择 tag 时整框显示；搜索命中落在折起的部分时这一框直接展开。藏起的不到三行就不折，免得点开只多一行。 */
+const PROMPT_FOLD_SLACK = 56;
+const PROMPT_FOLD_FADE = 40;           // 与样式表渐隐高度一致：命中落在渐隐带里也算看不清
+const expandedPromptKinds = new Set();
+const promptFoldToggles = new WeakMap();
+const promptFoldKept = new WeakMap();  // 命中撑开后又手动收起的那段原文，重画时不再撑开
+const promptFoldPending = new Set();
+let promptFoldObserver = null;
+let promptFoldFrame = 0;
+
+function promptFoldKind(pre) {
+  if (pre.id === 'lightboxTags') return 'positive';
+  if (pre.id === 'lightboxNegative') return 'negative';
+  return 'character';
+}
+
+function observePromptFold(pre) {
+  if (!promptFoldObserver && 'ResizeObserver' in window) {
+    // 换窗口宽度、单双栏切换、框从隐藏到显示都要重量；回调里直接改框高会报循环告警，挪到下一帧
+    promptFoldObserver = new ResizeObserver(entries => {
+      entries.forEach(entry => promptFoldPending.add(entry.target));
+      if (promptFoldFrame) return;
+      promptFoldFrame = requestAnimationFrame(() => {
+        promptFoldFrame = 0;
+        const targets = [...promptFoldPending];
+        promptFoldPending.clear();
+        targets.forEach(syncPromptFold);
+      });
+    });
+  }
+  promptFoldObserver?.observe(pre);
+}
+
+function promptFoldToggle(pre) {
+  let toggle = promptFoldToggles.get(pre);
+  if (!toggle) {
+    toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'prompt-fold-toggle ui-press';
+    if (pre.id) toggle.setAttribute('aria-controls', pre.id);
+    toggle.onclick = event => {
+      event.stopPropagation();
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      if (open) {
+        expandedPromptKinds.delete(promptFoldKind(pre));
+        promptFoldKept.set(pre, promptBlocks.get(pre)?.text);
+      } else {
+        expandedPromptKinds.add(promptFoldKind(pre));
+      }
+      syncPromptFold(pre);
+      // 在长框底部收起后框缩回去，把按钮带回视野，免得一下跳到下面的小节
+      if (open) toggle.scrollIntoView({ block: 'nearest' });
+    };
+    promptFoldToggles.set(pre, toggle);
+  }
+  // 中文对照的说明行由 tag-zh.js 插在框后面，按钮跟在它后面也行，只要还在框下方
+  if (!toggle.isConnected) pre.after(toggle);
+  return toggle;
+}
+
+function promptHitFolded(pre, limit) {
+  const top = pre.getBoundingClientRect().top;
+  return [...pre.querySelectorAll('mark')]
+    .some(mark => mark.getBoundingClientRect().bottom - top > limit - PROMPT_FOLD_FADE);
+}
+
+function syncPromptFold(pre) {
+  if (!pre?.isConnected) return;
+  const block = promptBlocks.get(pre);
+  if (block) observePromptFold(pre);
+  const limit = parseFloat(getComputedStyle(pre).getPropertyValue('--prompt-fold')) || 0;
+  const long = Boolean(block && limit && !promptSelections.get(pre)?.active
+    && pre.scrollHeight > limit + PROMPT_FOLD_SLACK);
+  if (!long) {
+    pre.classList.remove('prompt-folded');
+    const toggle = promptFoldToggles.get(pre);
+    if (toggle) toggle.hidden = true;
+    return;
+  }
+  const open = expandedPromptKinds.has(promptFoldKind(pre))
+    || (promptFoldKept.get(pre) !== block.text && promptHitFolded(pre, limit));
+  pre.classList.toggle('prompt-folded', !open);
+  const toggle = promptFoldToggle(pre);
+  toggle.hidden = false;
+  toggle.textContent = open ? '收起' : '展开全部';
+  toggle.setAttribute('aria-expanded', String(open));
 }
 
 function rerenderPromptBlocks() {
@@ -961,7 +1131,7 @@ function entryHasPromptText(entry) {
     .some(item => String(item?.prompt || '').trim() || String(item?.negative || '').trim());
 }
 
-/* 开关只放在「正向提示词」标题栏，一处开关全部提示词框一起变。对照表第一次要下载，
+/* 只有一个开关（电脑在动作行、手机在正向标题栏，见 placeTagZhToggle），全部提示词框一起变。对照表第一次要下载，
    先按原文出、到货再原位换成对照排版；这期间换了词条就丢弃这次结果。 */
 function syncTagZhForEntry(entry, seq) {
   const toggle = $('#tagZhToggle');
@@ -985,6 +1155,7 @@ export function renderCharacterPrompts(entry, { prompts: source = entry?.charact
   const container = $('#lightboxCharacterPrompts');
   if (!block || !container) return;
   const prompts = Array.isArray(source) ? source : [];
+  container.querySelectorAll('pre').forEach(pre => promptFoldObserver?.unobserve(pre));
   container.replaceChildren();
   block.hidden = !prompts.length;
   if (!prompts.length) return;
@@ -1029,6 +1200,8 @@ export function renderCharacterPrompts(entry, { prompts: source = entry?.charact
     }
     container.appendChild(prompt);
   }
+  // 框是先画后挂上去的，挂上以后才量得出高度
+  container.querySelectorAll('pre').forEach(syncPromptFold);
 }
 
 export function lightboxOriginalCopy(status, readable, exampleModel = '') {
@@ -1380,11 +1553,10 @@ export function renderLightbox() {
   };
   // 手机底栏的「复制正向」与小节里的同一个动作，复制反馈落在被点的那个按钮上
   const dockCopy = $('#copyPositiveDock');
-  if (dockCopy) {
-    dockCopy.hidden = !hasPositive;
-    dockCopy.title = $('#copyPositive').title;
-    dockCopy.onclick = $('#copyPositive').onclick;
-  }
+  if (dockCopy) dockCopy.title = $('#copyPositive').title;
+  // 换词条时各框都已退出选择（角色词框是重建的），底栏回到「复制正向」
+  dockSelection = null;
+  syncSelectionDock();
   $('#copyNegative').hidden = !negative;
   $('#copyNegative').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
   $('#copyNegative').onclick = ev => {
@@ -1573,10 +1745,26 @@ function placeLightboxActions() {
   const columns = document.querySelector('#lightboxInfo .lightbox-columns');
   if (!actions || !columns) return;
   closeLightboxMore();
-  if (window.matchMedia?.(LB_COMPACT_MEDIA).matches) {
+  const compact = window.matchMedia?.(LB_COMPACT_MEDIA).matches;
+  if (compact) {
     if (actions.previousElementSibling !== columns) columns.after(actions);
   } else if (actions.nextElementSibling !== columns) {
     columns.before(actions);
+  }
+  placeTagZhToggle(compact);
+}
+
+/* 中文对照在电脑上排在动作行「分享」后面，正向标题栏就和角色、负面一样只剩选词和复制；
+   手机动作行是吸底底栏、放不下，挪回正向标题栏的小节名后面。 */
+function placeTagZhToggle(compact) {
+  const toggle = $('#tagZhToggle');
+  const share = $('#shareLightbox');
+  const label = $('#lightboxTags')?.parentElement?.querySelector('.section-head > .section-label');
+  if (!toggle || !share || !label) return;
+  if (compact) {
+    if (label.nextElementSibling !== toggle) label.after(toggle);
+  } else if (share.nextElementSibling !== toggle) {
+    share.after(toggle);
   }
 }
 
