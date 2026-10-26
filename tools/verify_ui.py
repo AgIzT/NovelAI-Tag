@@ -1936,6 +1936,65 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return {"entry": target["id"], "boxes": before["boxes"], "detail": detail, "screenshot": shot}
 
+    def lightbox_prompt_fold():
+        """长提示词折起：限高带「展开全部」，展开 / 收起、选择 tag 时整框显示；短提示词不折。"""
+        book_path = ROOT / "site" / "data" / "nai5_community_pack.json"
+        if not book_path.exists():
+            return {"status": "BLOCKED", "reason": "site/data/nai5_community_pack.json 不存在"}
+        book = json.loads(book_path.read_text(encoding="utf-8"))
+        usable = [
+            item for item in book.get("entries", [])
+            if (item.get("image") or item.get("images")) and item.get("rating") not in ("r18", "r18g")
+        ]
+        long_entry = next((item for item in usable if len(item.get("tags") or "") > 900), None)
+        short_entry = next((item for item in usable if 0 < len(item.get("tags") or "") < 60), None)
+        if not long_entry or not short_entry:
+            return {"status": "BLOCKED", "reason": "社区图包里找不到公开的长 / 短提示词词条"}
+        state_expr = """(() => {
+  const pre = document.querySelector('#lightboxTags');
+  const toggle = pre?.parentElement.querySelector('.prompt-fold-toggle');
+  return {
+    folded: pre?.classList.contains('prompt-folded'),
+    height: Math.round(pre?.getBoundingClientRect().height || 0),
+    limit: parseFloat(getComputedStyle(pre).getPropertyValue('--prompt-fold')) || 0,
+    toggleShown: Boolean(toggle && !toggle.hidden),
+    toggleText: toggle?.textContent || '',
+    expanded: toggle?.getAttribute('aria-expanded') || '',
+    title: document.querySelector('#lightboxTitle')?.textContent || '',
+  };
+})()"""
+        click_toggle = "document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-fold-toggle').click()"
+        navigate(cdp, base)
+        wait_for(cdp, "document.readyState === 'complete'", "prompt fold home ready")
+        clear_errors(cdp)
+        navigate(cdp, base + f"?codex=nai5_community_pack&entry={long_entry['id']}")
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "long prompt folded", timeout=15)
+        folded = cdp.eval(state_expr)
+        if not folded["toggleShown"] or folded["toggleText"] != "展开全部" or folded["expanded"] != "false" \
+                or folded["height"] > folded["limit"] + 1:
+            raise CheckFailed(f"长提示词没有按限高折起：{folded}")
+        shot = screenshot(cdp, out_dir, "prompt-fold")
+        cdp.eval(click_toggle)
+        opened = wait_for(cdp, f"(() => {{ const s = {state_expr}; return !s.folded && s.toggleText === '收起' ? s : null; }})()", "prompt expanded")
+        if opened["expanded"] != "true" or opened["height"] <= folded["limit"] + 56:
+            raise CheckFailed(f"展开后没有显示全文：{opened}")
+        cdp.eval(click_toggle)
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "prompt folded again")
+        cdp.eval("document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-selection-toggle').click()")
+        selecting = wait_for(cdp, f"(() => {{ const s = {state_expr}; return !s.folded && !s.toggleShown ? s : null; }})()", "selection shows whole prompt")
+        cdp.eval("document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-selection-toggle').click()")
+        wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "prompt folded after selection")
+        navigate(cdp, base + f"?codex=nai5_community_pack&entry={short_entry['id']}")
+        wait_for(cdp, f"document.querySelector('#lightboxTitle')?.textContent === {js_string(short_entry['title'])}", "short prompt opened", timeout=15)
+        short = cdp.eval(state_expr)
+        if short["folded"] or short["toggleShown"]:
+            raise CheckFailed(f"短提示词不应折起：{short}")
+        cdp.eval("document.querySelector('#lightboxClose')?.click()")
+        wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "prompt fold lightbox close")
+        check_no_errors(cdp)
+        return {"long": long_entry["id"], "short": short_entry["id"], "folded": folded, "opened": opened["height"],
+                "selecting": selecting["height"], "screenshot": shot}
+
     def theme_axes():
         """换肤/字体/深浅色三条轴：六套皮肤都能挂上、素墨深色档的前景色压得住、
         字体换档不碰 prompt 等宽、纯黑档压到真黑、auto 跟随系统且旧键继续同步。"""
@@ -3219,6 +3278,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("entry deep-link opens lightbox", deep_link_lightbox),
         ("lightbox preserves scrolled page chrome", lightbox_scrolled_chrome),
         ("tag zh lightbox", tag_zh_lightbox),
+        ("lightbox long prompt folds", lightbox_prompt_fold),
         ("theme axes", theme_axes),
         ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),

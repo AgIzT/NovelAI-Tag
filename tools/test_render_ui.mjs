@@ -768,6 +768,15 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(lightboxImageAspect({}, [{}]), 0);
 }
 
+// 长提示词折起：限高 + 底部渐隐、框里不滚动；手机抽屉折得更矮，让「展开全部」露在吸底动作行上方。
+{
+  const styles = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.lightbox-info\{--prompt-fold:240px\}/);
+  assert.match(styles, /\.lightbox-section pre\.prompt-folded\{[^}]*max-height:var\(--prompt-fold\);overflow:hidden;/);
+  assert.doesNotMatch(styles, /pre\.prompt-folded\{[^}]*overflow-y:auto/, '折起的框不得自己滚动');
+  assert.match(styles, /@media \(max-width:600px\)[\s\S]*?\.lightbox-info\{--prompt-fold:120px\}/);
+}
+
 // 物理 original 与缩略 fallback 分开；提示是否承诺可读参数还要看来源 hasOriginal。
 {
   assert.equal(imageItemHasOriginal(entryImages({ image: 'thumb.jpg' })[0]), false);

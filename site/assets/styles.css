@@ -2403,13 +2403,29 @@ a.lightbox-credit:hover{text-decoration:underline}
 .tag-zh-detail-weight{color:var(--new);font-size:11px}
 .tag-zh-detail a{color:var(--accent);font-size:11px;text-decoration:none}
 .tag-zh-detail a:hover{text-decoration:underline}
-/* 提示词框不限高、不自己滚动：单栏和手机交给信息栏整体滚，两栏交给各列滚，免得手指卡在框里 */
+/* 提示词框不自己滚动：单栏和手机交给信息栏整体滚，两栏交给各列滚，免得手指卡在框里；长的折起见下方 */
 .lightbox-section pre{
   margin:0;white-space:pre-wrap;word-break:break-word;
   background:var(--tagbg);border:1px solid var(--line);border-radius:10px;padding:10px;
   color:var(--text);font:12px/1.55 var(--font-prompt);
 }
 .lightbox-section pre.sd-previewing{border-color:color-mix(in srgb,var(--accent) 48%,var(--line));background:color-mix(in srgb,var(--accent-soft) 52%,var(--tagbg))}
+/* 长提示词折起（lightbox.js 的 syncPromptFold 判断够不够长）：限高、底部 40px 渐隐，框下一行「展开全部 / 收起」。
+   折起时框里也不滚动，展开后照旧由信息栏或各列滚。 */
+.lightbox-info{--prompt-fold:240px}
+.lightbox-section pre.prompt-folded{
+  max-height:var(--prompt-fold);overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 40px),rgba(0,0,0,.12));
+  mask-image:linear-gradient(#000 calc(100% - 40px),rgba(0,0,0,.12));
+}
+.prompt-fold-toggle{
+  display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:4px;padding:5px 8px;
+  border:0;border-radius:8px;background:transparent;color:var(--lb-muted,var(--muted));
+  font:600 12px/1.4 var(--font-ui);cursor:pointer;
+}
+.prompt-fold-toggle::after{content:"";width:6px;height:6px;margin-top:-3px;border:solid currentColor;border-width:0 1.6px 1.6px 0;rotate:45deg}
+.prompt-fold-toggle[aria-expanded="true"]::after{margin-top:3px;rotate:225deg}
+.prompt-fold-toggle:hover{background:var(--tagbg-hover);color:var(--text)}
 /* 权重上色（prompt-weights.js）：加权绿、减权蓝，与 Tag 中转站共用 tag-relay.css 的两色；权重 1 的外壳与逗号淡化 */
 .lightbox-info pre .pw-up{color:var(--relay-up)}
 .lightbox-info pre .pw-down{color:var(--relay-down)}
@@ -2609,6 +2625,9 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -8px 18px rgba(10,15,35,.07);
   }
   .lightbox-actions button,.section-head button{min-height:38px;padding:9px 13px}
+  /* 抽屉矮，折起高度跟着收到「展开全部」在首屏露在吸底动作行之上；收起后滚回按钮时也让开动作行 */
+  .lightbox-info{--prompt-fold:120px}
+  .prompt-fold-toggle{min-height:38px;scroll-margin-bottom:76px}
   #copyPositiveDock:not([hidden]),#copyAll:not([hidden]){display:inline-block}
   .lightbox-more:not([hidden]){
     display:grid;place-items:center;margin-left:auto;min-width:38px;padding:0 10px;

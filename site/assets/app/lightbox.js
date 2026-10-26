@@ -800,6 +800,7 @@ function renderPromptSelection(pre, selection) {
   pre.classList.add('prompt-selecting');
   pre.classList.remove('tag-zh-on');
   updateSelectionControls(selection);
+  syncPromptFold(pre);
 }
 
 function stopPromptSelection(pre) {
@@ -935,14 +936,108 @@ function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
   }
   // 三条渲染路径画完后统一给权重语法上色；只包 span，不改字
   decoratePromptWeights(pre, source);
+  syncPromptFold(pre);
 }
 
 function forgetPromptBlock(pre, text) {
   if (!pre) return;
   promptBlocks.delete(pre);
   bindPromptSelection(pre, '');
-  pre.classList.remove('tag-zh-on');
+  pre.classList.remove('tag-zh-on', 'prompt-folded');
   pre.textContent = text;
+  const toggle = promptFoldToggles.get(pre);
+  if (toggle) toggle.hidden = true;
+  promptFoldObserver?.unobserve(pre);
+}
+
+/* 长提示词默认折起：框限高（--prompt-fold，样式表按断点给）、底部渐隐，框下一行「展开全部」。
+   复制按钮在框上方，复制的始终是全文。展开状态按正向 / 负面 / 角色词分开记，本页内翻词条沿用（同画师栏）；
+   选择 tag 时整框显示；搜索命中落在折起的部分时这一框直接展开。藏起的不到三行就不折，免得点开只多一行。 */
+const PROMPT_FOLD_SLACK = 56;
+const PROMPT_FOLD_FADE = 40;           // 与样式表渐隐高度一致：命中落在渐隐带里也算看不清
+const expandedPromptKinds = new Set();
+const promptFoldToggles = new WeakMap();
+const promptFoldKept = new WeakMap();  // 命中撑开后又手动收起的那段原文，重画时不再撑开
+const promptFoldPending = new Set();
+let promptFoldObserver = null;
+let promptFoldFrame = 0;
+
+function promptFoldKind(pre) {
+  if (pre.id === 'lightboxTags') return 'positive';
+  if (pre.id === 'lightboxNegative') return 'negative';
+  return 'character';
+}
+
+function observePromptFold(pre) {
+  if (!promptFoldObserver && 'ResizeObserver' in window) {
+    // 换窗口宽度、单双栏切换、框从隐藏到显示都要重量；回调里直接改框高会报循环告警，挪到下一帧
+    promptFoldObserver = new ResizeObserver(entries => {
+      entries.forEach(entry => promptFoldPending.add(entry.target));
+      if (promptFoldFrame) return;
+      promptFoldFrame = requestAnimationFrame(() => {
+        promptFoldFrame = 0;
+        const targets = [...promptFoldPending];
+        promptFoldPending.clear();
+        targets.forEach(syncPromptFold);
+      });
+    });
+  }
+  promptFoldObserver?.observe(pre);
+}
+
+function promptFoldToggle(pre) {
+  let toggle = promptFoldToggles.get(pre);
+  if (!toggle) {
+    toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'prompt-fold-toggle ui-press';
+    if (pre.id) toggle.setAttribute('aria-controls', pre.id);
+    toggle.onclick = event => {
+      event.stopPropagation();
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      if (open) {
+        expandedPromptKinds.delete(promptFoldKind(pre));
+        promptFoldKept.set(pre, promptBlocks.get(pre)?.text);
+      } else {
+        expandedPromptKinds.add(promptFoldKind(pre));
+      }
+      syncPromptFold(pre);
+      // 在长框底部收起后框缩回去，把按钮带回视野，免得一下跳到下面的小节
+      if (open) toggle.scrollIntoView({ block: 'nearest' });
+    };
+    promptFoldToggles.set(pre, toggle);
+  }
+  // 中文对照的说明行由 tag-zh.js 插在框后面，按钮跟在它后面也行，只要还在框下方
+  if (!toggle.isConnected) pre.after(toggle);
+  return toggle;
+}
+
+function promptHitFolded(pre, limit) {
+  const top = pre.getBoundingClientRect().top;
+  return [...pre.querySelectorAll('mark')]
+    .some(mark => mark.getBoundingClientRect().bottom - top > limit - PROMPT_FOLD_FADE);
+}
+
+function syncPromptFold(pre) {
+  if (!pre?.isConnected) return;
+  const block = promptBlocks.get(pre);
+  if (block) observePromptFold(pre);
+  const limit = parseFloat(getComputedStyle(pre).getPropertyValue('--prompt-fold')) || 0;
+  const long = Boolean(block && limit && !promptSelections.get(pre)?.active
+    && pre.scrollHeight > limit + PROMPT_FOLD_SLACK);
+  if (!long) {
+    pre.classList.remove('prompt-folded');
+    const toggle = promptFoldToggles.get(pre);
+    if (toggle) toggle.hidden = true;
+    return;
+  }
+  const open = expandedPromptKinds.has(promptFoldKind(pre))
+    || (promptFoldKept.get(pre) !== block.text && promptHitFolded(pre, limit));
+  pre.classList.toggle('prompt-folded', !open);
+  const toggle = promptFoldToggle(pre);
+  toggle.hidden = false;
+  toggle.textContent = open ? '收起' : '展开全部';
+  toggle.setAttribute('aria-expanded', String(open));
 }
 
 function rerenderPromptBlocks() {
@@ -985,6 +1080,7 @@ export function renderCharacterPrompts(entry, { prompts: source = entry?.charact
   const container = $('#lightboxCharacterPrompts');
   if (!block || !container) return;
   const prompts = Array.isArray(source) ? source : [];
+  container.querySelectorAll('pre').forEach(pre => promptFoldObserver?.unobserve(pre));
   container.replaceChildren();
   block.hidden = !prompts.length;
   if (!prompts.length) return;
@@ -1029,6 +1125,8 @@ export function renderCharacterPrompts(entry, { prompts: source = entry?.charact
     }
     container.appendChild(prompt);
   }
+  // 框是先画后挂上去的，挂上以后才量得出高度
+  container.querySelectorAll('pre').forEach(syncPromptFold);
 }
 
 export function lightboxOriginalCopy(status, readable, exampleModel = '') {
