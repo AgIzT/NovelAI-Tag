@@ -3336,9 +3336,20 @@ html.motion-off{scroll-behavior:auto!important}
 
 /* 详情选词：译名仅辅助阅读，选择与复制使用原始英文片段。 */
 .prompt-selection-toggle{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:5px 9px;font:600 11px var(--font-ui)}
-pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;white-space:normal}
-.prompt-selection-token{display:flex;flex-direction:column;gap:3px;max-width:100%;text-align:left;overflow-wrap:anywhere;white-space:normal;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-prompt)}
-.prompt-selection-token[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
+/* 选 tag 沿用阅读排版（lightbox.js 的 renderPromptSelection）：有中文的 tag 与中文对照的小块同尺寸，
+   没中文的是行内文字、能跨行；进出选择模式版面基本不跳。每个 tag 垫一层很淡的底表示可点（行内的用外扩阴影，
+   不占排版宽度），点中的换成浅强调底加细框；框边染一点强调色，看得出在选择状态。 */
+pre.prompt-selecting{border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.prompt-selection-token{
+  --sel-bg:color-mix(in srgb,var(--accent-soft) 45%,transparent);
+  border-radius:3px;background:var(--sel-bg);box-shadow:0 0 0 1px var(--sel-bg);cursor:pointer;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;
+}
+.prompt-selection-token.has-zh{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;box-shadow:none}
+.prompt-selection-token:hover{--sel-bg:color-mix(in srgb,var(--accent-soft) 85%,transparent)}
+.prompt-selection-token[aria-pressed=true]{--sel-bg:var(--accent-soft);box-shadow:0 0 0 1px var(--sel-bg),0 0 0 2px color-mix(in srgb,var(--accent) 60%,transparent)}
+.prompt-selection-token.has-zh[aria-pressed=true]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 60%,transparent)}
+.prompt-selection-token:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* 操作栏在框上方、吸在滚动区顶部：框不限高，选到下面的 tag 也看得到「复制 N 项」。
    计数并进复制按钮、按钮收窄，两栏约 290px 的窄列里也排成一行；× 留着，滚远了标题栏的开关就看不到了。 */
 .prompt-selection-bar{
@@ -3358,7 +3369,9 @@ pre.prompt-selecting{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;
 .prompt-selection-count{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .prompt-selection-note{flex-basis:100%;font:11px/1.5 var(--font-ui);color:var(--muted)}
 /* 触屏详情里这几排跟上方动作行同高 38px（窄屏那条已给动作行 38px）；抬到 44px 会让 12px 字的胶囊比动作行还胖一圈。 */
-@media(pointer:coarse){.prompt-selection-token,.prompt-selection-bar button,.prompt-selection-toggle,.lightbox-actions button,.section-head button{min-height:38px}}
+@media(pointer:coarse){.prompt-selection-bar button,.prompt-selection-toggle,.lightbox-actions button,.section-head button{min-height:38px}}
+/* 触屏上行内 tag 的可点区域上下各扩 3px（行内的上下内边距不改行距），不再撑成 38px 一块 */
+@media(pointer:coarse){.prompt-selection-token:not(.has-zh){padding-block:3px}}
 
 /* 详情动作与定位分开：停用动效时保留折叠/导航的定位终态。 */
 @media(prefers-reduced-motion:reduce){

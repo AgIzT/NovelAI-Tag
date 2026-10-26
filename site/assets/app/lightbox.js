@@ -800,39 +800,62 @@ function syncSelectionDock() {
   dock.onclick = copyPositive?.onclick || null;
 }
 
+/* 选 tag 沿用阅读排版（同 tag-zh.js 的 renderTagZhPrompt）：有中文的 tag 是「英文 + 中文小字」小块，
+   没中文的是行内文字、能跨行接着排；逗号、空格、换行照原文，权重照样上色。只是每个 tag 都能点，点中的高亮。
+   进出选择模式版面基本不跳。tag 用 span 而不是 button：button 不能行内折行。 */
 function renderPromptSelection(pre, selection) {
   const shards = isTagZhEnabled() ? peekTagZh(selection.codexId) : null;
+  const hits = selection.pieces.map(piece => lookupTagZh(shards, piece.key));
   const fragment = document.createDocumentFragment();
-  for (const piece of selection.pieces) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'prompt-selection-token ui-press';
-    button.dataset.fragmentId = piece.id;
-    button.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+  const last = selection.pieces.length - 1;
+  let cursor = 0;
+  for (const [index, piece] of selection.pieces.entries()) {
+    // tag 之间照原文：有换行就换行（框是 pre-wrap），否则一个空格
+    const at = selection.text.indexOf(piece.label, cursor);
+    const between = at >= 0 ? selection.text.slice(cursor, at) : '';
+    if (at >= 0) cursor = at + piece.label.length;
+    if (index) fragment.append('\n'.repeat((between.match(/\n/g) || []).length) || ' ');
+    const hit = hits[index];
+    const token = document.createElement('span');
+    token.className = `prompt-selection-token${hit ? ' has-zh' : ''}`;
+    token.dataset.fragmentId = piece.id;
+    token.tabIndex = 0;
+    token.setAttribute('role', 'button');
+    token.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
     const en = document.createElement('span');
     en.className = 'tag-zh-en';
-    en.textContent = piece.raw;
-    button.append(en);
-    const hit = lookupTagZh(shards, piece.key);
+    en.textContent = index < last ? `${piece.raw},` : piece.raw;
+    decoratePromptWeights(en, en.textContent);
+    token.append(en);
     if (hit) {
       const zh = document.createElement('span');
       zh.className = `tag-zh-zh${hit.source === 'a' ? ' is-ai' : ''}`;
       zh.textContent = `${piece.negative ? '−' : ''}${hit.zh}`;
-      button.append(zh);
+      token.append(zh);
     }
-    if (piece.opaque) button.title = '这段语法作为整体选取，以保留原意';
-    button.onclick = event => {
-      event.stopPropagation();
+    if (piece.opaque) token.title = '这段语法作为整体选取，以保留原意';
+    const toggle = () => {
       if (selection.ids.has(piece.id)) selection.ids.delete(piece.id);
       else selection.ids.add(piece.id);
-      button.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+      token.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
       updateSelectionControls(selection);
     };
-    fragment.append(button);
+    token.onclick = event => {
+      event.stopPropagation();
+      toggle();
+    };
+    token.onkeydown = event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggle();
+    };
+    fragment.append(token);
   }
   pre.replaceChildren(fragment);
   pre.classList.add('prompt-selecting');
-  pre.classList.remove('tag-zh-on');
+  // 与阅读时同一套行高：有中文小字才是对照排版
+  pre.classList.toggle('tag-zh-on', hits.some(Boolean));
   updateSelectionControls(selection);
   syncPromptFold(pre);
 }
@@ -919,7 +942,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     pre.classList.remove('sd-previewing');
     clearTagZhDetails(pre.parentElement);
     renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
-    pre.querySelector('button')?.focus();
+    pre.querySelector('.prompt-selection-token')?.focus();
   };
   all.onclick = event => {
     event.stopPropagation();

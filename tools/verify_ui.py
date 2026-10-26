@@ -1995,6 +1995,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 })()""")
         if bar["copy"] != "复制 2 项" or (bar["columns"] and bar["rows"] != 1):
             raise CheckFailed(f"选择操作栏没有压成一行或计数不对：{bar}")
+        # 选 tag 沿用阅读排版：框高与展开后的阅读状态相近，不再变成一块块卡片
+        if selecting["height"] > opened["height"] * 1.15:
+            raise CheckFailed(f"选择状态比阅读状态高出太多：阅读 {opened['height']}px，选择 {selecting['height']}px")
         cdp.eval("document.querySelector('#lightboxTags').parentElement.querySelector('.prompt-selection-toggle').click()")
         wait_for(cdp, "document.querySelector('#lightboxTags')?.classList.contains('prompt-folded')", "prompt folded after selection")
         navigate(cdp, base + f"?codex=nai5_community_pack&entry={short_entry['id']}")
