@@ -2409,6 +2409,7 @@ a.lightbox-credit:hover{text-decoration:underline}
   margin:0;white-space:pre-wrap;word-break:break-word;
   background:var(--tagbg);border:1px solid var(--line);border-radius:10px;padding:10px;
   color:var(--text);font:12px/1.55 var(--font-prompt);
+  transition:border-color .16s,background .16s;
 }
 .lightbox-section pre.sd-previewing{border-color:color-mix(in srgb,var(--accent) 48%,var(--line));background:color-mix(in srgb,var(--accent-soft) 52%,var(--tagbg))}
 /* 长提示词折起（lightbox.js 的 syncPromptFold 判断够不够长）：限高、底部 40px 渐隐，框下一行「展开全部 / 收起」。
@@ -2424,7 +2425,7 @@ a.lightbox-credit:hover{text-decoration:underline}
   border:0;border-radius:8px;background:transparent;color:var(--lb-muted,var(--muted));
   font:600 12px/1.4 var(--font-ui);cursor:pointer;
 }
-.prompt-fold-toggle::after{content:"";width:6px;height:6px;margin-top:-3px;border:solid currentColor;border-width:0 1.6px 1.6px 0;rotate:45deg}
+.prompt-fold-toggle::after{content:"";width:6px;height:6px;margin-top:-3px;border:solid currentColor;border-width:0 1.6px 1.6px 0;rotate:45deg;transition:rotate .22s cubic-bezier(.22,1,.36,1),margin-top .22s}
 .prompt-fold-toggle[aria-expanded="true"]::after{margin-top:3px;rotate:225deg}
 .prompt-fold-toggle:hover{background:var(--tagbg-hover);color:var(--text)}
 /* 权重上色（prompt-weights.js）：加权绿、减权蓝，与 Tag 中转站共用 tag-relay.css 的两色；权重 1 的外壳与逗号淡化 */
@@ -2638,14 +2639,17 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   }
   .lightbox-more[aria-expanded="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
   .lightbox-more svg{width:16px;height:16px;fill:currentColor}
-  .lightbox-actions-minor{display:none}
-  /* 菜单向上弹，会被抽屉的滚动区裁掉：限高到底栏以上的空间，放不下（短横屏）就折成并排几列 */
-  .lightbox-actions.is-more-open .lightbox-actions-minor{
-    display:flex;flex-direction:column;flex-wrap:wrap;align-items:stretch;gap:2px;position:absolute;right:14px;bottom:calc(100% + 6px);z-index:6;
+  .lightbox-actions-minor{
+    display:none;opacity:0;translate:0 8px;scale:.98;transform-origin:bottom right;pointer-events:none;
+    transition:opacity .16s,translate .2s cubic-bezier(.22,1,.36,1),scale .2s cubic-bezier(.22,1,.36,1),display .2s allow-discrete;
+    /* 退场时保留菜单几何，display 过渡结束再移除；短横屏放不下时折成并排几列。 */
+    flex-direction:column;flex-wrap:wrap;align-items:stretch;gap:2px;position:absolute;right:14px;bottom:calc(100% + 6px);z-index:6;
     min-width:168px;max-height:calc(var(--lb-sheet-height) - 70px);overflow-y:auto;overscroll-behavior:contain;
     margin:0;padding:6px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--popover-shadow);
   }
-  .lightbox-actions.is-more-open .lightbox-actions-minor button{flex:none;text-align:left;color:var(--text)}
+  .lightbox-actions.is-more-open .lightbox-actions-minor{display:flex;opacity:1;translate:0 0;scale:1;pointer-events:auto}
+  @starting-style{.lightbox-actions.is-more-open .lightbox-actions-minor{opacity:0;translate:0 8px;scale:.98}}
+  .lightbox-actions .lightbox-actions-minor button{flex:none;text-align:left;color:var(--text)}
   /* 提示条挪到底栏上方（底栏距底 10px、高 61px，再让 10px），复制后「再复制负面」仍可点，也不挡底栏 */
   html.lightbox-open .toast{bottom:81px}
   .lightbox-section{margin-top:10px}
@@ -3344,6 +3348,7 @@ pre.prompt-selecting{border-color:color-mix(in srgb,var(--accent) 40%,var(--line
   --sel-bg:color-mix(in srgb,var(--accent-soft) 45%,transparent);
   border-radius:3px;background:var(--sel-bg);box-shadow:0 0 0 1px var(--sel-bg);cursor:pointer;
   -webkit-box-decoration-break:clone;box-decoration-break:clone;
+  transition:background .14s,box-shadow .14s;
 }
 .prompt-selection-token.has-zh{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;box-shadow:none}
 .prompt-selection-token:hover{--sel-bg:color-mix(in srgb,var(--accent-soft) 85%,transparent)}
@@ -3357,7 +3362,8 @@ pre.prompt-selecting{border-color:color-mix(in srgb,var(--accent) 40%,var(--line
   border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow);
 }
 .prompt-selection-bar[hidden]{display:none}
-.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-ui)}
+.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-ui);transition:opacity .16s,background .16s,border-color .16s,color .16s,scale .14s}
+.prompt-selection-bar button:active:not(:disabled){scale:.96}
 .prompt-selection-bar .prompt-selection-copy:not(:disabled){border-color:transparent;background:var(--accent);color:var(--on-accent);font-weight:700}
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
 .prompt-selection-bar .prompt-selection-close{
@@ -3375,8 +3381,11 @@ pre.prompt-selecting{border-color:color-mix(in srgb,var(--accent) 40%,var(--line
 
 /* 详情动作与定位分开：停用动效时保留折叠/导航的定位终态。 */
 @media(prefers-reduced-motion:reduce){
+  .lightbox-section pre,.prompt-fold-toggle::after,.prompt-selection-token,.prompt-selection-bar button,.lightbox-actions-minor{transition:none!important}
+  .prompt-selection-bar button:active:not(:disabled){scale:1}
   .lightbox,.lightbox-stage,.lightbox-info,.lb-fold,.lb-fold svg,.lb-circle,.lb-fly,
   .lightbox-thumbs,.lightbox-thumb,.lightbox-actions button,.section-head button,.float-btn{transition:none!important}
   .lightbox-actions button:hover,.section-head button:hover{transform:none;translate:none}
 }
 .motion-off .lightbox-actions button:hover,.motion-off .section-head button:hover{transform:none;translate:none}
+.motion-off .prompt-selection-bar button:active:not(:disabled){scale:1}

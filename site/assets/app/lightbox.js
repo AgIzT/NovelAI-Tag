@@ -10,6 +10,7 @@ import { tokenizePrompt, serializeSelection } from './prompt-fragments.js';
 import { lookupTagZh } from './tag-zh-core.js';
 import { naiToSd } from './nai-sd.js';
 import { decoratePromptWeights } from './prompt-weights.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { recordRecentEntry } from './history.js';
 import { atlasUrlForRoute, syncUrlState } from './router.js';
 import { findCodexMeta } from './data.js';
@@ -521,6 +522,7 @@ function cancelLightboxPreloads({ keepOriginal = false } = {}) {
 
 function clearLightboxContent() {
   closeLightboxMore();
+  cancelUiMotion($('#copyPositiveDock'));
   dockSelection = null;
   resetArtistStrip();
   clearTagZhDetails($('#lightboxInfo'));
@@ -759,6 +761,42 @@ export function isLightboxKeydownBlocked(ev) {
 const promptBlocks = new WeakMap();
 const promptSelections = new WeakMap();
 
+/* 只给用户主动切换加高度过渡；排版、换词条和异步译名仍直接落到终态。
+   起点取正在显示的高度，连点时接住上一轮；动画结束由 ui-motion 交还普通样式。 */
+function animatePromptChange(pre, update) {
+  const height = pre.getBoundingClientRect().height;
+  const bar = promptSelections.get(pre)?.bar;
+  const collapsed = { height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px',
+    marginBottom: '0px', borderTopWidth: '0px', borderBottomWidth: '0px' };
+  const barFrame = () => {
+    if (bar.hidden) return collapsed;
+    const style = getComputedStyle(bar);
+    return { ...Object.fromEntries(Object.keys(collapsed).map(key => [key, style[key]])),
+      height: `${bar.getBoundingClientRect().height}px` };
+  };
+  const beforeBar = bar && barFrame();
+  cancelUiMotion(pre);
+  cancelUiMotion(bar);
+  update();
+  const nextHeight = pre.getBoundingClientRect().height;
+  const animation = Math.abs(height - nextHeight) > 1 ? animateUi(pre, [
+    { height: `${height}px`, maxHeight: 'none', overflow: 'clip' },
+    { height: `${nextHeight}px`, maxHeight: 'none', overflow: 'clip' },
+  ], { duration: 260 }) : null;
+  if (bar) {
+    const hidden = bar.hidden;
+    const afterBar = barFrame();
+    bar.inert = hidden;
+    if (beforeBar.height !== afterBar.height) {
+      bar.hidden = false;
+      const motion = animateUi(bar, [beforeBar, afterBar].map(frame => ({ ...frame, overflow: 'clip' })));
+      if (motion) motion.finished.then(() => { if (bar.inert) bar.hidden = true; }, () => {});
+      else bar.hidden = hidden;
+    }
+  }
+  return animation;
+}
+
 function updateSelectionControls(selection) {
   const count = selection.ids.size;
   // 计数并进复制按钮：两栏窄列里操作栏才排得下一行；单独的计数只留给读屏
@@ -786,6 +824,7 @@ function liveSelection(selection) {
 function syncSelectionDock() {
   const dock = $('#copyPositiveDock');
   if (!dock) return;
+  const previousLabel = dock.textContent;
   if (!liveSelection(dockSelection)) {
     dockSelection = [...document.querySelectorAll('#lightboxInfo pre')]
       .map(pre => promptSelections.get(pre))
@@ -800,13 +839,18 @@ function syncSelectionDock() {
       event.stopPropagation();
       selection.copySelected(dock);
     };
-    return;
+  } else {
+    const copyPositive = $('#copyPositive');
+    dock.hidden = Boolean(copyPositive?.hidden);
+    dock.disabled = false;
+    dock.textContent = '复制正向';
+    dock.onclick = copyPositive?.onclick || null;
   }
-  const copyPositive = $('#copyPositive');
-  dock.hidden = Boolean(copyPositive?.hidden);
-  dock.disabled = false;
-  dock.textContent = '复制正向';
-  dock.onclick = copyPositive?.onclick || null;
+  if (dock.textContent !== previousLabel && dock.getClientRects().length) {
+    cancelUiMotion(dock);
+    const opacity = Number(getComputedStyle(dock).opacity);
+    animateUi(dock, [{ opacity: opacity * .6, translate: '0 3px' }, { opacity, translate: '0 0' }], { duration: 160 });
+  }
 }
 
 /* 选 tag 沿用阅读排版（同 tag-zh.js 的 renderTagZhPrompt）：有中文的 tag 是「英文 + 中文小字」小块，
@@ -875,7 +919,9 @@ function stopPromptSelection(pre) {
   if (!selection) return;
   selection.active = false;
   selection.ids.clear();
+  cancelUiMotion(selection.bar);
   selection.bar.hidden = true;
+  selection.bar.inert = true;
   selection.toggle.setAttribute('aria-pressed', 'false');
   pre.classList.remove('prompt-selecting');
   if (selection === dockSelection) syncSelectionDock();
@@ -884,6 +930,7 @@ function stopPromptSelection(pre) {
 function bindPromptSelection(pre, text, { entry, channel = 'positive', characterIndex, label = '' } = {}) {
   if (!pre) return;
   const previous = promptSelections.get(pre);
+  cancelUiMotion(previous?.bar);
   previous?.toggle.remove();
   previous?.bar.remove();
   if (previous && previous === dockSelection) syncSelectionDock();
@@ -936,30 +983,38 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
   };
   promptSelections.set(pre, selection);
   const finish = () => {
-    stopPromptSelection(pre);
-    renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
+    animatePromptChange(pre, () => {
+      stopPromptSelection(pre);
+      renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
+    });
     toggle.focus();
   };
   toggle.onclick = event => {
     event.stopPropagation();
     if (selection.active) { finish(); return; }
     if (!refreshLightboxAccess(entry)) return;
-    selection.active = true;
-    bar.hidden = false;
-    toggle.setAttribute('aria-pressed', 'true');
-    dockSelection = selection;
-    head.querySelector('.sd-preview-toggle')?.setAttribute('aria-pressed', 'false');
-    pre.classList.remove('sd-previewing');
-    clearTagZhDetails(pre.parentElement);
-    renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
-    pre.querySelector('.prompt-selection-token')?.focus();
+    animatePromptChange(pre, () => {
+      selection.active = true;
+      bar.hidden = false;
+      bar.inert = false;
+      toggle.setAttribute('aria-pressed', 'true');
+      dockSelection = selection;
+      head.querySelector('.sd-preview-toggle')?.setAttribute('aria-pressed', 'false');
+      pre.classList.remove('sd-previewing');
+      clearTagZhDetails(pre.parentElement);
+      renderPromptBlock(pre, text, { highlighted: true, codexId: selection.codexId });
+    });
+    pre.querySelector('.prompt-selection-token')?.focus({ preventScroll: true });
   };
   all.onclick = event => {
     event.stopPropagation();
     if (selection.ids.size === selection.pieces.length) selection.ids.clear();
     else selection.pieces.forEach(piece => selection.ids.add(piece.id));
     dockSelection = selection;
-    renderPromptSelection(pre, selection);
+    pre.querySelectorAll('.prompt-selection-token').forEach(token => {
+      token.setAttribute('aria-pressed', String(selection.ids.has(token.dataset.fragmentId)));
+    });
+    updateSelectionControls(selection);
   };
   cancel.onclick = event => { event.stopPropagation(); finish(); };
   const selectedFragment = () => ({
@@ -996,6 +1051,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
 
 function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
   if (!pre) return;
+  cancelUiMotion(pre);
   const source = String(text || '');
   const sourceCodexId = codexId ?? lightboxEntrySourceId(state.lightbox?.entry);
   promptBlocks.set(pre, { text: source, highlighted, codexId: sourceCodexId });
@@ -1016,6 +1072,7 @@ function renderPromptBlock(pre, text, { highlighted = false, codexId } = {}) {
 
 function forgetPromptBlock(pre, text) {
   if (!pre) return;
+  cancelUiMotion(pre);
   promptBlocks.delete(pre);
   bindPromptSelection(pre, '');
   pre.classList.remove('tag-zh-on', 'prompt-folded');
@@ -1076,9 +1133,11 @@ function promptFoldToggle(pre) {
       } else {
         expandedPromptKinds.add(promptFoldKind(pre));
       }
-      syncPromptFold(pre);
+      const motion = animatePromptChange(pre, () => syncPromptFold(pre));
       // 在长框底部收起后框缩回去，把按钮带回视野，免得一下跳到下面的小节
-      if (open) toggle.scrollIntoView({ block: 'nearest' });
+      const reveal = () => { if (pre.classList.contains('prompt-folded')) toggle.scrollIntoView({ block: 'nearest' }); };
+      if (open && motion) motion.finished.then(reveal, () => {});
+      else if (open) reveal();
     };
     promptFoldToggles.set(pre, toggle);
   }
@@ -1724,6 +1783,8 @@ function isLightboxMoreOpen() {
 function setLightboxMoreOpen(open) {
   $('#lightboxActions')?.classList.toggle('is-more-open', open);
   $('#lightboxMore')?.setAttribute('aria-expanded', String(open));
+  const menu = $('#lightboxActionsMinor');
+  if (menu) menu.inert = !open && Boolean(window.matchMedia?.(LB_COMPACT_MEDIA).matches);
 }
 
 /* 返回刚才是否开着，Esc 和遮罩点击据此只收菜单、不关灯箱 */
@@ -1746,6 +1807,8 @@ function placeLightboxActions() {
   if (!actions || !columns) return;
   closeLightboxMore();
   const compact = window.matchMedia?.(LB_COMPACT_MEDIA).matches;
+  const menu = $('#lightboxActionsMinor');
+  if (menu) menu.inert = Boolean(compact);
   if (compact) {
     if (actions.previousElementSibling !== columns) columns.after(actions);
   } else if (actions.nextElementSibling !== columns) {
