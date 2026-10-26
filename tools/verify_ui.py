@@ -1990,11 +1990,21 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   const bar = pre.parentElement.querySelector('.prompt-selection-bar');
   [...pre.querySelectorAll('.prompt-selection-token')].slice(0, 2).forEach(token => token.click());
   const rows = new Set([...bar.querySelectorAll('button')].map(b => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)));
+  // 正向还在选时，负面开了又退出，底栏仍复制正向的所选（底栏在电脑上藏着，但文字照样同步）
+  const negativeToggle = document.querySelector('#negativeBlock:not([hidden]) .prompt-selection-toggle');
+  let dockAfterOther = null;
+  if (negativeToggle) {
+    negativeToggle.click();
+    negativeToggle.click();
+    dockAfterOther = document.querySelector('#copyPositiveDock').textContent;
+  }
   return { rows: rows.size, copy: bar.querySelector('.prompt-selection-copy').textContent,
-    columns: document.querySelector('#lightbox').classList.contains('lb-two-columns') };
+    columns: document.querySelector('#lightbox').classList.contains('lb-two-columns'), dockAfterOther };
 })()""")
         if bar["copy"] != "复制 2 项" or (bar["columns"] and bar["rows"] != 1):
             raise CheckFailed(f"选择操作栏没有压成一行或计数不对：{bar}")
+        if bar["dockAfterOther"] is not None and bar["dockAfterOther"] != "复制 2 项":
+            raise CheckFailed(f"另一框退出选择后底栏没有交回正向的所选：{bar}")
         # 选 tag 沿用阅读排版：框高与展开后的阅读状态相近，不再变成一块块卡片
         if selecting["height"] > opened["height"] * 1.15:
             raise CheckFailed(f"选择状态比阅读状态高出太多：阅读 {opened['height']}px，选择 {selecting['height']}px")

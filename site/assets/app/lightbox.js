@@ -775,13 +775,23 @@ function selectionCopyLabel(selection) {
 }
 
 /* 手机底栏的主按钮平时是「复制正向」。有框在选 tag 时改成复制那一框的所选（没选时不可点），
-   免得选完顺手点底栏把全文复制走；退出选择或换词条后恢复。 */
+   免得选完顺手点底栏把全文复制走；退出选择或换词条后恢复。几个框同时在选时，最近打开或点过 tag 的框
+   接管底栏；它退出就交给另一个还在选的框，全都退出才恢复。 */
 let dockSelection = null;
+
+function liveSelection(selection) {
+  return Boolean(selection?.active && selection.bar.isConnected);
+}
 
 function syncSelectionDock() {
   const dock = $('#copyPositiveDock');
   if (!dock) return;
-  const selection = dockSelection?.active && dockSelection.bar.isConnected ? dockSelection : null;
+  if (!liveSelection(dockSelection)) {
+    dockSelection = [...document.querySelectorAll('#lightboxInfo pre')]
+      .map(pre => promptSelections.get(pre))
+      .find(liveSelection) || null;
+  }
+  const selection = dockSelection;
   if (selection) {
     dock.hidden = false;
     dock.disabled = !selection.ids.size;
@@ -792,7 +802,6 @@ function syncSelectionDock() {
     };
     return;
   }
-  dockSelection = null;
   const copyPositive = $('#copyPositive');
   dock.hidden = Boolean(copyPositive?.hidden);
   dock.disabled = false;
@@ -838,6 +847,7 @@ function renderPromptSelection(pre, selection) {
       if (selection.ids.has(piece.id)) selection.ids.delete(piece.id);
       else selection.ids.add(piece.id);
       token.setAttribute('aria-pressed', String(selection.ids.has(piece.id)));
+      dockSelection = selection;   // 点过 tag 的框接管底栏
       updateSelectionControls(selection);
     };
     token.onclick = event => {
@@ -948,6 +958,7 @@ function bindPromptSelection(pre, text, { entry, channel = 'positive', character
     event.stopPropagation();
     if (selection.ids.size === selection.pieces.length) selection.ids.clear();
     else selection.pieces.forEach(piece => selection.ids.add(piece.id));
+    dockSelection = selection;
     renderPromptSelection(pre, selection);
   };
   cancel.onclick = event => { event.stopPropagation(); finish(); };
