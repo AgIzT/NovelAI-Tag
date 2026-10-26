@@ -2384,11 +2384,12 @@ a.lightbox-credit:hover{text-decoration:underline}
 .section-head button{flex:none;margin-left:0;white-space:nowrap;padding:5px 9px;font-size:12px;line-height:1.35}
 /* 三个视图开关（中文对照 / SD 预览 / 选择 tag）同一套样子：关着平底细边框，开着浅强调底 + ✓。
    开着也不填实色——实色只留给「复制」，角色词区也不跟着染色。
-   中文对照打开后每个 tag 变成「英文 + 下方中文小字」的盒子。 */
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle){border:1px solid var(--line);background:var(--tagbg);color:var(--text);box-shadow:none}
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle):hover{background:var(--tagbg-hover);filter:none}
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
-.section-head :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]::before{content:"✓ "}
+   中文对照打开后每个 tag 变成「英文 + 下方中文小字」的盒子。
+   中文对照电脑上在动作行、手机上在正向标题栏（lightbox.js 的 placeTagZhToggle），两处同一套样子。 */
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle){border:1px solid var(--line);background:var(--tagbg);color:var(--text);box-shadow:none}
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle):hover{background:var(--tagbg-hover);filter:none}
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 46%,var(--line));background:var(--accent-soft);color:var(--accent)}
+:is(.section-head,.lightbox-actions) :is(.tag-zh-toggle,.sd-preview-toggle,.prompt-selection-toggle)[aria-pressed="true"]::before{content:"✓ "}
 .lightbox-section pre.tag-zh-on{line-height:1.3;padding-bottom:5px}
 .tag-zh-tok{display:inline-flex;flex-direction:column;vertical-align:top;max-width:100%;margin:0 0 6px;padding:0 2px;border-radius:4px;cursor:pointer}
 .tag-zh-gap{margin-right:5px}

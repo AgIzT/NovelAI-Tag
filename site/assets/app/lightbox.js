@@ -1056,7 +1056,7 @@ function entryHasPromptText(entry) {
     .some(item => String(item?.prompt || '').trim() || String(item?.negative || '').trim());
 }
 
-/* 开关只放在「正向提示词」标题栏，一处开关全部提示词框一起变。对照表第一次要下载，
+/* 只有一个开关（电脑在动作行、手机在正向标题栏，见 placeTagZhToggle），全部提示词框一起变。对照表第一次要下载，
    先按原文出、到货再原位换成对照排版；这期间换了词条就丢弃这次结果。 */
 function syncTagZhForEntry(entry, seq) {
   const toggle = $('#tagZhToggle');
@@ -1671,10 +1671,26 @@ function placeLightboxActions() {
   const columns = document.querySelector('#lightboxInfo .lightbox-columns');
   if (!actions || !columns) return;
   closeLightboxMore();
-  if (window.matchMedia?.(LB_COMPACT_MEDIA).matches) {
+  const compact = window.matchMedia?.(LB_COMPACT_MEDIA).matches;
+  if (compact) {
     if (actions.previousElementSibling !== columns) columns.after(actions);
   } else if (actions.nextElementSibling !== columns) {
     columns.before(actions);
+  }
+  placeTagZhToggle(compact);
+}
+
+/* 中文对照在电脑上排在动作行「分享」后面，正向标题栏就和角色、负面一样只剩选词和复制；
+   手机动作行是吸底底栏、放不下，挪回正向标题栏的小节名后面。 */
+function placeTagZhToggle(compact) {
+  const toggle = $('#tagZhToggle');
+  const share = $('#shareLightbox');
+  const label = $('#lightboxTags')?.parentElement?.querySelector('.section-head > .section-label');
+  if (!toggle || !share || !label) return;
+  if (compact) {
+    if (label.nextElementSibling !== toggle) label.after(toggle);
+  } else if (share.nextElementSibling !== toggle) {
+    share.after(toggle);
   }
 }
 

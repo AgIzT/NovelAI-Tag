@@ -1919,6 +1919,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed(f"中文小字仍可被选中复制：{before['selectable']}")
         if cdp.eval(raw_text) != target["tags"]:
             raise CheckFailed("对照排版去掉中文后与词条原文不一致")
+        if cdp.eval("document.querySelector('#tagZhToggle')?.previousElementSibling?.id") != "shareLightbox":
+            raise CheckFailed("电脑上中文对照开关应排在动作行「分享」后面")
         shot = screenshot(cdp, out_dir, "tag-zh-lightbox")
         cdp.eval("document.querySelector('#lightboxTags .tag-zh-tok')?.click()")
         detail = wait_for(cdp, "document.querySelector('#lightboxInfo .tag-zh-detail')?.textContent || ''", "tag zh detail row")
@@ -2483,6 +2485,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         click('#masonry .card-title')
         wait_for(cdp, "!document.querySelector('#lightbox').hidden", "text detail opens")
         detail_url = cdp.eval('location.href')
+        # 底栏放不下中文对照，手机上它留在正向标题栏
+        if not cdp.eval("!!document.querySelector('#lightboxTags').parentElement.querySelector('.section-head > #tagZhToggle')"):
+            raise CheckFailed("手机上中文对照开关不在正向标题栏")
         # 手机底栏把反馈收在「⋯」里
         click('#lightboxMore')
         click('#reportLightbox')
