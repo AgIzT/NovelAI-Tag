@@ -14,6 +14,8 @@ import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistor
 import { topInteractionLayer, trapFocus } from './modal.js';
 import { cancelRelayAction } from './tag-relay-action.js';
 import { settleRelayMotion } from './tag-relay-motion.js';
+import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { RELAYOUT_ANIM_MS } from './state.js';
 
 const RAIL_STORAGE_KEY = 'fadian-tag-relay-rail';
 const RAIL_LAYER_ID = 'tag-relay-rail';
@@ -29,6 +31,40 @@ let lastTrigger = null;
 let escYieldsToTopLayer = false;
 const renderers = new Map();
 const dirty = new Set();
+const layoutActions = { begin: () => {}, end: () => {} };
+let dockMotion = null;
+
+export function setRelayRailLayoutActions(actions) {
+  Object.assign(layoutActions, actions);
+}
+
+function finishDockMotion() {
+  if (!dockMotion) return;
+  dockMotion = null;
+  cancelUiMotion(rail);
+  layoutActions.end();
+}
+
+function animateDockResize(from) {
+  // 此时 closed 已切到终态，先让瀑布流按真实终态宽度测高、分列。
+  const to = getComputedStyle(rail).flexBasis;
+  layoutActions.begin();
+  const animation = animateUi(rail, [
+    { flexBasis: from, width: from },
+    { flexBasis: to, width: to },
+  ], { duration: RELAYOUT_ANIM_MS, easing: 'cubic-bezier(.22,1,.36,1)' });
+  dockMotion = animation;
+  if (!animation) {
+    layoutActions.end();
+    return;
+  }
+  const finish = () => {
+    if (dockMotion !== animation) return;
+    dockMotion = null;
+    layoutActions.end();
+  };
+  animation.finished.then(finish, finish);
+}
 
 const isClosed = () => !rail || rail.classList.contains('closed');
 
@@ -74,6 +110,13 @@ function setOpenDirect(open, trigger = null, focusEditor = false) {
   if (!rail) return;
   /* ⚠ inert 会立刻把焦点踢到 <body>，所以「关栏前焦点在不在栏里」必须先算好 */
   const heldFocus = !open && rail.contains(document.activeElement);
+  const dockFrom = !overlayQuery.matches ? getComputedStyle(rail).flexBasis : null;
+  // 反向时保留刚读到的视觉宽度；旧回调失效，宽度锁由新一轮直接接管。
+  if (dockMotion) {
+    dockMotion = null;
+    cancelUiMotion(rail);
+    if (dockFrom === null) layoutActions.end();
+  }
   rail.classList.toggle('closed', !open);
   /* 收起不能只是视觉隐藏：不加 inert，Tab 仍会走进看不见的按钮和输入框 */
   rail.inert = !open;
@@ -84,6 +127,7 @@ function setOpenDirect(open, trigger = null, focusEditor = false) {
     try { localStorage.setItem(RAIL_STORAGE_KEY, open ? 'open' : 'closed'); } catch { /* 隐私模式写不了就算了 */ }
   }
   syncChrome();
+  if (dockFrom !== null) animateDockResize(dockFrom);
   if (open) {
     dirty.add('warehouse');
     dirty.add('compose');
@@ -175,11 +219,57 @@ export function markRailDirty(changed) {
   flush();
 }
 
+/* 软键盘只缩小视觉视口时，sheet 跟着可见区收高并抬到底边；不改焦点或页面滚动。
+   双指缩放不应被当作键盘挤压，离开手机断点也立即交回 CSS 的高度。 */
+function bindMobileViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const phoneQuery = window.matchMedia('(max-width:600px)');
+  let queued = false, height = '', bottom = '';
+  const update = () => {
+    queued = false;
+    if (!phoneQuery.matches || viewport.scale !== 1 || !Number.isFinite(viewport.height) || viewport.height <= 0) {
+      if (height) rail.style.removeProperty('--relay-visible-height');
+      if (bottom) rail.style.removeProperty('--relay-viewport-bottom');
+      height = bottom = '';
+      return;
+    }
+    const nextHeight = `${viewport.height}px`;
+    const nextBottom = `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`;
+    if (height !== nextHeight) rail.style.setProperty('--relay-visible-height', nextHeight);
+    if (bottom !== nextBottom) rail.style.setProperty('--relay-viewport-bottom', nextBottom);
+    height = nextHeight; bottom = nextBottom;
+  };
+  const schedule = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(update);
+  };
+  viewport.addEventListener('resize', schedule, { passive: true });
+  viewport.addEventListener('scroll', schedule, { passive: true });
+  window.addEventListener('resize', schedule, { passive: true });
+  phoneQuery.addEventListener?.('change', schedule);
+  update();
+}
+
 function bindRail() {
-  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', settleRelayMotion);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') settleRelayMotion();
+  bindMobileViewport();
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => {
+    settleRelayMotion();
+    finishDockMotion();
   });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      settleRelayMotion();
+      finishDockMotion();
+    }
+  });
+  let lastWindowWidth = window.innerWidth;
+  window.addEventListener('resize', () => {
+    if (window.innerWidth === lastWindowWidth) return;
+    lastWindowWidth = window.innerWidth;
+    finishDockMotion();
+  }, { passive: true });
   document.querySelector('#tagRelayBtn')?.addEventListener('click', event =>
     toggleRelayRail(event.currentTarget, { focusEditor: event.detail === 0 }));
   document.querySelector('#tagRelayMenuLink')?.addEventListener('click', event => {
@@ -206,7 +296,7 @@ function bindRail() {
   ].some(selector => {
     const layer = rail.querySelector(selector);
     return layer && !layer.hidden;
-  });
+  }) || ['#relayOutputMoreToggle', '#relayMobileSources'].some(selector => rail.querySelector(selector)?.getAttribute('aria-expanded') === 'true');
   rail.addEventListener('keydown', event => {
     if (isRelayRailModal()) trapFocus(event, rail);
     if (event.key !== 'Escape') return;
@@ -249,6 +339,7 @@ function bindRail() {
 
   /* 形态切换（拖窗口、转屏）：停靠 ⇄ 浮层的历史层归属会变，先把旧账清掉 */
   overlayQuery.addEventListener('change', () => {
+    finishDockMotion();
     if (overlayQuery.matches) {
       /* A docked rail cannot acquire modal ownership underneath an existing
          dialog. Close it without changing the desktop docking preference. */

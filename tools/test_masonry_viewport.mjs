@@ -40,12 +40,15 @@ globalThis.getComputedStyle = () => ({ display: 'block' });
 const {
   applyCardImageLoadPolicy,
   applyCardHeightChanges,
+  beginMasonryResize,
   cardImageLoadPolicy,
   computeLayout,
+  endMasonryResize,
   estimateBodyMetrics,
   estimateImageHeight,
   invalidateBodyMetrics,
   masonryViewport,
+  scheduleRelayout,
 } = await import('../site/assets/app/masonry.js');
 const { state, densityConfig, DEFAULT_DENSITY } = await import('../site/assets/app/state.js');
 
@@ -272,6 +275,77 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   state.favoritesView = previous.favoritesView;
   if (previous.innerWidth === undefined) delete window.innerWidth;
   else window.innerWidth = previous.innerWidth;
+}
+
+// 容器动画只消费终态宽度；快速反向接管锁，结束后真实 resize 与密度变化仍能重排。
+{
+  const saved = {
+    query: document.querySelector, timeout: window.setTimeout, clear: globalThis.clearTimeout,
+    codex: state.codex, list: state.list, density: state.density, innerWidth: window.innerWidth,
+  };
+  const timers = new Map();
+  let timerId = 0, commits = 0;
+  const masonry = {
+    clientWidth: 1119, offsetWidth: 1119,
+    classList: { add() {}, remove() {} },
+    style: { set height(value) { commits++; }, get height() { return '0px'; } },
+  };
+  document.querySelector = selector => ['#masonry', '#main'].includes(selector) ? masonry : null;
+  window.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
+  globalThis.clearTimeout = id => timers.delete(id);
+  window.innerWidth = 1440;
+  state.codex = { id: 'resize-test' };
+  state.list = [];
+  state.nodes.clear();
+  state.density = 'standard';
+  try {
+    computeLayout();
+    masonry.clientWidth = 681;
+    scheduleRelayout();
+    assert.equal(timers.size, 1, '先模拟一条尚未执行的普通 resize');
+    beginMasonryResize();
+    assert.equal(commits, 2, '本次开栏只提交一次终态');
+    assert.equal(timers.size, 0, '开栏接管并取消旧 resize timer');
+    assert.equal(state.itemWidth, 334);
+
+    masonry.clientWidth = 900;
+    scheduleRelayout();
+    assert.equal(timers.size, 0, '动画中间的 RO 不安排额外重排');
+    computeLayout();
+    assert.equal(state.itemWidth, 334, '动画中更新列表也使用终态卡宽');
+
+    masonry.clientWidth = 1119;
+    beginMasonryResize();
+    assert.equal(state.itemWidth, 270, '快速反向采用新一轮终态');
+    const beforeEnd = commits;
+    endMasonryResize();
+    scheduleRelayout();
+    assert.equal(timers.size, 0, '收尾与最后一条 RO 都不能补排相同宽度');
+    assert.equal(commits, beforeEnd);
+
+    const drain = () => { const callbacks = [...timers.values()]; timers.clear(); callbacks.forEach(fn => fn()); };
+    masonry.clientWidth = 800;
+    scheduleRelayout();
+    assert.equal(timers.size, 1, '解锁后真实宽度变化仍会排队');
+    drain();
+    assert.equal(commits, beforeEnd + 1);
+    state.density = 'compact';
+    scheduleRelayout();
+    assert.equal(timers.size, 1, '同宽但布局密度变化不能被去重掉');
+    drain();
+    assert.equal(commits, beforeEnd + 2);
+  } finally {
+    endMasonryResize();
+    timers.clear();
+    document.querySelector = saved.query;
+    window.setTimeout = saved.timeout;
+    globalThis.clearTimeout = saved.clear;
+    state.codex = saved.codex;
+    state.list = saved.list;
+    state.density = saved.density;
+    if (saved.innerWidth === undefined) delete window.innerWidth;
+    else window.innerWidth = saved.innerWidth;
+  }
 }
 
 console.log('masonry viewport and mobile density regressions: PASS');

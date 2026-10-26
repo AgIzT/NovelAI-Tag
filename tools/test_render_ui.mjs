@@ -768,6 +768,15 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(lightboxImageAspect({}, [{}]), 0);
 }
 
+// 长提示词折起：限高 + 底部渐隐、框里不滚动；手机抽屉折得更矮，让「展开全部」露在吸底动作行上方。
+{
+  const styles = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.lightbox-info\{--prompt-fold:240px\}/);
+  assert.match(styles, /\.lightbox-section pre\.prompt-folded\{[^}]*max-height:var\(--prompt-fold\);overflow:hidden;/);
+  assert.doesNotMatch(styles, /pre\.prompt-folded\{[^}]*overflow-y:auto/, '折起的框不得自己滚动');
+  assert.match(styles, /@media \(max-width:600px\)[\s\S]*?\.lightbox-info\{--prompt-fold:120px\}/);
+}
+
 // 物理 original 与缩略 fallback 分开；提示是否承诺可读参数还要看来源 hasOriginal。
 {
   assert.equal(imageItemHasOriginal(entryImages({ image: 'thumb.jpg' })[0]), false);
@@ -1717,7 +1726,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(await bridge.addSource(source, placement), entryResult);
   assert.equal(inserted[0].entry, source, '不能以 key 回查丢掉收藏/选段快照');
   assert.equal(inserted[0].options, placement, '负向、字符落点与焦点偏好必须传到编辑器');
-  assert.deepEqual(warmed, ['book']); assert.equal(flushed, 1);
+  assert.deepEqual(warmed, [], '加入素材不直接预加载译名；实际需求由编辑器变化回调判断');
+  assert.equal(flushed, 1);
   assert.match(editorSource, /target\.folds\.set\(name, \{ \.\.\.normalizeRelayEntry\(entry\)/);
   assert.match(editorSource, /Array\.isArray\(entry\.parts\)[\s\S]*structuredClone\(entry\.parts\)/);
   // 文本允许独立重复词组；去重只影响输出，不能吞掉原文或破坏浏览器撤销。

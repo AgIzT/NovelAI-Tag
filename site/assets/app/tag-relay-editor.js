@@ -29,17 +29,27 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
   channels.setAttribute('aria-label', '提示词通道');
   channels.style.setProperty('--seg-count', '2');
   const buttons = new Map();
+  const phoneQuery = window.matchMedia('(max-width:600px)');
+  const editorBar = element('div', 'relay-editor-bar');
+  const picsToggle = element('button', 'relay-pics-toggle', '例图 0');
+  picsToggle.type = 'button';
+  picsToggle.setAttribute('aria-controls', 'relayEditorPics');
+  picsToggle.setAttribute('aria-expanded', 'false');
+  picsToggle.hidden = true;
+  editorBar.append(channels, picsToggle);
   /* 例图条：当前通道里带图的词组，按正文顺序一组一张。它不在文字流里，所以能占位，
      镜像那条「只画不占位」的约束管不到这里。 */
   const pics = element('div', 'relay-pics');
+  pics.id = 'relayEditorPics';
   pics.setAttribute('role', 'group');
   pics.setAttribute('aria-label', '词组例图');
   pics.hidden = true;
+  let picsCount = 0, picsExpanded = false;
   let panelActive = false, panelSignature = '', picsSignature = '', panelHost = panel;
   let editVersion = 0;
   const expansions = new Map();
   root.classList.add('relay-editor');
-  root.replaceChildren(channels, pics, actions);
+  root.replaceChildren(editorBar, pics, actions);
   const here = () => session[session.channel];
   const view = () => views.get(session.channel);
   const button = (label, action, host = panelHost) => {
@@ -88,6 +98,22 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       : session.channel === 'positive' ? 'negative' : 'positive';
     switchChannel(next); buttons.get(next).focus();
   });
+  picsToggle.addEventListener('click', () => {
+    picsExpanded = !picsExpanded;
+    syncPicsVisibility();
+  });
+
+  /* 收放只改变例图区，不重画正文或改写选区，触屏查看后仍能继续编辑原位置。 */
+  function syncPicsVisibility() {
+    picsToggle.hidden = !picsCount;
+    picsToggle.textContent = `例图 ${picsCount}`;
+    pics.hidden = !picsCount || (phoneQuery.matches && !picsExpanded);
+    picsToggle.setAttribute('aria-expanded', String(!pics.hidden));
+  }
+  function collapsePics() {
+    picsExpanded = false;
+    syncPicsVisibility();
+  }
 
   const snapshot = input => ({ text: input.value, start: input.selectionStart, end: input.selectionEnd, direction: input.selectionDirection });
   function changed() {
@@ -214,10 +240,13 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       seen.add(t.fold); items.push({ t, fold });
     }
     const signature = JSON.stringify(items.map(({ t, fold }) => [t.fold, fold.image, t.off]));
-    pics.hidden = !items.length;
+    picsCount = items.length;
+    if (!picsCount) picsExpanded = false;
+    syncPicsVisibility();
     if (signature === picsSignature) return;
     picsSignature = signature;
     hidePeek();
+    closeImageDialog({ restoreFocus: false });
     pics.replaceChildren(...items.map(({ t, fold }) => {
       const card = element('button', 'relay-pic');
       card.type = 'button';
@@ -230,7 +259,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       let touch = false;
       card.addEventListener('pointerdown', event => { touch = event.pointerType !== 'mouse'; });
       card.addEventListener('mousedown', event => event.preventDefault());
-      card.addEventListener('click', () => selectFold(t.fold, { focus: !touch }));
+      card.addEventListener('click', () => selectFold(t.fold, { focus: !touch && !phoneQuery.matches }));
       card.addEventListener('pointerenter', event => {
         if (event.pointerType !== 'mouse') return;
         hot(t.fold, true); showPeek(card, t.fold);
@@ -268,6 +297,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
      桌面优先放在侧栏左边，不盖住正在看的正文；窄屏水平居中，放在触发点下方或上方。 */
   let peek = null, peekImg = null, peekCaption = null, peekAnchor = null, peekPinned = false;
   function showPeek(anchor, name, { pinned = false } = {}) {
+    if (phoneQuery.matches) return;
     const fold = here().folds.get(name);
     if (!fold?.image || isLocked(fold)) { hidePeek(); return; }
     if (!peek) {
@@ -312,6 +342,88 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
   }, true);
   document.addEventListener('scroll', () => { if (peekAnchor) hidePeek(); }, { capture: true, passive: true });
   window.addEventListener('resize', () => { if (peekAnchor) hidePeek(); });
+
+  /* 手机用独立的大图层；正文操作区只保留入口，不再挤进一张重复缩略图。 */
+  let imageDialog = null, imageFull = null, imageTitle = null, imageTrigger = null;
+  function showImageDialog(trigger, name) {
+    const fold = here().folds.get(name);
+    if (!phoneQuery.matches || !fold?.image || isLocked(fold)) return;
+    hidePeek();
+    if (!imageDialog) {
+      imageDialog = element('dialog', 'relay-image-dialog');
+      imageDialog.setAttribute('aria-modal', 'true');
+      imageDialog.setAttribute('aria-labelledby', 'relayImageTitle');
+      const header = element('div', 'relay-image-header');
+      imageTitle = element('span', 'relay-image-title');
+      imageTitle.id = 'relayImageTitle';
+      const close = element('button', 'relay-image-close', '关闭');
+      close.type = 'button';
+      close.setAttribute('aria-label', '关闭例图预览');
+      close.addEventListener('click', () => closeImageDialog());
+      header.append(imageTitle, close);
+      imageFull = element('img', 'relay-image-full');
+      imageFull.alt = ''; imageFull.draggable = false;
+      imageDialog.append(header, imageFull);
+      imageDialog.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault(); event.stopPropagation(); closeImageDialog();
+      });
+      imageDialog.addEventListener('cancel', event => {
+        event.preventDefault(); event.stopPropagation(); closeImageDialog();
+      });
+      /* 从图内拖到遮罩不算关闭，只有起落点都在遮罩才收起。 */
+      let backdropPress = false;
+      const outside = event => {
+        const rect = imageDialog.getBoundingClientRect();
+        return event.target === imageDialog && (event.clientX < rect.left || event.clientX > rect.right
+          || event.clientY < rect.top || event.clientY > rect.bottom);
+      };
+      imageDialog.addEventListener('pointerdown', event => { backdropPress = outside(event); });
+      imageDialog.addEventListener('click', event => {
+        const dismiss = backdropPress && outside(event);
+        backdropPress = false;
+        if (dismiss) closeImageDialog();
+      });
+      imageDialog.addEventListener('close', () => {
+        if (!imageDialog.open) clearImagePreview();
+      });
+      document.body.append(imageDialog);
+    }
+    imageTrigger = trigger;
+    imageFull.src = fold.image;
+    imageTitle.textContent = fold.title || name;
+    /* 让 dialog 记住按钮而非 textarea，关闭预览不能再次弹出软键盘。 */
+    trigger.focus({ preventScroll: true });
+    if (!imageDialog.open) imageDialog.showModal();
+  }
+  function clearImagePreview() {
+    imageTrigger = null;
+    imageFull?.removeAttribute('src');
+    if (imageTitle) imageTitle.textContent = '';
+  }
+  function closeImageDialog({ restoreFocus = true } = {}) {
+    if (!imageDialog) return;
+    const trigger = imageTrigger, wasOpen = imageDialog.open;
+    if (wasOpen) imageDialog.close();
+    clearImagePreview();
+    if (wasOpen && restoreFocus) {
+      const target = trigger?.isConnected ? trigger : picsToggle.hidden ? buttons.get(session.channel) : picsToggle;
+      target.focus({ preventScroll: true });
+    }
+  }
+  function resetImageView() {
+    collapsePics(); hidePeek(); closeImageDialog({ restoreFocus: false });
+  }
+  phoneQuery.addEventListener?.('change', () => {
+    const active = document.activeElement;
+    const needsFocus = imageDialog?.contains(active) || (phoneQuery.matches
+      ? pics.contains(active) || active?.classList.contains('relay-token-pic')
+      : active === picsToggle || active?.classList.contains('relay-token-view-pic'));
+    resetImageView();
+    /* 跨断点会隐藏刚才的看图入口，回到稳定的通道按钮；普通收起不抢编辑焦点。 */
+    if (needsFocus) buttons.get(session.channel).focus({ preventScroll: true });
+  });
+  root.closest('.tag-relay-rail')?.addEventListener('relayclose', resetImageView);
 
   function rewrite(t, next) {
     if (next === t.core) return;
@@ -475,6 +587,12 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       : duplicate ? `${fold ? '整组' : '此 tag'}重复，输出时与第 ${duplicate.firstOrdinal} 项合并`
         : fold ? `${tokens(fold.body).length} 项` : translate(t);
     if (!locked && note) box.append(element('span', 'relay-token-meaning', note));
+    if (fold?.image && !locked) {
+      const showImage = button('看例图', () => showImageDialog(showImage, t.fold), box);
+      showImage.classList.add('relay-token-view-pic');
+      showImage.setAttribute('aria-haspopup', 'dialog');
+      showImage.setAttribute('aria-label', `查看 #${t.fold} 的例图`);
+    }
     if (!locked) {
       /* 权重四件放一组：面板变窄时整组换行，− 和 + 不会被拆到两行。 */
       const weight = element('span', 'relay-token-weight');
@@ -622,7 +740,10 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
       event.clipboardData?.setData('text/plain', outputOf(text, session[channel].folds, { dedupe: false, isLocked }));
       if (type === 'cut') splice(input.selectionStart, input.selectionEnd, '');
     });
-    input.addEventListener('focus', () => root.closest('.tag-relay-rail')?.classList.add('is-editing'));
+    input.addEventListener('focus', () => {
+      if (phoneQuery.matches) collapsePics();
+      root.closest('.tag-relay-rail')?.classList.add('is-editing');
+    });
     input.addEventListener('blur', () => root.closest('.tag-relay-rail')?.classList.remove('is-editing'));
     input.addEventListener('pointerdown', event => {
       pointerStart = { x: event.clientX, y: event.clientY, moved: false };
@@ -688,6 +809,7 @@ export function createRelayEditor({ root, onChange = () => {}, isLocked = () => 
 
   function switchChannel(next) {
     if (!views.has(next)) return;
+    resetImageView();
     session.channel = next;
     panelActive = false;
     for (const [channel, v] of views) {

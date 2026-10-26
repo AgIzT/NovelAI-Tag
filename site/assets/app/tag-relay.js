@@ -44,13 +44,47 @@ let favoritesReloadPending = false;
 let favoritesReloadQueued = false;
 let shelfFrame = 0;
 let shelfMotion = null;
+let mobileShelfQuery;
+let shelfInsertions = 0;
+
+/* 手机抽屉里连续加入：焦点留在芯片上，不弹软键盘；插入时编辑器的临时聚焦不算离开抽屉。 */
+async function addFromShelf(entry, trigger, options = {}) {
+  if (!mobileShelfQuery?.matches) return addSourceToPlan(entry, options);
+  trigger?.focus({ preventScroll: true });
+  shelfInsertions += 1;
+  try { return await addSourceToPlan(entry, { ...options, focus: false }); }
+  finally { shelfInsertions -= 1; }
+}
+
+function setMobileShelf(open, restoreFocus = false) {
+  const mobile = mobileShelfQuery?.matches;
+  const drawer = warehouseRoot?.querySelector('#relaySourceDrawer');
+  const toggle = warehouseRoot?.querySelector('#relayMobileSources');
+  if (!drawer || !toggle) return;
+  drawer.hidden = Boolean(mobile && !open);
+  if (mobile && !open) {
+    const menu = warehouseRoot.querySelector('#relaySourceMenu');
+    if (menu) menu.hidden = true;
+    warehouseRoot.querySelector('#relaySourceMenuBtn')?.setAttribute('aria-expanded', 'false');
+  }
+  warehouseRoot.classList.toggle('is-mobile-open', Boolean(mobile && open));
+  toggle.setAttribute('aria-expanded', String(Boolean(mobile && open)));
+  if (restoreFocus) toggle.focus({ preventScroll: true });
+  scheduleShelfMeasure();
+}
 
 /* 用真实换行位置决定前两行；标题长度、字体与视口都可能改变每行数量。 */
 function measureShelf() {
   const list = warehouseRoot?.querySelector('#relaySourceList');
   const panel = warehouseRoot?.querySelector('#relaySourcePanel');
   const toggle = relayScope().querySelector('#relayShelfToggle');
-  if (!list || !panel || !toggle || (!list.hidden && !list.clientWidth)) return;
+  if (!list || !panel || !toggle) return;
+  if (mobileShelfQuery?.matches) {
+    for (const node of list.children) { node.inert = false; node.removeAttribute('aria-hidden'); }
+    toggle.hidden = true;
+    return;
+  }
+  if (!list.hidden && !list.clientWidth) return;
   const items = list.hidden ? [] : [...list.children];
   const rows = [...new Set(items.map(node => node.offsetTop))].sort((a, b) => a - b);
   const cutoff = rows[1] ?? rows[0] ?? 0;
@@ -157,11 +191,11 @@ function sourceItem(entry, { removable = true } = {}) {
   main.append(dot, name);
 
   if (!locked) {
-    main.onclick = () => addSourceToPlan(entry);
+    main.onclick = () => addFromShelf(entry, main);
     main.onkeydown = event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-      addSourceToPlan(entry);
+      addFromShelf(entry, main);
     };
   }
   chip.append(main);
@@ -173,7 +207,7 @@ function sourceItem(entry, { removable = true } = {}) {
     negative.textContent = '负';
     negative.title = '只把这条的负面提示词加入方案';
     negative.setAttribute('aria-label', `只把${visibleTitle}的负面提示词加入方案`);
-    negative.onclick = () => addSourceToPlan(entry, { negativeOnly: true });
+    negative.onclick = () => addFromShelf(entry, negative, { negativeOnly: true });
     chip.append(negative);
   }
 
@@ -325,6 +359,8 @@ function renderWarehouse({ motion = true } = {}) {
     const total = relayInbox().length;
     inboxCount.textContent = total ? (total > 99 ? '99+' : String(total)) : '';
   }
+  const mobileCount = relayScope().querySelector('#relayMobileSourceCount');
+  if (mobileCount) mobileCount.textContent = relayInbox().length ? `最近复制 ${relayInbox().length} · 收藏` : '最近复制 · 收藏';
   /* 「清空最近复制」回到素材分区自己的「⋯」里：它的对象是这个货架，不是方案。 */
   const clear = relayScope().querySelector('#tagRelayClear');
   if (clear) {
@@ -354,6 +390,29 @@ function renderRelayChrome() {
 
 function bindWarehouse() {
   if (!warehouseRoot) return;
+  mobileShelfQuery = window.matchMedia('(max-width:600px)');
+  const mobileToggle = warehouseRoot.querySelector('#relayMobileSources');
+  mobileToggle?.addEventListener('click', () => setMobileShelf(mobileToggle.getAttribute('aria-expanded') !== 'true'));
+  mobileShelfQuery.addEventListener('change', () => {
+    const drawer = warehouseRoot.querySelector('#relaySourceDrawer');
+    const focusHidden = mobileShelfQuery.matches && drawer?.contains(document.activeElement);
+    setMobileShelf(false, focusHidden);
+    if (!mobileShelfQuery.matches && document.activeElement === mobileToggle) warehouseRoot.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
+  });
+  relayScope().addEventListener('focusin', event => {
+    if (shelfInsertions && event.target.matches?.('.relay-editor-input')) return;
+    if (mobileShelfQuery.matches && warehouseRoot.classList.contains('is-mobile-open') && !warehouseRoot.contains(event.target)) setMobileShelf(false);
+  });
+  relayScope().addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.key !== 'Escape' || !mobileShelfQuery.matches || !warehouseRoot.classList.contains('is-mobile-open')) return;
+    if (!warehouseRoot.querySelector('#relaySourceMenu')?.hidden) return;
+    event.preventDefault(); event.stopPropagation(); setMobileShelf(false, true);
+  });
+  document.addEventListener('pointerdown', event => {
+    if (mobileShelfQuery.matches && warehouseRoot.classList.contains('is-mobile-open') && !warehouseRoot.contains(event.target)) setMobileShelf(false);
+  });
+  relayScope().addEventListener('relayclose', () => setMobileShelf(false));
+  setMobileShelf(false);
   /* 货架默认收起（is-peek），只露前两行；这颗钮来回切。 */
   const zone = warehouseRoot;
   const shelfToggle = relayScope().querySelector('#relayShelfToggle');

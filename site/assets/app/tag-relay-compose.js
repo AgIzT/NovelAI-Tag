@@ -4,6 +4,7 @@ import { dismissToast, toast } from './feedback.js';
 import { state } from './state.js';
 import { isTagZhComplete, isTagZhEnabled, loadTagZh, lookupLoadedTagZh, onTagZhChange } from './tag-zh.js';
 import { createRelayEditor } from './tag-relay-editor.js';
+import { isRelayRailOpen } from './tag-relay-rail.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { foldRanges, tokens } from './tag-relay-text.js';
 import { clearCopyHistory, compilePlanChannel, copyPlan, createPlan, deletePlan, getActivePlan, getPlan,
@@ -15,6 +16,7 @@ import { createSelectMenu } from './select-menu.js';
 
 export const RELAY_SOURCE_MIME = 'application/x-relay-source';
 let refs, editor, picker, ready;
+let mobileOutputQuery, closeMobileOutput = () => {};
 let activeId = '', loading = false, outputFormat = 'nai', joinMode = 'comma';
 let latest = { positive: '', negative: '' };
 const drafts = new Map(), requestedZh = new Set();
@@ -27,12 +29,23 @@ const element = (tag, className, text) => {
   return node;
 };
 function warmTranslations(codexId) {
+  if (!isRelayRailOpen() || !isTagZhEnabled()) return;
   const id = String(codexId || '');
   if (requestedZh.has(id)) return;
-  requestedZh.add(id); void loadTagZh(id).then(() => editor?.render()).finally(() => {
+  requestedZh.add(id); void loadTagZh(id).then(() => {
+    if (isRelayRailOpen() && isTagZhEnabled()) editor?.render();
+  }).finally(() => {
     // 保留在途/重绘重入守卫；临时失败交还给下一次打开或加入素材，冷却由 loader 统一管理。
     if (!isTagZhComplete(id)) requestedZh.delete(id);
   });
+}
+function warmComposeTranslations() {
+  if (!editor || !isRelayRailOpen() || !isTagZhEnabled()) return;
+  const session = editor.getSession(), value = session[session.channel];
+  // 空栏和折叠块只显示原文或项数；出现普通 tag 时才需要对照表。
+  if (!value || !tokens(value.text).some(token => !value.folds.has(token.fold))) return;
+  warmTranslations(state.codex?.id);
+  for (const fold of value.folds.values()) if (!snapshotLocked(fold)) warmTranslations(fold.codexId);
 }
 function translate(token) {
   return isTagZhEnabled() ? lookupLoadedTagZh(token.name || token.core || '', [token.codexId, state.codex?.id])?.zh || '' : '';
@@ -58,7 +71,7 @@ function openPlan(plan) {
   const draft = draftFor(plan);
   activeId = plan.id; loading = true;
   try { editor.loadPlan(draft.plan); } finally { loading = false; }
-  for (const fold of planFolds(draft.plan)) if (!snapshotLocked(fold)) warmTranslations(fold.codexId);
+  warmComposeTranslations();
   renderOutput(); renderManager(); renderSaveState();
 }
 function editorChanged(meta = {}) {
@@ -71,7 +84,7 @@ function editorChanged(meta = {}) {
     scheduleDraftSave(draft);
     renderSaveState();
   }
-  renderOutput();
+  warmComposeTranslations(); renderOutput();
 }
 async function saveDraft(draft) {
   clearTimeout(draft.timer); draft.timer = 0;
@@ -215,7 +228,7 @@ export async function addSourceToPlan(entry, options = {}) {
   if (!editor || !entry || snapshotLocked(entry)) { toast('该素材当前无法加入方案', '!'); return null; }
   if (entry.channel === 'character-negative') { toast('角色负面不能加入方案，复制后粘贴到对应角色的负面栏', '!'); return null; }
   const result = editor.insertSource(entry, options);
-  if (result) { warmTranslations(entry.codexId); await flushCompose(); }
+  if (result) await flushCompose();
   return result;
 }
 function mergedTotal(records = []) { return records.reduce((sum, item) => sum + item.dropped, 0); }
@@ -256,7 +269,7 @@ export function refreshComposeAccess() {
 }
 export function renderCompose() {
   if (!editor) return;
-  warmTranslations(state.codex?.id); syncStoredState(); editor.render(); renderOutput();
+  syncStoredState(); warmComposeTranslations(); editor.render(); renderOutput();
 }
 function safeSnapshot(plan, channels) {
   const safe = structuredClone(plan);
@@ -322,7 +335,7 @@ function renderHistory() {
       refs.history.hidden = true;
       refs.historyToggle.setAttribute('aria-expanded', 'false');
       openPlan(getActivePlan(relayState()));
-      refs.historyToggle.focus({ preventScroll: true });
+      (mobileOutputQuery?.matches ? refs.moreToggle : refs.historyToggle)?.focus({ preventScroll: true });
     }
     };
     actions.append(copy, restore); card.append(actions); refs.historyList.append(card);
@@ -344,6 +357,56 @@ function bindSegment(buttons, apply) {
     };
   });
   select(buttons.find(button => button.getAttribute('aria-checked') === 'true') || buttons[0]);
+}
+function setupMobileOutput(scope, q) {
+  const panel = q('#relayOutputMore'), toggle = q('#relayOutputMoreToggle');
+  if (!panel || !toggle) return;
+  mobileOutputQuery = window.matchMedia('(max-width:600px)');
+  const setOpen = (open, restoreFocus = false) => {
+    const mobile = mobileOutputQuery.matches;
+    panel.hidden = mobile && !open;
+    toggle.setAttribute('aria-expanded', String(mobile && open));
+    if (restoreFocus) toggle.focus({ preventScroll: true });
+  };
+  closeMobileOutput = () => { if (mobileOutputQuery.matches) setOpen(false); };
+  toggle.onclick = () => {
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    if (open) {
+      refs.history.hidden = true;
+      refs.historyToggle.setAttribute('aria-expanded', 'false');
+    }
+    setOpen(open);
+  };
+  panel.addEventListener('click', event => {
+    if (mobileOutputQuery.matches && event.target.closest?.('#relayCopyAll, #relayCopyNegative')) setOpen(false, true);
+  });
+  scope.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.key !== 'Escape' || !mobileOutputQuery.matches) return;
+    if (!refs.history.hidden) {
+      event.preventDefault(); event.stopPropagation();
+      refs.history.hidden = true; refs.historyToggle.setAttribute('aria-expanded', 'false');
+      toggle.focus({ preventScroll: true });
+    } else if (!panel.hidden) {
+      event.preventDefault(); event.stopPropagation(); setOpen(false, true);
+    }
+  });
+  document.addEventListener('pointerdown', event => {
+    if (mobileOutputQuery.matches && !panel.hidden && !panel.contains(event.target) && !toggle.contains(event.target)) setOpen(false);
+  });
+  scope.addEventListener('focusin', event => {
+    if (mobileOutputQuery.matches && !panel.hidden && !panel.contains(event.target) && !toggle.contains(event.target)) setOpen(false);
+  });
+  scope.addEventListener('relayclose', () => {
+    closeMobileOutput();
+    if (mobileOutputQuery.matches) { refs.history.hidden = true; refs.historyToggle.setAttribute('aria-expanded', 'false'); }
+  });
+  mobileOutputQuery.addEventListener('change', () => {
+    const focusHidden = mobileOutputQuery.matches && panel.contains(document.activeElement);
+    setOpen(false);
+    if (focusHidden) toggle.focus({ preventScroll: true });
+    else if (!mobileOutputQuery.matches && document.activeElement === toggle) refs.copyPositive.focus({ preventScroll: true });
+  });
+  setOpen(false);
 }
 function setupPlanActions(scope, q) {
   const menu = q('#relayPlanMenu'), trigger = q('#relayPlanMenuBtn');
@@ -420,7 +483,7 @@ export function setupRelayCompose(root) {
   refs = { lane: q('#relayPlanLane'), inlineAction: q('#relayInlineAction'),
     planStats: q('#relayPlanStats'), dedupe: q('#relayDedupe'), planSelect: q('#relayPlanSelect'),
     positiveOut: q('#relayPositiveOutput'), negativeOut: q('#relayNegativeOutput'), positiveMeta: q('#relayPositiveMeta'), negativeMeta: q('#relayNegativeMeta'),
-    copyPositive: q('#relayCopyPositive'), copyNegative: q('#relayCopyNegative'), copyAll: q('#relayCopyAll'), copyPositiveHint: q('#relayCopyPositiveHint'),
+    copyPositive: q('#relayCopyPositive'), copyNegative: q('#relayCopyNegative'), copyAll: q('#relayCopyAll'), copyPositiveHint: q('#relayCopyPositiveHint'), moreToggle: q('#relayOutputMoreToggle'),
     outputSummary: q('#relayOutputSummary'), outputNote: q('#relayOutputNote'), history: q('#relayCopyHistory'), historyList: q('#relayHistoryList'), historyToggle: q('#relayHistoryToggle'),
     historyStatus: q('#relayHistoryStatus'), historyClear: q('#relayHistoryClear'), saveState: element('div', 'relay-save-state') };
   refs.saveState.setAttribute('role', 'status'); q('#relayPlanLane').before(refs.saveState);
@@ -440,16 +503,24 @@ export function setupRelayCompose(root) {
     const button = event.currentTarget, open = button.getAttribute('aria-expanded') !== 'true';
     button.setAttribute('aria-expanded', String(open)); q('#relayOutputBoxes').hidden = !open;
   };
-  q('#relayHistoryToggle').onclick = () => { refs.history.hidden = !refs.history.hidden; q('#relayHistoryToggle').setAttribute('aria-expanded', String(!refs.history.hidden)); renderHistory(); };
-  q('#relayHistoryClose').onclick = () => { refs.history.hidden = true; q('#relayHistoryToggle').setAttribute('aria-expanded', 'false'); q('#relayHistoryToggle').focus(); renderHistory(); };
+  q('#relayHistoryToggle').onclick = () => {
+    refs.history.hidden = !refs.history.hidden;
+    refs.historyToggle.setAttribute('aria-expanded', String(!refs.history.hidden)); renderHistory();
+    if (mobileOutputQuery?.matches && !refs.history.hidden) { closeMobileOutput(); q('#relayHistoryClose').focus({ preventScroll: true }); }
+  };
+  q('#relayHistoryClose').onclick = () => {
+    refs.history.hidden = true; refs.historyToggle.setAttribute('aria-expanded', 'false');
+    (mobileOutputQuery?.matches ? refs.moreToggle : refs.historyToggle)?.focus({ preventScroll: true }); renderHistory();
+  };
   refs.historyClear.onclick = async () => {
     if (await requestRelayAction({ title: '清空成品记录？', confirmLabel: '清空', danger: true })) await commitRelay(next => clearCopyHistory(next), { changed: 'history' });
   };
   refs.copyPositive.onclick = event => copyOutput('positive', event.currentTarget);
   refs.copyNegative.onclick = event => copyOutput('negative', event.currentTarget);
   refs.copyAll.onclick = event => copyOutput('both', event.currentTarget);
+  setupMobileOutput(scope, q);
   setupPlanActions(scope, q); openPlan(getActivePlan(relayState())); subscribeRelay(syncStoredState);
-  onTagZhChange(() => editor.render());
+  onTagZhChange(() => { warmComposeTranslations(); editor.render(); });
   root.addEventListener('focusout', async () => { await flushCompose(); });
   scope.addEventListener('relayclose', async () => { await flushCompose(); });
   document.addEventListener('visibilitychange', async () => { if (document.hidden) await flushCompose(); });

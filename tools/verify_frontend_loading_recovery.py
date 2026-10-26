@@ -185,6 +185,30 @@ window.ready=true;
         cdp.command("Network.enable")
         cdp.command("Page.enable")
         if args.only_relay:
+            controls.update(relay=True, slow_ok=True, tag_ok=True, relay_shard_ok=True)
+            start = len(requests)
+            cdp.command("Page.navigate", {"url": url.replace("/harness", "/full-app") + "?relay=demand"})
+            wait_for(cdp, "document.querySelector('#codexTitle')?.textContent==='Fixture OK' && Boolean(document.querySelector('#relayEditorSurface-positive textarea'))", "actual relay bootstrap")
+            cdp.eval("""(async()=>{
+              window.compose=await import('/assets/app/tag-relay-compose.js');window.rail=await import('/assets/app/tag-relay-rail.js');
+              window.liveTag=await import('/assets/app/tag-zh.js');
+              await compose.setupRelayCompose(document.querySelector('#tagRelayPaneCompose')).ready;return true;
+            })()""")
+            time.sleep(.2)
+            tag_requests = lambda: [path for path in requests[start:] if path.startswith("/data/tag_zh/")]
+            record("relay hidden bootstrap does not fetch translations", tag_requests(), not tag_requests())
+            cdp.eval("rail.openRelayRail();true")
+            time.sleep(.2)
+            record("relay visible empty plan does not fetch translations", tag_requests(), not tag_requests())
+            cdp.eval("""liveTag.setTagZhEnabled(false);
+              const input=document.querySelector('#relayEditorSurface-positive textarea');input.value='cat';
+              input.dispatchEvent(new Event('input',{bubbles:true}));true""")
+            time.sleep(.2)
+            record("relay disabled translation does not fetch on input", tag_requests(), not tag_requests())
+            cdp.eval("liveTag.setTagZhEnabled(true);true")
+            wait_for(cdp, "[...document.querySelectorAll('#relayEditorSurface-positive .zh')].some(node=>node.textContent==='\\u732b')", "translation enabled on demand")
+            record("relay enabling translations loads core and current shard", tag_requests(),
+                   tag_requests().count("/data/tag_zh/core.json") == 1 and tag_requests().count("/data/tag_zh/ok.json") == 1)
             for scenario in ["core503", "shard503", "missing404", "empty"]:
                 controls.update(relay=True, slow_ok=True, tag_ok=scenario != "core503",
                                 relay_shard_ok=scenario != "shard503", tag_missing=scenario == "missing404",

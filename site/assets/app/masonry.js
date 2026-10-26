@@ -208,8 +208,7 @@ export function restoreMasonryAnchor(anchor) {
 }
 
 /* ---------------- 虚拟瀑布流 ---------------- */
-export function colCount() {
-  const w = $('#masonry').clientWidth || $('#main').clientWidth;
+export function colCount(w = containerLayoutWidth ?? ($('#masonry').clientWidth || $('#main').clientWidth)) {
   const cfg = densityConfig();
   return cfg.columns || Math.min(cfg.maxColumns || Infinity, Math.max(1, Math.floor((w + cfg.gap) / (cfg.minWidth + cfg.gap))));
 }
@@ -282,15 +281,15 @@ export function renderList({ resetScroll = false, transition = 'none' } = {}) {
 
 function layoutMetrics() {
   const m = $('#masonry');
-  const width = Math.max(1, m.clientWidth || $('#main').clientWidth || 1);
+  const width = Math.max(1, containerLayoutWidth ?? (m.clientWidth || $('#main').clientWidth || 1));
   const cfg = densityConfig();
-  const n = colCount();
+  const n = colCount(width);
   const itemWidth = Math.max(1, Math.floor((width - cfg.gap * (n - 1)) / n));
-  return { m, cfg, n, itemWidth };
+  return { m, cfg, n, itemWidth, width };
 }
 
 export function computeLayout({ previous, preserveColumns = false } = {}) {
-  const { m, cfg, n, itemWidth } = layoutMetrics();
+  const { m, cfg, n, itemWidth, width } = layoutMetrics();
   const retainColumns = preserveColumns && state.colN === n && state.itemWidth === itemWidth;
   const colHeights = Array.from({ length: n }, () => 0);
   const placements = [];
@@ -327,6 +326,8 @@ export function computeLayout({ previous, preserveColumns = false } = {}) {
   state.placements = placements;
   state.colN = n;
   state.itemWidth = itemWidth;
+  lastLayoutWidth = width;
+  lastLayoutConfig = cfg;
   const totalHeight = placements.length ? Math.max(...colHeights) - cfg.gap : 0;
   m.style.height = `${Math.max(0, Math.ceil(totalHeight))}px`;
 }
@@ -405,6 +406,10 @@ let relayoutAnimTimer = 0;
 let relayoutQueuedAnimate = false;
 let relayoutAnimating = false;
 let lastRelayoutAt = 0;
+// 容器开合期间只消费终态宽度，筛选／新建虚拟卡片也不能退回动画的中间宽度。
+let containerLayoutWidth = null;
+let lastLayoutWidth = 0;
+let lastLayoutConfig = null;
 export function scheduleVirtualUpdate() {
   if (virtualRaf) return;
   virtualRaf = requestAnimationFrame(() => {
@@ -1157,7 +1162,29 @@ export function imageKey(e, url) {
   return `${state.codex.id}:${e.id}:${e.assetRev || ''}:${url}`;
 }
 
+function containerLayoutChanged() {
+  const { width, cfg } = layoutMetrics();
+  return width !== lastLayoutWidth || cfg !== lastLayoutConfig;
+}
+
+// 调用方先同步设置容器终态，再播放容器自己的动画；卡片只提交一次终态布局。
+export function beginMasonryResize() {
+  clearTimeout(relayoutTimer);
+  relayoutTimer = 0;
+  relayoutQueuedAnimate = false;
+  containerLayoutWidth = $('#masonry').clientWidth || $('#main').clientWidth;
+  lastRelayoutAt = performance.now();
+  relayoutVisible({ animate: true });
+}
+
+export function endMasonryResize() {
+  containerLayoutWidth = null;
+  // 真窗口缩放／断点切换可能改了终态；普通动画收尾的相同宽度不再排第二次。
+  scheduleRelayout(true);
+}
+
 export function scheduleRelayout(animate = true) {
+  if (containerLayoutWidth !== null || !containerLayoutChanged()) return;
   relayoutQueuedAnimate = relayoutQueuedAnimate || animate;
   if (relayoutTimer) return;
   const now = performance.now();
@@ -1165,7 +1192,9 @@ export function scheduleRelayout(animate = true) {
   relayoutTimer = window.setTimeout(() => {
     relayoutTimer = 0;
     lastRelayoutAt = performance.now();
-    relayoutVisible({ animate: relayoutQueuedAnimate });
+    if (containerLayoutWidth === null && containerLayoutChanged()) {
+      relayoutVisible({ animate: relayoutQueuedAnimate });
+    }
     relayoutQueuedAnimate = false;
   }, delay);
 }
