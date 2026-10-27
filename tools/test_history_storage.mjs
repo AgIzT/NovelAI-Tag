@@ -72,6 +72,30 @@ globalThis.setTimeout = () => 0;
 globalThis.clearTimeout = () => {};
 
 try {
+  // 打开后什么都没做就关页：pagehide 不能拿首屏默认那本书盖掉上一次的位置。
+  const previousVisit = { codexId: 'test-codex', codexTitle: 'Test Codex', path: ['Deep'], at: 1 };
+  state.lastBrowse = previousVisit;
+  windowListeners.get('pagehide')?.(new Event('pagehide'));
+  assert.strictEqual(state.lastBrowse, previousVisit, '没有浏览过的页面关掉时不能覆盖上次位置');
+
+  // 「继续上次」卡片取最近浏览里的标题和缩略图：不同法典里同 ID 的词条不能串书。
+  state.allowNsfw = false;
+  state.allowR18g = false;
+  state.codexes.push({ id: 'other-codex', title: 'Other Codex' });
+  state.recentEntries = [
+    { codexId: 'other-codex', entryId: 'same-id', title: 'Other book', path: [], thumb: 'other.jpg', access: {} },
+    { codexId: 'test-codex', entryId: 'same-id', title: 'Right book', path: [], thumb: 'right.jpg', access: {} },
+  ];
+  assert.equal(historyModule.recentEntryForBrowse({ codexId: 'test-codex', entryId: 'same-id' })?.title, 'Right book');
+  assert.equal(historyModule.recentEntryForBrowse({ codexId: 'test-codex', entryId: 'missing' }), null);
+  assert.equal(
+    historyModule.recentEntryForBrowse({ codexId: 'test-codex', entryId: 'same-id', favoritesView: true })?.title,
+    'Other book',
+    '收藏视图只记了入口法典，按词条 ID 取最近一条',
+  );
+  state.codexes.pop();
+  state.recentEntries = [];
+
   // 历史记录即使是旧 shape，也必须从法典元数据、rating / level 与 string path
   // 推导访问权限；关闭开关后不能把标题或缩略图重新渲染出来。
   state.allowNsfw = false;

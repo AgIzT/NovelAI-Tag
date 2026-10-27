@@ -2155,6 +2155,10 @@ body.dark .r18g-note{color:#ffb4ab;background:rgba(217,45,32,.2)}
   background:var(--tagbg);
 }
 .history-resume div{min-width:0}
+.history-resume-setting{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-top:8px;padding:0 12px;color:var(--muted);font-size:12px;
+}
 .history-resume b{display:block;font-size:13px;color:var(--text)}
 .history-resume small{
   display:block;margin-top:3px;color:var(--muted);font-size:12px;line-height:1.45;
@@ -2329,15 +2333,40 @@ body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted);--neg-in
   box-shadow:var(--shadow);color:var(--muted);font-size:12px;font-weight:800;line-height:1;
   pointer-events:none;opacity:1;transition:opacity .2s ease;
 }
-.resume-prompt{position:fixed;top:72px;left:50%;z-index:45;display:flex;align-items:center;gap:7px;max-width:min(640px,calc(100vw - 32px));border:1px solid var(--line);border-radius:15px;background:var(--popover-glass);box-shadow:var(--popover-shadow);padding:7px 8px 7px 11px;opacity:0;translate:-50% -10px;pointer-events:none;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);transition:opacity .2s,translate .2s}
-.resume-prompt.show{opacity:1;translate:-50% 0;pointer-events:auto}
-.resume-prompt-main{min-width:0;display:grid;gap:2px;border:0;background:transparent;padding:2px 5px;text-align:left;color:var(--text)}
-.resume-prompt-main span{color:var(--accent);font-size:10px;font-weight:900}
-.resume-prompt-main b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
-.resume-prompt-never{flex:none;border:0;background:transparent;color:var(--muted);padding:6px;font-size:10px}
-.resume-prompt-never:hover{color:var(--accent)}
-.resume-prompt-close{flex:none;width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--tagbg);color:var(--muted);font-size:18px}
-.resume-prompt-close:hover{border-color:var(--accent);color:var(--accent)}
+/* 「继续上次」卡片：电脑端顶替侧栏底的小贴士（.is-docked），侧栏收起或手机端浮在底边（.is-floating），
+   手机上让开右侧悬浮按钮列。整张卡点了就继续，右上角只管本次关闭；以后不提示的开关在「浏览记录」里。 */
+.resume-prompt{
+  position:relative;display:flex;
+  border:1px solid color-mix(in srgb,var(--accent) 38%,var(--line));border-radius:12px;
+  background:var(--tagbg);opacity:0;translate:0 8px;pointer-events:none;
+  transition:opacity .24s,translate .32s cubic-bezier(.22,1,.36,1);
+}
+.resume-prompt.show{opacity:1;translate:0 0;pointer-events:auto}
+.resume-prompt-main{
+  flex:1;min-width:0;display:grid;grid-template-columns:46px minmax(0,1fr);gap:10px;align-items:center;
+  border:0;border-radius:inherit;background:transparent;padding:9px 30px 9px 9px;text-align:left;color:var(--text);
+  transition:background .12s;
+}
+.resume-prompt-main:hover{background:var(--tagbg-hover)}
+.resume-prompt-thumb{display:block;width:46px;height:46px;border-radius:8px;overflow:hidden;background:var(--card)}
+.resume-prompt-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.resume-prompt-thumb.no-img{display:grid;place-items:center;color:var(--muted);font-size:18px}
+.resume-prompt-text{min-width:0;display:grid;gap:2px}
+.resume-prompt-kicker{font-size:11px;font-weight:800;color:var(--accent)}
+.resume-prompt-kicker i{margin-left:6px;font-style:normal;font-weight:500;color:var(--muted)}
+.resume-prompt-text b,.resume-prompt-text small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resume-prompt-text b{font-size:13px}
+.resume-prompt-text small{font-size:11.5px;color:var(--muted)}
+.resume-prompt-close{
+  position:absolute;top:5px;right:5px;width:24px;height:24px;
+  border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:16px;line-height:1;
+}
+.resume-prompt-close:hover{background:var(--card);color:var(--accent)}
+.resume-prompt.is-floating{
+  position:fixed;left:20px;bottom:30px;z-index:45;width:min(320px,calc(100vw - 108px));
+  border-color:var(--line);background:var(--popover-glass);box-shadow:var(--popover-shadow);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+}
 .lightbox-original-status[hidden]{display:none!important}
 .lightbox-original-status[data-state="ready"]{color:#3d8b5d}
 .lightbox-original-status[data-state="failed"]{color:var(--new)}
@@ -2959,9 +2988,10 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .density-quick-btn{display:grid;opacity:1;visibility:visible;transform:translateY(-46px)}
   .float-actions.has-backtop .random-btn{transform:translateY(-46px)}
   .float-actions.has-backtop .density-quick-btn{transform:translateY(-92px)}
-  .resume-prompt{top:auto;left:14px;right:14px;bottom:154px;max-width:none;translate:0 10px}
-  .resume-prompt.show{translate:0 0}
-  .resume-prompt-main{flex:1}
+  .resume-prompt.is-floating{left:14px;right:62px;bottom:18px;width:auto}   /* 62 = 按钮列 14 + 38 + 间距 10 */
+  .resume-prompt-main{grid-template-columns:42px minmax(0,1fr);padding:8px 42px 8px 8px}
+  .resume-prompt-thumb{width:42px;height:42px}
+  .resume-prompt-close{top:50%;right:6px;width:32px;height:32px;translate:0 -50%}
   .brand{display:none}
 }
 @media (max-width:420px){
