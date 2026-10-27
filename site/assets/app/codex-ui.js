@@ -437,7 +437,7 @@ export function setupCodexPicker() {
   const birthdayHTML = cls =>
     `<span class="${cls}"><button type="button" class="bd-avatar" tabindex="-1" aria-label="生日快乐">` +
     `<img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</button>` +
-    `<span class="bd-text"><b>生日快乐</b><small>所长</small></span></span>`;
+    `<span class="bd-text"><b>生日快乐</b><small>法典创作者 · 所长</small></span></span>`;
   const celebratePicker = () => {
     const avatar = [...menu.querySelectorAll('.bd-avatar')].find(el => el.getClientRects().length);
     if (!avatar) return;

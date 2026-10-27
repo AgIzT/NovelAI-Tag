@@ -1118,12 +1118,12 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 .confetti-bit.is-strip{width:3px;height:12px;border-radius:2px}
 .confetti-puff{position:absolute;display:block;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;
   border:2px solid color-mix(in srgb,var(--bday) 70%,transparent)}
-/* 选择器卷头：「最近新增」那一格换成「生日快乐 / 所长」+ 戴生日帽的头像（字在左、图在右，同原来的说明 + 样图） */
+/* 选择器卷头：「最近新增」那一格换成「生日快乐 / 法典创作者 · 所长」+ 戴生日帽的头像（字在左、图在右，同原来的说明 + 样图） */
 .vol-bday{flex-direction:row-reverse;align-items:center;gap:12px;padding:0 4px 2px 0;
   animation:vol-rise .34s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 40ms)}
 .bd-text{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .bd-text b{font-family:var(--font-display);font-size:20px;font-weight:900;letter-spacing:.08em;line-height:1.1;color:var(--text)}
-.bd-text small{font-size:11px;letter-spacing:.12em;color:var(--muted)}
+.bd-text small{font-size:11px;letter-spacing:.06em;white-space:nowrap;color:var(--muted)}
 .bd-avatar{position:relative;flex:none;width:72px;height:72px;padding:0;border:0;border-radius:50%;background:none;cursor:pointer;
   transition:scale .18s cubic-bezier(.34,1.56,.64,1)}
 .bd-avatar img{display:block;width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 2px var(--card),0 6px 14px rgba(28,32,58,.16)}
