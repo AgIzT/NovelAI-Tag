@@ -1087,6 +1087,83 @@ body.dark .banner-home.is-bilibili:hover{background:rgba(251,114,153,.24);border
 @container codex-banner (max-width:400px){
   .banner-home span,.banner-home svg:last-child{display:none}
 }
+
+/* ---------- 所长生日（birthday.js 判定当天才挂类；开场生日牌、横幅、选择器书卡共用一套烛光色） ----------
+   烛光色单独一套，不借强调色：选择器里「当前」那本已经用强调色描边，生日描边不能和它撞。 */
+:root{--bday:#c97c12;--bday-soft:rgba(232,160,48,.15);--bday-line:rgba(214,142,32,.55)}
+body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,183,90,.45)}
+.codex-banner.is-birthday{border-color:var(--bday-line)}
+.banner-bday{
+  display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;vertical-align:1px;
+  font-size:11px;font-weight:800;line-height:1.35;color:var(--bday);background:var(--bday-soft);
+}
+/* 更新记录排成一排蜡烛：放在字栏和「关于」按钮之间，窄横幅（侧栏展开、手机）整排收起，只留生日签 */
+.banner-candles{
+  flex:none;align-self:center;display:flex;flex-direction:column;align-items:flex-end;gap:7px;
+  margin:0 34px 18px 0;animation:bannerContentIn .34s ease .1s backwards;   /* 下边距让出右下角的配图数 */
+}
+.bc-label{font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted)}
+.bc-row{display:flex;align-items:flex-end;gap:9px}
+.bc-candle{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:26px}
+.bc-candle i{
+  position:relative;display:block;width:7px;height:20px;margin-top:15px;border-radius:2px 2px 1.5px 1.5px;
+  background:repeating-linear-gradient(-35deg,var(--tagbg-hover) 0 3px,var(--card) 3px 6px);
+  border:1px solid var(--line);
+}
+/* 烛芯 + 火苗：火苗以底部为轴轻轻摆，各支错开相位 */
+.bc-candle i::after{content:"";position:absolute;left:50%;bottom:100%;width:1px;height:3px;translate:-50% 0;background:color-mix(in srgb,var(--text) 60%,transparent)}
+.bc-candle i::before{
+  content:"";position:absolute;left:50%;bottom:calc(100% + 2px);width:7px;height:11px;translate:-50% 0;
+  border-radius:50% 50% 50% 50% / 62% 62% 38% 38%;transform-origin:50% 100%;
+  background:radial-gradient(ellipse at 50% 72%,#fff6d6 0 26%,#ffc451 50%,var(--bday) 78%);
+  box-shadow:0 0 9px 2px rgba(255,186,70,.42);
+  animation:bcFlicker 1.7s ease-in-out infinite alternate;animation-delay:calc(var(--i,0) * -.27s);
+}
+.bc-candle.is-latest i{height:25px;margin-top:10px;border-color:transparent;
+  background:repeating-linear-gradient(-35deg,var(--bday) 0 3px,color-mix(in srgb,var(--bday) 45%,var(--card)) 3px 6px)}
+.bc-candle small{font-size:10px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
+.bc-candle.is-latest small{color:var(--bday);font-weight:800}
+@keyframes bcFlicker{
+  0%{scale:1 1;rotate:-3deg}
+  45%{scale:.9 1.1;rotate:2deg}
+  100%{scale:1.05 .93;rotate:-1deg}
+}
+@container codex-banner (max-width:680px){
+  .banner-candles{display:none}
+}
+.ci-bday-chip{flex:none;border-radius:999px;padding:2px 8px;background:var(--bday-soft);color:var(--bday);
+  font-size:10px;font-weight:900;letter-spacing:.02em;line-height:1.5}
+.codex-item.is-birthday:not(.active){border-color:var(--bday-line)}
+/* 四卷书卡的书名一行已经排满：封面右上角压一枚实底蛋糕圆标（锁态遮罩之上也看得见） */
+.ci-bday-mark{
+  position:absolute;right:5px;top:5px;z-index:3;width:22px;height:22px;border-radius:50%;
+  display:grid;place-items:center;color:#fff;background:var(--bday);box-shadow:0 1px 4px rgba(0,0,0,.22);
+}
+.ci-bday-mark svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+body.dark .ci-bday-mark{color:#2a1a00}
+/* 线路图的站没有描边，换成站点圆外再套一圈烛光色 */
+.codex-item.stn.is-birthday:not(.active):not(.locked) .ci-cover{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--bday-line)}
+/* 开场生日牌（intro.js 的 startBirthdayCard）：反面同普通牌背、角标换日期；正面同站内卡片：竖图 + 卡身 */
+.intro-bday{position:absolute;inset:0;z-index:30;transform-style:preserve-3d;transform:perspective(1400px) rotateY(180deg)}
+.intro-bday>.intro-card,.intro-bday-face{backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.intro-bday>.intro-card{transform:rotateY(180deg)}
+.intro-bday>.intro-card::after{content:attr(data-mark);color:var(--bday)}
+.intro-bday-face{
+  position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  border-radius:14px;background:var(--card);border:1px solid var(--bday-line);box-shadow:var(--shadow-hover);
+}
+.ibd-img{flex:none;aspect-ratio:753/1100;overflow:hidden;background:linear-gradient(160deg,var(--bday-soft),var(--accent-soft))}
+.ibd-img img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .25s ease}
+.ibd-img img.is-loaded{opacity:1}
+.ibd-body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:5px;padding:8px 12px;min-width:0}
+.ibd-body b{font:800 16px/1.25 var(--font-display);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ibd-meta{display:flex;align-items:center;gap:7px;min-width:0}
+.ibd-pill{flex:none;padding:1px 8px;border-radius:999px;font:800 10.5px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft)}
+.ibd-meta small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html.motion-off .banner-candles,html.motion-off .bc-candle i::before{animation:none}
+@media (prefers-reduced-motion: reduce){
+  .banner-candles,.bc-candle i::before{animation:none}
+}
 .chip-rail{
   display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px;
   scrollbar-width:none;

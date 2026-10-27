@@ -6,6 +6,8 @@
                       数据不来就一直切，画面不会停住。等待逻辑仍是 dataReady，不靠动画时长
      ③ 今日画师名字行  只在直接进站时显示（featured.js 的 isPlainFeaturedVisit）：artist: 后面的字乱跳，
                       app.js 拿到首屏真放在第一格的今日画师后调 setIntroFeatured()，约 0.3s 内逐字定住
+     ③' 生日牌         只在所长生日（birthday.js）：牌堆顶多压一张牌，起手翻面；切牌照常在它底下进行，
+                      翻完停够 BIRTHDAY_HOLD_MS 才允许开幕，开幕时它先上浮淡出再发牌
    开幕（intro-reveal）：
      ④ 发牌            首排几张卡从牌堆顶一张接一张翻面飞到各自的位置（替身是真卡的克隆），图在半空由糊到清，
                       落地即换回真卡；第一张就是今日画师
@@ -16,8 +18,9 @@
    intro-no-replay，不能顺手锁死以后切换法典新建的 chip/banner 内容）；任意输入立即跳终态，
    在飞的替身当场收掉、真卡当场显形。 */
 
-import { $ } from './utils.js';
+import { $, esc } from './utils.js';
 import { isPlainFeaturedVisit } from './featured.js';
+import { isBirthday, BIRTHDAY_AUTHOR, BIRTHDAY_LABEL } from './birthday.js';
 
 const introActions = { settleCardEntry: () => {} };
 
@@ -40,6 +43,10 @@ const VEIL_MS = 130;         // 幕布只负责交接；不能盖住卡片最有
 const INTRO_ASSET_WAIT_MS = 420;
 const PROGRESS_DELAY_MS = 90;
 const PROGRESS_MS = 520;
+const BIRTHDAY_FLIP_AT_MS = 260;     // 牌堆入场（introDeckIn .38s）快落定时翻
+const BIRTHDAY_COVER_WAIT_MS = 900;  // 封面图最多等到这时，没到就带着占位底色先翻
+const BIRTHDAY_FLIP_MS = 480;
+const BIRTHDAY_HOLD_MS = 900;        // 翻完至少停这么久再开幕，字要读得完
 const EASE = 'cubic-bezier(.22,1,.36,1)';
 
 let settled = null;
@@ -106,6 +113,7 @@ export function startIntro() {
   bindSkip();
   document.addEventListener('intro:timeout', onIntroTimeout, { once: true });
   startShuffle();
+  startBirthdayCard();
   startTodayScramble();
   runIntro().catch(() => finishIntro({ skipped: true }));
 }
@@ -124,8 +132,8 @@ async function runIntro() {
   const noiseIn = noise?.animate([{ opacity: 0 }, { opacity: peak }], { duration: 200, fill: 'both' });
   if (finished) return;
 
-  // ②③ 切牌与名字行已在 startIntro 起跑；这里只等「首次视图 + 首排图片到位」与最短亮相时长
-  await Promise.all([dataReady, wait(MIN_SHOW_MS)]);
+  // ②③ 切牌与名字行已在 startIntro 起跑；这里只等「首次视图 + 首排图片到位」与最短亮相时长（生日牌另要翻完停够）
+  await Promise.all([dataReady, wait(MIN_SHOW_MS), bday.shown]);
   if (finished) return;
 
   // ④ 开幕：幕布让开，真实 UI 在噪声底下连续分段显影（CSS introDevelop / play-state 由此刻放行）
@@ -238,6 +246,9 @@ function dealFirstRow() {
   if (today && !today.hidden && !today.classList.contains('is-gone')) {
     today.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
   }
+  // 生日牌让路：用独立的 translate 往上浮，不打断翻面动画留下的 transform
+  bday.card?.animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: '0 -28px' }],
+    { duration: 240, easing: 'ease-in', fill: 'forwards' });
   if (!deck) return 0;
   for (const card of deal.cards) for (const anim of card.getAnimations()) anim.cancel();
   placeDeck();
@@ -379,6 +390,54 @@ export function setIntroFeatured(artist) {
     else line.classList.add('is-locked');
   };
   tick();
+}
+
+/* ---------- 生日牌 ---------- */
+
+/* 压在牌堆最上面、不进 deal.cards：切牌只动它底下那几张，从它身后左右抽出又塞回。
+   正反两面同一套卡片语言：反面就是普通牌背，正面是图 + 卡身；整张牌转 rotateY 翻面。 */
+const bday = { card: null, coverReadyNow: null, coverReady: Promise.resolve(), shown: Promise.resolve() };
+
+function startBirthdayCard() {
+  const deck = $('#introDeck');
+  if (!deck || !isBirthday()) return;
+  const card = document.createElement('div');
+  card.className = 'intro-bday';
+  card.innerHTML =
+    '<div class="intro-bday-face"><span class="ibd-img"></span>' +
+    `<span class="ibd-body"><b>所长生日快乐</b><span class="ibd-meta"><span class="ibd-pill">${esc(BIRTHDAY_LABEL)}</span>` +
+    `<small>${esc(BIRTHDAY_AUTHOR)}</small></span></span></div>` +
+    `<i class="intro-card" data-mark="${esc(BIRTHDAY_LABEL)}"><b>法典<span>图鉴</span></b></i>`;
+  deck.append(card);
+  bday.card = card;
+  bday.coverReady = new Promise(resolve => { bday.coverReadyNow = resolve; });
+  bday.shown = (async () => {
+    await wait(BIRTHDAY_FLIP_AT_MS);
+    await Promise.race([bday.coverReady, wait(BIRTHDAY_COVER_WAIT_MS - BIRTHDAY_FLIP_AT_MS)]);
+    if (finished) return;
+    const flip = card.animate([
+      { transform: 'perspective(1400px) translateY(0) rotateY(180deg) rotate(0deg)' },
+      { transform: 'perspective(1400px) translateY(-22px) rotateY(90deg) rotate(-3deg)', offset: 0.5 },
+      { transform: 'perspective(1400px) translateY(-8px) rotateY(0deg) rotate(-2deg)' },
+    ], { duration: BIRTHDAY_FLIP_MS, easing: EASE, fill: 'forwards' });
+    flip.id = 'intro-bday-flip';
+    await flip.finished.catch(() => {});
+    await wait(BIRTHDAY_HOLD_MS);
+  })();
+}
+
+/** app.js 拿到 codexes.json 后调：给生日牌正面换上图。没有图就让翻面不再等。 */
+export function setIntroBirthdayCover(url, styleAttr = '') {
+  const slot = bday.card?.querySelector('.ibd-img');
+  if (finished || !slot) return;
+  const ready = () => { bday.coverReadyNow?.(); bday.coverReadyNow = null; };
+  if (!url) { ready(); return; }
+  slot.innerHTML = `<img src="${esc(url)}" alt=""${styleAttr}>`;
+  const img = slot.firstElementChild;
+  // 解码完再放行翻面，免得翻到正面那一帧才解大图
+  const loaded = () => Promise.resolve(img.decode?.()).catch(() => {}).then(() => { img.classList.add('is-loaded'); ready(); });
+  if (img.complete && img.naturalWidth) loaded();
+  else { img.onload = loaded; img.onerror = ready; }
 }
 
 async function waitForIntroAssets() {

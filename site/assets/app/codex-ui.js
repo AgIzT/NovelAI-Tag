@@ -1,7 +1,7 @@
 import { state, RANDOM_RECENT_LIMIT, NSFW_LOCKED_MESSAGE } from './state.js';
 import { $, esc, samePath, pathStartsWith, relativeDay, updateSearchClear, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { isCodexLocked, showNsfwLockedHint, showR18gLockedHint, isEntryAccessBlocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, isR18gName } from './access.js';
-import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilters, updateFilterDefinitions } from './data.js';
+import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilters, updateFilterDefinitions, findCodexMeta } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
@@ -9,6 +9,7 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
+import { isBirthdayCodex, BIRTHDAY_LABEL } from './birthday.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -497,6 +498,11 @@ export function setupCodexPicker() {
     else img.onload = reveal;   // 失败时保持透明，露出下面的占位块
   };
 
+  /* 所长生日：四卷书卡的书名一行已排满，生日只用封面右上角一枚蛋糕圆标表示；线路图的站行宽，直接写字 */
+  const BIRTHDAY_MARK = `<span class="ci-bday-mark" title="${esc(BIRTHDAY_LABEL)} 生日快乐">` +
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7"/>' +
+    '<path d="M5 16.5c1.2 0 1.8-1 3.5-1s2.3 1 3.5 1 1.8-1 3.5-1 2.3 1 3.5 1"/><path d="M12 12V9"/><path d="M12 6.2c.9-.7 1-1.6 0-3.2-1 1.6-.9 2.5 0 3.2z"/></svg></span>';
+
   /* 一本书一个按钮：variant = 'vbook'（四卷里的等大书卡）| 'stn'（线路图上的站）。
      两种都是 .codex-item[data-id]，状态签与锁态同一套：含原图 / NSFW 两枚都进 DOM，靠 .locked 二选一。 */
   const makeRealItem = (c, variant) => {
@@ -510,12 +516,14 @@ export function setupCodexPicker() {
     const version = c.version === '外部源' ? '' : c.version;
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = `codex-item ${variant}${locked ? ' locked' : ''}${active ? ' active' : ''}`;
+    const birthday = isBirthdayCodex(c);
+    item.className = `codex-item ${variant}${locked ? ' locked' : ''}${active ? ' active' : ''}${birthday ? ' is-birthday' : ''}`;
     item.dataset.id = c.id;
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
     /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
     item.setAttribute('aria-label',
-      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}`);
+      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}` +
+      `${birthday ? `，${BIRTHDAY_LABEL} 生日快乐` : ''}`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
     const ring = `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>`;
@@ -525,14 +533,15 @@ export function setupCodexPicker() {
       // 书名一行排不下时省略；悬停给出书的全名
       `<span class="ci-head"><span class="ci-name" title="${esc(c.title || codexPickerTitle(c))}">${esc(codexPickerTitle(c))}</span>` +
       (active ? '<span class="ci-now">当前</span>' : '') +
-      (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') + `</span>` +
+      (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') +
+      (birthday && variant === 'stn' ? '<span class="ci-bday-chip">生日快乐</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
       `<span class="ci-tags">${renderCodexChips(c)}</span>` +
       `</span>`;
     item.innerHTML = variant === 'stn'
       ? coverSlot(typeIconOf(c), cover, c) + main + `<span class="stn-stat">${stat}</span>` +
         (isRecentlyUpdated(c) ? '<span class="stn-fresh" aria-hidden="true"></span>' : '')
-      : coverSlot(typeIconOf(c), cover, c, `<span class="vb-stat">${stat}</span>`) + main;
+      : coverSlot(typeIconOf(c), cover, c, `<span class="vb-stat">${stat}</span>` + (birthday ? BIRTHDAY_MARK : '')) + main;
     bindCoverReveal(item);
     item.onclick = () => chooseCodex(c, item);
     return item;
@@ -1785,8 +1794,23 @@ function originalPillTitle(c) {
   return '本法典为压缩缩略图，拖入 NovelAI 读不出参数';
 }
 
+/* 所长生日那天（birthday.js）：作者后面挂生日签，横幅右侧把本站记下的更新排成一排蜡烛，旧的在左、最近的在右。 */
+const BIRTHDAY_CANDLES_MAX = 8;
+
+function renderBirthdayCandles(c) {
+  // 更新批次只记在 codexes.json 的 meta 上；接力时传进来的就是 meta，落地后的 state.codex 要回查
+  const updates = updateFilterDefinitions(findCodexMeta(c.id) || c).slice(0, BIRTHDAY_CANDLES_MAX).reverse();
+  if (!updates.length) return '';
+  return `<div class="banner-candles" role="img" aria-label="更新记录：${esc(updates.map(u => u.label).join('、'))}">` +
+    `<span class="bc-label">更新记录</span><span class="bc-row">` +
+    updates.map((u, i) => `<span class="bc-candle${u.latest ? ' is-latest' : ''}" style="--i:${i}" title="${esc(u.label)}">` +
+      `<i aria-hidden="true"></i><small>${esc(u.label.replace(/更新$/, ''))}</small></span>`).join('') +
+    `</span></div>`;
+}
+
 function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const cover = codexBannerCoverEntry(c);
+  const birthday = !virtualView && isBirthdayCodex(c);
   const exampleLabel = codexExampleLabel(c);
   const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
@@ -1796,17 +1820,20 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const typeIndex = Math.max(0, CODEX_TYPES.findIndex(t => t.id === codexType(c)));
   banner.classList.remove(...CODEX_TYPES.map(t => `cat-${t.id}`));
   if (!virtualView) banner.classList.add(`cat-${CODEX_TYPES[typeIndex].id}`);
+  banner.classList.toggle('is-birthday', birthday);
   const head = virtualView
     ? `<div class="banner-title">${esc(c.title)}</div>` +
       `<div class="banner-meta"><span>${esc([c.author, c.version].filter(Boolean).join(' · '))}</span></div>`
     : `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
       `<div class="banner-title">${esc(c.title)}</div>` +
-      (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}</div>` : '') +
+      (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}` +
+        `${birthday ? `<span class="banner-bday">${esc(BIRTHDAY_LABEL)} 生日快乐</span>` : ''}</div>` : '') +
       `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
       `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
     `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
     `<div class="banner-info">${head}</div>` +
+    (birthday ? renderBirthdayCandles(c) : '') +
     // 进度行直接挂在横幅下（不进 .banner-info）：字栏入场动画带位移，会临时成为绝对定位的参照，沉底的进度线会跟着跳
     `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
     `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
