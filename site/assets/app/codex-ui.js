@@ -10,7 +10,8 @@ import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
 import { isBirthdayCodex } from './birthday.js';
-import { burstConfetti, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML } from './birthday-fx.js';
+import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
+import { loadWishTotal, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -432,12 +433,16 @@ export function setupCodexPicker() {
     return [...totals].sort((a, b) => b[1] - a[1]).slice(0, 3);
   };
   /* 所长生日（birthday.js）：所长的书所在那一卷（法典），卷头「最近新增」那一格临时换成戴生日帽的所长头像，其余各卷照常；
-     手机线路图没有这一格，挂在那条线的线路牌下面。打开选择器时头像看得见就在两侧「噗噗」各放一下礼花；点头像再放一次。 */
+     手机线路图没有这一格，挂在那条线的线路牌下面。打开选择器时头像看得见就在两侧「噗噗」各放一下礼花。
+     点头像或「送上祝福」送一份祝福（birthday-wishes.js），和横幅生日签共用一个总数；连点有连击章（birthday-fx.js）。 */
   const birthdayPicker = () => (state.codexes || []).some(isBirthdayCodex);
-  const birthdayHTML = cls =>
-    `<span class="${cls}"><button type="button" class="bd-avatar" tabindex="-1" aria-label="生日快乐">` +
-    `<img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</button>` +
-    `<span class="bd-text"><b>生日快乐</b><small>法典创作者 · 所长</small></span></span>`;
+  const birthdayHTML = cls => {
+    void loadWishTotal();
+    return `<span class="${cls}"><button type="button" class="bd-avatar" tabindex="-1" aria-label="送上祝福">` +
+      `<img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</button>` +
+      `<span class="bd-text"><b>生日快乐</b><small>法典创作者 · 所长</small>` +
+      `<button type="button" class="bd-wish" tabindex="-1">送上祝福${wishCountHTML()}</button></span></span>`;
+  };
   const celebratePicker = () => {
     const avatar = [...menu.querySelectorAll('.bd-avatar')].find(el => el.getClientRects().length);
     if (!avatar) return;
@@ -457,8 +462,19 @@ export function setupCodexPicker() {
     birthdayEnterTimer = window.setTimeout(() => menu.classList.remove('bd-enter'), 1000);
     window.setTimeout(() => { if (!menu.hidden) celebratePicker(); }, 320);
   };
+  const pickerCombo = createWishCombo();
   menu.addEventListener('click', ev => {
-    if (ev.target.closest('.bd-avatar')) celebratePicker();
+    const avatar = ev.target.closest('.bd-avatar, .bd-wish')?.closest('.vol-bday, .metro-bday')?.querySelector('.bd-avatar');
+    if (!avatar) return;
+    const counted = sendWish();
+    const r = avatar.getBoundingClientRect();
+    const layer = viewportConfettiLayer();
+    pickerCombo({
+      target: avatar, layer, x: r.right - r.width * 0.12, y: r.top + r.height * 0.1, counted, full: wishPageFull(),
+      burst: () => burstConfetti(layer, r.left + r.width / 2, r.top + r.height * 0.35,
+        { angle: -90, spread: 110, count: 7, reach: 40 + r.height * 0.3, fall: 90 }),
+      big: () => { celebratePicker(); flipPartyHat(avatar); },
+    });
   });
 
   const recentHTML = t => {
@@ -1835,6 +1851,44 @@ function celebrateBanner(banner) {
   window.setTimeout(() => burstConfetti(layer, x, y, { angle: -16, spread: 30, count: 12, reach: b.height * 1.65, fall: b.height * 0.45 }), 170);
 }
 
+/* 「送上祝福」的总数挂在横幅生日签和选择器那颗按钮的尾巴上；总数还没读回来或后端没开时不挂 */
+function wishCountHTML() {
+  const total = wishTotal();
+  return total === null ? '' : `<span class="wish-n">${formatWishes(total)}</span>`;
+}
+
+document.addEventListener('birthday:wishes', ev => {
+  const total = ev.detail?.total;
+  document.querySelectorAll('.banner-bday, .bd-wish').forEach(button => {
+    let count = button.querySelector('.wish-n');
+    if (total === null || total === undefined) { count?.remove(); return; }
+    if (!count) {
+      button.insertAdjacentHTML('beforeend', wishCountHTML());
+      return;
+    }
+    const text = formatWishes(total);
+    if (count.textContent === text) return;
+    count.textContent = text;
+    if (canCelebrate()) count.animate([{ scale: 1.25 }, { scale: 1 }], { duration: 220, easing: 'cubic-bezier(.3,1.4,.5,1)' });
+  });
+});
+
+const bannerCombo = createWishCombo();
+function wishFromBanner(banner) {
+  const pill = banner.querySelector('.banner-bday');
+  if (!pill || !banner.isConnected) return;
+  const counted = sendWish();
+  const layer = innerConfettiLayer(banner);
+  const b = banner.getBoundingClientRect();
+  const p = pill.getBoundingClientRect();
+  bannerCombo({
+    target: pill, layer, x: p.right - b.left + 8, y: p.top - b.top + p.height / 2, side: true, counted, full: wishPageFull(),
+    burst: () => burstConfetti(layer, p.right - b.left - 4, p.top - b.top + p.height / 2,
+      { angle: -26, spread: 44, count: 7, reach: b.height * 0.9, fall: b.height * 0.45 }),
+    big: () => celebrateBanner(banner),
+  });
+}
+
 function scheduleBannerCelebration(banner, id) {
   const fire = () => window.setTimeout(() => { if (banner.dataset.identity === id) celebrateBanner(banner); }, 480);
   if (document.documentElement.classList.contains('intro-arm')) document.addEventListener('intro:settle', fire, { once: true });
@@ -1860,7 +1914,7 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     : `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
       `<div class="banner-title">${esc(c.title)}</div>` +
       (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}` +
-        `${birthday ? '<button type="button" class="banner-bday">生日快乐</button>' : ''}</div>` : '') +
+        `${birthday ? `<button type="button" class="banner-bday" title="送上祝福">生日快乐${wishCountHTML()}</button>` : ''}</div>` : '') +
       `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
       `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
@@ -1872,7 +1926,8 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
   banner.dataset.identity = virtualView ? '' : c.id;
   if (birthday) {
-    banner.querySelector('.banner-bday').onclick = () => celebrateBanner(banner);
+    void loadWishTotal();
+    banner.querySelector('.banner-bday').onclick = () => wishFromBanner(banner);
     if (previousIdentity !== c.id) scheduleBannerCelebration(banner, c.id);
   }
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */

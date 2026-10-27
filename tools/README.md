@@ -133,6 +133,7 @@
 - Python · 工程自检：`test_run_project_checks.py` 验零用例、缺输入/运行时、跳过、超时、结果汇总、环境清理、路径及证据边界；使用合成临时文件。`test_project_audit_entrypoints.py` 在 Windows 用假 Python 验工程自检入口的退出码、GBK 恢复与总菜单动作委托；不运行真实发布或生产命令，不代替实体控制台键盘交互。公开 CI 仅运行 runner 的 ci/windows 两组，运行结果和已知基线缺口同时保留；main 默认尾段、公共搜索、渲染契约、统计只读权限、匹配工具与中转站缓存/存储协调回归纳入 ci，VM 模块测试由白名单显式传入所需 Node 参数；待合并社区入口、真实数据采样与旧实现比较单列 baseline，缺模块或不可比较保持 BLOCKED。CI 按 `requirements.txt` 安装项目测试依赖。
 
 - Node · 匿名产品统计：`test_site_analytics.mjs`（显式关闭工厂、DNT/GPC 零发送、内存队列、限频、超时、无重试/标识/持久化）；`test_site_metrics_backend.mjs`（真实内存 SQLite migration、同源、字节上限、严格字段枚举、未迁移 disabled、原子全站限额、保留期与已认证聚合报表）；`test_site_metrics_hooks.mjs`（实际复制/分享/导出/过滤函数体的内存依赖回放，成功时序与取消/失败排除）；`test_site_search_observation.mjs`（800ms 前清空/历史提前返回、导航及结果更新取消、无效回调、新旧代次与三个作用域的有效完成）；`test_site_metrics_production.mjs`（独立只读权限/到期、不能进入管理员接口、保留期清理边界及无关表不变）。只读源码和内存夹具，不联网、不写用户存储或生产；不代替真实 Pages Functions 与浏览器验收。
+- Node · 所长生日送祝福：`test_birthday_wishes_backend.mjs`（migration 0006 只新建两张表、UTC 生日窗口边界、按年累计与跨日分行、加盐 IP 与全站每分钟限额、超额整批不计、请求体只收 `{"count":1–100}`）。冻结时钟与内存 SQLite，不联网、不碰生产。
 - SQL · 匿名统计清理：`site_metrics_maintenance.sql` 只删除过期统计日聚合和全站限频桶，不碰互动/投稿/反馈表；执行即改指定 D1，本地/远端必须显式区分，远端需要另行授权。流程见私密运维文档 `docs/运维/匿名产品统计上线与回滚.md`。
 - Worker · `site-metrics-maintenance/worker.js` 与同目录 `wrangler.jsonc`：统计过期清理的独立 Cron Worker；部署会创建或更新具名 Worker/计划，运行会删除目标 D1 的过期统计行，绝不删除社区表；无公开 HTTP 维护接口，不随菜单程序发布自动部署。须核对目标配置并取得生产授权。
 
