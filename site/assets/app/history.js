@@ -204,9 +204,14 @@ export function suppressBrowseStateSave(ms = 450) {
   clearTimeout(browseSaveTimer);
 }
 
+/* 本次打开后有没有真的浏览过（滚动、换位置、复制）。没动过就关页，pagehide 不能拿
+   首屏默认那本书盖掉上一次的位置，否则下次「继续上次」只会指回打开时的原地。 */
+let browseTouched = false;
+
 export function saveBrowseStateNow(entryId, entry) {
   const snapshot = currentBrowseSnapshot(entryId, entry);
   if (!snapshot) return;
+  browseTouched = true;
   state.lastBrowse = snapshot;
   try {
     localStorage.setItem(LAST_BROWSE_STORAGE_KEY, JSON.stringify(snapshot));
@@ -217,12 +222,13 @@ export function saveBrowseStateNow(entryId, entry) {
 
 export function scheduleBrowseStateSave(entryId) {
   if (Date.now() < browseSaveSuppressedUntil) return;
+  browseTouched = true;
   clearTimeout(browseSaveTimer);
   browseSaveTimer = window.setTimeout(() => saveBrowseStateNow(entryId), 180);
 }
 
 export function checkpointBrowseState() {
-  if (Date.now() < browseSaveSuppressedUntil) return false;
+  if (!browseTouched || Date.now() < browseSaveSuppressedUntil) return false;
   clearTimeout(browseSaveTimer);
   saveBrowseStateNow();
   return true;
@@ -230,28 +236,40 @@ export function checkpointBrowseState() {
 
 window.addEventListener?.('pagehide', checkpointBrowseState);
 
+/* 上次位置拆成「在哪本书 / 哪个视图」和「里面的哪儿」两段；面板一行字与首页卡片共用。
+   shortContext 用选择器短标题，给卡片里要和路径挤一行的场合。 */
+export function browsePlace(snapshot) {
+  const detailOf = () => (hasSnapshotSearch(snapshot) ? snapshotSearchDesc(snapshot) : (snapshot.path?.length ? snapshot.path.join(' › ') : ''));
+  if (snapshot.favoritesView) return { context: '全部收藏', shortContext: '全部收藏', detail: detailOf() };
+  if (snapshot.siteSearchView || (snapshot.searchScope === 'site' && hasSnapshotSearch(snapshot))) {
+    return { context: '全站搜索', shortContext: '全站搜索', detail: detailOf() };
+  }
+  const meta = findCodexMeta(snapshot.codexId) || {};
+  const requested = String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : ''));
+  const updateFilter = updateFilterDefinitions(meta).find(filter => requested === 'latest' ? filter.latest : filter.id === requested);
+  const filterLabel = updateFilter ? ` · ${updateFilter.label}` : '';
+  return {
+    context: `${snapshot.codexTitle}${filterLabel}`,
+    shortContext: `${meta.selectorTitle || snapshot.codexTitle}${filterLabel}`,
+    detail: detailOf(),
+  };
+}
+
 export function browseDesc(snapshot) {
   if (!snapshot) return '暂无可恢复的位置';
   const locked = isHistoryItemLocked(snapshot);
   if (locked === 'r18g') return '上次位置包含 R18G / 重口内容，已隐藏';
   if (locked === 'nsfw') return '上次位置包含限制级内容，已隐藏';
-  if (snapshot.favoritesView) {
-    if (hasSnapshotSearch(snapshot)) return `全部收藏 · ${snapshotSearchDesc(snapshot)}`;
-    if (snapshot.path?.length) return `全部收藏 · ${snapshot.path.join(' › ')}`;
-    return `全部收藏 · ${formatRecentTime(snapshot.at)}`;
-  }
-  if (snapshot.siteSearchView || (snapshot.searchScope === 'site' && hasSnapshotSearch(snapshot))) {
-    if (hasSnapshotSearch(snapshot)) return `全站搜索 · ${snapshotSearchDesc(snapshot)}`;
-    if (snapshot.path?.length) return `全站搜索 · ${snapshot.path.join(' › ')}`;
-    return `全站搜索 · ${formatRecentTime(snapshot.at)}`;
-  }
-  const meta = findCodexMeta(snapshot.codexId) || {};
-  const requested = String(snapshot.updateFilter || (snapshot.onlyNew ? 'latest' : ''));
-  const updateFilter = updateFilterDefinitions(meta).find(filter => requested === 'latest' ? filter.latest : filter.id === requested);
-  const codexContext = `${snapshot.codexTitle}${updateFilter ? ` · ${updateFilter.label}` : ''}`;
-  if (hasSnapshotSearch(snapshot)) return `${codexContext} · ${snapshotSearchDesc(snapshot)}`;
-  if (snapshot.path?.length) return `${codexContext} · ${snapshot.path.join(' › ')}`;
-  return `${codexContext} · ${formatRecentTime(snapshot.at)}`;
+  const { context, detail } = browsePlace(snapshot);
+  return `${context} · ${detail || formatRecentTime(snapshot.at)}`;
+}
+
+/* 上次停在某个词条上时，从最近浏览里取它的标题和缩略图；命中屏蔽或还在核对就当没有。 */
+export function recentEntryForBrowse(snapshot) {
+  if (!snapshot?.entryId) return null;
+  const item = state.recentEntries.find(recent => recent.entryId === snapshot.entryId);
+  if (!item || isHistoryItemLocked(item)) return null;
+  return historyContentVisibility(item, getBlockingPreferences()) === 'visible' ? item : null;
 }
 
 export function formatRecentTime(ts) {
@@ -469,7 +487,8 @@ async function renderBrowseIntent(current, action, options = {}) {
 }
 
 export async function resumeLastBrowse(options = {}) {
-  const snapshot = normalizeLastBrowse(state.lastBrowse);
+  /* 首页卡片传入弹出时记下的那份：之后一滚动 state.lastBrowse 就换成了当前位置 */
+  const snapshot = normalizeLastBrowse(options.snapshot || state.lastBrowse);
   if (!snapshot) return;
   const current = beginBrowseIntent();
   const locked = isHistoryItemLocked(snapshot);

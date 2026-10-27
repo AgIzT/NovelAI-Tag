@@ -33,7 +33,7 @@ import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions, setIntroBirthdayCover } from './app/intro.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
 import { isBirthday, BIRTHDAY_CODEX_ID } from './app/birthday.js';
-import { setupResumePrompt } from './app/resume-prompt.js';
+import { dismissResumePrompt, setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
 import { setupTagRelay } from './app/tag-relay.js';
 import { loadContentBlocking, isContentBlocked } from './app/content-blocking.js';
@@ -1086,7 +1086,11 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
 }
 
 setRouterActions({
-  onUrlSync: scheduleBrowseStateSave,
+  // 换了位置就算开始浏览了，「继续上次」卡片随之收起
+  onUrlSync: entryId => {
+    dismissResumePrompt();
+    scheduleBrowseStateSave(entryId);
+  },
   renderTree,
   applyFilter,
   openLightbox,

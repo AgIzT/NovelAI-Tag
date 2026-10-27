@@ -21,7 +21,7 @@ import { setupReport, openReportDialog, refreshReportAccess } from './report.js'
 import { openOnboarding, setupOnboarding } from './onboarding.js';
 import { closeRelayRail, isRelayRailModal, setRelayRailLayoutActions } from './tag-relay-rail.js';
 import { refreshRelayAccess } from './tag-relay.js';
-import { dismissResumePrompt } from './resume-prompt.js';
+import { bindResumePromptToggle, dismissResumePrompt } from './resume-prompt.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -1034,11 +1034,16 @@ export function bindUI() {
   $('#shortcutClose').onclick = () => closeMask(shortcutMask);
   bindBackdropDismiss(shortcutMask, () => closeMask(shortcutMask));
   shortcutMask.onkeydown = ev => trapFocus(ev, shortcutMask);
-  $('#historyBtn').onclick = () => { renderHistoryPanel(); openFromMore(historyMask); };
+  $('#historyBtn').onclick = () => {
+    renderHistoryPanel();
+    bindResumePromptToggle($('#resumePromptToggle'));
+    openFromMore(historyMask);
+  };
   $('#historyClose').onclick = () => closeMask(historyMask);
   bindBackdropDismiss(historyMask, () => closeMask(historyMask));
   historyMask.onkeydown = ev => trapFocus(ev, historyMask);
   $('#resumeBrowse').onclick = async () => {
+    dismissResumePrompt();
     await resumeLastBrowse({ historyMode: 'push', consumeLayer: true });
   };
   $('#clearRecent').onclick = () => {
