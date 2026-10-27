@@ -437,7 +437,7 @@ export function setupCodexPicker() {
      点头像或「送上祝福」送一份祝福（birthday-wishes.js），和横幅生日签共用一个总数；连点有连击章（birthday-fx.js）。 */
   const birthdayPicker = () => (state.codexes || []).some(isBirthdayCodex);
   const birthdayHTML = cls => {
-    void loadWishTotal();
+    watchWishes();
     return `<span class="${cls}"><button type="button" class="bd-avatar" tabindex="-1" aria-label="送上祝福">` +
       `<img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</button>` +
       `<span class="bd-text"><b>生日快乐</b><small>法典创作者 · 所长</small>` +
@@ -1857,10 +1857,19 @@ function wishCountHTML() {
   return total === null ? '' : `<span class="wish-n">${formatWishes(total)}</span>`;
 }
 
-document.addEventListener('birthday:wishes', ev => {
+/* 第一次画出生日入口时才读总数、挂监听（模块加载时不碰 document，测试里也能裸导入） */
+let watchingWishes = false;
+function watchWishes() {
+  void loadWishTotal();
+  if (watchingWishes) return;
+  watchingWishes = true;
+  document.addEventListener('birthday:wishes', updateWishCounts);
+}
+
+function updateWishCounts(ev) {
   const total = ev.detail?.total;
   document.querySelectorAll('.banner-bday, .bd-wish').forEach(button => {
-    let count = button.querySelector('.wish-n');
+    const count = button.querySelector('.wish-n');
     if (total === null || total === undefined) { count?.remove(); return; }
     if (!count) {
       button.insertAdjacentHTML('beforeend', wishCountHTML());
@@ -1871,7 +1880,7 @@ document.addEventListener('birthday:wishes', ev => {
     count.textContent = text;
     if (canCelebrate()) count.animate([{ scale: 1.25 }, { scale: 1 }], { duration: 220, easing: 'cubic-bezier(.3,1.4,.5,1)' });
   });
-});
+}
 
 const bannerCombo = createWishCombo();
 function wishFromBanner(banner) {
@@ -1926,7 +1935,7 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
   banner.dataset.identity = virtualView ? '' : c.id;
   if (birthday) {
-    void loadWishTotal();
+    watchWishes();
     banner.querySelector('.banner-bday').onclick = () => wishFromBanner(banner);
     if (previousIdentity !== c.id) scheduleBannerCelebration(banner, c.id);
   }
