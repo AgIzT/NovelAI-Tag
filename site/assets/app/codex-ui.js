@@ -11,7 +11,7 @@ import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
-import { loadWishTotal, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
+import { watchWishVisibility, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -1857,13 +1857,18 @@ function wishCountHTML() {
   return total === null ? '' : `<span class="wish-n">${formatWishes(total)}</span>`;
 }
 
-/* 第一次画出生日入口时才读总数、挂监听（模块加载时不碰 document，测试里也能裸导入） */
+/* 第一次画出生日入口时才读总数、挂监听（模块加载时不碰 document，测试里也能裸导入）。
+   之后每 30 秒的刷新只在横幅生日签或选择器里那颗按钮露在视口里时才读。 */
 let watchingWishes = false;
+const wishEntryOnScreen = () => [...document.querySelectorAll('.banner-bday, .bd-wish')].some(el => {
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
+});
 function watchWishes() {
-  void loadWishTotal();
   if (watchingWishes) return;
   watchingWishes = true;
   document.addEventListener('birthday:wishes', updateWishCounts);
+  watchWishVisibility(wishEntryOnScreen);
 }
 
 function updateWishCounts(ev) {

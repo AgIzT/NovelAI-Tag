@@ -1,5 +1,6 @@
 /* 所长生日「送上祝福」计数（后端 functions/api/birthday-wishes.js）：
-   - 总数只在第一次画出生日入口时读一次，之后靠刷新更新；每次发送的回包顺带带回最新总数。
+   - 总数在第一次画出生日入口时读一次；之后页面在前台、生日入口在屏幕上时每 POLL_MS 再读一次，
+     切到后台就停、回来过了间隔先补一次。每次发送的回包也顺带带回最新总数。总数只增不减，晚到的旧回包不会把数字往回拨。
    - 点一下本地立刻 +1；连点先攒着，停手一会儿或攒够一批再发，切走页面时立刻发。
    - 每次打开页面最多计 WISH_PAGE_LIMIT 份，再点只放动效不计数。
    - 后端没开（预览、本地无库）或生日已过：不显示数字，点了照样放动效。
@@ -9,18 +10,22 @@ const ENDPOINT = '/api/birthday-wishes';
 export const WISH_PAGE_LIMIT = 999;
 const BATCH = 100;      // 同后端 WISH_BATCH_LIMIT
 const IDLE_MS = 900;
+const POLL_MS = 30_000;
 
 const wishes = {
   loading: null,
   loaded: false,
   enabled: false,
   open: false,
-  server: 0,     // 最近一次回包里的全站总数（已含本页送达的）
+  server: 0,     // 读到过的最大全站总数（已含本页送达的）
   pending: 0,    // 已点、还没发
   inflight: 0,   // 正在发
   counted: 0,    // 本页计入的份数
   timer: 0,
   sending: false,
+  lastRead: 0,
+  pollTimer: 0,
+  onScreen: null, // 生日入口在不在屏幕上，由画入口的一方给
 };
 
 /** 当前显示的总数；还没读到或后端没开时为 null */
@@ -36,27 +41,67 @@ function announce() {
   document.dispatchEvent(new CustomEvent('birthday:wishes', { detail: { total: wishTotal() } }));
 }
 
+function readTotal() {
+  wishes.lastRead = Date.now();
+  return fetch(ENDPOINT, { cache: 'no-store', credentials: 'same-origin' })
+    .then(res => res.ok ? res.json() : null)
+    .catch(() => null);
+}
+
+function raiseTotal(total) {
+  if (Number.isFinite(total)) wishes.server = Math.max(wishes.server, total);
+}
+
 export function loadWishTotal() {
   if (!wishes.loading) {
-    wishes.loading = fetch(ENDPOINT, { cache: 'no-store', credentials: 'same-origin' })
-      .then(res => res.ok ? res.json() : null)
+    wishes.loading = readTotal()
       .then(data => {
         wishes.enabled = data?.enabled === true && Number.isFinite(data.total);
         wishes.open = wishes.enabled && data.open === true;
-        if (wishes.enabled) wishes.server = data.total;
+        if (wishes.enabled) raiseTotal(data.total);
       })
-      .catch(() => { wishes.enabled = false; wishes.open = false; })
       .finally(() => {
         wishes.loaded = true;
         if (!wishes.open) wishes.pending = 0;
         announce();
         if (wishes.pending) schedule();
+        if (wishes.enabled) schedulePoll();
       });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void flush({ leaving: true });
+      if (document.visibilityState === 'hidden') {
+        window.clearTimeout(wishes.pollTimer);
+        void flush({ leaving: true });
+      } else if (wishes.enabled) {
+        schedulePoll(Math.max(0, wishes.lastRead + POLL_MS - Date.now()));
+      }
     });
   }
   return wishes.loading;
+}
+
+/** 画出生日入口的一方告诉这里「入口现在在不在屏幕上」；不在就跳过这一轮，下一轮再看 */
+export function watchWishVisibility(onScreen) {
+  wishes.onScreen = onScreen;
+  void loadWishTotal();
+}
+
+function schedulePoll(delay = POLL_MS) {
+  window.clearTimeout(wishes.pollTimer);
+  wishes.pollTimer = window.setTimeout(() => { void poll(); }, delay);
+}
+
+async function poll() {
+  if (!wishes.enabled || document.visibilityState === 'hidden') return;
+  // 正在发的那批会带回总数，这一轮让给它，免得旧总数加上在途份数重复算一次
+  if (!wishes.sending && (wishes.onScreen?.() ?? true)) {
+    const data = await readTotal();
+    if (data?.enabled === true && !wishes.sending) {
+      raiseTotal(data.total);
+      if (data.open !== true) { wishes.open = false; wishes.pending = 0; }
+      announce();
+    }
+  }
+  if (document.visibilityState !== 'hidden') schedulePoll();
 }
 
 /** 送一份。返回是否计入（本页送满或生日已过时只放动效） */
@@ -96,7 +141,7 @@ async function flush({ leaving = false } = {}) {
       headers: { 'content-type': 'application/json' }, body: JSON.stringify({ count }),
     });
     const data = await res.json().catch(() => null);
-    if (Number.isFinite(data?.total)) wishes.server = data.total;
+    raiseTotal(data?.total);
     if (data?.open === false || data?.enabled === false) {
       wishes.open = false;
       wishes.pending = 0;
