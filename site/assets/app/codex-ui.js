@@ -1,7 +1,7 @@
 import { state, RANDOM_RECENT_LIMIT, NSFW_LOCKED_MESSAGE } from './state.js';
 import { $, esc, samePath, pathStartsWith, relativeDay, updateSearchClear, prefersReducedMotion, safeHttpUrl } from './utils.js';
 import { isCodexLocked, showNsfwLockedHint, showR18gLockedHint, isEntryAccessBlocked, isEntryNsfw, isNsfwPathSegment, isR18gEntry, isR18gName } from './access.js';
-import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilters, updateFilterDefinitions, findCodexMeta } from './data.js';
+import { codexStatusLabel, codexStatusClass, codexStatusTitle, codexUpdateFilters, updateFilterDefinitions } from './data.js';
 import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
@@ -9,7 +9,8 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
-import { isBirthdayCodex, BIRTHDAY_LABEL } from './birthday.js';
+import { isBirthdayCodex } from './birthday.js';
+import { burstConfetti, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML } from './birthday-fx.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -291,6 +292,7 @@ export function setupCodexPicker() {
     menu.hidden = false;
     placeMenu();
     ensureUpdates();
+    celebratePickerOpen();
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
     rememberPickerScroll();
@@ -429,7 +431,38 @@ export function setupCodexPicker() {
       .forEach(([name, count]) => totals.set(name, (totals.get(name) || 0) + count)));
     return [...totals].sort((a, b) => b[1] - a[1]).slice(0, 3);
   };
+  /* 所长生日（birthday.js）：卷头「最近新增」那一格临时换成戴生日帽的所长头像（每卷都换，打开哪卷都看得到）；
+     手机线路图没有这一格，在最上面加一条。每次打开选择器，头像两侧「噗噗」各放一下礼花；点头像再放一次。 */
+  const birthdayPicker = () => (state.codexes || []).some(isBirthdayCodex);
+  const birthdayHTML = cls =>
+    `<span class="${cls}"><button type="button" class="bd-avatar" tabindex="-1" aria-label="生日快乐">` +
+    `<img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</button>` +
+    `<span class="bd-text"><b>生日快乐</b><small>所长</small></span></span>`;
+  const celebratePicker = () => {
+    const avatar = [...menu.querySelectorAll('.bd-avatar')].find(el => el.getClientRects().length);
+    if (!avatar) return;
+    const r = avatar.getBoundingClientRect();
+    const layer = viewportConfettiLayer();
+    const y = r.top + r.height * 0.55;
+    const shot = { spread: 40, count: 12, reach: 70 + r.height * 0.4, fall: 110 };
+    burstConfetti(layer, r.left - 2, y, { ...shot, angle: -62 });
+    window.setTimeout(() => burstConfetti(layer, r.right + 2, y, { ...shot, angle: -118 }), 180);
+  };
+  let birthdayEnterTimer = 0;
+  const celebratePickerOpen = () => {
+    if (!birthdayPicker()) return;
+    // 生日帽落到头上的那一下只在打开时播（styles.css 的 .bd-enter），之后换卷、刷新不再重播
+    menu.classList.add('bd-enter');
+    window.clearTimeout(birthdayEnterTimer);
+    birthdayEnterTimer = window.setTimeout(() => menu.classList.remove('bd-enter'), 1000);
+    window.setTimeout(() => { if (!menu.hidden) celebratePicker(); }, 320);
+  };
+  menu.addEventListener('click', ev => {
+    if (ev.target.closest('.bd-avatar')) celebratePicker();
+  });
+
   const recentHTML = t => {
+    if (birthdayPicker()) return birthdayHTML('vol-recent vol-bday');
     if (!updateBatches) return `<span class="vol-recent is-pending" data-type="${esc(t.id)}" aria-hidden="true"></span>`;
     // 旧版索引（线上数据还没用新脚本重建时）没有样图、分布和可见条数，整块退回封面
     const recent = updateBatches.some(batch => batch.books.some(book => book.hasPreview)) ? recentForType(t) : null;
@@ -498,11 +531,6 @@ export function setupCodexPicker() {
     else img.onload = reveal;   // 失败时保持透明，露出下面的占位块
   };
 
-  /* 所长生日：四卷书卡的书名一行已排满，生日只用封面右上角一枚蛋糕圆标表示；线路图的站行宽，直接写字 */
-  const BIRTHDAY_MARK = `<span class="ci-bday-mark" title="${esc(BIRTHDAY_LABEL)} 生日快乐">` +
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7"/>' +
-    '<path d="M5 16.5c1.2 0 1.8-1 3.5-1s2.3 1 3.5 1 1.8-1 3.5-1 2.3 1 3.5 1"/><path d="M12 12V9"/><path d="M12 6.2c.9-.7 1-1.6 0-3.2-1 1.6-.9 2.5 0 3.2z"/></svg></span>';
-
   /* 一本书一个按钮：variant = 'vbook'（四卷里的等大书卡）| 'stn'（线路图上的站）。
      两种都是 .codex-item[data-id]，状态签与锁态同一套：含原图 / NSFW 两枚都进 DOM，靠 .locked 二选一。 */
   const makeRealItem = (c, variant) => {
@@ -516,14 +544,12 @@ export function setupCodexPicker() {
     const version = c.version === '外部源' ? '' : c.version;
     const item = document.createElement('button');
     item.type = 'button';
-    const birthday = isBirthdayCodex(c);
-    item.className = `codex-item ${variant}${locked ? ' locked' : ''}${active ? ' active' : ''}${birthday ? ' is-birthday' : ''}`;
+    item.className = `codex-item ${variant}${locked ? ' locked' : ''}${active ? ' active' : ''}`;
     item.dataset.id = c.id;
     item.setAttribute('aria-disabled', locked ? 'true' : 'false');
     /* 锁定状态不写进 aria-label：解锁后只改类不重建，写了会残留成过期描述；由 aria-disabled + title 表达 */
     item.setAttribute('aria-label',
-      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}` +
-      `${birthday ? `，${BIRTHDAY_LABEL} 生日快乐` : ''}`);
+      `${codexPickerTitle(c)}，${c.author || '未知作者'}，${count} 条词条，配图率 ${pct}%${n5Featured ? '，V5 新上线' : ''}`);
     if (active) item.setAttribute('aria-current', 'true');
     if (locked) item.title = NSFW_LOCKED_MESSAGE;
     const ring = `<span class="ci-ring" style="--p:${pct}" title="配图率 ${pct}%" aria-hidden="true"><i></i></span>`;
@@ -533,15 +559,14 @@ export function setupCodexPicker() {
       // 书名一行排不下时省略；悬停给出书的全名
       `<span class="ci-head"><span class="ci-name" title="${esc(c.title || codexPickerTitle(c))}">${esc(codexPickerTitle(c))}</span>` +
       (active ? '<span class="ci-now">当前</span>' : '') +
-      (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') +
-      (birthday && variant === 'stn' ? '<span class="ci-bday-chip">生日快乐</span>' : '') + `</span>` +
+      (n5Featured ? '<span class="ci-n5-chip">V5</span>' : '') + `</span>` +
       `<span class="ci-sub">${esc([c.author || '未知作者', version].filter(Boolean).join(' · '))}</span>` +
       `<span class="ci-tags">${renderCodexChips(c)}</span>` +
       `</span>`;
     item.innerHTML = variant === 'stn'
       ? coverSlot(typeIconOf(c), cover, c) + main + `<span class="stn-stat">${stat}</span>` +
         (isRecentlyUpdated(c) ? '<span class="stn-fresh" aria-hidden="true"></span>' : '')
-      : coverSlot(typeIconOf(c), cover, c, `<span class="vb-stat">${stat}</span>` + (birthday ? BIRTHDAY_MARK : '')) + main;
+      : coverSlot(typeIconOf(c), cover, c, `<span class="vb-stat">${stat}</span>`) + main;
     bindCoverReveal(item);
     item.onclick = () => chooseCodex(c, item);
     return item;
@@ -790,6 +815,7 @@ export function setupCodexPicker() {
     else renderVolumes(buildTypes());
     const launchPanel = makeN5LaunchPanel();
     if (launchPanel) menu.prepend(launchPanel);
+    if (renderedMobile && birthdayPicker()) menu.insertAdjacentHTML('afterbegin', birthdayHTML('metro-bday'));
     menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
     renderingMenu = false;
   };
@@ -1794,23 +1820,31 @@ function originalPillTitle(c) {
   return '本法典为压缩缩略图，拖入 NovelAI 读不出参数';
 }
 
-/* 所长生日那天（birthday.js）：作者后面挂生日签，横幅右侧把本站记下的更新排成一排蜡烛，旧的在左、最近的在右。 */
-const BIRTHDAY_CANDLES_MAX = 8;
+/* 所长生日那天（birthday.js）：作者后面挂一枚「生日快乐」，宽横幅右上角挂一串彩旗。
+   进这本书时从生日签往右上方「噗噗」放两下礼花（开场还在播就等它落幕），之后点生日签再放一次。 */
+function celebrateBanner(banner) {
+  const pill = banner.querySelector('.banner-bday');
+  if (!pill || !banner.isConnected) return;
+  const layer = innerConfettiLayer(banner);
+  const b = banner.getBoundingClientRect();
+  const p = pill.getBoundingClientRect();
+  const x = p.right - b.left - 4;
+  const y = p.top - b.top + p.height / 2;
+  // 横幅矮：角度压平、往右边空着的那片喷，别大半从顶边飞出去被裁掉
+  burstConfetti(layer, x, y, { angle: -28, spread: 30, count: 12, reach: b.height * 1.15, fall: b.height * 0.5 });
+  window.setTimeout(() => burstConfetti(layer, x, y, { angle: -16, spread: 30, count: 12, reach: b.height * 1.65, fall: b.height * 0.45 }), 170);
+}
 
-function renderBirthdayCandles(c) {
-  // 更新批次只记在 codexes.json 的 meta 上；接力时传进来的就是 meta，落地后的 state.codex 要回查
-  const updates = updateFilterDefinitions(findCodexMeta(c.id) || c).slice(0, BIRTHDAY_CANDLES_MAX).reverse();
-  if (!updates.length) return '';
-  return `<div class="banner-candles" role="img" aria-label="更新记录：${esc(updates.map(u => u.label).join('、'))}">` +
-    `<span class="bc-label">更新记录</span><span class="bc-row">` +
-    updates.map((u, i) => `<span class="bc-candle${u.latest ? ' is-latest' : ''}" style="--i:${i}" title="${esc(u.label)}">` +
-      `<i aria-hidden="true"></i><small>${esc(u.label.replace(/更新$/, ''))}</small></span>`).join('') +
-    `</span></div>`;
+function scheduleBannerCelebration(banner, id) {
+  const fire = () => window.setTimeout(() => { if (banner.dataset.identity === id) celebrateBanner(banner); }, 480);
+  if (document.documentElement.classList.contains('intro-arm')) document.addEventListener('intro:settle', fire, { once: true });
+  else fire();
 }
 
 function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const cover = codexBannerCoverEntry(c);
   const birthday = !virtualView && isBirthdayCodex(c);
+  const previousIdentity = banner.dataset.identity;
   const exampleLabel = codexExampleLabel(c);
   const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
@@ -1820,24 +1854,27 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   const typeIndex = Math.max(0, CODEX_TYPES.findIndex(t => t.id === codexType(c)));
   banner.classList.remove(...CODEX_TYPES.map(t => `cat-${t.id}`));
   if (!virtualView) banner.classList.add(`cat-${CODEX_TYPES[typeIndex].id}`);
-  banner.classList.toggle('is-birthday', birthday);
   const head = virtualView
     ? `<div class="banner-title">${esc(c.title)}</div>` +
       `<div class="banner-meta"><span>${esc([c.author, c.version].filter(Boolean).join(' · '))}</span></div>`
     : `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
       `<div class="banner-title">${esc(c.title)}</div>` +
       (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}` +
-        `${birthday ? `<span class="banner-bday">${esc(BIRTHDAY_LABEL)} 生日快乐</span>` : ''}</div>` : '') +
+        `${birthday ? '<button type="button" class="banner-bday">生日快乐</button>' : ''}</div>` : '') +
       `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
       `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
     `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
     `<div class="banner-info">${head}</div>` +
-    (birthday ? renderBirthdayCandles(c) : '') +
+    (birthday ? buntingSVG() : '') +
     // 进度行直接挂在横幅下（不进 .banner-info）：字栏入场动画带位移，会临时成为绝对定位的参照，沉底的进度线会跟着跳
     `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
     `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
   banner.dataset.identity = virtualView ? '' : c.id;
+  if (birthday) {
+    banner.querySelector('.banner-bday').onclick = () => celebrateBanner(banner);
+    if (previousIdentity !== c.id) scheduleBannerCelebration(banner, c.id);
+  }
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */
   const coverImg = banner.querySelector('.banner-cover img');
   if (coverImg) {

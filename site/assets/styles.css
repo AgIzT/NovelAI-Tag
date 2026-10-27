@@ -1088,61 +1088,64 @@ body.dark .banner-home.is-bilibili:hover{background:rgba(251,114,153,.24);border
   .banner-home span,.banner-home svg:last-child{display:none}
 }
 
-/* ---------- 所长生日（birthday.js 判定当天才挂类；开场生日牌、横幅、选择器书卡共用一套烛光色） ----------
-   烛光色单独一套，不借强调色：选择器里「当前」那本已经用强调色描边，生日描边不能和它撞。 */
+/* ---------- 所长生日（birthday.js 判定当天才渲染：开场生日牌、横幅生日签与彩旗、选择器头像与礼花） ----------
+   烛光色单独一套，不借强调色：强调色在这几处都已有「当前 / 选中」的意思。礼花节点由 birthday-fx.js 现建现删。 */
 :root{--bday:#c97c12;--bday-soft:rgba(232,160,48,.15);--bday-line:rgba(214,142,32,.55)}
 body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,183,90,.45)}
-.codex-banner.is-birthday{border-color:var(--bday-line)}
+/* 横幅：作者后面一枚「生日快乐」，点它再放一次礼花 */
 .banner-bday{
-  display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;vertical-align:1px;
-  font-size:11px;font-weight:800;line-height:1.35;color:var(--bday);background:var(--bday-soft);
+  display:inline-block;margin-left:8px;padding:1px 8px;border:0;border-radius:999px;vertical-align:1px;
+  font:800 11px/1.35 var(--font-ui);color:var(--bday);background:var(--bday-soft);cursor:pointer;
+  transition:background-color .15s,scale .15s;
 }
-/* 更新记录排成一排蜡烛：放在字栏和「关于」按钮之间，窄横幅（侧栏展开、手机）整排收起，只留生日签 */
-.banner-candles{
-  flex:none;align-self:center;display:flex;flex-direction:column;align-items:flex-end;gap:7px;
-  margin:0 34px 18px 0;animation:bannerContentIn .34s ease .1s backwards;   /* 下边距让出右下角的配图数 */
+.banner-bday:hover{background:color-mix(in srgb,var(--bday) 26%,transparent)}
+.banner-bday:active{scale:.94}
+/* 彩旗挂在横幅顶边、「关于」按钮左边；每面旗绕挂点慢慢摆。窄横幅会撞上书名，收起 */
+.banner-bunting{position:absolute;top:0;right:54px;width:220px;height:34px;overflow:visible;pointer-events:none;
+  animation:bannerContentIn .34s ease .12s backwards}
+.bb-string{fill:none;stroke:color-mix(in srgb,var(--text) 26%,transparent);stroke-width:1}
+.bb-flag{opacity:.88;transform-box:fill-box;transform-origin:50% 0;
+  animation:bbSway 3.2s ease-in-out infinite alternate;animation-delay:calc(var(--i,0) * -.45s)}
+@keyframes bbSway{from{rotate:-6deg}to{rotate:6deg}}
+@container codex-banner (max-width:620px){
+  .banner-bunting{display:none}
 }
-.bc-label{font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted)}
-.bc-row{display:flex;align-items:flex-end;gap:9px}
-.bc-candle{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:26px}
-.bc-candle i{
-  position:relative;display:block;width:7px;height:20px;margin-top:15px;border-radius:2px 2px 1.5px 1.5px;
-  background:repeating-linear-gradient(-35deg,var(--tagbg-hover) 0 3px,var(--card) 3px 6px);
-  border:1px solid var(--line);
-}
-/* 烛芯 + 火苗：火苗以底部为轴轻轻摆，各支错开相位 */
-.bc-candle i::after{content:"";position:absolute;left:50%;bottom:100%;width:1px;height:3px;translate:-50% 0;background:color-mix(in srgb,var(--text) 60%,transparent)}
-.bc-candle i::before{
-  content:"";position:absolute;left:50%;bottom:calc(100% + 2px);width:7px;height:11px;translate:-50% 0;
-  border-radius:50% 50% 50% 50% / 62% 62% 38% 38%;transform-origin:50% 100%;
-  background:radial-gradient(ellipse at 50% 72%,#fff6d6 0 26%,#ffc451 50%,var(--bday) 78%);
-  box-shadow:0 0 9px 2px rgba(255,186,70,.42);
-  animation:bcFlicker 1.7s ease-in-out infinite alternate;animation-delay:calc(var(--i,0) * -.27s);
-}
-.bc-candle.is-latest i{height:25px;margin-top:10px;border-color:transparent;
-  background:repeating-linear-gradient(-35deg,var(--bday) 0 3px,color-mix(in srgb,var(--bday) 45%,var(--card)) 3px 6px)}
-.bc-candle small{font-size:10px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
-.bc-candle.is-latest small{color:var(--bday);font-weight:800}
-@keyframes bcFlicker{
-  0%{scale:1 1;rotate:-3deg}
-  45%{scale:.9 1.1;rotate:2deg}
-  100%{scale:1.05 .93;rotate:-1deg}
-}
-@container codex-banner (max-width:680px){
-  .banner-candles{display:none}
-}
-.ci-bday-chip{flex:none;border-radius:999px;padding:2px 8px;background:var(--bday-soft);color:var(--bday);
-  font-size:10px;font-weight:900;letter-spacing:.02em;line-height:1.5}
-.codex-item.is-birthday:not(.active){border-color:var(--bday-line)}
-/* 四卷书卡的书名一行已经排满：封面右上角压一枚实底蛋糕圆标（锁态遮罩之上也看得见） */
-.ci-bday-mark{
-  position:absolute;right:5px;top:5px;z-index:3;width:22px;height:22px;border-radius:50%;
-  display:grid;place-items:center;color:#fff;background:var(--bday);box-shadow:0 1px 4px rgba(0,0,0,.22);
-}
-.ci-bday-mark svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-body.dark .ci-bday-mark{color:#2a1a00}
-/* 线路图的站没有描边，换成站点圆外再套一圈烛光色 */
-.codex-item.stn.is-birthday:not(.active):not(.locked) .ci-cover{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--bday-line)}
+/* 礼花：横幅里的层跟着横幅圆角裁切；选择器用视口层，压在顶栏弹层之上、对话框之下 */
+.confetti-layer{position:absolute;inset:0;z-index:3;overflow:hidden;border-radius:inherit;pointer-events:none}
+.confetti-layer.is-viewport{position:fixed;z-index:58;border-radius:0}
+.confetti-bit{position:absolute;display:block;width:6px;height:9px;border-radius:1.5px;will-change:transform,opacity}
+.confetti-bit.is-dot{width:6px;height:6px;border-radius:50%}
+.confetti-bit.is-strip{width:3px;height:12px;border-radius:2px}
+.confetti-puff{position:absolute;display:block;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;
+  border:2px solid color-mix(in srgb,var(--bday) 70%,transparent)}
+/* 选择器卷头：「最近新增」那一格换成「生日快乐 / 所长」+ 戴生日帽的头像（字在左、图在右，同原来的说明 + 样图） */
+.vol-bday{flex-direction:row-reverse;align-items:center;gap:12px;padding:0 4px 2px 0;
+  animation:vol-rise .34s cubic-bezier(.22,1,.36,1) backwards;animation-delay:calc(var(--vol-delay) + 40ms)}
+.bd-text{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.bd-text b{font-family:var(--font-display);font-size:20px;font-weight:900;letter-spacing:.08em;line-height:1.1;color:var(--text)}
+.bd-text small{font-size:11px;letter-spacing:.12em;color:var(--muted)}
+.bd-avatar{position:relative;flex:none;width:72px;height:72px;padding:0;border:0;border-radius:50%;background:none;cursor:pointer;
+  transition:scale .18s cubic-bezier(.34,1.56,.64,1)}
+.bd-avatar img{display:block;width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 2px var(--card),0 6px 14px rgba(28,32,58,.16)}
+.bd-avatar:hover{scale:1.05}
+.bd-avatar:active{scale:.95}
+/* 生日帽：条纹圆锥压在两只猫耳之间、往左歪一点，底边一圈白边；绒球单独一个元素（clip-path 会把伪元素一起裁掉） */
+.bd-hat{position:absolute;left:35%;top:-16%;width:31%;height:42%;rotate:-14deg;transform-origin:50% 100%;pointer-events:none}
+.bd-hat-cone{position:absolute;inset:0;clip-path:polygon(50% 0,100% 100%,0 100%);
+  background:
+    linear-gradient(to top,#fff 0 13%,transparent 13%),
+    repeating-linear-gradient(-58deg,var(--bday) 0 4px,#fff8e6 4px 6.5px,var(--accent) 6.5px 10.5px,#fff8e6 10.5px 13px)}
+.bd-hat-pom{position:absolute;left:50%;top:0;width:34%;aspect-ratio:1;border-radius:50%;translate:-50% -45%;
+  background:radial-gradient(circle at 35% 35%,#fff 0 32%,#ffe2a6 62%,var(--bday) 100%);box-shadow:0 1px 2px rgba(0,0,0,.2)}
+/* 生日帽落到头上：只在打开选择器时播（codex-ui.js 挂 .bd-enter 一秒），换卷、刷新不重播 */
+.codex-menu.bd-enter .bd-hat{animation:bdHatDrop .6s cubic-bezier(.3,1.5,.5,1) .12s backwards}
+@keyframes bdHatDrop{from{translate:0 -16px;rotate:-40deg;opacity:0}}
+/* 手机线路图没有卷头：在最上面加一条 */
+.metro-bday{display:flex;align-items:center;gap:12px;margin:10px 8px 6px;padding:12px 12px 9px;border-radius:12px;background:var(--bday-soft);
+  animation:metro-slide .34s cubic-bezier(.22,1,.36,1) backwards}
+.metro-bday .bd-avatar{width:46px;height:46px}
+.metro-bday .bd-text{align-items:flex-start;gap:1px}
+.metro-bday .bd-text b{font-size:16px}
 /* 开场生日牌（intro.js 的 startBirthdayCard）：反面同普通牌背、角标换日期；正面同站内卡片：竖图 + 卡身 */
 .intro-bday{position:absolute;inset:0;z-index:30;transform-style:preserve-3d;transform:perspective(1400px) rotateY(180deg)}
 .intro-bday>.intro-card,.intro-bday-face{backface-visibility:hidden;-webkit-backface-visibility:hidden}
@@ -1160,9 +1163,11 @@ body.dark .ci-bday-mark{color:#2a1a00}
 .ibd-meta{display:flex;align-items:center;gap:7px;min-width:0}
 .ibd-pill{flex:none;padding:1px 8px;border-radius:999px;font:800 10.5px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft)}
 .ibd-meta small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html.motion-off .banner-candles,html.motion-off .bc-candle i::before{animation:none}
+html.motion-off :is(.banner-bunting,.bb-flag,.vol-bday,.metro-bday),
+html.motion-off .codex-menu.bd-enter .bd-hat{animation:none}
 @media (prefers-reduced-motion: reduce){
-  .banner-candles,.bc-candle i::before{animation:none}
+  .banner-bunting,.bb-flag,.vol-bday,.metro-bday,.codex-menu.bd-enter .bd-hat{animation:none}
+  .bd-avatar,.banner-bday{transition:none}
 }
 .chip-rail{
   display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px;
