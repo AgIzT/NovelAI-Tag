@@ -678,18 +678,33 @@ def own_chapter_titles(config, formal, sources):
         olds = [e for e in formal[book]['entries'] if e.get('path') == path]
         if not olds:
             continue
-        by_body = defaultdict(list)
+        pool = defaultdict(list)
         for entry in olds:
-            by_body[body(entry)].append(entry)
+            pool[body(entry)].append(entry['title'])
+        totals_old = {text_sha: len(titles) for text_sha, titles in pool.items()}
+        chapter_entries = [e for e in sources[book] if e.get('path') == path]
+        # Adapted copies carry their own prompt; only the 原Tag cards are paired.
+        counts_source = Counter(body(e) for e in chapter_entries
+                                if not e['title'].endswith('：改编后'))
+        consumed = Counter()
         pattern = re.compile(re.escape(rule['titlePrefix']) + r'（(\d+)）')
         numbers = [int(m.group(1)) for e in olds for m in [pattern.match(e['title'])] if m]
         next_number = max(numbers, default=0)
         main_title = None
-        for entry in (e for e in sources[book] if e.get('path') == path):
+        for entry in chapter_entries:
             adapted = entry['title'].endswith('：改编后')
-            hits = by_body.get(body(entry), [])
-            if len(hits) == 1:
-                entry['title'] = hits[0]['title']
+            text_sha = body(entry)
+            titles = pool.get(text_sha, [])
+            pairable = (len(titles) > 1
+                        and len(titles) + consumed[text_sha] == totals_old[text_sha] == counts_source[text_sha])
+            if len(titles) == 1:
+                entry['title'] = titles[0]
+            elif pairable:
+                # The author keeps repeated identical prompts (10.27: two copies
+                # of one 藤蔓少女 group). Several old cards share that body too,
+                # so give them back their titles in order instead of renumbering.
+                entry['title'] = titles.pop(0)
+                consumed[text_sha] += 1
             elif adapted and main_title:
                 entry['title'] = f'{main_title}：改编后'
             else:

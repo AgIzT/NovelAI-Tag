@@ -305,6 +305,33 @@ class SpecialChapterTests(unittest.TestCase):
         self.assertEqual([e['title'] for e in sources['suozhang']],
                          ['晨雾湖面', '自然语言（3）', '自然语言（3）：改编后', '自然语言（2）'])
 
+    def test_repeated_identical_prompts_get_their_titles_back(self):
+        config = {'specialChapters': [self.RULE]}
+        formal = {book: {'entries': []} for book in imp.BOOKS}
+        formal['suozhang']['entries'] = [
+            {'id': 's-1', 'title': '自然语言（51）', 'path': ['自然语言'], 'tags': 'a vine,'},
+            {'id': 's-2', 'title': '自然语言（62）', 'path': ['自然语言'], 'tags': 'a vine,'}]
+        sources = {book: [] for book in imp.BOOKS}
+        sources['suozhang'] = [card('自然语言（1）', ['自然语言'], 'a vine,'),
+                               card('自然语言（2）', ['自然语言'], 'a vine,')]
+        imp.own_chapter_titles(config, formal, sources)
+        self.assertEqual([e['title'] for e in sources['suozhang']],
+                         ['自然语言（51）', '自然语言（62）'])
+
+    def test_single_old_copy_of_a_repeated_prompt_keeps_the_same_title(self):
+        # Existing behaviour, unchanged on purpose: the duplicate is left to the
+        # copy detector, which reports it as an unhighlighted addition.
+        config = {'specialChapters': [self.RULE]}
+        formal = {book: {'entries': []} for book in imp.BOOKS}
+        formal['suozhang']['entries'] = [
+            {'id': 's-1', 'title': '自然语言（9）', 'path': ['自然语言'], 'tags': 'a vine,'}]
+        sources = {book: [] for book in imp.BOOKS}
+        sources['suozhang'] = [card('自然语言（1）', ['自然语言'], 'a vine,'),
+                               card('自然语言（2）', ['自然语言'], 'a vine,')]
+        imp.own_chapter_titles(config, formal, sources)
+        self.assertEqual([e['title'] for e in sources['suozhang']],
+                         ['自然语言（9）', '自然语言（9）'])
+
     def test_replay_ignores_site_owned_titles(self):
         config = {'specialChapters': [self.RULE]}
         old = [{'id': 's-1', 'title': '起好的名字', 'path': ['自然语言'], 'tags': 'a,'}]

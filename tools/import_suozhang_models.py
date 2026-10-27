@@ -65,21 +65,28 @@ def data_hashes():
     return {str(p.relative_to(ROOT)):digest(p) for p in sorted((ROOT/'site/data').rglob('*.json'))}
 
 
+FOOD_ICONS = '🍔🍟🌮🌭🍕🍚'
+
+
 def restore_food_emoji(doc, paragraph_index):
-    """Restore the six visually audited inline pictures, in their XML positions."""
+    """Restore the six visually audited inline pictures, in their XML positions.
+
+    The pictures are located by their order inside the paragraph, not by media
+    file name: the author also embeds cover and end-page images inline, so the
+    six icons shift to image2–image7 (2026.10.27) without changing order.
+    """
     p = doc.paragraphs[paragraph_index]
-    if len(convert.paragraph_blips(p)) != 6:
+    if len(convert.paragraph_blips(p)) != len(FOOD_ICONS):
         raise ValueError('Food emoji paragraph no longer has six inline pictures')
-    icons = dict(zip((f'/word/media/image{i}.png' for i in range(1,7)), '🍔🍟🌮🌭🍕🍚'))
+    icons = iter(FOOD_ICONS)
     chunks = []
     for node in p._p.iter():
         if node.tag == qn('w:t'):
             chunks.append(node.text or '')
         elif node.tag == qn('a:blip'):
-            part = doc.part.related_parts[node.get(qn('r:embed'))]
-            chunks.append(icons[str(part.partname)])
+            chunks.append(next(icons))
     text = ''.join(chunks)
-    if text.translate({ord(c):None for c in icons.values()}) != p.text:
+    if text.translate({ord(c):None for c in FOOD_ICONS}) != p.text:
         raise ValueError('Inline emoji restoration changed source text')
     return {paragraph_index: text}
 

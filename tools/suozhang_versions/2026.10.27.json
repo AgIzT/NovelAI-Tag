@@ -1,0 +1,310 @@
+{
+  "version": "2026.10.27",
+  "baseVersion": "2026.10.13",
+  "source": {
+    "dir": "所长历版本/10.27"
+  },
+  "baseline": {
+    "dir": "output/suozhang-20261013-import"
+  },
+  "outDir": "output/suozhang-20261027-import",
+  "parts": {
+    "N4.5-regular": {
+      "sha256": "238942762fef68f8b9c99a63c9737cee6c22495b59bfc7fd96fe9cc66571fc2b",
+      "half": null
+    },
+    "N4.5-v1": {
+      "sha256": "27225dc4f336bd66faa9b6976a7a7d64acb9f5ef42b298e46a1b272920b15fe7",
+      "half": "upper"
+    },
+    "N4.5-v3": {
+      "sha256": "19857ad582f59dbcb76bed3e4f3cca60fbe6eb07b4266768fac97044b00bd9f1",
+      "half": "lower"
+    },
+    "N4.5-v2": {
+      "sha256": "d6afbde729cb155eba8804c11bc416928db14878a8d44b0919e03e9b377c431b",
+      "half": "upper"
+    },
+    "N4.5-v4": {
+      "sha256": "2b3a3d6e06e4ffa4bf1f7a81062cb551d05068cfa0343873064ec93c17ffeed9",
+      "half": "lower"
+    },
+    "N5-regular": {
+      "sha256": "8a91f20700fc4159ce144f8247167f603b32b0e76a35947b78456d3335892a42",
+      "half": null
+    },
+    "N5-upper": {
+      "sha256": "1336b6949e8f23b5fd5a07320faa5c396154a51de6db6e8cf21104200359bf2a",
+      "half": "upper"
+    },
+    "N5-lower": {
+      "sha256": "5df5461e9973b048bee245f2e83faaeb8fe5966df12202be727d4f24a2c84357",
+      "half": "lower"
+    }
+  },
+  "pathAliases": {},
+  "proseParagraphs": {
+    "N4.5-regular": {
+      "12768": "82580fe470c50558489a5c4dfa9c682ed522f2d36aff6aa46efa0ca97385304e",
+      "17471": "55635276b3d54b1134b967c490788a950ff1520623569220fe5d8dc5808888e5",
+      "17472": "e48d974224c7d41550ecd60faca5fe946f62bc0ced703681933037716d85e309",
+      "17473": "d86d9d6a649defb415dcf16f67d17343467b6b557eb001e159a13920ffcf853e",
+      "2065": "c651b35e8023dc4d748a784dcea913c98e76bfbc431ac03ac011f70a08be87e3",
+      "2068": "597b60827d6b5973e2ed88bbfc36c18a2ef1a5502b0f524182c9e21332fd9f62"
+    },
+    "N4.5-v1": {
+      "2726": "a7bda675189ea79e774ac8a7fa4de459e16a67ed012adab07b082396635c92df"
+    },
+    "N4.5-v3": {
+      "5592": "86785325cc28ef0239b96bb3e15e94a5733d43c4c9fd8de52cd703aaca9cf7d0",
+      "5593": "8940e39af18d61182caa520a33c20721dbfab6594185b5213d0391d1ff71580c",
+      "5594": "301fc91876ed1c0ef04b7c9b041a9c0fce4a84381d2944c59b32f376d879602d"
+    },
+    "N4.5-v2": {
+      "4336": "a35036bdbfd6df6038f19d9089c75fc3cc5cbadfb8e09579587bcee35b00d7c2",
+      "4338": "93c003c28f94e86250c136bf352bc110dda5f4899a55c42378907db0f3728ccc",
+      "4340": "00e01a4d5eb852a32cb745eec7b6d6c9b92841663cb2b4d4355f5264e2bddc88",
+      "4341": "0dcbedb88f1bfa5a3ed77b2004c7d61e2d568e42719e4ba768658e4e7897cc3b",
+      "6101": "fadb707daa3bd2d37fa21474b5327f1f3e0ddf3890cb0d6ac04a1de4e3e88712",
+      "6102": "6ac81312a680f1e21445370afa8869768b38ee1dd94937fe4ae381ae5f3c581f",
+      "6103": "95797a337e3a039b2142b4ef89d9b46ca0c70cae64e15c590a95696f6b1acf94",
+      "6198": "a35d0264af1307341261904c6b4000a24d5edc32720cc48206cbe122966a51de"
+    },
+    "N4.5-v4": {
+      "1047": "3e43ec8376d7ea3ee5fad25f08a69910c35678830cf2e820594a0b68c86767d3",
+      "1981": "23d2f5933092fd52fbcf22231e2f165dbd5655fb2d22ca0af261a680082c2783",
+      "6029": "330784130ce09d35d1966771e4e3cf5a0df5b7af969096633ca6255a18a19923",
+      "7697": "74820d1c4eef4255ca133fb4b861e176146e14a128cb1a07f416e75cde7225bf",
+      "7698": "00ffd7de62f80285eefbc82f798c2e1ce3ccd636e493d1e9223c1d7e0632abf3",
+      "7699": "4bd63967b9a60e0f27c3abc4b3bb1d79840cd52ec5b9ce1f83adbe56e2a52ec0",
+      "7700": "6a8b8d2c38841bfc89b549744b4c067d7653f78c4f4f834c047928add4c9450b",
+      "7701": "30cf334e31fbe4fc901a17e071903d6a6c6f29de85853d5060fd4fe8c61e8777",
+      "7702": "06644503338641f25c32c4af654c4b2eb7b1349bfd42174a3ad6cfcf16dd3a91",
+      "7703": "c3fe8ef2c227bb69066d9617304b78ce578f39f9ed6afc06a97febf89f1bbff6",
+      "7704": "61aebc7f9310bee74366c289edef612d7b4a6be7b3c10350ad1c9091979515db",
+      "7705": "b73b50c5e95075c65804e1bcf8d7c5855b3f803c2f9f4cff37aed6d471a40dff",
+      "7706": "590a833e54d03f2f599af318bdae83a2cc6278140b87a07c9629a23220beaacc"
+    },
+    "N5-regular": {
+      "780": "5da347a85ef12bb0bd7c787d5edcdcd23e66fe84c11b925b568d2dfe3073d4ac",
+      "784": "044f283c90d3ae3ee84f6301aa074ef4940cf89e7c8a76b63009215389a29fe8"
+    },
+    "N5-upper": {
+      "806": "29eb15a37b7956af6208f5ab39a5cb918a88f2a397b23756dd073268a98b4100",
+      "807": "457d6192c05cd14125d154b61bcf20f732ada411d18d6b73a3caeb0a00caceba",
+      "808": "5dd939271577be48487ee3af9864d5b9ebb6f59d9063647443b36aa118b2ce52",
+      "813": "0b9541c5e8d4e92097bde9fda87e20d4b7ae2f2bca8cf154aef70e255b084d13",
+      "814": "a34452d5b1e6cad6f85b183d90ef73bba86e2d1e568696de35bed79acb6537d2",
+      "815": "741ed74c93e1fa146bf3f94f1a035dbd2cae080bda5c66535bddc6cd2b05264e",
+      "909": "3c6ca37690485e2968d48d2f8d9966c8b60345fc661ce89312fce7d74add7734",
+      "2004": "967b57704ccca792878b9466b361193af2283adad151740f9009cd94ae85a04d",
+      "2061": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "2062": "f18e4aa2ca637a322706407913342f26635c6ba7734692de12674b021bc52261",
+      "2063": "dc871857eb653516a7ade58a48ae36bb1990cc1a9d0a485cac2c1d33b8aa0f91",
+      "3141": "6933c6d515f1ef4fade98cab1e77cb58841093a6a14eb656e28e22652e4de511",
+      "3142": "5a1dc9ece8cffb654526517c5499f3757975b53ea6f6913659039abd672d070c",
+      "3143": "e0a45f4ccf925f29017c7f7dd2e37a1df7aa1a97a55824965e1b22a50d194602",
+      "1924": "2abda1d90165de01035a10fe2689d7f9837fac81d87cab0415211d161604d51f",
+      "1925": "d65333f8378ff696666b7b74d841f4840bda321afcf59ea6f095981a4c52e8e6",
+      "1926": "ff08dcc6c14c1393b9c655087aa6918e70d3a077b36f2cbf16345f576e7b765f",
+      "1927": "1706d329012813e82216eecaeee9182aa3115109055b3c86856610b5748eb510",
+      "2260": "1fa48c1968b7c602b190760e41cc13aac681bb3936e7ff909edc45ce7f5fe2eb"
+    }
+  },
+  "titleParagraphs": {
+    "N5-regular": {
+      "494": "837b9f348c3bff0a8cf10fc7b45651e43225cbe90379a1fa24633851f532bf71",
+      "503": "7a03481a926bff380c53d34e788c00573fd08b8a1969b02e2731460e955e1b22"
+    },
+    "N5-upper": {
+      "1134": "f50b8ce689b6bd316acfee4142bda8bd2a987923664b6064c42d7a4cc7571d6a",
+      "3471": "937e2609b05610e0fcf9aade8828dc133cb19f0a91d5e047836b79cef5e5d20c",
+      "2445": "9e56c4fe396e0e1190c42716e5eae96574d157c9f47b6f737b088a50f568d850",
+      "3491": "89388ee1c04302e5a2d262792d8493f723a4e0200ca49e073d1ab446e1dd64ea"
+    },
+    "N5-lower": {
+      "916": "c5dfec35be38fc57a9dc38319bb0961ca129fc42f81a9de86bec27077342d9b0",
+      "2452": "5a998a85ebc7ac226a5f61f15487f9197618b11523140721c45bf1d75fa20d54"
+    }
+  },
+  "translationParagraphs": {
+    "N4.5-v4": {
+      "1982": "ffbfba3cec24fbd2cbc8f33d1b2b69abe36d68ce45d6c81ba7844fec09abae8b",
+      "6378": "ed3da463277f828fae94d299587be1fb6623cfdbc373c4ee0ff10cf4eca4180b",
+      "6381": "1d3dc41df707cbd166cc2de6a8bf2ff7bf25099347859e7e3657a9c698a18a08",
+      "6647": "6e51207fb9df4a273addd24391948f6af30bb65f70d199220e07a6a9f58f50b9",
+      "6781": "5ecbf3393838d3dbb0fa828a4df2bd02f1189c90653d88ba971d85df0b0d0379",
+      "6784": "dd12ae16da967d33e0c4e0c966103428754f7bbb83440e1af446cb98b7594a02",
+      "6787": "e5ef66332af8cf5a72c78e3754fb23e2feb090d6f6520aad65f986f28ff2fca8",
+      "6858": "679756a1fe1a2fe0c5b319b6f9d2b9c5c641758806a742848d0a34e45a818cb1",
+      "7103": "79626c7f47182a860cffcdc0eaeba89ab59af0caabc6cf13dac396ad31915dd8",
+      "7104": "c9b2dc9a68c9d9b098b7d0f8816e5bd677d44dc756f6de84f6534d12ef7a998b",
+      "7867": "1f358cdc729aa02b1a4fa9c58a1e6047d9eb204c4b6723f410e834d1781df3af",
+      "7870": "fcaac36c03b06e87dd8d40b4c57a5bbc41d5de36c45fe76237abd8d521e2b111",
+      "8228": "e533b42702c6fba7505f81d6a88a1ee3a449b87d5fb8c5b5ad61fa22cb6f50f1",
+      "8231": "ecabb0c07afdb53e336f07c3cb7e3fe89799ab6faf4c6228d737ef20024a29e9",
+      "1796": "31780e236fbfa6d7bd150c402ef22c697969d34660999e7068ccee0f58bece5c",
+      "1797": "573ae4ef2364ef91ad85e8dadbb81e302bb567911c8fb099519e1b9a260d3be6"
+    },
+    "N4.5-regular": {
+      "6271": "5da57b56e452da7b11ba9a01162b2c45bafcab71edba7e8865b8e5f8b14f5a48",
+      "6272": "b9af4ddec2308ba577f01dfc5a896032f88402219e98043f23c191f7c37a4d99",
+      "6276": "c02d15dee395716d0f39647dba4710e67e2eefd44427e11537cb586e19bce2a3",
+      "6277": "3bd3739592e45b1988d6c0bf1030489ba1de7c63f7ca3d2a513c3bf59144b83f"
+    }
+  },
+  "joinedTitles": {
+    "N4.5-v4": {
+      "5630": {
+        "sha256": "f544524a41b796060647967a10e6c9b4ad2d9113e3d992a091b37547be5e775f",
+        "at": 11
+      }
+    }
+  },
+  "foodEmojiParagraph": {
+    "part": "N4.5-regular",
+    "index": 6702
+  },
+  "duplicateBlocks": [
+    {
+      "keep": {
+        "part": "N4.5-v3",
+        "pathSha256": "0f6bd7539729218876853f98a5bf84cdaa83b5fec500115ef03db1c601023d88",
+        "depth": 3
+      },
+      "drop": {
+        "part": "N4.5-v2",
+        "pathSha256": "d0c98f1b278bdfe501e4e6a3c169e0ba6ab26ee6b8bac24756c953c6ef8886eb",
+        "depth": 3
+      },
+      "rawItems": 134,
+      "note": "N4.5-v2 末尾整段复制了 N4.5-v3 的一个子目录，保留卷三原位置（同 9.25、10.13）"
+    }
+  ],
+  "styleCollections": [
+    {
+      "part": "N5-regular",
+      "path": [
+        "画风搜集"
+      ],
+      "hosts": {
+        "画风1": [
+          "负面",
+          "设置"
+        ],
+        "画风2": [
+          "负面",
+          "设置",
+          "附带tag"
+        ],
+        "Q版画风1": [
+          "负面",
+          "设置"
+        ]
+      }
+    }
+  ],
+  "removals": {},
+  "newOverrides": {},
+  "manualMatches": {},
+  "acceptedDrift": {
+    "suozhang": [
+      {
+        "id": "suozhang-5861",
+        "fields": [
+          "tags"
+        ]
+      }
+    ],
+    "suozhang_r18": [
+      {
+        "id": "codex_6e699406-6188",
+        "fields": [
+          "tags"
+        ]
+      },
+      {
+        "id": "codex_8489ac52-3185",
+        "fields": [
+          "tags"
+        ]
+      }
+    ],
+    "suozhang_nai5": [
+      {
+        "id": "suozhang_nai5-0132",
+        "fields": [
+          "tags"
+        ]
+      }
+    ],
+    "suozhang_nai5_r18": [
+      {
+        "id": "suozhang_nai5_r18-0475",
+        "fields": [
+          "tags"
+        ]
+      },
+      {
+        "id": "suozhang_nai5_r18-0570",
+        "fields": [
+          "tags"
+        ]
+      }
+    ]
+  },
+  "sourceSplits": [
+    {
+      "part": "N5-regular",
+      "lineSha256": "b05589dfbd3988bcb35513a6744b844ae3a85d6880168ec1d9031cafd69c2d0c",
+      "title": "群友处收录（无标题1）",
+      "isNew": false,
+      "note": "N5 常规「群友处收录」开头那段提示词在源稿里一直没有标题；10.13 起上方插入了新卡，解析时会被并进新卡，按此拆回原来的无标题卡（suozhang_nai5-0070）"
+    }
+  ],
+  "specialChapters": [
+    {
+      "part": "N4.5-regular",
+      "chapter": "自然语言",
+      "titlePrefix": "自然语言",
+      "note": "解析器整章跳过的「原Tag / 翻译」模板章；2026-10-16 维护者定收录：按序编号命名（标题归网站，日后可改名），翻译进备注，NEW 跟随作者高亮，空模板不收"
+    }
+  ],
+  "expected": {
+    "suozhang": {
+      "entryCount": 6043,
+      "newIdCount": 1,
+      "removedCount": 0
+    },
+    "suozhang_r18": {
+      "entryCount": 11990,
+      "newIdCount": 0,
+      "removedCount": 0
+    },
+    "suozhang_nai5": {
+      "entryCount": 304,
+      "newIdCount": 48,
+      "removedCount": 0
+    },
+    "suozhang_nai5_r18": {
+      "entryCount": 1147,
+      "newIdCount": 198,
+      "removedCount": 0
+    }
+  },
+  "decisions": [
+    "2026-10-27 基线漂移 6 条全部是 10-15 默认质量尾段清理（clean_nai_default_tags）造成的本地修改（suozhang-5861、codex_6e699406-6188、codex_8489ac52-3185、suozhang_nai5-0132、suozhang_nai5_r18-0475、suozhang_nai5_r18-0570，字段都是 tags，去掉的默认尾段与 default-tags/apply-plan.json 逐条一致），写进 acceptedDrift，导入后照旧复跑清理工具。",
+    "2026-10-27 卷三 5586–5588 等已登记的续行、卷四 12 张翻译、5 处被当成正文的标题按原文哈希原地重定位，无需改动。",
+    "2026-10-27 常规 2065 段是「杂记2」唯一的正文（不带 tag 符号的整句被当成说明丢掉，这张卡此前从未成卡），2068 段是「杂记3」正文的第二行，两段登记续行。",
+    "2026-10-27 色色上 1924–1927 段是上一张卡画面里菜单上的文字，登记续行并进该卡；2260 段是同卡右格对话气泡的第二句（左格气泡 2258 段已按正文读），登记续行。色色上 428 段是步骤卡标题（同 10.13 第 394 段），不登记。",
+    "2026-10-27 色色上 2445 段是带全角逗号的新卡标题，被读成正文会成「杂项（无标题1）」，登记 titleParagraphs。",
+    "2026-10-27 色色上 3491 / 色色下 2452 段是页尾新加的分卷说明，不是提示词；带全角逗号被读成正文会各成一张「页尾（无标题1）」，登记 titleParagraphs 让它们当无正文的标题自然丢掉。",
+    "2026-10-27 卷二末尾复制卷三的子目录（134 项，旧条目 128 对 0）沿用 9.25、10.13 先例：保留卷三原位置。",
+    "2026-10-27 常规「自然语言」章格式未变：336 组、4 组带改编版、27 个空模板不收。「自然语言（51）」「（62）」两组在源稿里逐字相同，旧数据两条正文全同，改由工具按出现顺序一对一配回旧编号（见下）。",
+    "2026-10-27 作者在 Word 里把封面/封尾做成内联图片（image1、image8、image9），六个美食图标顺延成 image2–image7，按旧文件名找图标会落空；工具改为按段落内图片出现顺序还原图标。",
+    "2026-10-27 盲区检查 P1：5 行被当成标题的中文翻译。常规 6271+6272（「附带翻译：」+翻译）、6276+6277（「翻译：」+翻译）、卷四 1796+1797（「翻译对照」+翻译）三对整体登记 translationParagraphs，翻译挂回 2062 / 2063 / 2790 的备注（标签行会作为备注首行，与线上 codex_8489ac52-6168 的写法一致），条数不变。",
+    "2026-10-27 同批剩下的 2 行继续丢弃：卷四 7587（只登记它会把四条中文译文里的孤零零一条挂进 3819 备注，等于暗示译文完整）与 7590（上一行 7589 是短中文标题，登记必然报「上面不是提示词」）。两行 10.13 起就是这样，作者若要收得改源稿或另想读法。",
+    "2026-10-27 盲区检查结论：257 张新增/改动卡逐张对照原文，没有读错，4 张 ⚑ 全是提示不是错（1029/1037 是作者正文，1043 标题带全角逗号但确是标题，1147 括号内逗号本就按标题读）。6 张卡的角色框编号在源稿里重复（0305/0983/1032/1043/1060/0844，0844 缺 char2），按原文保留；0209 作者删了 char2 的 fat，例图是否仍是旧体型留维护者看。",
+    "2026-10-27 维护者确认：三段「翻译：」标签下的翻译挂进宿主卡备注；N5 色色上第 688–690 段（新卡下空一行、没有自己标题的第二段）保持并进上一张卡；suozhang_nai5_r18-0209 作者改了角色框，例图由维护者自己核对。"
+  ]
+}
