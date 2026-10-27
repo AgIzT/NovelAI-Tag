@@ -1,5 +1,7 @@
 'use strict';
 
+import { readCanonical, writeCanonical, listRecordMetadata, readListedRecords } from './_record-store.js';
+
 // 投稿字段上限（前后端一致）
 export const LIMITS = {
   title: 60,
@@ -309,30 +311,35 @@ export function communityRecordKey(status, id) {
 }
 
 export async function readCommunityRecord(env, status, id) {
-  if (!validId(id)) return null;
-  const rec = await readJson(env.STRINGS_BUCKET, communityRecordKey(status, id));
-  return rec ? normalizeCommunityRecord(rec, status) : null;
+  return (await findCommunityRecord(env, id, [status]))?.record || null;
 }
 
 export async function findCommunityRecord(env, id, statuses = COMMUNITY_STATUSES) {
   if (!validId(id)) return null;
-  const search = (Array.isArray(statuses) ? statuses : [statuses])
-    .map(s => normCommunityStatus(s, ''))
-    .filter(Boolean);
+  const search = (Array.isArray(statuses) ? statuses : [statuses]).map(s => normCommunityStatus(s, '')).filter(Boolean);
+  const current = await readCanonical(env.STRINGS_BUCKET, 'community', id);
+  if (current) return !current.deleted && search.includes(current.status)
+    ? { ...current, record: normalizeCommunityRecord(current.record, current.status) } : null;
   for (const status of search) {
     const key = communityRecordKey(status, id);
-    const rec = await readJson(env.STRINGS_BUCKET, key);
-    if (rec) return { status, key, record: normalizeCommunityRecord(rec, status) };
+    const object = await env.STRINGS_BUCKET.get(key);
+    if (!object) continue;
+    const record = await object.json();
+    return { status, key, etag: object.etag, record: normalizeCommunityRecord(record, status) };
   }
   return null;
 }
 
-export async function writeCommunityRecord(env, status, record) {
+export async function listCommunityRecords(env, status) {
+  const metadata = await listRecordMetadata(env.STRINGS_BUCKET, 'community', [status]);
+  const records = await readListedRecords(env.STRINGS_BUCKET, metadata);
+  return records.filter(item => item.status === status).map(item => item.record);
+}
+
+export async function writeCommunityRecord(env, status, record, found) {
+  if (!found) throw new Error('Missing expected community record version');
   const rec = normalizeCommunityRecord(record, status);
-  rec.status = normCommunityStatus(status);
-  await env.STRINGS_BUCKET.put(communityRecordKey(rec.status, rec.id), JSON.stringify(rec), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
+  await writeCanonical(env.STRINGS_BUCKET, 'community', rec.id, found, { status: rec.status, record: rec });
   return rec;
 }
 
@@ -355,26 +362,7 @@ export async function moveCommunityRecord(env, found, nextStatus, updates = {}) 
   } else if (status === 'rejected') {
     rec.rejectedAt = now;
   }
-  const nextKey = communityRecordKey(status, rec.id);
-  await writeCommunityRecord(env, status, rec);
-  if (fromStatus !== status) {
-    try {
-      await env.STRINGS_BUCKET.delete(found.key);
-    } catch {
-      try {
-        await env.STRINGS_BUCKET.delete(found.key);
-      } catch (error) {
-        console.error(JSON.stringify({
-          event: 'community_record_move_delete_failed',
-          id: rec.id,
-          fromKey: found.key,
-          toKey: nextKey,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-        throw error;
-      }
-    }
-  }
+  await writeCommunityRecord(env, status, rec, found);
   // 旧调用方默认仍立即刷新公开聚合；统一管理 API 的批量操作可显式延迟，
   // 待整批记录写完后只重建一次。
   if ((fromStatus === 'approved' || status === 'approved') && updates.rebuild !== false) {
@@ -441,19 +429,10 @@ export async function rebuildCommunity(env) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     // 必须先读发布版本，再扫描记录；否则旧记录可能配上刚下架后的新 ETag。
     const previous = await bucket.head(aggregateKey);
-    const keys = (await listAll(bucket, 'community/approved/')).filter(k => k.endsWith('.json'));
-    const rebuildLog = {
-      event: 'community_rebuild',
-      attempt,
-      approvedCount: keys.length,
-      readBatches: Math.ceil(keys.length / 20),
-    };
-    if (keys.length >= 900) {
-      console.warn(JSON.stringify({ ...rebuildLog, risk: 'internal_subrequest_limit' }));
-    } else {
-      console.log(JSON.stringify(rebuildLog));
-    }
-    const records = await readJsonBatch(bucket, keys);
+    const records = await listCommunityRecords(env, 'approved');
+    const log = { event: 'community_rebuild', attempt, approvedCount: records.length, readBatches: Math.ceil(records.length / 20) };
+    if (records.length >= 900) console.warn(JSON.stringify({ ...log, risk: 'internal_subrequest_limit' }));
+    else console.log(JSON.stringify(log));
     records.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const entries = records.map(r => toEntry(env, r));
     const categories = communityCategoriesFromEntries(entries);

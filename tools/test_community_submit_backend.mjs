@@ -110,7 +110,7 @@ const env = {
 }
 
 async function pendingRecord(id) {
-  return (await bucket.get(`community/pending/${id}.json`)).json();
+  return (await (await bucket.get(`community/records/${id}.json`)).json()).record;
 }
 
 // ---- 1. 带 NAI 文本块原图：origKey / IHDR 尺寸 / 服务端验证参数 ----

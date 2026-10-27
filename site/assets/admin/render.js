@@ -25,9 +25,10 @@ export function renderHeader() {
   $('#viewKicker').textContent = kicker;
   $('#viewTitle').textContent = title;
   const meta = $('#viewMeta');
+  $('#globalSearch').placeholder = state.view === 'feedback' ? '搜索反馈（仅筛选本页）' : '搜索标题、提示词、标签或投稿人';
   const dirty = state.dirty ? ' · 有未保存修改' : '';
   if (state.view === 'dashboard') meta.textContent = state.stats ? `更新于 ${formatDate(state.stats.generatedAt)}` : '';
-  else if (state.view === 'feedback') meta.textContent = `${FEEDBACK_LABELS[state.feedbackStatus]} · ${currentFeedbackItems().length} / ${state.feedbackItems.length} 条${dirty}`;
+  else if (state.view === 'feedback') meta.textContent = `${FEEDBACK_LABELS[state.feedbackStatus]} · 本页 ${currentFeedbackItems().length} / ${state.feedbackItems.length} 条 · 共 ${state.feedbackPage.total} 条${dirty}`;
   else meta.textContent = `${STATUS_LABELS[state.status]} · ${currentItems().length} / ${state.items.length} 条${dirty}`;
 }
 
@@ -38,7 +39,7 @@ export function renderNav() {
   const counts = state.stats && state.stats.counts || {};
   $('#navDashCount').textContent = pluralCount(state.stats && state.stats.total);
   $('#navPendingCount').textContent = pluralCount(counts.pending);
-  $('#navFeedbackCount').textContent = state.view === 'feedback' ? pluralCount(state.feedbackItems.length) : '-';
+  $('#navFeedbackCount').textContent = state.view === 'feedback' ? pluralCount(state.feedbackPage.total) : '-';
 }
 
 export function renderDashboard() {
@@ -243,12 +244,16 @@ export function renderToolbar() {
   toolbar.hidden = false;
   if (state.view === 'feedback') {
     const items = currentFeedbackItems();
+    const page = state.feedbackPage;
+    const range = page.total ? `${page.offset + 1}–${page.offset + state.feedbackItems.length}` : '0';
     toolbar.innerHTML = `
       <div class="segmented">
         ${Object.entries(FEEDBACK_LABELS).map(([key, label]) => `<button type="button" data-feedback-status="${key}" class="${state.feedbackStatus === key ? 'on' : ''}">${label}</button>`).join('')}
       </div>
-      <span class="toolbar-note">${pluralCount(items.length)} / ${pluralCount(state.feedbackItems.length)} 条反馈</span>
+      <span class="toolbar-note">${state.loading ? '加载中…' : `第 ${range} / ${pluralCount(page.total)} 条 · 本页匹配 ${pluralCount(items.length)} 条`}</span>
       <span class="spacer"></span>
+      <button class="soft-btn" type="button" data-feedback-page="previous"${state.loading || state.busy || !page.offset ? ' disabled' : ''}>上一页</button>
+      <button class="soft-btn" type="button" data-feedback-page="next"${state.loading || state.busy || !page.nextCursor ? ' disabled' : ''}>下一页</button>
       <button class="soft-btn" type="button" data-reload>刷新反馈</button>`;
     return;
   }

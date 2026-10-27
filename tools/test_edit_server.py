@@ -611,6 +611,128 @@ class EditStoreTest(unittest.TestCase):
         self.assertEqual(self.store.capabilities()["docxWarnings"], ["testbook"])
 
 
+class StableEntryIdTest(unittest.TestCase):
+    """导入编号、删除、重开和写失败均不能让旧身份分配给新内容。"""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="edit-stable-id-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.data = os.path.join(self.root, "site", "data")
+        self.store = EditStore(self.root)
+
+    def fixture(self, sep="-", stored=None, only_removed=False, foreign=False):
+        entries = [
+            {"id": f"demo{sep}0001", "title": "保留", "path": ["删" if only_removed else "留"], "tags": "old one"},
+            {"id": f"demo{sep}0009", "title": "导入最高号", "path": ["删", "子"], "tags": "old nine"},
+        ]
+        if foreign:
+            entries.append({"id": "legacy_9999", "title": "历史前缀", "path": ["留"], "tags": "legacy"})
+        book = {"id": "demo", "title": "合成书", "entries": entries, "entryCount": len(entries),
+                "imagedCount": 0, "tree": build_tree(entries)}
+        if stored is not None:
+            book["editorMaxSeq"] = stored
+        _write(os.path.join(self.data, "demo.json"), json.dumps(book, ensure_ascii=False))
+        _write(os.path.join(self.data, "codexes.json"), json.dumps([
+            {"id": "demo", "title": "合成书", "entryCount": len(entries), "imagedCount": 0},
+        ], ensure_ascii=False, indent=2))
+        return book
+
+    def book(self):
+        return json.loads(_read(os.path.join(self.data, "demo.json")))
+
+    def remove(self, kind, eid):
+        if kind == "entry":
+            return self.store.delete_entry("demo", eid)
+        return self.store.delete_category("demo", ["删"], with_entries=True)
+
+    def create(self, path=None):
+        # 重开后的发号必须只靠已落盘的 JSON，不能依赖进程内记忆。
+        self.store = EditStore(self.root)
+        return self.store.create_entry("demo", {"title": "全新内容", "tags": "new", "path": path or ["留"]})["entry"]
+
+    def test_imported_highest_id_is_reserved_before_entry_or_category_delete(self):
+        for kind in ("entry", "category"):
+            for stored in (None, 1, 12):
+                with self.subTest(kind=kind, stored=stored):
+                    before = self.fixture(stored=stored)
+                    self.remove(kind, "demo-0009")
+                    maximum = max(stored or 0, 9)
+                    self.assertEqual(self.book().get("editorMaxSeq"), maximum)
+                    self.assertEqual(self.book()["entries"], before["entries"][:1])
+                    self.assertEqual(self.create()["id"], f"demo-{maximum + 1:04d}")
+
+    def test_removing_all_entries_keeps_sequence_and_separator(self):
+        for sep in ("-", "_"):
+            for kind in ("entry", "category"):
+                with self.subTest(sep=sep, kind=kind):
+                    self.fixture(sep=sep, only_removed=True)
+                    if kind == "entry":
+                        self.store.delete_entry("demo", f"demo{sep}0001")
+                    self.remove(kind, f"demo{sep}0009")
+                    self.assertEqual(self.book()["entries"], [])
+                    self.store = EditStore(self.root)
+                    self.store.create_category("demo", [], "留")
+                    self.assertEqual(self.create()["id"], f"demo{sep}0010")
+
+    def test_foreign_ids_keep_their_identity_and_do_not_raise_own_sequence(self):
+        for sep in ("-", "_"):
+            for kind in ("entry", "category"):
+                with self.subTest(sep=sep, kind=kind):
+                    before = self.fixture(sep=sep, only_removed=True, foreign=True)
+                    if kind == "entry":
+                        self.store.delete_entry("demo", f"demo{sep}0001")
+                    self.remove(kind, f"demo{sep}0009")
+                    self.assertEqual(self.book()["entries"], before["entries"][-1:])
+                    self.assertEqual(self.create()["id"], f"demo{sep}0010")
+
+    def test_foreign_only_book_starts_own_prefix_after_delete(self):
+        for kind in ("entry", "category"):
+            with self.subTest(kind=kind):
+                book = self.fixture()
+                book["entries"] = [{"id": "legacy_9999", "title": "旧前缀", "path": ["删"], "tags": "old"}]
+                book["entryCount"] = 1
+                book["tree"] = build_tree(book["entries"])
+                _write(os.path.join(self.data, "demo.json"), json.dumps(book, ensure_ascii=False))
+                self.remove(kind, "legacy_9999")
+                self.store.create_category("demo", [], "留")
+                self.assertEqual(self.create()["id"], "demo-0001")
+
+    def test_editor_created_highest_id_remains_reserved_control(self):
+        for kind in ("entry", "category"):
+            with self.subTest(kind=kind):
+                self.fixture()
+                first = self.create(["删", "子"])
+                self.assertEqual(first["id"], "demo-0010")
+                self.remove(kind, first["id"])
+                self.assertEqual(self.create()["id"], "demo-0011")
+
+    def test_failed_delete_restores_bytes_and_retry_reserves_imported_id(self):
+        for kind in ("entry", "category"):
+            for stored in (None, 1):
+                for writer in ("atomic_write_json_styled", "_update_index_counts"):
+                    with self.subTest(kind=kind, stored=stored, writer=writer):
+                        self.fixture(sep="_", stored=stored)
+                        paths = [os.path.join(self.data, name) for name in ("demo.json", "codexes.json")]
+                        before = {path: _read(path) for path in paths}
+                        real = getattr(self.store, writer)
+
+                        def fail_after_write(*args):
+                            real(*args)
+                            raise OSError("injected failure after write")
+
+                        with mock.patch.object(self.store, writer, side_effect=fail_after_write):
+                            with self.assertRaisesRegex(OSError, "injected failure after write"):
+                                self.remove(kind, "demo_0009")
+                        self.assertEqual({path: _read(path) for path in paths}, before)
+                        self.assertEqual(glob.glob(os.path.join(self.data, "*.tmp")), [])
+                        backup = sorted(glob.glob(os.path.join(self.store.backup_root, "*")))[-1]
+                        for path in paths:
+                            self.assertEqual(_read(os.path.join(backup, os.path.basename(path))), before[path])
+                        self.store = EditStore(self.root)
+                        self.remove(kind, "demo_0009")
+                        self.assertEqual(self.create()["id"], "demo_0010")
+
+
 class CategoryOpsTest(unittest.TestCase):
     """分类（目录）增删改移。"""
 

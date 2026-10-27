@@ -1,10 +1,10 @@
 'use strict';
 
 import { json, err, requireAdmin, validId, cleanLine, cleanText } from '../../_lib.js';
+import { readCanonical, writeCanonical } from '../../_record-store.js';
 import {
   FEEDBACK_REPLY_LIMIT,
   defaultFeedbackProgressStatus,
-  feedbackRecordKey,
   feedbackStatusForProgress,
   findFeedbackRecord,
   normalizeFeedbackProgressStatus,
@@ -19,6 +19,11 @@ const LEGACY_ACTION_STATUS = Object.freeze({
 });
 
 export async function onRequestPost(context) {
+  try { return await updateFeedback(context); }
+  catch (error) { return err(error.message || '反馈更新失败', error.status || 503); }
+}
+
+async function updateFeedback(context) {
   const denied = await requireAdmin(context);
   if (denied) return denied;
   const { request, env } = context;
@@ -51,7 +56,14 @@ export async function onRequestPost(context) {
   if (progressStatusRaw && !requestedProgressStatus) return err('反馈展示进度无效');
 
   const found = await findFeedbackRecord(env.STRINGS_BUCKET, id, sourceStatus);
-  if (!found) return err('这条反馈不存在或状态已变化，点「刷新反馈」重新加载', 404);
+  if (!found) {
+    if (await readCanonical(env.STRINGS_BUCKET, 'feedback', id)) {
+      // 状态迁移后重试可能仍带旧 sourceStatus；只修投影，不执行旧回复/公开设置。
+      await updatePublicFeedbackIndex(env.STRINGS_BUCKET, { removeIds: [id] });
+      return err('反馈状态已变化，公开列表已同步；请刷新反馈后重试', 409);
+    }
+    return err('这条反馈不存在或状态已变化，点「刷新反馈」重新加载', 404);
+  }
 
   const now = new Date();
   const nowMs = now.getTime();
@@ -148,20 +160,9 @@ export async function onRequestPost(context) {
     }
   }
 
-  const nextKey = statusChanged ? feedbackRecordKey(targetStatus, id, now) : found.key;
-  if (currentPublicVisible && !publicVisible) {
-    await updatePublicFeedbackIndex(env.STRINGS_BUCKET, { removeIds: [id] });
-  }
-  await env.STRINGS_BUCKET.put(nextKey, JSON.stringify(nextRecord), {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-  });
-  if (nextKey !== found.key) await env.STRINGS_BUCKET.delete(found.key);
-  if (publicVisible) {
-    await updatePublicFeedbackIndex(env.STRINGS_BUCKET, {
-      upsertRecord: nextRecord,
-      upsertStatus: targetStatus,
-    });
-  }
+  await writeCanonical(env.STRINGS_BUCKET, 'feedback', id, found, { status: targetStatus, record: nextRecord });
+  // 即使已撤回/原本私密也刷新，修复先前投影失败；调用者只提供 ID。
+  await updatePublicFeedbackIndex(env.STRINGS_BUCKET, { upsertRecord: { id } });
   return json({
     ok: true,
     id,

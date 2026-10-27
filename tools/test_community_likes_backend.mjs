@@ -5,6 +5,8 @@ import { MemoryR2 as MemoryR2Base } from './memory-r2-test-harness.mjs';
 import { onRequestGet as communityGet } from '../functions/api/community.js';
 import { onRequestPut as likePut, onRequestDelete as likeDelete } from '../functions/api/community-likes/[id].js';
 import { onRequestGet as adminGet, onRequestPost as adminPost } from '../functions/api/admin/community/[[path]].js';
+import { readCanonical } from '../functions/_record-store.js';
+import { readCommunityRecord } from '../functions/_lib.js';
 import { purgeCommunityLikes } from '../functions/_engagements.js';
 
 const MIGRATION = await readMigrations('0001_community_likes.sql', '0002_engagement_tombstones.sql');
@@ -271,7 +273,7 @@ let actorCookie;
   assert.equal(limited.status, 429);
 }
 
-// 永久 purge 先清 D1，再清 R2；D1 失败时必须中止且保留 R2。
+// 永久 purge 先写无正文墓碑并撤下投影，再清 D1/媒体/旧副本；清理失败可用同 ID 重试。
 {
   const purged = await body(await adminPost(adminContext(env, 'POST', 'purge', { id: ID_A, status: 'approved' })));
   assert.equal(purged.id, ID_A);
@@ -298,6 +300,13 @@ let actorCookie;
     console.error = originalError;
   }
   assert.equal(bucket.objects.has(`community/approved/${ID_C}.json`), true);
+  assert.equal((await readCanonical(bucket, 'community', ID_C)).deleted, true);
+  assert.equal(await readCommunityRecord(env, 'approved', ID_C), null, '旧副本仍在也不得互动');
+  assert.equal((await likePut(likeContext(env, 'PUT', ID_C, { ip: '203.0.113.99' }))).status, 404);
+  await body(await adminPost(adminContext(env, 'POST', 'purge', { id: ID_C, status: 'approved' })));
+  assert.equal(bucket.objects.has(`community/approved/${ID_C}.json`), false);
+  assert.equal((await readCanonical(bucket, 'community', ID_C)).record, undefined);
+
 }
 
 // 未配置 D1/开关时仍兼容旧内存测试：内容正常，功能明确关闭。

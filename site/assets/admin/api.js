@@ -43,7 +43,9 @@ export async function adminApi(path, opts = {}) {
   if (res.status === 401) {
     throw unauthorizedError(data.error);
   }
-  if (!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
+  if (!res.ok || data.ok === false) throw Object.assign(new Error(data.error || ('HTTP ' + res.status)), {
+    status: res.status, resetPagination: data.resetPagination === true,
+  });
   return data;
 }
 
@@ -78,11 +80,22 @@ export async function fetchCommunityAsset(key) {
 
 export async function getFeedback(status, opts = {}) {
   // 首次/大量变更分批准备完整排序；202 不是空列表，离页后停止后续批次。
+  const { cursor: initialCursor = '', ...requestOpts } = opts;
+  let cursor = initialCursor, paginationReset = false;
   for (let attempt = 0; attempt < 8; attempt++) {
-    opts.signal?.throwIfAborted();
-    const data = await adminApi('/api/admin/feedback?status=' + encodeURIComponent(status), opts);
-    opts.signal?.throwIfAborted();
-    if (!data.indexing) return data;
+    requestOpts.signal?.throwIfAborted();
+    let data;
+    try {
+      data = await adminApi('/api/admin/feedback?status=' + encodeURIComponent(status)
+        + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''), requestOpts);
+    } catch (error) {
+      requestOpts.signal?.throwIfAborted();
+      if (error.status !== 409 || !error.resetPagination || !cursor) throw error;
+      cursor = ''; paginationReset = true;
+      continue;
+    }
+    requestOpts.signal?.throwIfAborted();
+    if (!data.indexing) return paginationReset ? { ...data, paginationReset } : data;
   }
   throw new Error('反馈列表仍在准备中，请点击「刷新反馈」继续加载');
 }

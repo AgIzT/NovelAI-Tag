@@ -767,6 +767,8 @@ class EditStore:
             inside = [e for e in data["entries"] if len(e.get("path") or []) >= n and e["path"][:n] == target]
             if inside and not with_entries:
                 raise EditError(409, "category-not-empty", f"该分类下还有 {len(inside)} 条词条，请先移走或确认一并删除")
+            if inside:
+                self._preserve_id_scheme(cid, data)
             for e in inside:
                 data["entries"].remove(e)
             registered = [
@@ -898,20 +900,29 @@ class EditStore:
     def _id_scheme(cid, data):
         """探测本书的词条 id 规约，返回 (分隔符, 历史最大序号)。
         各本 id 形态不一：多数是 `<cid>-NNNN`，少数（如 composition_style）是 `<cid>_NNNN`；
-        合并版（suozhang_r18）用与 cid 无关的历史前缀，此时按 cid 起新前缀、以 `-` 为分隔符。"""
-        sep = "-"
-        if any(re.match(r"^" + re.escape(cid) + r"_\d+$", str(e.get("id") or "")) for e in data["entries"]):
-            sep = "_"
-        id_re = re.compile(r"^" + re.escape(cid) + r"[-_](\d+)$")
+        合并版（suozhang_r18）用与 cid 无关的历史前缀，此时按 cid 起新前缀、以 `-` 为分隔符。
+        本前缀词条全被删除时，沿用删除前保存的分隔符。"""
+        sep = data.get("editorIdSeparator")
+        if sep not in ("-", "_"):
+            sep = "-"
+        id_re = re.compile(r"^" + re.escape(cid) + r"([-_])(\d+)$")
+        matches = [id_re.match(str(e.get("id") or "")) for e in data["entries"]]
+        matches = [m for m in matches if m]
+        if matches:
+            sep = "_" if any(m.group(1) == "_" for m in matches) else "-"
         max_n = 0
-        for e in data["entries"]:
-            m = id_re.match(str(e.get("id") or ""))
-            if m:
-                max_n = max(max_n, int(m.group(1)))
+        for m in matches:
+            max_n = max(max_n, int(m.group(2)))
         stored = data.get("editorMaxSeq")
         if isinstance(stored, int) and stored > max_n:
             max_n = stored
         return sep, max_n
+
+    def _preserve_id_scheme(self, cid, data):
+        """删除前冻结发号高水位与分隔符；与本次删除在同一事务中落盘或回滚。"""
+        sep, max_n = self._id_scheme(cid, data)
+        data["editorMaxSeq"] = max_n
+        data["editorIdSeparator"] = sep
 
     def _build_new_entry(self, cid, data, payload):
         if not isinstance(payload, dict):
@@ -972,6 +983,7 @@ class EditStore:
     def delete_entry(self, cid, eid):
         def mutator(data):
             entry = self._find_entry(data, eid)
+            self._preserve_id_scheme(cid, data)
             data["entries"].remove(entry)
             # 图片文件一律不动：磁盘上的缩略图/原图留作回滚网
             return None

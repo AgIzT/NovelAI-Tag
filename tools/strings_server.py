@@ -8,8 +8,12 @@
   POST /__strings__?action=upload → 上传图片并压缩
 用法：python tools/strings_server.py
 """
-import http.server, socketserver, json, os, io, re, threading, urllib.parse, time, tempfile
+import http.server, socketserver, json, os, io, re, threading, urllib.parse, time, tempfile, hashlib
 from PIL import Image
+try:
+    from .local_file_transaction import atomic_write_bytes, run_file_transaction, TransactionError
+except ImportError:
+    from local_file_transaction import atomic_write_bytes, run_file_transaction, TransactionError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
@@ -47,19 +51,24 @@ def _collection_path(filename):
 
 
 def _atomic_write_json(path, data):
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_name, path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    atomic_write_bytes(path, _json_bytes(data))
+
+
+def _json_bytes(data):
+    return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+class WriteConflict(ValueError):
+    def __init__(self, status, message):
+        self.status = status
+        super().__init__(message)
+
+
+def _require_revision(expected, current):
+    if current is not None and not expected:
+        raise WriteConflict(428, "页面版本过旧，重新打开编辑器后再保存")
+    if expected and (not re.fullmatch(r"[a-f0-9]{64}", expected) or expected != current):
+        raise WriteConflict(409, "合集已被其它操作修改；保留当前草稿，重新载入后核对")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -77,7 +86,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._serve_file(EDITOR_HTML, "text/html; charset=utf-8")
             return
         if path == "/__strings__":
-            self._serve_json({"version": 1})
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+            if qs.get("action") == ["read"]:
+                self._handle_read(qs)
+            else:
+                self._serve_json({"version": 2})
             return
         return super().do_GET()
 
@@ -117,12 +130,51 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             ln = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(ln))
+            if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+                raise WriteConflict(400, "合集格式不正确，未保存")
             self._normalize_images(data)
+            expected = (self.headers.get("If-Match") or "").strip('"')
             with LOCK:
-                _atomic_write_json(target, data)
-            self._serve_json({"ok": True})
+                before = None
+                if os.path.isfile(target):
+                    with open(target, "rb") as stream:
+                        before = stream.read()
+                revision = hashlib.sha256(before).hexdigest() if before is not None else None
+                desired = _json_bytes(data)
+                # 已提交但响应丢失时，同一正文的重试只确认现有字节，不再写。
+                if expected and re.fullmatch(r"[a-f0-9]{64}", expected) and before == desired:
+                    result = {"ok": True, "revision": revision, "unchanged": True}
+                else:
+                    _require_revision(expected, revision)
+                    _, backup_dir = run_file_transaction(os.path.dirname(SITE), [target],
+                        lambda: _atomic_write_json(target, data), "strings-save")
+                    result = {"ok": True, "revision": hashlib.sha256(desired).hexdigest(), "backupDir": backup_dir}
         except Exception as ex:
-            self._serve_json({"ok": False, "error": str(ex)}, 500)
+            self._write_error(ex)
+            return
+        self._serve_json(result)
+
+    def _handle_read(self, qs):
+        try:
+            target = self._resolve_file(qs)
+            with LOCK:
+                with open(target, "rb") as stream:
+                    raw = stream.read()
+                data = json.loads(raw)
+            if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+                raise WriteConflict(400, "合集格式不正确，未载入")
+            result = {"ok": True, "file": os.path.basename(target), "data": data,
+                      "revision": hashlib.sha256(raw).hexdigest()}
+        except Exception as ex:
+            self._write_error(ex)
+            return
+        self._serve_json(result)
+
+    def _write_error(self, error):
+        body = {"ok": False, "error": str(error)}
+        if isinstance(error, TransactionError):
+            body.update({"backupDir": error.backup_dir, "rollbackErrors": error.rollback_errors})
+        self._serve_json(body, error.status if isinstance(error, WriteConflict) else 500)
 
     def _normalize_images(self, data):
         for e in data.get("entries", []):
@@ -222,6 +274,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             existing_images = []
             label = "gallery"
             target_file = "strings.json"
+            expected = ""
 
             for part in parts:
                 name = part.get("name")
@@ -235,6 +288,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     label = part["data"].decode("utf-8")
                 elif name == "stringsFile":
                     target_file = part["data"].decode("utf-8")
+                elif name == "revision":
+                    expected = part["data"].decode("ascii")
 
             if not image_data or not entry_id:
                 self._serve_json({"ok": False, "error": "缺少参数"}, 400)
@@ -249,37 +304,47 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._serve_json({"ok": False, "error": "invalid file"}, 400)
                 return
 
-            ext = self._guess_ext(image_data)
             tdir = os.path.join(SITE, "images", "strings")
-            os.makedirs(tdir, exist_ok=True)
-            tn = f"{entry_id}_{len(existing_images):02d}.jpg"
+            im = Image.open(io.BytesIO(image_data))
+            im.load()
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            im.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
+            thumbnail = io.BytesIO()
+            im.save(thumbnail, "JPEG", quality=86, optimize=True)
+            payload = thumbnail.getvalue()
+            # 删除旧图后再次添加也不会复用旧文件名，未保存的旧正文仍能读到原图。
+            tn = f"{entry_id}_{hashlib.sha256(payload).hexdigest()}.jpg"
             tp = os.path.abspath(os.path.join(tdir, tn))
             base = os.path.abspath(tdir)
             if not (tp == base or tp.startswith(base + os.sep)):
                 self._serve_json({"ok": False, "error": "invalid image path"}, 400)
                 return
 
-            im = Image.open(io.BytesIO(image_data))
-            if im.mode not in ("RGB", "L"):
-                im = im.convert("RGB")
-            im.thumbnail((MAXDIM, MAXDIM), Image.LANCZOS)
-            im.save(tp, "JPEG", quality=86, optimize=True)
-
+            if not isinstance(existing_images, list):
+                raise WriteConflict(400, "图片列表格式不正确")
             existing_images.append({"file": tn, "label": label})
 
             with LOCK:
-                if os.path.exists(target):
-                    with open(target, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    for e in data.get("entries", []):
-                        if e.get("id") == entry_id:
-                            e["images"] = existing_images
-                            break
-                    _atomic_write_json(target, data)
-
-            self._serve_json({"ok": True, "images": existing_images, "file": tn})
+                with open(target, "rb") as stream:
+                    raw = stream.read()
+                revision = hashlib.sha256(raw).hexdigest()
+                _require_revision(expected, revision)
+                data = json.loads(raw)
+                entry = next((e for e in data.get("entries", []) if e.get("id") == entry_id), None)
+                if entry is not None:
+                    entry["images"] = existing_images
+                def commit():
+                    atomic_write_bytes(tp, payload)
+                    if entry is not None:
+                        _atomic_write_json(target, data)
+                _, backup_dir = run_file_transaction(os.path.dirname(SITE), [tp, target], commit, "strings-image")
+                result = {"ok": True, "images": existing_images, "file": tn, "backupDir": backup_dir,
+                          "revision": hashlib.sha256(_json_bytes(data)).hexdigest() if entry is not None else revision}
         except Exception as ex:
-            self._serve_json({"ok": False, "error": str(ex)}, 500)
+            self._write_error(ex)
+            return
+        self._serve_json(result)
 
     def _parse_multipart(self, body, boundary):
         parts = []
@@ -336,6 +401,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

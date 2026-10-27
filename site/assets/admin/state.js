@@ -45,6 +45,7 @@ export const state = {
   nsfw: '',
   items: [],
   feedbackItems: [],
+  feedbackPage: { offset: 0, total: 0, nextCursor: '', previousCursor: '' },
   stats: null,
   selectedId: '',
   selectedFeedbackId: '',

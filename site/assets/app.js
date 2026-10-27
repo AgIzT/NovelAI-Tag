@@ -54,8 +54,8 @@ async function prepareFavoritesEntries() {
   favoritesPreviewEntries = entries;
   favoritesPreviewStamp = stamp;
 }
-const favoritesFolderCode = () => state.favFolder === '_unsorted' ? '_unsorted'
-  : encodePathCode([librarySnapshot().folders.find(folder => folder.id === state.favFolder)?.name].filter(Boolean));
+const favoritesFolderCode = (folder = state.favFolder) => folder === '_unsorted' ? '_unsorted'
+  : encodePathCode([librarySnapshot().folders.find(item => item.id === folder)?.name].filter(Boolean));
 const resolveFavoriteFolder = code => code === '_unsorted' ? code
   : librarySnapshot().folders.find(folder => encodePathCode([folder.name]) === code)?.id || '';
 let searchDirectoryOptionCache = { directories: null, sourceView: false, options: [] };
@@ -142,8 +142,12 @@ function renderCodexView(codex, seq, {
   resolveQuery,
   resolveFilters = urlState => searchFilterValues(urlState),
   keepIdentity = false,
+  closeOldLightbox = false,
 }) {
-  if (seq !== codexLoadSeq || isCodexLocked(codex)) return;
+  if (seq !== codexLoadSeq || isCodexLocked(codex) || options.isCurrent?.() === false) return;
+  if (closeOldLightbox && state.lightbox?.entry) {
+    closeLightbox({ historyMode: options.isCurrent ? 'none' : 'replace', immediate: true });
+  }
   primeResourceHints({ codexes: primeCodexes });
   enterView(codex);
   state.codex = codex;
@@ -191,10 +195,18 @@ function renderCodexView(codex, seq, {
   }
   setLoading('');
   notifyCodexDataStatus(c);
+  options.onViewRendered?.();
   announceCodexLoaded(c);
 }
 
-async function runCodexViewTransition(seq, render, { wasSwitching, transition }) {
+function commitCodexView(seq, options, render) {
+  if (seq !== codexLoadSeq || options.isCurrent?.() === false) return;
+  if (options.isCurrent) showSkeleton(seq);
+  return replaceSkeleton(seq, render);
+}
+
+async function runCodexViewTransition(seq, render, { wasSwitching, transition, isCurrent = () => true }) {
+  if (!isCurrent()) return;
   /* 换法典用同文档 View Transition 做整页交叉淡化（数据已就绪，回调内纯同步渲染，不冻结页面）；
      首次进站没有旧画面、减少动效、老浏览器 → 直接渲染 */
   if (wasSwitching && transition !== 'none' && !prefersReducedMotion() && typeof document.startViewTransition === 'function') {
@@ -205,7 +217,7 @@ async function runCodexViewTransition(seq, render, { wasSwitching, transition })
        整块法典面板一起拍进去，跟着整场过渡当残影飘。220 + 60 留余量：实测只留 20ms
        余量时仍有边界个例赶不上。改 CSS 里那三个 .22s 时，这里要跟着改。 */
     await new Promise(r => setTimeout(r, 280));
-    if (seq !== codexLoadSeq) return;
+    if (seq !== codexLoadSeq || !isCurrent()) return;
     /* vt-codex 只存活于本次过渡：横幅独立变形等换法典专属动画全挂它名下 */
     const h = document.documentElement;
     h.classList.add('vt-codex');
@@ -409,21 +421,23 @@ export async function loadCodex(id, options = {}) {
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
   pendingCodexLoad = { seq, meta };
-  if (state.codex && options.transition !== 'none' && canAnimateSwitch()) {
+  if (state.codex && !options.isCurrent && options.transition !== 'none' && canAnimateSwitch()) {
     return switchCodexAnimated(meta, seq, options, parentScrollY);
   }
   cancelCodexSwitch();
-  showSkeleton(seq);
-  setLoading('');
-  clearMasonry();
+  if (!options.isCurrent) {
+    showSkeleton(seq);
+    setLoading('');
+    clearMasonry();
+  }
   try {
     const codex = await fetchCodex(meta);
-    if (seq !== codexLoadSeq || isCodexLocked(meta) || isCodexLocked(codex)) return;
+    if (seq !== codexLoadSeq || options.isCurrent?.() === false || isCodexLocked(meta) || isCodexLocked(codex)) return;
     const wasSwitching = Boolean(state.codex);
-    const render = () => renderCodexView(codex, seq, codexViewArgs(options, parentScrollY));
-    await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
+    const render = () => renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), closeOldLightbox: Boolean(options.isCurrent) });
+    await runCodexViewTransition(seq, () => commitCodexView(seq, options, render), { wasSwitching, transition: options.transition, isCurrent: options.isCurrent });
   } catch (ex) {
-    if (seq === codexLoadSeq) {
+    if (seq === codexLoadSeq && options.isCurrent?.() !== false) {
       console.error(ex);
       setLoading('加载失败，刷新页面重试');
     }
@@ -436,7 +450,7 @@ export async function loadCodex(id, options = {}) {
 /* 换书接力：点下即起飞、旧内容加噪 → 回顶换身份 → 数据到了显影落地；编排与时长在 app/codex-switch.js。
    与原路的区别：不先清空瀑布流、不出骨架屏、不再固定空等菜单退场，取数据与过渡同时起跑。 */
 async function switchCodexAnimated(meta, seq, options, parentScrollY) {
-  const isCurrent = () => seq === codexLoadSeq && !isCodexLocked(meta);
+  const isCurrent = () => seq === codexLoadSeq && options.isCurrent?.() !== false && !isCodexLocked(meta);
   setLoading('');
   const loading = fetchCodex(meta);
   const sw = beginCodexSwitch({
@@ -460,8 +474,7 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
     await sw.land(() => {
       /* 等数据时从「随机」等入口打开的旧书灯箱，落地前收起：灯箱里的收藏按当前法典记键，
          留着它会在新书落地后把旧书词条记到新书名下（PR #37 审查） */
-      if (state.lightbox?.entry) closeLightbox({ historyMode: 'replace', immediate: true });
-      renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), keepIdentity: true });
+      renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), keepIdentity: true, closeOldLightbox: true });
     }, codex);
   } catch (ex) {
     if (!isCurrent()) return;
@@ -516,36 +529,43 @@ function snapshotCodexIdentity() {
   };
 }
 
+/* 虚拟视图的底书只是返回上下文。准备阶段只取数据，不借 loadCodex
+   发布一张临时普通书；DOM、browseCodex 与返回目录都在最终 render 中提交。 */
+async function prepareViewBaseCodex(options) {
+  const base = state.codex && !virtualView() ? state.codex : state.browseCodex;
+  const requested = findCodexMeta(options.browseCodexId || options.urlState?.codex || '');
+  if (requested && isCodexLocked(requested)) return null;
+  if (base && !isCodexLocked(base) && (!requested || base.id === requested.id)) return base;
+  const meta = requested || firstUnlockedCodex();
+  if (!meta) return null;
+  const codex = await fetchCodex(meta);
+  return isCodexLocked(codex) ? null : codex;
+}
+
 export async function openFavoritesView(options = {}) {
   if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   cancelCodexSwitch();
-  const baseCodex = state.codex && !virtualView()
-    ? state.codex
-    : state.browseCodex;
-  if (baseCodex) state.browseCodex = baseCodex;
-  else {
-    const fallback = firstUnlockedCodex();
-    if (fallback) {
-      await loadCodex(fallback.id, { historyMode: 'replace', saveBrowse: false });
-    }
-  }
-
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
-  showSkeleton(seq);
-  setLoading('');
-  clearMasonry();
+  if (!options.isCurrent) {
+    showSkeleton(seq);
+    setLoading('');
+    clearMasonry();
+  }
   try {
+    const baseCodex = await prepareViewBaseCodex(options);
+    if (!baseCodex || seq !== codexLoadSeq || options.isCurrent?.() === false) return;
     const builtKeys = new Set(state.favs);   // buildFavoritesCodex 同步读取 state.favs 后才进入 await
     const codex = await buildFavoritesCodex();
-    if (seq !== codexLoadSeq) return;
-    favoritesBuiltKeys = builtKeys;
+    if (seq !== codexLoadSeq || options.isCurrent?.() === false) return;
     const wasSwitching = Boolean(state.codex);
     const render = () => renderCodexView(codex, seq, {
       options,
       parentScrollY,
       enterView: () => {
+        state.browseCodex = baseCodex;
+        favoritesBuiltKeys = builtKeys;
         state.favoritesView = true;
         state.siteSearchView = false;
         state.updateFilter = '';
@@ -569,9 +589,9 @@ export async function openFavoritesView(options = {}) {
       },
       resolveQuery: urlState => urlState?.q || '',
     });
-    await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
+    await runCodexViewTransition(seq, () => commitCodexView(seq, options, render), { wasSwitching, transition: options.transition, isCurrent: options.isCurrent });
   } catch (ex) {
-    if (seq === codexLoadSeq) {
+    if (seq === codexLoadSeq && options.isCurrent?.() !== false) {
       console.error(ex);
       setLoading('加载失败，刷新页面重试');
     }
@@ -584,27 +604,22 @@ export async function openSiteSearchView(options = {}) {
   if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
   cancelCodexSwitch();
-  const baseCodex = state.codex && !virtualView()
-    ? state.codex
-    : state.browseCodex;
-  if (baseCodex) state.browseCodex = baseCodex;
-  else {
-    const fallback = firstUnlockedCodex();
-    if (fallback) {
-      await loadCodex(fallback.id, { historyMode: 'replace', saveBrowse: false });
-    }
-  }
-  if (!state.browseCodex) return;
-  if (!state.siteSearchView) state.searchReturnPath = state.activePath.slice();
+  const searchReturnPath = Array.isArray(options.searchReturnPath)
+    ? [...options.searchReturnPath]
+    : (!state.siteSearchView ? state.activePath.slice() : state.searchReturnPath);
 
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
-  showSkeleton(seq);
-  setLoading('');
-  clearMasonry();
+  if (!options.isCurrent) {
+    showSkeleton(seq);
+    setLoading('');
+    clearMasonry();
+  }
   try {
+    const baseCodex = await prepareViewBaseCodex(options);
+    if (!baseCodex || seq !== codexLoadSeq || options.isCurrent?.() === false) return;
     const codex = await buildSiteSearchCodex();
-    if (seq !== codexLoadSeq) return;
+    if (seq !== codexLoadSeq || options.isCurrent?.() === false) return;
     if (!siteSearchStillWanted(options)) return;
     const wasSwitching = Boolean(state.codex);
     const render = () => siteSearchStillWanted(options) && renderCodexView(codex, seq, {
@@ -612,8 +627,10 @@ export async function openSiteSearchView(options = {}) {
       parentScrollY,
       primeCodexes: state.codexes,
       enterView: () => {
+        state.browseCodex = baseCodex;
         state.favoritesView = false;
         state.siteSearchView = true;
+        state.searchReturnPath = normalizeCodexRoutePath(baseCodex, searchReturnPath, options.urlState?.codex || baseCodex.id);
         state.updateFilter = '';
         setOnlyFavControl(false);
       },
@@ -631,9 +648,9 @@ export async function openSiteSearchView(options = {}) {
       resolveQuery: urlState => urlState?.q ?? state.query,
       resolveFilters: urlState => urlState ? searchFilterValues(urlState) : [...state.searchFilterValues],
     });
-    await runCodexViewTransition(seq, () => replaceSkeleton(seq, render), { wasSwitching, transition: options.transition });
+    await runCodexViewTransition(seq, () => commitCodexView(seq, options, render), { wasSwitching, transition: options.transition, isCurrent: options.isCurrent });
   } catch (ex) {
-    if (seq === codexLoadSeq) {
+    if (seq === codexLoadSeq && options.isCurrent?.() !== false) {
       console.error(ex);
       recordSiteEvent('frontend_error', 'search_data');
       setLoading('全站搜索加载失败，刷新页面重试');
@@ -913,6 +930,15 @@ async function refreshFavoritesView(options = {}) {
 
 async function applyAtlasHistoryRoute(route = {}, context = {}) {
   const currentRestore = () => context.token === undefined || isHistoryRestoreToken(context.token);
+  if (!currentRestore()) return;
+  /* Back 也会接管此前由普通选书发起的加载；那一条没有 isCurrent 回调，
+     必须在进入同册快路之前作废其序号并清理旧过渡。 */
+  const interruptedView = Boolean(pendingCodexLoad || $('#main')?.classList.contains('has-skeleton'));
+  const interruptedSeq = codexLoadSeq;
+  codexLoadSeq += 1;
+  pendingCodexLoad = null;
+  cancelCodexSwitch();
+  void replaceSkeleton(interruptedSeq, () => {});
   const requestedMeta = findCodexMeta(route.codex);
   const requestedId = requestedMeta?.id || route.codex;
   const targetLocked = Boolean(requestedMeta && isCodexLocked(requestedMeta));
@@ -926,6 +952,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
      detail 记录可能同时切换法典、目录或清空搜索，列表上下文不一致时必须走
      下面的完整恢复，否则底层列表会停留在错误状态。 */
   const closingOwnDetail = Boolean(
+    !interruptedView &&
     !targetEntry &&
     state.lightbox.entry &&
     context.departing?.transition === 'detail' &&
@@ -944,6 +971,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
      否则 resetScroll 与随后历史滚动恢复会把背景先拉到顶部再弹回，
      并让智能顶栏误把程序滚动当成用户下滑。 */
   const reopeningOwnDetail = Boolean(
+    !interruptedView &&
     targetEntry && !targetLocked && !targetUnknown &&
     context.target?.transition === 'detail' &&
     context.target?.parentId === context.departing?.id &&
@@ -980,25 +1008,23 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
   state.searchHistorySessionId = String(context.target?.sessionId || '');
   suppressBrowseStateSave(2000);
   try {
-    state.searchReturnPath = Array.isArray(route.searchReturnPath) ? [...route.searchReturnPath] : [];
     let effectiveTargetEntry = targetEntry;
+    let asynchronousView = false;
+    let viewRendered = false;
+    const viewOptions = { urlState, isCurrent: currentRestore, historyMode: 'none', saveBrowse: false,
+      onViewRendered: () => { viewRendered = true; } };
 
     if (route.favorites) {
-      if (!state.browseCodex || state.browseCodex.id !== targetId || (!state.favoritesView && state.codex?.id !== targetId)) {
-        await loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
-        if (!currentRestore()) return;
-      }
-      await openFavoritesView({ urlState, historyMode: 'none', saveBrowse: false });
+      asynchronousView = true;
+      await openFavoritesView({ ...viewOptions, browseCodexId: targetId });
       if (!currentRestore()) return;
     } else if (route.siteSearch) {
-      if (!state.browseCodex || state.browseCodex.id !== targetId || (!state.siteSearchView && state.codex?.id !== targetId)) {
-        await loadCodex(targetId, { historyMode: 'none', saveBrowse: false });
-        if (!currentRestore()) return;
-      }
-      await openSiteSearchView({ urlState, historyMode: 'none', saveBrowse: false });
+      asynchronousView = true;
+      await openSiteSearchView({ ...viewOptions, browseCodexId: targetId, searchReturnPath: route.searchReturnPath || [] });
       if (!currentRestore()) return;
     } else if (!state.codex || state.codex.id !== targetId || state.favoritesView || state.siteSearchView) {
-      await loadCodex(targetId, { urlState, historyMode: 'none', saveBrowse: false });
+      asynchronousView = true;
+      await loadCodex(targetId, viewOptions);
       if (!currentRestore()) return;
     } else {
       state.updateFilter = resolveUpdateFilter(state.codex, requestedUpdateFilter(route));
@@ -1017,6 +1043,7 @@ async function applyAtlasHistoryRoute(route = {}, context = {}) {
     }
 
     if (!currentRestore()) return;
+    if (asynchronousView && !viewRendered) return captureAtlasRoute();
     if (state.lightbox.entry && state.lightbox.entry.id !== targetEntry) {
       closeLightbox({ historyMode: 'none', immediate: true });
     }
@@ -1069,6 +1096,8 @@ setCodexUiActions({
 });
 
 setHistoryActions({
+  updateSearchScopeControl,
+  favoritesFolderCode,
   loadCodex,
   openFavoritesView,
   openSiteSearchView,

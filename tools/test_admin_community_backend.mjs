@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { findCommunityRecord } from '../functions/_lib.js';
 import { MemoryR2 as MemoryR2Base } from './memory-r2-test-harness.mjs';
 
 import {
@@ -119,8 +120,8 @@ assert.deepEqual(approved.failed, [{
 }]);
 assert.deepEqual(approved.errors, [{ id: '2fffffff', error: '这条投稿不存在或状态已变化，点「刷新」重新加载' }]);
 assert.equal(bucket.communityWrites, 1, 'batch approve should rebuild once');
-assert.equal(bucket.objects.has('community/pending/20000001.json'), false);
-assert.equal(bucket.objects.has('community/approved/20000001.json'), true);
+assert.equal(!!await findCommunityRecord(env, '20000001', ['pending']), false);
+assert.equal(!!await findCommunityRecord(env, '20000001', ['approved']), true);
 
 bucket.communityWrites = 0;
 const movedCategory = await responseJson(await adminPost(context('POST', 'batch', {
@@ -167,8 +168,8 @@ const unpublished = await responseJson(await adminPost(context('POST', 'batch', 
 })));
 assert.equal(unpublished.changed, 2);
 assert.equal(bucket.communityWrites, 1, 'batch unpublish should rebuild once');
-assert.equal(bucket.objects.has('community/approved/20000001.json'), false);
-assert.equal(bucket.objects.has('community/hidden/20000001.json'), true);
+assert.equal(!!await findCommunityRecord(env, '20000001', ['approved']), false);
+assert.equal(!!await findCommunityRecord(env, '20000001', ['hidden']), true);
 
 await seed('40000001', 'pending');
 await seed('40000002', 'pending');

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 
 import { findFeedbackRecord } from '../functions/_feedback.js';
-import { moveCommunityRecord } from '../functions/_lib.js';
+import { moveCommunityRecord, findCommunityRecord } from '../functions/_lib.js';
 import { onRequestPost as deleteFeedback } from '../functions/api/admin/feedback-delete.js';
 import { MemoryR2 } from './memory-r2-test-harness.mjs';
 
@@ -63,62 +63,19 @@ function communityRecord(id, status) {
   };
 }
 
-// 旧 key 首次删除失败后重试一次；重试成功则完成迁移。
-{
-  const id = '60000001';
+// 迁移只写 canonical；旧副本不再参与状态，删除故障不能产生双权威。
+for (const failures of [1, 2]) {
+  const id = `6000000${failures}`;
   const fromKey = `community/pending/${id}.json`;
-  const toKey = `community/hidden/${id}.json`;
-  const bucket = new DeleteFailureR2(1);
+  const bucket = new DeleteFailureR2(failures);
   const record = communityRecord(id, 'pending');
   await bucket.put(fromKey, JSON.stringify(record));
-  const moved = await moveCommunityRecord(
-    { STRINGS_BUCKET: bucket },
-    { status: 'pending', key: fromKey, record },
-    'hidden',
-    { now: 200, rebuild: false },
-  );
+  const env = { STRINGS_BUCKET: bucket };
+  const moved = await moveCommunityRecord(env, { status: 'pending', key: fromKey, record }, 'hidden', { now: 200, rebuild: false });
   assert.equal(moved.status, 'hidden');
-  assert.equal(bucket.deleteAttempts, 2);
-  assert.equal(bucket.objects.has(fromKey), false);
-  assert.equal(bucket.objects.has(toKey), true);
+  assert.equal(bucket.deleteAttempts, 0);
+  assert.equal(bucket.objects.has(fromKey), true, '只读旧副本保留到永久删除');
+  assert.equal(await findCommunityRecord(env, id, ['pending']), null);
+  assert.equal((await findCommunityRecord(env, id, ['hidden'])).record.status, 'hidden');
 }
-
-// 两次删除都失败时，新副本保留，记结构化错误后继续抛出。
-{
-  const id = '60000002';
-  const fromKey = `community/pending/${id}.json`;
-  const toKey = `community/hidden/${id}.json`;
-  const bucket = new DeleteFailureR2(2);
-  const record = communityRecord(id, 'pending');
-  await bucket.put(fromKey, JSON.stringify(record));
-  const originalError = console.error;
-  const logs = [];
-  console.error = value => logs.push(value);
-  try {
-    await assert.rejects(
-      moveCommunityRecord(
-        { STRINGS_BUCKET: bucket },
-        { status: 'pending', key: fromKey, record },
-        'hidden',
-        { now: 300, rebuild: false },
-      ),
-      /delete failed 2/,
-    );
-  } finally {
-    console.error = originalError;
-  }
-
-  assert.equal(bucket.deleteAttempts, 2);
-  assert.equal(bucket.objects.has(fromKey), true, '删旧副本失败时不得破坏旧数据');
-  assert.equal(bucket.objects.has(toKey), true, '先写新副本的保数据语义必须保留');
-  assert.equal(logs.length, 1);
-  assert.deepEqual(JSON.parse(logs[0]), {
-    event: 'community_record_move_delete_failed',
-    id,
-    fromKey,
-    toKey,
-    error: 'delete failed 2',
-  });
-}
-
 console.log('community/backend low-risk regressions: PASS');

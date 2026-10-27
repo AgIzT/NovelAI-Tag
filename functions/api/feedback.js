@@ -1,6 +1,8 @@
 'use strict';
 
-import { json, err, LIMITS, cleanLine, cleanText, readJson, listAll } from '../_lib.js';
+import { json, err, LIMITS, cleanLine, cleanText, readJson } from '../_lib.js';
+import { canonicalKey, writeCanonical, countPendingRecords } from '../_record-store.js';
+import { findFeedbackRecord } from '../_feedback.js';
 import { consumeSubmissionRate, reservePendingSlot, releasePendingSlot } from '../_submission_guards.js';
 
 const TYPES = new Set(['site_bug', 'card_content', 'image_error', 'copy_error', 'suggestion']);
@@ -40,6 +42,12 @@ export async function onRequestPost(context) {
   const contactRaw = cleanLine(body?.contact, LIMIT.contact + 1);
   if (contactRaw.length > LIMIT.contact) return err(`联系方式最多 ${LIMIT.contact} 个字`);
 
+  // 目录准备可能需要多次刷新；尚未就绪时不消耗来源频率额度。
+  let pendCount;
+  try { pendCount = await countPendingRecords(env.STRINGS_BUCKET, 'feedback', LIMITS.pendingMax); }
+  catch (error) { return err(error.message || '待审目录暂不可用，请稍后重试', error.status || 503); }
+  if (pendCount >= LIMITS.pendingMax) return err('反馈队列已满，过几天再试', 429);
+
   // 限额走 D1 原子计数；D1 不可用（未绑定 / 0004 迁移未跑）时退回原来的 R2 软限额
   const ipHash = await hashIp(request, env);
   const rate = await consumeSubmissionRate(env, {
@@ -48,16 +56,13 @@ export async function onRequestPost(context) {
   const limited = rate ? !rate.allowed : await applySoftRateLimit(env.STRINGS_BUCKET, ipHash);
   if (limited) return err('反馈太频繁，10 分钟后再试', 429);
 
-  const pend = await env.STRINGS_BUCKET.list({ prefix: 'feedback/pending/', limit: 1000 });
-  const pendCount = pend.objects.filter(o => o.key.endsWith('.json')).length;
-  if (pendCount >= LIMITS.pendingMax) return err('反馈队列已满，过几天再试', 429);
   // 并发保险：上面的计数只负责尽早拒绝，写入前再用 D1 原子占位守住上限
   const slot = await reservePendingSlot(env, { queue: 'feedback', pendingCount: pendCount, max: LIMITS.pendingMax });
   if (slot && !slot.reserved) return err('反馈队列已满，过几天再试', 429);
 
   const now = new Date();
   const id = crypto.randomUUID();
-  const key = `feedback/pending/${now.getUTCFullYear()}/${pad(now.getUTCMonth() + 1)}/${id}.json`;
+  const key = canonicalKey('feedback', id);
   const record = {
     id,
     status: 'pending',
@@ -84,12 +89,11 @@ export async function onRequestPost(context) {
   };
 
   try {
-    await env.STRINGS_BUCKET.put(key, JSON.stringify(record), {
-      httpMetadata: { contentType: 'application/json; charset=utf-8' },
-    });
+    if (await findFeedbackRecord(env.STRINGS_BUCKET, id)) throw Object.assign(new Error('反馈 ID 已占用'), { status: 409 });
+    await writeCanonical(env.STRINGS_BUCKET, 'feedback', id, null, { status: 'pending', record });
   } catch (error) {
-    await releasePendingSlot(env, { queue: 'feedback', id: slot?.id });
-    throw error;
+    if (error.status === 409 || error.canonicalNotAttempted) await releasePendingSlot(env, { queue: 'feedback', id: slot?.id });
+    return err(error.message || '反馈提交结果未确认，请稍后核对', error.status || 503);
   }
 
   if (hasNotificationChannel(env)) {
@@ -214,27 +218,16 @@ const NOTIFICATION_WRITE_ATTEMPTS = 3;
 
 async function writeNotificationStatus(bucket, record, recordKey) {
   for (let attempt = 0; attempt < NOTIFICATION_WRITE_ATTEMPTS; attempt += 1) {
-    const currentKey = await findFeedbackRecordKey(bucket, record.id, recordKey);
-    const object = currentKey ? await bucket.get(currentKey) : null;
-    if (!object) {
-      console.log(JSON.stringify({
-        event: 'feedback_notification_status_skipped',
-        feedbackId: record.id,
-        reason: 'record_no_longer_exists',
-      }));
+    const current = await findFeedbackRecord(bucket, record.id);
+    if (!current) return;
+    try {
+      await writeCanonical(bucket, 'feedback', record.id, current, {
+        status: current.status, record: { ...current.record, notification: record.notification },
+      });
       return;
+    } catch (error) {
+      if (error.status !== 409) throw error;
     }
-    let currentRecord;
-    try { currentRecord = await object.json(); } catch { return; }
-    if (!currentRecord || typeof currentRecord !== 'object') return;
-    const written = await bucket.put(currentKey, JSON.stringify({
-      ...currentRecord,
-      notification: record.notification,
-    }), {
-      httpMetadata: { contentType: 'application/json; charset=utf-8' },
-      onlyIf: { etagMatches: object.etag },
-    });
-    if (written) return;
   }
   console.warn(JSON.stringify({
     event: 'feedback_notification_status_conflict',
@@ -398,24 +391,10 @@ function normalizeNotificationFailure(ex) {
   };
 }
 
-async function findFeedbackRecordKey(bucket, id, preferredKey) {
-  if (preferredKey && await bucket.head(preferredKey)) return preferredKey;
-  for (const status of ['pending', 'resolved', 'ignored']) {
-    const keys = await listAll(bucket, `feedback/${status}/`);
-    const found = keys.find(key => key.endsWith(`/${id}.json`) || key.endsWith(`${id}.json`));
-    if (found) return found;
-  }
-  return '';
-}
-
 function safeStringify(value) {
   try {
     return JSON.stringify(value);
   } catch {
     return '{}';
   }
-}
-
-function pad(n) {
-  return String(n).padStart(2, '0');
 }

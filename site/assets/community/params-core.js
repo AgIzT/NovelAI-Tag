@@ -38,21 +38,25 @@ export const PARAMS_INFLATE_LIMITS = Object.freeze({
 async function inflateBytes(bytes, format, budget = null) {
   if (typeof DecompressionStream !== 'function') return null;
   const limit = Math.min(PARAMS_INFLATE_LIMITS.chunkBytes, budget ? budget.remaining : Infinity);
+  if (limit <= 0) return null;
+  let reader;
   try {
-    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format)).getReader();
+    reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format)).getReader();
     const parts = [];
     let size = 0;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
+      // 已生成的输出即使整块超限丢弃、或后续流报错，也消耗同图预算。
+      // 最后一次 read 可跨过边界；耗尽后不再为后续块创建解压流。
+      if (budget) budget.remaining = Math.max(0, budget.remaining - value.byteLength);
       if (size > limit) {
         await reader.cancel().catch(() => {});
         return null;
       }
       parts.push(value);
     }
-    if (budget) budget.remaining -= size;
     const out = new Uint8Array(size);
     let offset = 0;
     for (const part of parts) {
@@ -62,6 +66,8 @@ async function inflateBytes(bytes, format, budget = null) {
     return out;
   } catch {
     return null;
+  } finally {
+    reader?.releaseLock();
   }
 }
 

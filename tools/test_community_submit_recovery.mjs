@@ -2,13 +2,14 @@
 import assert from 'node:assert/strict';
 import { onRequestPost } from '../functions/api/submit.js';
 import { MemoryR2 } from './memory-r2-test-harness.mjs';
+import { requireRecordIndex } from '../functions/_record-index.js';
 import { SqliteD1, readMigrations } from './sqlite-d1-test-harness.mjs';
 
 const migration = await readMigrations('0004_submission_guards.sql');
 const ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const RECOVERY = 'community/submission-recovery/';
 const MEDIA = 'community/img/';
-const PENDING = 'community/pending/';
+const PENDING = 'community/records/';
 const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0xff, 0xd9]);
 const opened = [];
 let logs = [];
@@ -103,7 +104,7 @@ cases.push(
     const response = await post(env, { count: 6, originals: true });
     assert.equal(response.status, 201);
     const result = await response.json();
-    const record = await (await bucket.get(`${PENDING}${result.id}.json`)).json();
+    const record = (await (await bucket.get(`${PENDING}${result.id}.json`)).json()).record;
     assert.equal(record.images.length, 6);
     for (const image of record.images) {
       assert.ok(bucket.objects.has(image.key));
@@ -142,11 +143,13 @@ cases.push(
     const { bucket, env, db } = fixture();
     const error = new Error('pending outcome unknown');
     bucket[after ? 'afterPut' : 'beforePut'] = key => { if (key.startsWith(PENDING)) throw error; };
-    await assert.rejects(post(env), caught => caught === error);
+    if (after) assert.equal((await post(env)).status, 201, 'operationId 复读确认已提交');
+    else await assert.rejects(post(env), caught => caught.status === 503);
     assert.equal(keys(bucket, MEDIA).length, 2);
     assert.equal(keys(bucket, PENDING).length, Number(after));
     assert.equal(reservations(db), 1, 'ambiguous commit must not release a possibly accepted reservation');
-    assert.equal(recovery(bucket).mediaKeys.length, 2);
+    if (after) assert.equal(keys(bucket, RECOVERY).length, 0);
+    else assert.equal(recovery(bucket).mediaKeys.length, 2);
     assert.equal(bucket.deletes.flat().filter(key => key.startsWith(MEDIA)).length, 0);
   }]),
   ['pending may commit after failure and still references intact images', async () => {
@@ -156,11 +159,11 @@ cases.push(
     bucket.beforePut = (key, value, options) => {
       if (key.startsWith(PENDING)) { late = () => rawPut(bucket, key, value, options); throw error; }
     };
-    await assert.rejects(post(env), caught => caught === error);
+    await assert.rejects(post(env), caught => caught.status === 503);
     assert.equal(keys(bucket, PENDING).length, 0);
     recovery(bucket);
     await late();
-    const record = JSON.parse(bucket.objects.get(keys(bucket, PENDING)[0]));
+    const record = JSON.parse(bucket.objects.get(keys(bucket, PENDING)[0])).record;
     for (const image of record.images) assert.ok(bucket.objects.has(image.key));
     assert.equal(reservations(db), 1);
   }],
@@ -260,8 +263,10 @@ cases.push(
     assert.equal(keys(bucket, MEDIA).length, 0);
     assert.equal(bucket.deletes.length, 0);
   })],
-  ...['pending', 'approved', 'hidden', 'rejected', 'deleted'].map(status => [`existing ${status} ID (even invalid JSON) is not reused`, async () => fixedId(async () => {
+  ...['pending', 'approved', 'hidden', 'rejected', 'deleted', 'records'].map(status => [`existing ${status} ID (even invalid JSON) is not reused`, async () => fixedId(async () => {
     const { bucket, env, db } = fixture();
+    // 此组隔离检查 ID 冲突；首次目录升级和坏 canonical 由 record_store_edges 单独验证。
+    await requireRecordIndex(bucket, 'community');
     const key = `community/${status}/${ID}.json`;
     await rawPut(bucket, key, 'historical invalid JSON');
     await rawPut(bucket, `${MEDIA}${ID}/1.jpg`, 'historical image');
@@ -289,6 +294,20 @@ cases.push(
     await assert.rejects(post(env), caught => caught === error);
     assert.equal(keys(bucket, MEDIA).length, 0);
     recovery(bucket);
+  }],
+  ['unconfirmed index preparation never issued canonical PUT and compensates confirmed media', async () => {
+    const { bucket, env, db } = fixture();
+    let canonicalPuts = 0;
+    bucket.beforePut = key => {
+      if (key.startsWith(PENDING)) canonicalPuts++;
+      if (key.startsWith('community/record-index/v1/')) throw new Error('prepare unavailable');
+    };
+    await assert.rejects(post(env), error => error.status === 503);
+    assert.equal(canonicalPuts, 0);
+    assert.equal(keys(bucket, MEDIA).length, 0);
+    assert.equal(keys(bucket, RECOVERY).length, 0);
+    assert.equal(reservations(db), 0);
+    assert.equal(keys(bucket, 'community/record-index-aborted/').length, 1);
   }],
   ['a new submission after failure does not reuse or delete the earlier attempt', async () => {
     const { bucket, env } = fixture();

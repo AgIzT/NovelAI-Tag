@@ -1,9 +1,10 @@
 'use strict';
 
+import { listRecordMetadata, decodeCanonical, storageError } from './_record-store.js';
 import { sanitizeAdminFeedbackRecord } from './_feedback.js';
+import { matchesMarker, pendingMarker, abortedMarker } from './_record-index.js';
 
 const BODY_LIMIT = 200;
-const LIST_LIMIT = 1000;
 const MAX_LIST_PAGES = 100;
 const MAX_RECORDS = 50000;
 const MAX_INDEX_BYTES = 8 * 1024 * 1024;
@@ -29,6 +30,38 @@ function encode64(bytes) {
 }
 const decode64 = value => Uint8Array.from(atob(value), char => char.charCodeAt(0));
 
+function paginationConflict() {
+  return Object.assign(storageError('反馈列表已变化，点击「刷新反馈」返回第一页', 409), { resetPagination: true });
+}
+
+function readCursor(value, status) {
+  if (!value) return null;
+  try {
+    if (typeof value !== 'string' || value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error();
+    const cursor = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decode64(value.replace(/-/g, '+').replace(/_/g, '/'))));
+    if (!cursor || Object.keys(cursor).sort().join(',') !== 'o,r,s,v' || cursor.v !== 1
+      || !['pending', 'resolved', 'ignored'].includes(cursor.s) || !/^[a-f0-9]{64}$/.test(cursor.r)
+      || !Number.isSafeInteger(cursor.o) || cursor.o < BODY_LIMIT || cursor.o >= MAX_RECORDS || cursor.o % BODY_LIMIT) throw new Error();
+    if (cursor.s !== status) throw paginationConflict();
+    return cursor;
+  } catch (error) {
+    if (error.resetPagination) throw error;
+    throw storageError('反馈分页无效，点击「刷新反馈」返回第一页', 400);
+  }
+}
+
+function writeCursor(status, revision, offset) {
+  if (!offset) return '';
+  return encode64(encoder.encode(JSON.stringify({ v: 1, s: status, r: revision, o: offset })))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function recordsRevision(records, status) {
+  const identities = records.map(meta => [meta.key, meta.etag]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify([status, identities])));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function sortTime(item) {
   return [item.progressStatusUpdatedAt, item.replyUpdatedAt, item.statusUpdatedAt,
     item.handledAt, item.createdAt].reduce((latest, value) => {
@@ -37,31 +70,11 @@ function sortTime(item) {
   }, 0);
 }
 
-// 必须枚举完整元数据才能保持「最近处理优先」，不能用按 key 排序的前 200 项代替。
-async function listRecords(bucket, prefix) {
-  const records = new Map(), cursors = new Set();
-  let cursor;
-  for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    const result = await bucket.list({ prefix, limit: LIST_LIMIT, ...(cursor ? { cursor } : {}) });
-    for (const object of result.objects) {
-      if (!object.key.startsWith(prefix) || !object.key.endsWith('.json')) continue;
-      if (!object.etag) throw new Error('Feedback listing has no version');
-      records.set(object.key, { key: object.key, etag: object.etag });
-      if (records.size > MAX_RECORDS) throw new Error('Feedback listing budget exceeded');
-    }
-    if (!result.truncated) return [...records.values()];
-    if (!result.cursor || cursors.has(result.cursor)) throw new Error('Feedback listing cursor did not advance');
-    cursor = result.cursor;
-    cursors.add(cursor);
-  }
-  throw new Error('Feedback listing page budget exceeded');
-}
-
 // 桶可能公开：索引地址用管理口令 HMAC，内容用域分离密钥 AES-GCM 加密，禁止落明文目录。
 // 口令轮换或密文损坏后重建；不删除历史对象。记录内容与 ETag 是真相。
 // 冷启动分多次请求建立，任何一次最多读取 BODY_LIMIT 个正文；不返回半份「最新」列表。
-export async function readAdminFeedbackList(bucket, status, secret) {
-  const prefix = `feedback/${status}/`;
+export async function readAdminFeedbackList(bucket, status, secret, { cursor = '' } = {}) {
+  const position = readCursor(cursor, status);
   const { key: encryptionKey, indexKey } = await cacheSecrets(secret, status);
   const additionalData = encoder.encode(indexKey);
   const object = await bucket.get(indexKey);
@@ -82,7 +95,10 @@ export async function readAdminFeedbackList(bucket, status, secret) {
     if (entry && typeof entry.key === 'string' && typeof entry.etag === 'string'
       && (entry.time === null || Number.isFinite(entry.time) && entry.time >= 0)) cached.set(entry.key, entry);
   }
-  const records = await listRecords(bucket, prefix);
+  const records = await listRecordMetadata(bucket, 'feedback', [status], { maxPages: MAX_LIST_PAGES, maxRecords: MAX_RECORDS });
+  if (records.length > MAX_RECORDS) throw new Error('Feedback index record budget exceeded');
+  const revision = await recordsRevision(records, status);
+  if (position && position.r !== revision) throw paginationConflict();
   const entries = new Map();
   for (const meta of records) {
     const entry = cached.get(meta.key);
@@ -96,18 +112,34 @@ export async function readAdminFeedbackList(bucket, status, secret) {
     for (let i = 0; i < recordsToRead.length; i += 20) {
       await Promise.all(recordsToRead.slice(i, i + 20).map(async meta => {
         reads++;
-        const body = await bucket.get(meta.key);
-        if (!body || body.etag !== meta.etag) {
+        const body = await bucket.get(meta.recordKey || meta.key);
+        if (!body && meta.recordKey && await abortedMarker(bucket, 'feedback', meta)) {
+          entries.set(meta.key, { key: meta.key, etag: meta.etag, time: null }); dirty = true; return;
+        }
+        if (!body || !meta.recordKey && body.etag !== meta.etag) {
           entries.delete(meta.key); dirty = true; changed = true;
           return;
         }
         // 先完整读取流；传输失败不能被当作坏 JSON 按 ETag 永久记为不可展示。
         const text = await body.text();
         let item = null;
-        try {
-          const record = JSON.parse(text);
+        let parsed;
+        try { parsed = JSON.parse(text); }
+        catch (error) { if (meta.canonical || !(error instanceof SyntaxError)) throw storageError('权威记录正文不可读取'); }
+        {
+          let record = parsed;
+          if (meta.canonical) {
+            const envelope = decodeCanonical(record, meta.id, 'feedback');
+            if (meta.recordKey && !matchesMarker(meta, envelope, body.etag)) {
+              if (pendingMarker(meta, envelope) && !await abortedMarker(bucket, 'feedback', meta)) {
+                entries.delete(meta.key); dirty = true; changed = true; return;
+              }
+              record = null;
+            } else record = !envelope.deleted && envelope.status === status ? envelope.record : null;
+          }
           if (record && typeof record === 'object' && !Array.isArray(record)) item = sanitizeAdminFeedbackRecord(record, status);
-        } catch { /* 与旧列表一样不展示损坏 JSON；版本变化后再读取 */ }
+        }
+        if (entries.get(meta.key)?.time !== null && entries.has(meta.key) && item === null) changed = true;
         const entry = { key: meta.key, etag: meta.etag, time: item ? sortTime(item) : null };
         if (entries.get(meta.key)?.time !== entry.time || entries.get(meta.key)?.etag !== entry.etag) dirty = true;
         entries.set(meta.key, entry);
@@ -118,11 +150,16 @@ export async function readAdminFeedbackList(bucket, status, secret) {
 
   await read(records.filter(meta => !entries.has(meta.key)).slice(0, BODY_LIMIT));
   const remaining = records.length - entries.size;
-  let selected = [];
+  let selected = [], total = 0;
+  const offset = position?.o || 0;
   if (!remaining && !changed) {
-    selected = records.filter(meta => entries.get(meta.key).time !== null)
+    const seen = new Set();
+    const ranked = records.filter(meta => entries.get(meta.key).time !== null)
       .sort((a, b) => entries.get(b.key).time - entries.get(a.key).time || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-      .slice(0, BODY_LIMIT);
+      .filter(meta => { if (seen.has(meta.id)) return false; seen.add(meta.id); return true; });
+    total = ranked.length;
+    if (position && offset >= total) throw paginationConflict();
+    selected = ranked.slice(offset, offset + BODY_LIMIT);
     const needed = selected.filter(meta => !loaded.has(meta.key));
     if (needed.length <= BODY_LIMIT - reads) await read(needed);
   }
@@ -143,5 +180,9 @@ export async function readAdminFeedbackList(bucket, status, secret) {
   if (remaining || changed || selected.some(meta => !loaded.has(meta.key))) {
     return { items: [], indexing: true, remaining: records.length - entries.size };
   }
-  return { items: selected.map(meta => loaded.get(meta.key)).filter(Boolean), indexing: false };
+  return { items: selected.map(meta => loaded.get(meta.key)).filter(Boolean), indexing: false,
+    total, offset, pageSize: BODY_LIMIT,
+    nextCursor: offset + BODY_LIMIT < total ? writeCursor(status, revision, offset + BODY_LIMIT) : '',
+    previousCursor: writeCursor(status, revision, Math.max(0, offset - BODY_LIMIT)),
+  };
 }

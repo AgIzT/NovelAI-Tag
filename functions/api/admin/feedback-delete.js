@@ -1,7 +1,9 @@
 'use strict';
 
-import { json, err, requireAdmin, validId, listAll, cleanLine, readJson } from '../../_lib.js';
-import { updatePublicFeedbackIndex } from '../../_feedback.js';
+import { json, err, requireAdmin, validId, cleanLine } from '../../_lib.js';
+import { readCanonical, writeCanonical, deleteLegacyRecords } from '../../_record-store.js';
+import { cleanRecordMarkers } from '../../_record-index.js';
+import { updatePublicFeedbackIndex, findFeedbackRecord, FEEDBACK_STATUSES } from '../../_feedback.js';
 
 const STATUSES = new Set(['pending', 'resolved', 'ignored']);
 
@@ -18,16 +20,17 @@ export async function onRequestPost(context) {
   if (!validId(id)) return err('无效的反馈 id');
   if (!STATUSES.has(status)) return err('反馈状态无效');
 
-  const keys = (await listAll(env.STRINGS_BUCKET, `feedback/${status}/`))
-    .filter(key => key.endsWith(`/${id}.json`));
-  const recordKey = keys[0] || '';
-  if (!recordKey) return err('这条反馈不存在或已被删除，点「刷新反馈」重新加载', 404);
-
-  const record = await readJson(env.STRINGS_BUCKET, recordKey);
-  if (record?.publicVisible === true) {
+  try {
+    let found = await readCanonical(env.STRINGS_BUCKET, 'feedback', id);
+    if (found?.deleted) await cleanRecordMarkers(env.STRINGS_BUCKET, 'feedback', found);
+    if (!found?.deleted) {
+      found = await findFeedbackRecord(env.STRINGS_BUCKET, id, status);
+      if (!found) return err('这条反馈不存在或状态已变化，点「刷新反馈」重新加载', 404);
+      await writeCanonical(env.STRINGS_BUCKET, 'feedback', id, found, { status: found.status, deleted: true });
+    }
     await updatePublicFeedbackIndex(env.STRINGS_BUCKET, { removeIds: [id] });
-  }
-  await env.STRINGS_BUCKET.delete(recordKey);
+    await deleteLegacyRecords(env.STRINGS_BUCKET, 'feedback', id, FEEDBACK_STATUSES);
+  } catch (error) { return err(error.message || '反馈清理失败，请重试删除', error.status || 503); }
   console.log(JSON.stringify({
     event: 'feedback_deleted',
     feedbackId: id,

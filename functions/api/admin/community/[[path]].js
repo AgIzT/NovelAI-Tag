@@ -1,11 +1,14 @@
 'use strict';
 
+import { cleanRecordMarkers } from '../../../_record-index.js';
+
 import {
   json, err, requireAdmin, requireStorage, validId, cleanLine, normImageParams,
   COMMUNITY_STATUSES, DEFAULT_COMMUNITY_STATUS,
-  listAll, readJsonBatch, toAdminEntry, findCommunityRecord, writeCommunityRecord,
+  listCommunityRecords, toAdminEntry, findCommunityRecord, writeCommunityRecord,
   moveCommunityRecord, applyCommunityEdits, rebuildCommunity, deleteImages,
 } from '../../../_lib.js';
+import { readCanonical, writeCanonical, deleteLegacyRecords } from '../../../_record-store.js';
 import { getCommunityLikesStats, purgeCommunityLikes } from '../../../_engagements.js';
 
 const MUTATIONS = new Set([
@@ -49,14 +52,12 @@ export async function onRequestPost(context) {
     const data = await mutate(context.env, route, body || {});
     return json({ ok: true, ...data });
   } catch (e) {
-    return err(e.message || '操作失败', e.status || 400);
+    return err(e.message || '操作失败', e.status || 503);
   }
 }
 
 async function listCommunityItems(env, status) {
-  const keys = (await listAll(env.STRINGS_BUCKET, `community/${status}/`))
-    .filter(k => k.endsWith('.json'));
-  const records = await readJsonBatch(env.STRINGS_BUCKET, keys);
+  const records = await listCommunityRecords(env, status);
   return records
     .filter(Boolean)
     .map(r => toAdminEntry(env, r, status))
@@ -123,7 +124,7 @@ async function mutate(env, action, body, operation) {
 
 // 审核端隐写复检结果落库：params=null 表示复检未检出、移除标注；否则覆盖为复检结论
 async function updateImageParams(env, body, operation) {
-  const found = await requireItem(env, body.id, statusSearch(body.status));
+  const found = await requireItem(env, body.id, statusSearch(body.status), operation);
   const index = Math.floor(Number(body.imageIndex));
   const images = found.record.images || [];
   if (!Number.isFinite(index) || index < 0 || index >= images.length) throw httpError('图片序号无效');
@@ -131,23 +132,23 @@ async function updateImageParams(env, body, operation) {
   if (body.params != null && !params) throw httpError('参数标注格式无效');
   if (params) images[index].params = params;
   else delete images[index].params;
-  const saved = await writeCommunityRecord(env, found.status, found.record);
+  const saved = await writeCommunityRecord(env, found.status, found.record, found);
   await refreshCommunity(env, operation, found.status === 'approved');
   return { action: 'params', item: toAdminEntry(env, saved, found.status) };
 }
 
 async function updateItem(env, body, operation) {
-  const found = await requireItem(env, body.id, statusSearch(body.status));
+  const found = await requireItem(env, body.id, statusSearch(body.status), operation);
   const result = applyCommunityEdits(found.record, body.edits || {});
   if (result.error) throw httpError(result.error);
   result.record.status = found.status;
-  const saved = await writeCommunityRecord(env, found.status, result.record);
+  const saved = await writeCommunityRecord(env, found.status, result.record, found);
   await refreshCommunity(env, operation, found.status === 'approved');
   return { action: 'update', item: toAdminEntry(env, saved, found.status) };
 }
 
 async function approveItem(env, body, operation) {
-  const found = await requireItem(env, body.id, ['pending']);
+  const found = await requireItem(env, body.id, ['pending'], operation);
   const result = applyCommunityEdits(found.record, body.edits || {});
   if (result.error) throw httpError(result.error);
   const now = Date.now();
@@ -161,7 +162,7 @@ async function approveItem(env, body, operation) {
 }
 
 async function rejectItem(env, body, operation) {
-  const found = await requireItem(env, body.id, ['pending']);
+  const found = await requireItem(env, body.id, ['pending'], operation);
   const now = Date.now();
   const record = await moveCommunityRecord(env, found, 'rejected', {
     now,
@@ -171,7 +172,7 @@ async function rejectItem(env, body, operation) {
 }
 
 async function publishItem(env, body, operation) {
-  const found = await requireItem(env, body.id, statusSearch(body.status, ['hidden', 'deleted', 'rejected', 'pending']));
+  const found = await requireItem(env, body.id, statusSearch(body.status, ['hidden', 'deleted', 'rejected', 'pending']), operation);
   if (found.status === 'pending') return approveItem(env, body, operation);
   const result = body.edits ? applyCommunityEdits(found.record, body.edits) : { record: found.record };
   if (result.error) throw httpError(result.error);
@@ -186,7 +187,11 @@ async function publishItem(env, body, operation) {
 }
 
 async function unpublishItem(env, body, operation) {
-  const found = await requireItem(env, body.id, ['approved']);
+  const found = await requireItem(env, body.id, ['approved', 'hidden'], operation);
+  if (found.status === 'hidden') {
+    await refreshCommunity(env, operation, true);
+    return { action: 'unpublish', item: toAdminEntry(env, found.record, 'hidden') };
+  }
   const now = Date.now();
   const record = await moveCommunityRecord(env, found, 'hidden', {
     now,
@@ -198,7 +203,7 @@ async function unpublishItem(env, body, operation) {
 }
 
 async function deleteItem(env, body, operation) {
-  const found = await requireItem(env, body.id, statusSearch(body.status, ['pending', 'approved', 'hidden', 'rejected']));
+  const found = await requireItem(env, body.id, statusSearch(body.status, ['pending', 'approved', 'hidden', 'rejected']), operation);
   const now = Date.now();
   const record = await moveCommunityRecord(env, found, 'deleted', {
     now,
@@ -210,7 +215,7 @@ async function deleteItem(env, body, operation) {
 }
 
 async function restoreItem(env, body, operation) {
-  const found = await requireItem(env, body.id, ['deleted']);
+  const found = await requireItem(env, body.id, ['deleted'], operation);
   const target = statusParam(body.targetStatus || body.toStatus, 'hidden');
   if (!target || target === 'deleted' || target === 'pending') throw httpError('恢复目标状态无效');
   const now = Date.now();
@@ -224,22 +229,30 @@ async function restoreItem(env, body, operation) {
 }
 
 async function purgeItem(env, body, operation) {
-  const found = await requireItem(env, body.id, statusSearch(body.status));
+  const id = String(body.id || '');
+  if (!validId(id)) throw httpError('无效的内容 id');
+  let found = await readCanonical(env.STRINGS_BUCKET, 'community', id);
+  if (found?.deleted) await cleanRecordMarkers(env.STRINGS_BUCKET, 'community', found);
+  if (!found?.deleted) {
+    found = await requireItem(env, id, statusSearch(body.status), operation);
+    found = await writeCanonical(env.STRINGS_BUCKET, 'community', id, found, { status: found.status, deleted: true });
+  }
+  // 先封存权威状态并撤下公开投影，再清理；失败保留无正文墓碑，同 ID 可重试。
+  await refreshCommunity(env, operation, true);
   // D1 已绑定时先清互动；清理失败必须中止，避免 R2 永久删除后留下孤儿计数。
   try {
-    await purgeCommunityLikes(env, found.record.id);
+    await purgeCommunityLikes(env, id);
   } catch (error) {
     console.error(JSON.stringify({
       message: 'community engagement purge failed',
-      id: found.record.id,
+      id: id,
       error: error instanceof Error ? error.message : String(error || 'unknown error'),
     }));
-    throw httpError('互动数据清理失败，已中止永久删除', 503);
+    throw httpError('记录已封存，互动数据清理失败；请重试永久删除', 503);
   }
-  await deleteImages(env, found.record.id);
-  await env.STRINGS_BUCKET.delete(found.key);
-  await refreshCommunity(env, operation, found.status === 'approved');
-  return { action: 'purge', id: found.record.id, status: found.status };
+  await deleteImages(env, id);
+  await deleteLegacyRecords(env.STRINGS_BUCKET, 'community', id, COMMUNITY_STATUSES);
+  return { action: 'purge', id: id, status: found.status };
 }
 
 async function batchMutate(env, body) {
@@ -255,7 +268,7 @@ async function batchMutate(env, body) {
       const result = await mutate(env, action, { ...body, id, ids: undefined }, operation);
       succeeded.push({ id, ...result });
     } catch (e) {
-      failed.push({ id, error: e.message || '操作失败', status: e.status || 400 });
+      failed.push({ id, error: e.message || '操作失败', status: e.status || 503 });
     }
   }
   if (operation.needsCommunityRebuild) await rebuildCommunity(env);
@@ -279,11 +292,19 @@ async function refreshCommunity(env, operation, needed) {
   await rebuildCommunity(env);
 }
 
-async function requireItem(env, id, statuses = COMMUNITY_STATUSES) {
+async function requireItem(env, id, statuses = COMMUNITY_STATUSES, operation) {
   const itemId = String(id || '');
   if (!validId(itemId)) throw httpError('无效的内容 id');
   const found = await findCommunityRecord(env, itemId, statuses);
-  if (!found) throw httpError('这条投稿不存在或状态已变化，点「刷新」重新加载', 404);
+  if (!found) {
+    if (await readCanonical(env.STRINGS_BUCKET, 'community', itemId)) {
+      // 上次源状态可能已提交而公开投影失败。只修投影，不重放旧编辑；
+      // 批量请求沿用整批 defer，全部项目处理完后再统一重建并确认结果。
+      await refreshCommunity(env, operation, true);
+      throw httpError('内容状态已变化，公开列表已同步；请刷新后重试', 409);
+    }
+    throw httpError('这条投稿不存在或状态已变化，点「刷新」重新加载', 404);
+  }
   return found;
 }
 

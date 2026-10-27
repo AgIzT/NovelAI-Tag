@@ -82,7 +82,7 @@
 <script>
 const $=(s,r=document)=>r.querySelector(s);
 const state={
-  cid:null,codex:null,list:[],rendered:0,
+  cid:null,loadedCid:null,loadGeneration:0,codex:null,list:[],rendered:0,uploads:new Set(),
   media:{baseUrl:'',imagePrefix:'images',originalPrefix:'originals',localFallback:true}
 };
 const CHUNK=40;
@@ -109,10 +109,20 @@ async function loadMedia(){
   return {};
 }
 async function load(id){
-  state.cid=id;
-  state.codex=await fetch('data/'+id+'.json?_='+Date.now()).then(r=>r.json());
-  updateProgress();
-  filter();
+  const generation=++state.loadGeneration;
+  state.cid=id;state.loadedCid=null;state.codex=null;state.list=[];state.rendered=0;
+  $('#list').innerHTML='';$('#empty').hidden=true;
+  $('#done').textContent=0;$('#total').textContent=0;$('#barFill').style.width='0%';
+  try{
+    const response=await fetch('data/'+id+'.json?_='+Date.now());
+    const codex=await response.json();
+    if(generation!==state.loadGeneration||id!==state.cid)return;
+    if(!response.ok||!Array.isArray(codex.entries))throw new Error('法典载入失败');
+    state.codex=codex;state.loadedCid=id;
+    updateProgress();filter();
+  }catch(err){
+    if(generation===state.loadGeneration)showToast('法典载入失败，重新选择后再配图');
+  }
 }
 function updateProgress(){
   const d=state.codex.entries.filter(e=>e.image).length, n=state.codex.entries.length;
@@ -120,6 +130,7 @@ function updateProgress(){
   $('#barFill').style.width=(n?d/n*100:0)+'%';
 }
 function filter(){
+  if(!state.codex||state.loadedCid!==state.cid)return;
   const q=$('#q').value.trim().toLowerCase();
   let l=state.codex.entries;
   if($('#onlyTodo').checked) l=l.filter(e=>!e.image);
@@ -136,18 +147,19 @@ function more(){
   state.rendered=end;
 }
 function makeRow(e){
+  const source={cid:state.loadedCid,generation:state.loadGeneration,codex:state.codex};
   const row=document.createElement('div'); row.className='row'+(e.image?' done':'');
   const zone=document.createElement('div'); zone.className='zone';
   zone.innerHTML=e.image
     ? `<img src="${thumbUrl(e)}"><span class="badge">✓</span>`
     : '＋<br>拖图/点击';
   const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.hidden=true;
-  input.onchange=()=>{ if(input.files[0]) upload(e,row,zone,input.files[0]); };
+  input.onchange=()=>{ if(input.files[0]) upload(e,row,zone,input.files[0],source); };
   zone.onclick=()=>input.click();
   zone.ondragover=ev=>{ev.preventDefault();zone.classList.add('drag');};
   zone.ondragleave=()=>zone.classList.remove('drag');
   zone.ondrop=ev=>{ev.preventDefault();zone.classList.remove('drag');
-    const f=[...ev.dataTransfer.files].find(f=>f.type.startsWith('image/')); if(f) upload(e,row,zone,f);};
+    const f=[...ev.dataTransfer.files].find(f=>f.type.startsWith('image/')); if(f) upload(e,row,zone,f,source);};
   zone.appendChild(input);
   const meta=document.createElement('div'); meta.className='meta';
   const head=document.createElement('div'); head.className='meta-head';
@@ -191,22 +203,35 @@ function showToast(message){
   const toast=$('#toast'); toast.textContent=message; toast.classList.add('show');
   clearTimeout(toast._timer); toast._timer=setTimeout(()=>toast.classList.remove('show'),1400);
 }
-function upload(e,row,zone,file){
+function isCurrentView(source){
+  return source&&source.cid===state.cid&&source.cid===state.loadedCid&&source.generation===state.loadGeneration&&source.codex===state.codex;
+}
+async function upload(e,row,zone,file,source){
+  if(!isCurrentView(source)||!source.codex.entries.includes(e))return;
+  const cid=source.cid,eid=e.id,key=JSON.stringify([cid,eid]);
+  if(state.uploads.has(key))return;
+  state.uploads.add(key);
   const busy=document.createElement('div'); busy.className='uploading'; busy.textContent='上传中…'; zone.appendChild(busy);
-  const fr=new FileReader();
-  fr.onload=async()=>{
-    try{
-      const r=await fetch('/__upload__',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({codexId:state.cid,entryId:e.id,dataURL:fr.result})}).then(r=>r.json());
-      if(!r.ok) throw new Error(r.error||'失败');
+  try{
+      const dataURL=await new Promise((resolve,reject)=>{
+        const fr=new FileReader();
+        fr.onload=()=>resolve(fr.result);
+        fr.onerror=fr.onabort=()=>reject(new Error('图片读取失败，重新选图后重试'));
+        fr.readAsDataURL(file);
+      });
+      const response=await fetch('/__upload__',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({codexId:cid,entryId:eid,dataURL})});
+      const r=await response.json();
+      if(!response.ok||!r.ok) throw new Error(r.error||'上传失败，重新选图后重试');
+      if(!isCurrentView(source))return;
       e.image=r.image; e.imageWidth=r.imageWidth; e.imageHeight=r.imageHeight;
       e.original=r.original; e.assetRev=r.assetRev; delete e.assetCodexId; row.classList.add('done');
       zone.innerHTML=`<img src="${thumbUrl(e)}"><span class="badge">✓</span>`;
       updateProgress();
       if($('#onlyTodo').checked){ row.style.transition='.4s';row.style.opacity='.0';setTimeout(()=>row.remove(),400); }
-    }catch(err){ busy.textContent='✗ '+err.message; busy.style.color='#e23'; setTimeout(()=>busy.remove(),1500); }
-  };
-  fr.readAsDataURL(file);
+  }catch(err){
+    if(isCurrentView(source)){busy.textContent='✗ '+err.message;busy.style.color='#e23';setTimeout(()=>busy.remove(),1500);}
+  }finally{state.uploads.delete(key);}
 }
 function isLocalOrigin(){
   return ['localhost','127.0.0.1','::1'].includes(location.hostname)||location.protocol==='file:';

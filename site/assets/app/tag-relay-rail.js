@@ -10,8 +10,8 @@ import 本模块（拿 showRailTab）而不成环。
    - 底部 sheet（≤600px）：同样是浮层。 */
 
 import { prefersReducedMotion } from './utils.js';
-import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistoryLayer } from './browser-history.js';
-import { trapFocus } from './modal.js';
+import { registerHistoryLayer, closeHistoryLayer, forgetHistoryLayer, openHistoryLayer, retireHistoryLayer } from './browser-history.js';
+import { topInteractionLayer, trapFocus } from './modal.js';
 import { cancelRelayAction } from './tag-relay-action.js';
 import { settleRelayMotion } from './tag-relay-motion.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
@@ -341,6 +341,14 @@ function bindRail() {
   overlayQuery.addEventListener('change', () => {
     finishDockMotion();
     if (overlayQuery.matches) {
+      /* A docked rail cannot acquire modal ownership underneath an existing
+         dialog. Close it without changing the desktop docking preference. */
+      const foreground = topInteractionLayer();
+      if (!isClosed() && foreground && foreground !== rail && !rail.contains(foreground)) {
+        setOpenDirect(false);
+        syncChrome();
+        return;
+      }
       /* 停靠 → 浮层：栏若开着，此刻才变成浮层，必须补注册历史层，
          否则用户按返回键会直接离开页面而不是先关栏。 */
       if (!isClosed()) openHistoryLayer(RAIL_LAYER_ID);
@@ -354,7 +362,9 @@ function bindRail() {
          第一下「没反应」，来回拖窗口跨断点还会一直攒。closeHistoryLayer 在它确实是
          栈顶时真退一格（此时 isRelayRailModal() 已为 false，回退不会顺手把栏关掉），
          不是栈顶才退化成 forget。 */
-      closeHistoryLayer(RAIL_LAYER_ID);
+      const foreground = topInteractionLayer();
+      if (!isClosed() && foreground && foreground !== rail && !rail.contains(foreground)) retireHistoryLayer(RAIL_LAYER_ID);
+      else if (!isClosed()) closeHistoryLayer(RAIL_LAYER_ID);
     }
     syncChrome();
   });

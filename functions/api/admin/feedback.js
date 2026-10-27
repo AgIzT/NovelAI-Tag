@@ -17,9 +17,12 @@ export async function onRequestGet(context) {
   if (!normalizeFeedbackStatus(status)) return err('反馈状态无效');
 
   try {
-    const result = await readAdminFeedbackList(env.STRINGS_BUCKET, status, env.ADMIN_TOKEN);
+    const result = await readAdminFeedbackList(env.STRINGS_BUCKET, status, env.ADMIN_TOKEN, { cursor: url.searchParams.get('cursor') || '' });
     return json({ ok: true, status, ...result }, result.indexing ? 202 : 200);
-  } catch {
+  } catch (error) {
+    if (error?.indexing) return json({ ok: true, status, items: [], indexing: true, remaining: 1 }, 202);
+    if (error?.resetPagination) return json({ ok: false, error: error.message, resetPagination: true }, 409);
+    if (error?.status === 400) return err(error.message, 400);
     return err('反馈列表暂时无法完整加载，请稍后刷新重试', 503);
   }
 }
