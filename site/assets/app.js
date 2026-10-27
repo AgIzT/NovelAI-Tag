@@ -258,6 +258,9 @@ export async function init() {
     state.searchScope = normalizeSearchScope(readPreference(SEARCH_SCOPE_STORAGE_KEY));
     const { codexes, media, about } = await loadBootstrapData();
     state.codexes = codexes;
+    /* ⚠ 媒体域必须先就位：生日牌下一行就要拼封面地址。晚一步 baseUrl 还是空串，
+       本机照样回退到同源 images/ 能出图，线上 Pages 不托管 images/，那张图就是 404。 */
+    state.media = { ...state.media, ...media };
     if (isBirthday()) {
       const cardMeta = codexes.find(c => c.id === BIRTHDAY_CODEX_ID);
       setIntroBirthdayCover(cardMeta ? codexCoverUrl(cardMeta) : '', cardMeta ? codexCoverStyle(cardMeta) : '');
@@ -265,7 +268,6 @@ export async function init() {
     await ensureLibrary();
     state.favs = new Set(libraryKeys(librarySnapshot()));
     setupLibraryStore();
-    state.media = { ...state.media, ...media };
     state.about = about;
     primeResourceHints({ media: state.media, codexes: state.codexes });
     const sel = $('#codexSelect');
