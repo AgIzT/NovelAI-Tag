@@ -12,6 +12,7 @@ const SEARCH_MARK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none"
 
 let activePrompt = null;
 let activePromptTimer = 0;
+let activePromptCleanup = null;
 
 function restoreSidebarTip() {
   const tip = document.querySelector('#sbTip');
@@ -21,6 +22,8 @@ function restoreSidebarTip() {
 export function dismissResumePrompt() {
   window.clearTimeout?.(activePromptTimer);
   activePromptTimer = 0;
+  activePromptCleanup?.();
+  activePromptCleanup = null;
   if (!activePrompt) return false;
   activePrompt.remove();
   activePrompt = null;
@@ -141,22 +144,10 @@ export function setupResumePrompt({ route = {}, onboardingShown = false } = {}) 
   detail.hidden = !content.detail;
   card.querySelector('.resume-prompt-main').title = [content.title, content.detail].filter(Boolean).join('\n');   // 路径长会截断
 
-  const dock = dockTarget();
-  if (dock) {
-    card.classList.add('is-docked');
-    dock.prepend(card);
-    const tip = dock.querySelector('#sbTip');
-    if (tip) tip.hidden = true;
-  } else {
-    card.classList.add('is-floating');
-    document.body.appendChild(card);
-  }
-  activePrompt = card;
-  requestAnimationFrame(() => card.classList.add('show'));
-
   const hide = () => {
     window.clearTimeout(activePromptTimer);
     activePromptTimer = 0;
+    cleanup();
     card.classList.remove('show');
     window.setTimeout(() => {
       card.remove();
@@ -166,19 +157,51 @@ export function setupResumePrompt({ route = {}, onboardingShown = false } = {}) 
     }, 240);
   };
   /* 浮在底边时会盖住卡片，十秒没碰就收起；停在侧栏里不挡东西，等用户自己处理 */
-  if (!dock) {
-    const arm = () => {
+  const arm = () => {
+    window.clearTimeout(activePromptTimer);
+    if (card.classList.contains('is-floating')) activePromptTimer = window.setTimeout(hide, FLOAT_HIDE_MS);
+  };
+  card.addEventListener('pointerenter', () => window.clearTimeout(activePromptTimer));
+  card.addEventListener('pointerleave', arm);
+  card.addEventListener('focusin', () => window.clearTimeout(activePromptTimer));
+  card.addEventListener('focusout', event => {
+    if (!card.contains(event.relatedTarget)) arm();
+  });
+
+  /* 弹出后用户收起侧栏或窗口窄到手机档，卡片不能跟着关进侧栏；侧栏再展开时放回去 */
+  const place = () => {
+    const dock = dockTarget();
+    if (dock) {
+      if (card.parentElement !== dock) dock.prepend(card);
+      card.classList.remove('is-floating');
+      card.classList.add('is-docked');
+      const tip = dock.querySelector('#sbTip');
+      if (tip) tip.hidden = true;
       window.clearTimeout(activePromptTimer);
-      activePromptTimer = window.setTimeout(hide, FLOAT_HIDE_MS);
-    };
-    card.addEventListener('pointerenter', () => window.clearTimeout(activePromptTimer));
-    card.addEventListener('pointerleave', arm);
-    card.addEventListener('focusin', () => window.clearTimeout(activePromptTimer));
-    card.addEventListener('focusout', event => {
-      if (!card.contains(event.relatedTarget)) arm();
-    });
-    arm();
-  }
+      return;
+    }
+    const wasFloating = card.classList.contains('is-floating');
+    if (card.parentElement !== document.body) document.body.appendChild(card);
+    card.classList.remove('is-docked');
+    card.classList.add('is-floating');
+    restoreSidebarTip();
+    if (!wasFloating) arm();
+  };
+  const sidebar = document.querySelector('.sidebar');
+  const sidebarObserver = sidebar && typeof MutationObserver === 'function' ? new MutationObserver(place) : null;
+  const mobileQuery = window.matchMedia?.('(max-width:600px)');
+  const cleanup = () => {
+    sidebarObserver?.disconnect();
+    mobileQuery?.removeEventListener?.('change', place);
+    if (activePromptCleanup === cleanup) activePromptCleanup = null;
+  };
+  sidebarObserver?.observe(sidebar, { attributes: true, attributeFilter: ['class'] });
+  mobileQuery?.addEventListener?.('change', place);
+  activePromptCleanup = cleanup;
+
+  place();
+  activePrompt = card;
+  requestAnimationFrame(() => card.classList.add('show'));
   card.querySelector('.resume-prompt-main')?.addEventListener('click', async () => {
     hide();
     try { await resumeLastBrowse({ historyMode: 'push', snapshot }); }

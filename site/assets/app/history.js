@@ -267,7 +267,12 @@ export function browseDesc(snapshot) {
 /* 上次停在某个词条上时，从最近浏览里取它的标题和缩略图；命中屏蔽或还在核对就当没有。 */
 export function recentEntryForBrowse(snapshot) {
   if (!snapshot?.entryId) return null;
-  const item = state.recentEntries.find(recent => recent.entryId === snapshot.entryId);
+  /* 最近浏览按「法典 + 词条」区分；收藏与全站搜索的快照只记了入口法典，词条来自哪本书不知道，只能按词条找 */
+  const anyCodex = snapshot.favoritesView || snapshot.siteSearchView;
+  const codexKey = id => findCodexMeta(id)?.id || id;
+  const codexId = codexKey(snapshot.codexId);
+  const item = state.recentEntries.find(recent => recent.entryId === snapshot.entryId
+    && (anyCodex || codexKey(recent.codexId) === codexId));
   if (!item || isHistoryItemLocked(item)) return null;
   return historyContentVisibility(item, getBlockingPreferences()) === 'visible' ? item : null;
 }
