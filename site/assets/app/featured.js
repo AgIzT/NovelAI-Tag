@@ -4,7 +4,7 @@
    - 只挪显示列表，不改 entries：目录树按 entries 顺序现算，挪数据会把那位画师所在的整组顶到目录最前。
    决策见本地私有文档 docs/decisions/今日画师.md。 */
 
-import { BIRTHDAY_PREVIEW_PARAM } from './birthday.js';
+import { BIRTHDAY_PREVIEW_PARAM, isBirthday } from './birthday.js';
 
 export const FEATURED_CODEX_ID = 'artist_nai5_personal';
 
@@ -63,9 +63,12 @@ export function featuredArtistName(entry) {
 export function isPlainFeaturedVisit() {
   if (!/^\/(index\.html)?$/.test(location.pathname)) return false;
   if (/(^|[#&])entry=/.test(location.hash)) return false;
+  let named = false;
   for (const [key, value] of new URLSearchParams(location.search)) {
     if (key === BIRTHDAY_PREVIEW_PARAM) continue;
     if (key !== 'c' || value !== FEATURED_CODEX_ID) return false;
+    named = true;
   }
-  return true;
+  // 所长生日那几天，不带书名的直接进站落在所长的书上（app.js），不是这本
+  return named || !isBirthday();
 }

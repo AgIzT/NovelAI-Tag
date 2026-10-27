@@ -32,7 +32,7 @@ import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from 
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions, setIntroBirthdayCover } from './app/intro.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
-import { isBirthday, BIRTHDAY_CARD_CODEX_ID } from './app/birthday.js';
+import { isBirthday, BIRTHDAY_CODEX_ID } from './app/birthday.js';
 import { setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
 import { setupTagRelay } from './app/tag-relay.js';
@@ -259,7 +259,7 @@ export async function init() {
     const { codexes, media, about } = await loadBootstrapData();
     state.codexes = codexes;
     if (isBirthday()) {
-      const cardMeta = codexes.find(c => c.id === BIRTHDAY_CARD_CODEX_ID);
+      const cardMeta = codexes.find(c => c.id === BIRTHDAY_CODEX_ID);
       setIntroBirthdayCover(cardMeta ? codexCoverUrl(cardMeta) : '', cardMeta ? codexCoverStyle(cardMeta) : '');
     }
     await ensureLibrary();
@@ -282,9 +282,11 @@ export async function init() {
     const wantsFavorites = state.pendingUrlState.favorites || state.pendingUrlState.codex === FAVORITES_CODEX_ID;
     const wantsSiteSearch = !wantsFavorites && state.pendingUrlState.scope === 'site' && hasActiveSearchRoute(state.pendingUrlState);
     const initialMeta = findCodexMeta(state.pendingUrlState.codex);
+    // 所长生日那几天，没指定书的直接进站落到所长的书（birthday.js）；地址里写了书名的照旧
+    const birthdayMeta = isBirthday() ? findCodexMeta(BIRTHDAY_CODEX_ID) : null;
     const initialId = initialMeta && !isCodexLocked(initialMeta)
       ? initialMeta.id
-      : firstUnlockedCodex()?.id || codexes[0]?.id;
+      : (birthdayMeta && !isCodexLocked(birthdayMeta) ? birthdayMeta.id : '') || firstUnlockedCodex()?.id || codexes[0]?.id;
     if (initialMeta && isCodexLocked(initialMeta)) showNsfwLockedHint();
     if (codexes.length) {
       hideSkeleton(initSkeletonToken);

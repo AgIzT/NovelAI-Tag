@@ -1140,7 +1140,7 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 /* 生日帽落到头上：只在打开选择器时播（codex-ui.js 挂 .bd-enter 一秒），换卷、刷新不重播 */
 .codex-menu.bd-enter .bd-hat{animation:bdHatDrop .6s cubic-bezier(.3,1.5,.5,1) .12s backwards}
 @keyframes bdHatDrop{from{translate:0 -16px;rotate:-40deg;opacity:0}}
-/* 手机线路图没有卷头：在最上面加一条 */
+/* 手机线路图没有卷头：挂在法典线的线路牌下面 */
 .metro-bday{display:flex;align-items:center;gap:12px;margin:10px 8px 6px;padding:12px 12px 9px;border-radius:12px;background:var(--bday-soft);
   animation:metro-slide .34s cubic-bezier(.22,1,.36,1) backwards}
 .metro-bday .bd-avatar{width:46px;height:46px}

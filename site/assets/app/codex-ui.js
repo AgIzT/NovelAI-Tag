@@ -431,8 +431,8 @@ export function setupCodexPicker() {
       .forEach(([name, count]) => totals.set(name, (totals.get(name) || 0) + count)));
     return [...totals].sort((a, b) => b[1] - a[1]).slice(0, 3);
   };
-  /* 所长生日（birthday.js）：卷头「最近新增」那一格临时换成戴生日帽的所长头像（每卷都换，打开哪卷都看得到）；
-     手机线路图没有这一格，在最上面加一条。每次打开选择器，头像两侧「噗噗」各放一下礼花；点头像再放一次。 */
+  /* 所长生日（birthday.js）：所长的书所在那一卷（法典），卷头「最近新增」那一格临时换成戴生日帽的所长头像，其余各卷照常；
+     手机线路图没有这一格，挂在那条线的线路牌下面。打开选择器时头像看得见就在两侧「噗噗」各放一下礼花；点头像再放一次。 */
   const birthdayPicker = () => (state.codexes || []).some(isBirthdayCodex);
   const birthdayHTML = cls =>
     `<span class="${cls}"><button type="button" class="bd-avatar" tabindex="-1" aria-label="生日快乐">` +
@@ -462,7 +462,7 @@ export function setupCodexPicker() {
   });
 
   const recentHTML = t => {
-    if (birthdayPicker()) return birthdayHTML('vol-recent vol-bday');
+    if (t.real.some(isBirthdayCodex)) return birthdayHTML('vol-recent vol-bday');
     if (!updateBatches) return `<span class="vol-recent is-pending" data-type="${esc(t.id)}" aria-hidden="true"></span>`;
     // 旧版索引（线上数据还没用新脚本重建时）没有样图、分布和可见条数，整块退回封面
     const recent = updateBatches.some(batch => batch.books.some(book => book.hasPreview)) ? recentForType(t) : null;
@@ -798,6 +798,7 @@ export function setupCodexPicker() {
         `<div class="metro-badge" style="--i:${order}"><span class="mb-pill">${TYPE_ICONS[t.icon]}` +
         `<b>${esc(t.name)}</b><span class="mb-n">${t.soon ? '占位' : `${t.real.length} 本`}</span></span>` +
         `<span class="mb-sub">${esc(t.sub)}</span></div>`;
+      if (t.real.some(isBirthdayCodex)) line.insertAdjacentHTML('beforeend', birthdayHTML('metro-bday'));
       if (t.soon) line.appendChild(makeSoonBanner(t));
       const track = document.createElement('div');
       track.className = 'metro-track';
@@ -815,7 +816,6 @@ export function setupCodexPicker() {
     else renderVolumes(buildTypes());
     const launchPanel = makeN5LaunchPanel();
     if (launchPanel) menu.prepend(launchPanel);
-    if (renderedMobile && birthdayPicker()) menu.insertAdjacentHTML('afterbegin', birthdayHTML('metro-bday'));
     menu.appendChild(makeSubmitDoor());  // 两套布局末尾都挂投稿门
     renderingMenu = false;
   };
