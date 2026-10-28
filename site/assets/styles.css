@@ -1147,13 +1147,43 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 .metro-bday .bd-text{align-items:flex-start;gap:1px}
 .metro-bday .bd-text b{font-size:16px}
 /* 送上祝福：选择器里一颗同生日签的胶囊，横幅生日签本身也算；总数是胶囊尾巴上的白色小签（birthday-wishes.js） */
-.bd-wish{display:inline-flex;align-items:center;gap:6px;margin-top:3px;padding:2px 9px;border:0;border-radius:999px;cursor:pointer;
+.bd-actions{display:flex;align-items:center;gap:6px;margin-top:3px}
+.bd-wish{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:0;border-radius:999px;cursor:pointer;
   font:800 11px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft);transition:background-color .15s,scale .15s}
 .bd-wish:hover{background:color-mix(in srgb,var(--bday) 26%,transparent)}
 .bd-wish:active{scale:.94}
 .wish-n{display:inline-block;margin-right:-6px;padding:0 6px;border-radius:999px;background:var(--card);
   font:800 10.5px/1.45 var(--font-ui);font-variant-numeric:tabular-nums;color:var(--bday)}
 .banner-bday .wish-n{margin:0 -5px 0 6px;padding:0 5px;font-size:10px;vertical-align:.5px}
+/* 祝福墙入口：生日签 / 送上祝福旁边一颗描边小胶囊；墙关着（html 没有 .bday-wall）就不出现 */
+.bd-wall-btn,.banner-wall{padding:1px 8px;border:1px solid var(--bday-line);border-radius:999px;background:none;cursor:pointer;
+  font:800 11px/1.3 var(--font-ui);color:var(--bday);transition:background-color .15s,scale .15s}
+.bd-wall-btn:hover,.banner-wall:hover{background:var(--bday-soft)}
+.bd-wall-btn:active,.banner-wall:active{scale:.94}
+.banner-wall{display:inline-block;margin-left:6px;vertical-align:1px}
+html:not(.bday-wall) :is(.bd-wall-btn,.banner-wall){display:none}
+/* 祝福墙面板：沿用设置浮层；留言是一张张烛光色小卡，新上墙的那几条亮一下 */
+.bwall{width:min(460px,100%)}
+.bwall-head{display:flex;align-items:baseline;gap:10px;padding-right:32px}
+.bwall-head .settings-title{margin:0}
+.bwall-count{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bwall-list{display:flex;flex-direction:column;gap:8px;max-height:min(46vh,420px);margin:14px 0 12px;padding:0 2px 0 0;
+  overflow-y:auto;overscroll-behavior:contain;list-style:none}
+.bwall-list li{padding:10px 12px;border-radius:12px;background:var(--bday-soft)}
+.bwall-list li.is-new{animation:bwallNew 1.6s ease-out}
+@keyframes bwallNew{from{box-shadow:0 0 0 2px var(--bday-line)}to{box-shadow:0 0 0 2px transparent}}
+.bwall-list p{margin:0;font-size:14px;line-height:1.55;color:var(--text);overflow-wrap:anywhere}
+.bwall-list small{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
+.bwall-empty{margin:18px 0;text-align:center;font-size:13px;color:var(--muted)}
+.bwall-form textarea{display:block;box-sizing:border-box;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:12px;resize:none;
+  background:var(--card);color:var(--text);font:14px/1.5 var(--font-ui)}
+.bwall-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+.bwall-row input{flex:1;min-width:0;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--text);font:13px/1.4 var(--font-ui)}
+.bwall-form :is(textarea,input):focus-visible{outline:2px solid var(--bday-line);outline-offset:1px}
+.bwall-left{flex:none;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bwall-send{flex:none;padding:6px 16px;border:0;border-radius:999px;background:var(--bday);color:#fff;cursor:pointer;font:800 13px/1.3 var(--font-ui)}
+.bwall-send:disabled{opacity:.45;cursor:default}
+.bwall-note{min-height:1.4em;margin:8px 2px 0;font-size:12px;color:var(--muted)}
 /* 连击：第一下飘「+1」，第二下起头像右上角一枚「×N 连击」章，连得越久越亮（birthday-fx.js 的 createWishCombo） */
 .wish-plus{position:absolute;z-index:2;pointer-events:none;font:900 15px/1 var(--font-display);color:var(--bday);
   text-shadow:0 0 2px var(--card),0 0 6px var(--card)}
@@ -1189,11 +1219,11 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 .ibd-meta{display:flex;align-items:center;gap:7px;min-width:0}
 .ibd-pill{flex:none;padding:1px 8px;border-radius:999px;font:800 10.5px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft)}
 .ibd-meta small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html.motion-off :is(.banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo),
+html.motion-off :is(.banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li),
 html.motion-off .codex-menu.bd-enter .bd-hat{animation:none}
 @media (prefers-reduced-motion: reduce){
-  .banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.codex-menu.bd-enter .bd-hat{animation:none}
-  .bd-avatar,.banner-bday,.bd-wish{transition:none}
+  .banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.codex-menu.bd-enter .bd-hat{animation:none}
+  .bd-avatar,.banner-bday,.bd-wish,.bd-wall-btn,.banner-wall{transition:none}
 }
 .chip-rail{
   display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px;

@@ -12,6 +12,7 @@ import { sortCategoryTree } from './category-order.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
 import { watchWishVisibility, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
+import { loadBirthdayWall, openBirthdayWall } from './birthday-wall.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -441,7 +442,8 @@ export function setupCodexPicker() {
     return `<span class="${cls}"><button type="button" class="bd-avatar" tabindex="-1" aria-label="送上祝福">` +
       `<img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</button>` +
       `<span class="bd-text"><b>生日快乐</b><small>法典创作者 · 所长</small>` +
-      `<button type="button" class="bd-wish" tabindex="-1">送上祝福${wishCountHTML()}</button></span></span>`;
+      `<span class="bd-actions"><button type="button" class="bd-wish" tabindex="-1">送上祝福${wishCountHTML()}</button>` +
+      '<button type="button" class="bd-wall-btn" tabindex="-1">祝福墙</button></span></span></span>';
   };
   const celebratePicker = () => {
     const avatar = [...menu.querySelectorAll('.bd-avatar')].find(el => el.getClientRects().length);
@@ -464,6 +466,8 @@ export function setupCodexPicker() {
   };
   const pickerCombo = createWishCombo();
   menu.addEventListener('click', ev => {
+    const wallButton = ev.target.closest('.bd-wall-btn');
+    if (wallButton) { void openBirthdayWall(wallButton); return; }
     const avatar = ev.target.closest('.bd-avatar, .bd-wish')?.closest('.vol-bday, .metro-bday')?.querySelector('.bd-avatar');
     if (!avatar) return;
     const counted = sendWish();
@@ -1869,6 +1873,7 @@ function watchWishes() {
   watchingWishes = true;
   document.addEventListener('birthday:wishes', updateWishCounts);
   watchWishVisibility(wishEntryOnScreen);
+  void loadBirthdayWall();
 }
 
 function updateWishCounts(ev) {
@@ -1928,7 +1933,8 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     : `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
       `<div class="banner-title">${esc(c.title)}</div>` +
       (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}` +
-        `${birthday ? `<button type="button" class="banner-bday" title="送上祝福">生日快乐${wishCountHTML()}</button>` : ''}</div>` : '') +
+        `${birthday ? `<button type="button" class="banner-bday" title="送上祝福">生日快乐${wishCountHTML()}</button>` +
+          '<button type="button" class="banner-wall">祝福墙</button>' : ''}</div>` : '') +
       `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
       `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
@@ -1942,6 +1948,7 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   if (birthday) {
     watchWishes();
     banner.querySelector('.banner-bday').onclick = () => wishFromBanner(banner);
+    banner.querySelector('.banner-wall').onclick = ev => { void openBirthdayWall(ev.currentTarget); };
     if (previousIdentity !== c.id) scheduleBannerCelebration(banner, c.id);
   }
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */

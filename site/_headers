@@ -58,6 +58,20 @@
   X-Frame-Options: DENY
   Content-Security-Policy: frame-ancestors 'none'
 
+# 生日留言墙后台：同审核页
+/birthday-review
+  Cache-Control: no-store
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+
+/birthday-review.html
+  Cache-Control: no-store
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+
+/assets/birthday-review.js
+  Cache-Control: no-cache
+
 /_favorites-migration-202607*
   Cache-Control: no-store
   X-Robots-Tag: noindex, nofollow

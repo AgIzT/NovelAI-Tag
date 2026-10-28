@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>生日留言墙后台</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/tokens.css">
+<style>
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  main{max-width:860px;margin:0 auto;padding:24px 16px 48px}
+  h1{margin:0 0 4px;font-size:22px}
+  .sub{margin:0 0 18px;color:var(--muted);font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+  .login{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input[type=password]{flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--text);font:inherit}
+  button{padding:6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--text);font:inherit;font-weight:700;cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.danger{color:#c8323c;border-color:color-mix(in srgb,#c8323c 40%,transparent)}
+  button:disabled{opacity:.5;cursor:default}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .bar .grow{flex:1}
+  .wall-state{font-weight:800}
+  .wall-state.off{color:#c8323c}
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+  .tabs button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+  .item .body{flex:1;min-width:0}
+  .item p{margin:0;font-size:15px;overflow-wrap:anywhere}
+  .item small{color:var(--muted)}
+  .item .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .tag{display:inline-block;margin-right:6px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:800;background:var(--tagbg)}
+  .tag.held{background:#fde8c8;color:#9a5a00}
+  .tag.approved{background:#d9f3dc;color:#1f7a31}
+  .tag.hidden,.tag.rejected{background:#f6dadd;color:#a3242f}
+  .empty{padding:24px;text-align:center;color:var(--muted)}
+  .err{color:#c8323c;font-size:13px;min-height:1.4em}
+</style>
+</head>
+<body>
+<main>
+  <h1>生日留言墙</h1>
+  <p class="sub">审核 agent 只处理「待审」；它拿不准的会标「待你定」。这里可以改任意一条，也能整面墙关掉。</p>
+
+  <section class="card login" id="login" hidden>
+    <input type="password" id="token" placeholder="管理口令" autocomplete="current-password">
+    <button class="primary" id="enter" type="button">进入</button>
+    <div class="err" id="loginErr"></div>
+  </section>
+
+  <section id="app" hidden>
+    <div class="card">
+      <div class="bar">
+        <span>祝福墙：<span class="wall-state" id="wallState">-</span></span>
+        <button id="wallToggle" type="button">-</button>
+        <span class="grow"></span>
+        <button id="refresh" type="button">刷新</button>
+      </div>
+      <div class="tabs" id="tabs"></div>
+      <div class="err" id="err"></div>
+      <div class="list" id="list"></div>
+    </div>
+  </section>
+</main>
+<script type="module" src="assets/birthday-review.js"></script>
+</body>
+</html>
