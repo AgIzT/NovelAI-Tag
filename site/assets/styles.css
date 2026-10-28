@@ -1221,7 +1221,6 @@ html:not(.bday-wall) :is(.bd-wall-btn,.banner-wall){display:none}
 .bwall-stats b{font:800 17px/1.2 var(--font-ui);font-variant-numeric:tabular-nums;color:var(--text)}
 .bwall-count{margin-top:4px;padding:2px 10px;border-radius:999px;background:var(--card);color:var(--bday);
   font:800 12px/1.6 var(--font-ui);font-variant-numeric:tabular-nums}
-.bwall-thanks{margin:6px 0 0;max-width:15em;font:500 13px/1.6 var(--font-display);color:var(--muted);text-wrap:balance}
 .bwall-page{display:flex;flex-direction:column;min-width:0;min-height:0;padding:22px 20px 14px;
   background:color-mix(in srgb,var(--bday) 3%,var(--card))}
 .bwall-list{flex:1;min-height:0;margin:8px 0 0;padding:0 6px 0 0;list-style:none;overflow-y:auto;overscroll-behavior:contain;
@@ -1249,7 +1248,7 @@ body.dark .bwall-send{color:#1b1406}
   @keyframes bwallUnfoldDown{from{clip-path:inset(0 0 70% 0 round 22px);opacity:.4}}
   .bwall-cover{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px 14px;
     padding:26px 48px 12px 18px;text-align:left;border-right:0;border-bottom:1px dashed var(--bday-line)}
-  .bwall-cover :is(.bwall-to,.bwall-tap,.bwall-thanks){display:none}
+  .bwall-cover :is(.bwall-to,.bwall-tap){display:none}
   .bwall-avatar{grid-row:span 2;width:62px;height:62px;margin-top:6px}
   .bwall-greet{align-items:flex-start;gap:2px;margin:0}
   .bwall-greet b{font-size:22px;letter-spacing:.1em}

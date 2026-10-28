@@ -83,8 +83,7 @@ function buildMask() {
     '<span class="bwall-greet"><b id="bwallTitle">生日快乐</b><small>法典创作者 · 所长</small></span>' +
     '<span class="bwall-stats"><span data-stat="books" hidden><b></b>本法典</span><span data-stat="entries" hidden><b></b>条词条</span>' +
     '<span data-stat="wishes" hidden><b></b>份祝福</span></span>' +
-    '<span class="bwall-count" hidden></span>' +
-    '<p class="bwall-thanks">谢谢你把提示词整理成一本本法典</p></div>' +
+    '<span class="bwall-count" hidden></span></div>' +
     '<div class="bwall-page">' +
     '<ol class="bwall-list" aria-live="polite"></ol>' +
     '<p class="bwall-empty" hidden>还没有签名</p>' +
