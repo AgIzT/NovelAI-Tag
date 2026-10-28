@@ -1,11 +1,12 @@
 import { esc } from './utils.js';
 import { bindBackdropDismiss, closeMask, openMask, trapFocus } from './modal.js';
+import { PARTY_HAT_HTML } from './birthday-fx.js';
 
-/* 所长生日祝福墙（后端 functions/api/birthday-messages.js）：先审后发。
-   - 第一次画出生日入口时读一次墙的状态；墙开着才给 html 挂 .bday-wall，横幅和选择器里的「祝福墙」入口靠它显示。
-   - 点入口打开面板（同站内其它浮层：背板、Esc、返回键都能关）：最新的已通过留言在上，开着时每 30 秒刷新，
-     刷新时新出现的那几条带一下高亮；底下写一句、可署名，送出后进待审，审核通过才上墙。
-   - 收留言的时段过了就只看不写。署名记在本机，下次不用再填。 */
+/* 所长生日祝福墙（后端 functions/api/birthday-messages.js）：先审后发，样子是一张对折的生日贺卡。
+   - 第一次画出生日入口时读一次墙的状态；墙开着才给 html 挂 .bday-wall，横幅和选择器里的「生日贺卡」入口靠它显示。
+   - 点入口翻开贺卡（同站内其它浮层：背板、Esc、返回键都能关）：左页戴生日帽的所长与签名数，右页横格信纸，
+     已通过的祝福一行行签在上面、新的在上；开着时每 30 秒刷新，刷新时新出现的那几条像手写一样从左往右写出来。
+   - 右页底下签一句、可署名，送出后进待审，审核通过才签到贺卡上。收留言的时段过了就只看不写。署名记在本机。 */
 
 const ENDPOINT = '/api/birthday-messages';
 const POLL_MS = 30_000;
@@ -14,10 +15,10 @@ const NAME_KEY = 'nat-birthday-wall-name';
 const REASONS = {
   rate: '留言太频繁，10 分钟后再试',
   blocked: '不能包含链接、号码或联系方式',
-  empty: '写几个字再送出',
+  empty: '写几个字再签上',
   too_long: `最多 ${BODY_MAX} 字`,
   closed: '留言已截止',
-  off: '祝福墙已关闭',
+  off: '贺卡已收起',
 };
 
 const wall = { loading: null, data: null, mask: null, timer: 0, seen: null, sending: false };
@@ -43,7 +44,7 @@ function applyState(data) {
   document.documentElement.classList.toggle('bday-wall', Boolean(data?.wall));
 }
 
-/** 画出生日入口时调；只读一次，决定要不要显示「祝福墙」入口 */
+/** 画出生日入口时调；只读一次，决定要不要显示「生日贺卡」入口 */
 export function loadBirthdayWall() {
   if (!wall.loading) wall.loading = fetchWall().then(applyState);
   return wall.loading;
@@ -66,15 +67,19 @@ function buildMask() {
   mask.innerHTML =
     '<div class="settings-panel bwall" role="dialog" aria-modal="true" aria-labelledby="bwallTitle">' +
     '<button class="settings-close" type="button" aria-label="关闭" data-bwall-close>×</button>' +
-    '<div class="bwall-head"><h2 class="settings-title" id="bwallTitle">给所长的祝福</h2><span class="bwall-count"></span></div>' +
-    '<ol class="bwall-list"></ol>' +
-    '<p class="bwall-empty" hidden>还没有留言</p>' +
+    '<div class="bwall-cover">' +
+    `<span class="bwall-avatar" aria-hidden="true"><img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</span>` +
+    '<span class="bwall-greet"><b id="bwallTitle">生日快乐</b><small>法典创作者 · 所长</small>' +
+    '<span class="bwall-count" hidden></span></span></div>' +
+    '<div class="bwall-page">' +
+    '<ol class="bwall-list" aria-live="polite"></ol>' +
+    '<p class="bwall-empty" hidden>还没有签名</p>' +
     '<form class="bwall-form" novalidate>' +
-    `<textarea name="body" rows="2" maxlength="${BODY_MAX}" placeholder="写一句祝福" aria-label="祝福"></textarea>` +
+    `<input class="bwall-body" name="body" maxlength="${BODY_MAX}" placeholder="在这里签一句" aria-label="祝福" autocomplete="off">` +
     '<div class="bwall-row"><input name="name" maxlength="12" placeholder="署名（可不填）" aria-label="署名" autocomplete="nickname">' +
-    `<span class="bwall-left" aria-hidden="true">0/${BODY_MAX}</span><button class="bwall-send" type="submit" disabled>送出</button></div>` +
+    `<span class="bwall-left" aria-hidden="true">0/${BODY_MAX}</span><button class="bwall-send" type="submit" disabled>签上</button></div>` +
     '<p class="bwall-note" role="status"></p>' +
-    '</form></div>';
+    '</form></div></div>';
   document.body.append(mask);
   const close = () => closeMask(mask);
   mask.querySelector('[data-bwall-close]').addEventListener('click', close);
@@ -93,7 +98,7 @@ function buildMask() {
   body.addEventListener('input', sync);
   form.elements.name.value = readName();
   form.addEventListener('submit', ev => { ev.preventDefault(); void submit(form, sync); });
-  // 关掉面板就停止刷新；Mask 自己的 hidden 由 modal.js 管
+  // 关掉贺卡就停止刷新；Mask 自己的 hidden 由 modal.js 管
   new MutationObserver(() => { if (mask.hidden) stopPolling(); }).observe(mask, { attributes: true, attributeFilter: ['hidden'] });
   return mask;
 }
@@ -106,16 +111,18 @@ function render() {
   const list = mask.querySelector('.bwall-list');
   const fresh = wall.seen ? messages.filter(m => !wall.seen.has(m.id)).map(m => m.id) : [];
   list.innerHTML = messages.map(m =>
-    `<li class="${fresh.includes(m.id) ? 'is-new' : ''}"><p>${esc(m.body)}</p>` +
-    `<small>${m.name ? `${esc(m.name)} · ` : ''}${ago(m.at)}</small></li>`).join('');
+    `<li class="${fresh.includes(m.id) ? 'is-new' : ''}"><span class="bwall-text">${esc(m.body)}</span>` +
+    `<span class="bwall-sig">—— ${m.name ? esc(m.name) : '匿名'} · ${ago(m.at)}</span></li>`).join('');
   wall.seen = new Set(messages.map(m => m.id));
   mask.querySelector('.bwall-empty').hidden = messages.length > 0;
-  mask.querySelector('.bwall-count').textContent = data?.total ? `${data.total} 条` : '';
+  const count = mask.querySelector('.bwall-count');
+  count.hidden = !data?.total;
+  count.textContent = data?.total ? `已有 ${data.total} 份签名` : '';
   const form = mask.querySelector('.bwall-form');
   const writable = Boolean(data?.wall && data.open);
-  form.querySelector('textarea').hidden = !writable;
+  form.querySelector('.bwall-body').hidden = !writable;
   form.querySelector('.bwall-row').hidden = !writable;
-  if (!writable) form.querySelector('.bwall-note').textContent = data?.wall === false ? REASONS.off : REASONS.closed;
+  if (!writable && data) form.querySelector('.bwall-note').textContent = data.wall === false ? REASONS.off : REASONS.closed;
 }
 
 function stopPolling() {
@@ -135,7 +142,7 @@ function schedule() {
   }, POLL_MS);
 }
 
-/** 横幅 / 选择器里的「祝福墙」入口调 */
+/** 横幅 / 选择器里的「生日贺卡」入口调 */
 export async function openBirthdayWall(trigger) {
   wall.mask ||= buildMask();
   openMask(wall.mask, trigger);
@@ -163,7 +170,7 @@ async function submit(form, sync) {
     if (data?.accepted) {
       form.elements.body.value = '';
       rememberName(name);
-      note.textContent = '已收到，审核通过后会出现在墙上';
+      note.textContent = '已收到，审核通过后会签到贺卡上';
     } else {
       note.textContent = REASONS[data?.reason] || '没送出去，稍后再试';
     }

@@ -1155,35 +1155,63 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 .wish-n{display:inline-block;margin-right:-6px;padding:0 6px;border-radius:999px;background:var(--card);
   font:800 10.5px/1.45 var(--font-ui);font-variant-numeric:tabular-nums;color:var(--bday)}
 .banner-bday .wish-n{margin:0 -5px 0 6px;padding:0 5px;font-size:10px;vertical-align:.5px}
-/* 祝福墙入口：生日签 / 送上祝福旁边一颗描边小胶囊；墙关着（html 没有 .bday-wall）就不出现 */
+/* 生日贺卡入口：生日签 / 送上祝福旁边一颗描边小胶囊；墙关着（html 没有 .bday-wall）就不出现 */
 .bd-wall-btn,.banner-wall{padding:1px 8px;border:1px solid var(--bday-line);border-radius:999px;background:none;cursor:pointer;
   font:800 11px/1.3 var(--font-ui);color:var(--bday);transition:background-color .15s,scale .15s}
 .bd-wall-btn:hover,.banner-wall:hover{background:var(--bday-soft)}
 .bd-wall-btn:active,.banner-wall:active{scale:.94}
 .banner-wall{display:inline-block;margin-left:6px;vertical-align:1px}
 html:not(.bday-wall) :is(.bd-wall-btn,.banner-wall){display:none}
-/* 祝福墙面板：沿用设置浮层；留言是一张张烛光色小卡，新上墙的那几条亮一下 */
-.bwall{width:min(460px,100%)}
-.bwall-head{display:flex;align-items:baseline;gap:10px;padding-right:32px}
-.bwall-head .settings-title{margin:0}
-.bwall-count{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.bwall-list{display:flex;flex-direction:column;gap:8px;max-height:min(46vh,420px);margin:14px 0 12px;padding:0 2px 0 0;
-  overflow-y:auto;overscroll-behavior:contain;list-style:none}
-.bwall-list li{padding:10px 12px;border-radius:12px;background:var(--bday-soft)}
-.bwall-list li.is-new{animation:bwallNew 1.6s ease-out}
-@keyframes bwallNew{from{box-shadow:0 0 0 2px var(--bday-line)}to{box-shadow:0 0 0 2px transparent}}
-.bwall-list p{margin:0;font-size:14px;line-height:1.55;color:var(--text);overflow-wrap:anywhere}
-.bwall-list small{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
-.bwall-empty{margin:18px 0;text-align:center;font-size:13px;color:var(--muted)}
-.bwall-form textarea{display:block;box-sizing:border-box;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:12px;resize:none;
-  background:var(--card);color:var(--text);font:14px/1.5 var(--font-ui)}
-.bwall-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+/* 生日贺卡（祝福墙）：沿用设置浮层的背板与开关，面板换成一张对折贺卡——左页封面（戴帽头像、生日快乐、签名数），
+   右页横格信纸，祝福一行行签上去；翻开时从左往右展开，新上墙的那几条像手写一样写出来。窄屏两页上下叠。 */
+.settings-panel.bwall{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);width:min(720px,100%);
+  height:min(520px,calc(100dvh - 40px));max-height:none;padding:0;overflow:hidden}
+.bwall-mask.show .bwall{animation:bwallUnfold .7s cubic-bezier(.2,.8,.2,1)}
+@keyframes bwallUnfold{from{clip-path:inset(0 58% 0 0 round 22px);opacity:.4}}
+.bwall .settings-close{z-index:2}
+.bwall-cover{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px 18px;text-align:center;
+  background:linear-gradient(168deg,var(--bday-soft),color-mix(in srgb,#ff8fb1 13%,transparent)),var(--card);
+  border-right:1px dashed var(--bday-line)}
+.bwall-avatar{position:relative;flex:none;width:96px;height:96px;margin-top:14px}
+.bwall-avatar img{display:block;width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 3px var(--card),0 8px 18px rgba(28,32,58,.16)}
+.bwall-greet{display:flex;flex-direction:column;align-items:center;gap:4px}
+.bwall-greet b{font:900 30px/1.2 var(--font-display);letter-spacing:.14em;color:var(--text)}
+.bwall-greet small{font-size:12px;letter-spacing:.06em;color:var(--muted)}
+.bwall-count{margin-top:6px;padding:2px 10px;border-radius:999px;background:var(--card);color:var(--bday);
+  font:800 12px/1.6 var(--font-ui);font-variant-numeric:tabular-nums}
+.bwall-page{display:flex;flex-direction:column;min-width:0;min-height:0;padding:22px 20px 14px;
+  background:color-mix(in srgb,var(--bday) 3%,var(--card))}
+.bwall-list{flex:1;min-height:0;margin:8px 0 0;padding:0 6px 0 0;list-style:none;overflow-y:auto;overscroll-behavior:contain;
+  background:repeating-linear-gradient(transparent 0 33px,color-mix(in srgb,var(--bday) 16%,transparent) 33px 34px);background-attachment:local}
+.bwall-list li{font:500 15px/34px var(--font-display);color:var(--text);overflow-wrap:anywhere}
+.bwall-sig{margin-left:10px;font-size:12px;color:var(--muted);white-space:nowrap}
+.bwall-list li.is-new{animation:bwallWrite 1.1s steps(18,end)}
+@keyframes bwallWrite{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+.bwall-empty{margin:0;font:500 15px/34px var(--font-display);color:var(--muted)}
+.bwall-form{flex:none;margin-top:8px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--bday) 22%,transparent)}
+.bwall-body{display:block;box-sizing:border-box;width:100%;padding:4px 2px;border:0;border-bottom:1.5px dashed var(--bday-line);
+  background:none;color:var(--text);font:500 16px/1.6 var(--font-display)}
+.bwall-body::placeholder{color:var(--muted)}
+.bwall-row{display:flex;align-items:center;gap:8px;margin-top:10px}
 .bwall-row input{flex:1;min-width:0;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--text);font:13px/1.4 var(--font-ui)}
-.bwall-form :is(textarea,input):focus-visible{outline:2px solid var(--bday-line);outline-offset:1px}
+.bwall-form input:focus-visible{outline:2px solid var(--bday-line);outline-offset:1px}
 .bwall-left{flex:none;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-.bwall-send{flex:none;padding:6px 16px;border:0;border-radius:999px;background:var(--bday);color:#fff;cursor:pointer;font:800 13px/1.3 var(--font-ui)}
+.bwall-send{flex:none;padding:6px 18px;border:0;border-radius:999px;background:var(--bday);color:#fff;cursor:pointer;font:800 13px/1.3 var(--font-ui)}
+body.dark .bwall-send{color:#1b1406}
 .bwall-send:disabled{opacity:.45;cursor:default}
 .bwall-note{min-height:1.4em;margin:8px 2px 0;font-size:12px;color:var(--muted)}
+@media (max-width:640px){
+  .settings-panel.bwall{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:min(620px,calc(100dvh - 32px))}
+  .bwall-mask.show .bwall{animation-name:bwallUnfoldDown}
+  @keyframes bwallUnfoldDown{from{clip-path:inset(0 0 70% 0 round 22px);opacity:.4}}
+  .bwall-cover{flex-direction:row;justify-content:flex-start;gap:14px;padding:18px 48px 14px 18px;text-align:left;
+    border-right:0;border-bottom:1px dashed var(--bday-line)}
+  .bwall-avatar{width:60px;height:60px;margin-top:8px}
+  .bwall-greet{align-items:flex-start;gap:2px}
+  .bwall-greet b{font-size:22px;letter-spacing:.1em}
+  .bwall-count{margin-top:4px}
+  .bwall-page{padding:14px 16px 12px}
+}
 /* 连击：第一下飘「+1」，第二下起头像右上角一枚「×N 连击」章，连得越久越亮（birthday-fx.js 的 createWishCombo） */
 .wish-plus{position:absolute;z-index:2;pointer-events:none;font:900 15px/1 var(--font-display);color:var(--bday);
   text-shadow:0 0 2px var(--card),0 0 6px var(--card)}
@@ -1219,10 +1247,10 @@ html:not(.bday-wall) :is(.bd-wall-btn,.banner-wall){display:none}
 .ibd-meta{display:flex;align-items:center;gap:7px;min-width:0}
 .ibd-pill{flex:none;padding:1px 8px;border-radius:999px;font:800 10.5px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft)}
 .ibd-meta small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html.motion-off :is(.banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li),
+html.motion-off :is(.banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.bwall-mask.show .bwall),
 html.motion-off .codex-menu.bd-enter .bd-hat{animation:none}
 @media (prefers-reduced-motion: reduce){
-  .banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.codex-menu.bd-enter .bd-hat{animation:none}
+  .banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.bwall-mask.show .bwall,.codex-menu.bd-enter .bd-hat{animation:none}
   .bd-avatar,.banner-bday,.bd-wish,.bd-wall-btn,.banner-wall{transition:none}
 }
 .chip-rail{

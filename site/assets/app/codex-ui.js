@@ -435,7 +435,7 @@ export function setupCodexPicker() {
   };
   /* 所长生日（birthday.js）：所长的书所在那一卷（法典），卷头「最近新增」那一格临时换成戴生日帽的所长头像，其余各卷照常；
      手机线路图没有这一格，挂在那条线的线路牌下面。打开选择器时头像看得见就在两侧「噗噗」各放一下礼花。
-     点头像或「送上祝福」送一份祝福（birthday-wishes.js），和横幅生日签共用一个总数；连点有连击章（birthday-fx.js）。 */
+     点头像或「送上祝福」送一份祝福（birthday-wishes.js），和横幅生日签共用一个总数；连点有连击章（birthday-fx.js）；「生日贺卡」打开祝福墙（birthday-wall.js）。 */
   const birthdayPicker = () => (state.codexes || []).some(isBirthdayCodex);
   const birthdayHTML = cls => {
     watchWishes();
@@ -443,7 +443,7 @@ export function setupCodexPicker() {
       `<img src="assets/birthday/suozhang-avatar.webp" alt="" decoding="async">${PARTY_HAT_HTML}</button>` +
       `<span class="bd-text"><b>生日快乐</b><small>法典创作者 · 所长</small>` +
       `<span class="bd-actions"><button type="button" class="bd-wish" tabindex="-1">送上祝福${wishCountHTML()}</button>` +
-      '<button type="button" class="bd-wall-btn" tabindex="-1">祝福墙</button></span></span></span>';
+      '<button type="button" class="bd-wall-btn" tabindex="-1">生日贺卡</button></span></span></span>';
   };
   const celebratePicker = () => {
     const avatar = [...menu.querySelectorAll('.bd-avatar')].find(el => el.getClientRects().length);
@@ -1934,7 +1934,7 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
       `<div class="banner-title">${esc(c.title)}</div>` +
       (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}` +
         `${birthday ? `<button type="button" class="banner-bday" title="送上祝福">生日快乐${wishCountHTML()}</button>` +
-          '<button type="button" class="banner-wall">祝福墙</button>' : ''}</div>` : '') +
+          '<button type="button" class="banner-wall">生日贺卡</button>' : ''}</div>` : '') +
       `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
       `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
