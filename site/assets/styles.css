@@ -1169,16 +1169,59 @@ html:not(.bday-wall) :is(.bd-wall-btn,.banner-wall){display:none}
 .bwall-mask.show .bwall{animation:bwallUnfold .7s cubic-bezier(.2,.8,.2,1)}
 @keyframes bwallUnfold{from{clip-path:inset(0 58% 0 0 round 22px);opacity:.4}}
 .bwall .settings-close{z-index:2}
-.bwall-cover{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px 18px;text-align:center;
+.bwall-cover{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  padding:34px 18px 22px;text-align:center;overflow:hidden;isolation:isolate;
   background:linear-gradient(168deg,var(--bday-soft),color-mix(in srgb,#ff8fb1 13%,transparent)),var(--card);
   border-right:1px dashed var(--bday-line)}
-.bwall-avatar{position:relative;flex:none;width:96px;height:96px;margin-top:14px}
+/* 封面顶上一串彩旗（同横幅那串，居中挂） */
+.bwall-cover .banner-bunting{top:0;left:50%;right:auto;translate:-50% 0;width:min(240px,88%);z-index:-1;animation:none}
+/* 背景里慢慢往上飘的纸屑：颜色同礼花，各自错开时长与起点 */
+.bwall-drift{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.bwall-drift i{position:absolute;bottom:-12px;width:6px;height:9px;border-radius:1.5px;opacity:0;
+  animation:bwallDrift 9s linear infinite}
+.bwall-drift i:nth-child(3n){width:6px;height:6px;border-radius:50%}
+.bwall-drift i:nth-child(3n+1){width:3px;height:12px;border-radius:2px}
+.bwall-drift i:nth-child(6n){background:var(--bday)}
+.bwall-drift i:nth-child(6n+1){background:var(--accent)}
+.bwall-drift i:nth-child(6n+2){background:#ff8fb1}
+.bwall-drift i:nth-child(6n+3){background:#57c3ef}
+.bwall-drift i:nth-child(6n+4){background:#7fcf78}
+.bwall-drift i:nth-child(6n+5){background:#b597ff}
+.bwall-drift i:nth-child(1){left:8%;animation-duration:11s;animation-delay:-1s}
+.bwall-drift i:nth-child(2){left:22%;animation-duration:9s;animation-delay:-6s}
+.bwall-drift i:nth-child(3){left:35%;animation-duration:12s;animation-delay:-3s}
+.bwall-drift i:nth-child(4){left:48%;animation-duration:10s;animation-delay:-8s}
+.bwall-drift i:nth-child(5){left:62%;animation-duration:13s;animation-delay:-2s}
+.bwall-drift i:nth-child(6){left:76%;animation-duration:9.5s;animation-delay:-5s}
+.bwall-drift i:nth-child(7){left:89%;animation-duration:11.5s;animation-delay:-9s}
+.bwall-drift i:nth-child(8){left:15%;animation-duration:14s;animation-delay:-11s}
+.bwall-drift i:nth-child(9){left:42%;animation-duration:10.5s;animation-delay:-4s}
+.bwall-drift i:nth-child(10){left:68%;animation-duration:12.5s;animation-delay:-7s}
+.bwall-drift i:nth-child(11){left:83%;animation-duration:9s;animation-delay:-10s}
+.bwall-drift i:nth-child(12){left:55%;animation-duration:15s;animation-delay:-13s}
+@keyframes bwallDrift{
+  0%{translate:0 0;rotate:0deg;opacity:0}
+  12%{opacity:.55}
+  50%{translate:14px -260px;rotate:200deg}
+  88%{opacity:.4}
+  100%{translate:-6px -560px;rotate:420deg;opacity:0}}
+.bwall-to{align-self:flex-start;margin:-4px 0 2px 4px;font:700 14px/1.4 var(--font-display);letter-spacing:.2em;color:var(--bday)}
+.bwall-avatar{position:relative;flex:none;width:100px;height:100px;margin-top:12px;padding:0;border:0;border-radius:50%;background:none;cursor:pointer;
+  animation:bwallBob 3.6s ease-in-out infinite}
+@keyframes bwallBob{50%{translate:0 -4px}}
 .bwall-avatar img{display:block;width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 3px var(--card),0 8px 18px rgba(28,32,58,.16)}
-.bwall-greet{display:flex;flex-direction:column;align-items:center;gap:4px}
+.bwall-avatar:focus-visible{outline:2px solid var(--bday-line);outline-offset:4px}
+.bwall-mask.show .bwall-avatar .bd-hat{animation:bdHatDrop .6s cubic-bezier(.3,1.5,.5,1) .45s backwards}
+.bwall-tap{font-size:11px;letter-spacing:.06em;color:color-mix(in srgb,var(--bday) 75%,var(--muted))}
+.bwall-greet{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:4px}
 .bwall-greet b{font:900 30px/1.2 var(--font-display);letter-spacing:.14em;color:var(--text)}
 .bwall-greet small{font-size:12px;letter-spacing:.06em;color:var(--muted)}
-.bwall-count{margin-top:6px;padding:2px 10px;border-radius:999px;background:var(--card);color:var(--bday);
+.bwall-stats{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 14px;margin-top:6px;font-size:11px;color:var(--muted)}
+.bwall-stats > span{display:flex;flex-direction:column;align-items:center;gap:1px}
+.bwall-stats b{font:800 17px/1.2 var(--font-ui);font-variant-numeric:tabular-nums;color:var(--text)}
+.bwall-count{margin-top:4px;padding:2px 10px;border-radius:999px;background:var(--card);color:var(--bday);
   font:800 12px/1.6 var(--font-ui);font-variant-numeric:tabular-nums}
+.bwall-thanks{margin:6px 0 0;max-width:15em;font:500 13px/1.6 var(--font-display);color:var(--muted);text-wrap:balance}
 .bwall-page{display:flex;flex-direction:column;min-width:0;min-height:0;padding:22px 20px 14px;
   background:color-mix(in srgb,var(--bday) 3%,var(--card))}
 .bwall-list{flex:1;min-height:0;margin:8px 0 0;padding:0 6px 0 0;list-style:none;overflow-y:auto;overscroll-behavior:contain;
@@ -1204,12 +1247,16 @@ body.dark .bwall-send{color:#1b1406}
   .settings-panel.bwall{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:min(620px,calc(100dvh - 32px))}
   .bwall-mask.show .bwall{animation-name:bwallUnfoldDown}
   @keyframes bwallUnfoldDown{from{clip-path:inset(0 0 70% 0 round 22px);opacity:.4}}
-  .bwall-cover{flex-direction:row;justify-content:flex-start;gap:14px;padding:18px 48px 14px 18px;text-align:left;
-    border-right:0;border-bottom:1px dashed var(--bday-line)}
-  .bwall-avatar{width:60px;height:60px;margin-top:8px}
-  .bwall-greet{align-items:flex-start;gap:2px}
+  .bwall-cover{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px 14px;
+    padding:26px 48px 12px 18px;text-align:left;border-right:0;border-bottom:1px dashed var(--bday-line)}
+  .bwall-cover :is(.bwall-to,.bwall-tap,.bwall-thanks){display:none}
+  .bwall-avatar{grid-row:span 2;width:62px;height:62px;margin-top:6px}
+  .bwall-greet{align-items:flex-start;gap:2px;margin:0}
   .bwall-greet b{font-size:22px;letter-spacing:.1em}
-  .bwall-count{margin-top:4px}
+  .bwall-stats{grid-column:2;justify-content:flex-start;margin:0;gap:2px 12px}
+  .bwall-stats > span{flex-direction:row;align-items:baseline;gap:3px}
+  .bwall-stats b{font-size:13px}
+  .bwall-count{grid-column:1/-1;justify-self:start;margin:2px 0 0}
   .bwall-page{padding:14px 16px 12px}
 }
 /* 连击：第一下飘「+1」，第二下起头像右上角一枚「×N 连击」章，连得越久越亮（birthday-fx.js 的 createWishCombo） */
@@ -1247,10 +1294,13 @@ body.dark .bwall-send{color:#1b1406}
 .ibd-meta{display:flex;align-items:center;gap:7px;min-width:0}
 .ibd-pill{flex:none;padding:1px 8px;border-radius:999px;font:800 10.5px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft)}
 .ibd-meta small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html.motion-off :is(.banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.bwall-mask.show .bwall),
+html.motion-off :is(.banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.bwall-mask.show .bwall,.bwall-avatar,.bwall-mask.show .bwall-avatar .bd-hat),
 html.motion-off .codex-menu.bd-enter .bd-hat{animation:none}
+html.motion-off .bwall-drift{display:none}
 @media (prefers-reduced-motion: reduce){
-  .banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.bwall-mask.show .bwall,.codex-menu.bd-enter .bd-hat{animation:none}
+  .banner-bunting,.bb-flag,.vol-bday,.metro-bday,.wish-combo,.bwall-list li,.bwall-mask.show .bwall,.bwall-avatar,
+  .bwall-mask.show .bwall-avatar .bd-hat,.codex-menu.bd-enter .bd-hat{animation:none}
+  .bwall-drift{display:none}
   .bd-avatar,.banner-bday,.bd-wish,.bd-wall-btn,.banner-wall{transition:none}
 }
 .chip-rail{

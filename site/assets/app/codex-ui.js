@@ -467,7 +467,7 @@ export function setupCodexPicker() {
   const pickerCombo = createWishCombo();
   menu.addEventListener('click', ev => {
     const wallButton = ev.target.closest('.bd-wall-btn');
-    if (wallButton) { void openBirthdayWall(wallButton); return; }
+    if (wallButton) { void openBirthdayWall(wallButton, birthdayBookStats()); return; }
     const avatar = ev.target.closest('.bd-avatar, .bd-wish')?.closest('.vol-bday, .metro-bday')?.querySelector('.bd-avatar');
     if (!avatar) return;
     const counted = sendWish();
@@ -1855,6 +1855,12 @@ function celebrateBanner(banner) {
   window.setTimeout(() => burstConfetti(layer, x, y, { angle: -16, spread: 30, count: 12, reach: b.height * 1.65, fall: b.height * 0.45 }), 170);
 }
 
+/* 生日贺卡封面上的「几本法典 · 多少条词条」：所长名下的书（birthday.js 按 author 认） */
+function birthdayBookStats() {
+  const books = (state.codexes || []).filter(isBirthdayCodex);
+  return { books: books.length, entries: books.reduce((sum, c) => sum + (Number(c.entryCount) || 0), 0) };
+}
+
 /* 「送上祝福」的总数挂在横幅生日签和选择器那颗按钮的尾巴上；总数还没读回来或后端没开时不挂 */
 function wishCountHTML() {
   const total = wishTotal();
@@ -1948,7 +1954,7 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
   if (birthday) {
     watchWishes();
     banner.querySelector('.banner-bday').onclick = () => wishFromBanner(banner);
-    banner.querySelector('.banner-wall').onclick = ev => { void openBirthdayWall(ev.currentTarget); };
+    banner.querySelector('.banner-wall').onclick = ev => { void openBirthdayWall(ev.currentTarget, birthdayBookStats()); };
     if (previousIdentity !== c.id) scheduleBannerCelebration(banner, c.id);
   }
   /* 封面图 onload 渐显（同卡片图 is-loaded 模式）；缓存命中时 complete 已为真，直接显示 */
