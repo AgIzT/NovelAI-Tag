@@ -48,7 +48,11 @@ def read_token():
     advapi = _advapi()
     pointer = ctypes.POINTER(_Credential)()
     if not advapi.CredReadW(TARGET, 1, 0, ctypes.byref(pointer)):
-        raise SystemExit(f"凭据管理器里没有 {TARGET}；先运行 store-token")
+        # 凭据管理器按 Windows 用户分开：令牌存在 Enter 名下，Codex 沙箱里的命令以 CodexSandbox* 用户运行，看不到
+        user = os.environ.get("USERNAME") or "?"
+        raise SystemExit(json.dumps({"ok": False, "error": f"用户 {user} 的凭据管理器里没有 {TARGET}",
+                                     "hint": "令牌存在 Enter 用户名下；请在 Enter 用户上下文（Claude Code，或 Codex 的沙箱外执行）运行本命令"},
+                                    ensure_ascii=False))
     try:
         cred = pointer.contents
         return bytes(cred.CredentialBlob[:cred.CredentialBlobSize]).decode("utf-16-le").strip()
