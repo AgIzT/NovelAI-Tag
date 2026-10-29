@@ -4,10 +4,10 @@ import { wishBinding, wishWindow } from './_birthday_wishes.js';
 /* 所长生日祝福墙（前端 site/assets/app/birthday-wall.js）：先审后发。
    - 访客留言进 pending；审核 agent（BIRTHDAY_MODERATOR_TOKEN）只能把 pending 改成 approved / rejected / held；
      held 是「拿不准，留给维护者」。维护者（ADMIN_TOKEN）可以改任意一条，也能整面墙开关。
-   - 墙上只出现 approved，按通过时间从新到旧。收留言的时段同「送上祝福」（wishWindow）。 */
+   - 墙上只出现 approved，按通过时间从新到旧，当年通过的全给（一条最多百来字节，几百条也只有几十 KB）。收留言的时段同「送上祝福」（wishWindow）。 */
 export const MESSAGE_BODY_MAX = 60;
 export const MESSAGE_NAME_MAX = 12;
-export const WALL_LIMIT = 30;
+export const WALL_LIMIT = 500;
 export const MESSAGE_IP_LIMIT = 5;          // 每个 IP 每 10 分钟
 export const MESSAGE_GLOBAL_LIMIT = 60;     // 全站每分钟
 const MESSAGE_BODY_BYTES = 1024;

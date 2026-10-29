@@ -1,9 +1,9 @@
 import { clientIp, rateIdentifier } from './_engagements.js';
 
 /* 所长生日「送上祝福」（前端 site/assets/app/birthday-wishes.js）。
-   生日同 site/assets/app/birthday.js：10 月 27 日起三天，按访客本地日期。服务端只认 UTC，
-   从最早进入 27 日的时区（UTC+14）收到最晚走完 29 日的时区（UTC−12）。 */
-const BIRTHDAY = { month: 10, day: 27, days: 3 };
+   生日同 site/assets/app/birthday.js：10 月 27 日起到月底，按访客本地日期。服务端只认 UTC，
+   从最早进入 27 日的时区（UTC+14）收到最晚走完 31 日的时区（UTC−12）。 */
+const BIRTHDAY = { month: 10, day: 27, days: 5 };
 export const WISH_BATCH_LIMIT = 100;           // 一次请求最多带多少份（前端连点攒够就发）
 export const WISH_GLOBAL_REQUEST_LIMIT = 600;  // 全站每分钟受理的请求数
 export const WISH_IP_LIMIT = 1500;             // 每个 IP 每分钟的祝福数，比手点快得多，只拦脚本

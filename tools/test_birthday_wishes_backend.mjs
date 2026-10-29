@@ -16,12 +16,12 @@ const before = schemaOf(upgraded);
 upgraded.sqlite.exec(migration);
 assert.deepEqual(schemaOf(upgraded), before);
 
-// 生日窗口：UTC+14 进入 27 日起，到 UTC−12 走完 29 日止
+// 生日窗口：UTC+14 进入 27 日起，到 UTC−12 走完 31 日止
 const at = iso => Date.parse(iso);
 assert.deepEqual(wishWindow(at('2026-10-26T09:59:59.999Z')), { year: '2026', open: false });
 assert.deepEqual(wishWindow(at('2026-10-26T10:00:00Z')), { year: '2026', open: true });
-assert.deepEqual(wishWindow(at('2026-10-30T11:59:59.999Z')), { year: '2026', open: true });
-assert.deepEqual(wishWindow(at('2026-10-30T12:00:00Z')), { year: '2026', open: false });
+assert.deepEqual(wishWindow(at('2026-11-01T11:59:59.999Z')), { year: '2026', open: true });
+assert.deepEqual(wishWindow(at('2026-11-01T12:00:00Z')), { year: '2026', open: false });
 assert.equal(wishWindow(at('2027-10-28T00:00:00Z')).year, '2027');
 
 const origin = 'https://wishes.example.test';
@@ -38,7 +38,7 @@ const env = { COMMUNITY_DB: db, RATE_LIMIT_SALT: 'test-only-salt' };
 assert.deepEqual(await readWishTotal(env, now), { enabled: true, open: true, total: 0 });
 
 // 窗口外不收、不写
-assert.deepEqual(await addWishes(env, request(), 5, at('2026-11-01T00:00:00Z')), { enabled: true, open: false });
+assert.deepEqual(await addWishes(env, request(), 5, at('2026-11-02T00:00:00Z')), { enabled: true, open: false });
 assert.equal(db.rows('SELECT * FROM birthday_wishes').length, 0);
 
 // 累加：同一 UTC 日合一行，跨日分行，总数按年合计
