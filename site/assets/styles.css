@@ -2538,7 +2538,7 @@ body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted);--neg-in
     width .34s cubic-bezier(.22,1,.36,1),height .34s cubic-bezier(.22,1,.36,1),
     border-radius .34s ease;
 }
-/* 电脑上栏高跟内容走、在上下 18px 之间居中，内容多了才贴满再滚动；手机断点仍是固定高度的底部抽屉 */
+/* 电脑上栏高跟内容走、在上下 18px 之间居中；手机底部抽屉可上滑扩大。 */
 .lightbox-info{
   position:absolute;right:18px;top:18px;bottom:18px;width:var(--lb-info-width);cursor:default;
   height:fit-content;max-height:calc(100% - 36px);margin-block:auto;
@@ -2563,6 +2563,7 @@ body.dark .lightbox-info{border-color:rgba(255,255,255,.12)}
 .lb-fold:hover{color:var(--accent);border-color:var(--accent)}
 .lightbox.folded .lb-fold{right:18px}
 .lightbox.no-image .lb-fold{display:none}
+.lb-image-toggle{display:none}
 .lb-fold svg{width:15px;height:15px;stroke:currentColor;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s}
 /* 桌面用「侧栏」图形，免得和紧挨着的「下一张」› 撞形：展开时右格填色，收起后留空。手机仍用上下箭头。 */
 .lb-fold-arrow{display:none}
@@ -2860,6 +2861,18 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-info{
     left:10px;right:10px;top:auto;bottom:10px;width:auto;height:var(--lb-sheet-height);
     padding:24px 14px 14px;border-radius:20px 20px 16px 16px;
+    overscroll-behavior-y:contain;overflow-anchor:none;
+    transition:height .3s cubic-bezier(.22,1,.36,1),transform .3s cubic-bezier(.22,1,.36,1),translate .32s cubic-bezier(.22,1,.36,1),opacity .25s;
+  }
+  /* 上滑后收起图片，把空间交给提示词；恢复入口固定在顶部，不随长文滚走。 */
+  .lightbox.details-expanded{--lb-sheet-height:calc(100vh - 66px)}
+  @supports (height:1dvh){.lightbox.details-expanded{--lb-sheet-height:calc(100dvh - 66px)}}
+  .lightbox.details-expanded .lightbox-stage,.lightbox.details-expanded .lightbox-thumbs,
+  .lightbox.details-expanded .lightbox-nav,.lightbox.details-expanded .lb-fold{visibility:hidden;pointer-events:none}
+  .lightbox:not(.no-image):not(.folded) .lb-image-toggle{
+    display:block;position:absolute;z-index:5;right:10px;top:10px;min-height:36px;padding:7px 14px;
+    border:1px solid var(--line);border-radius:999px;background:var(--glass);color:var(--text);
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--shadow);font-size:12px;font-weight:700;
   }
   .lightbox.folded .lightbox-info{transform:translateY(calc(100% + 20px))}
   .lightbox-head h2{font-size:16px}

@@ -394,6 +394,27 @@ function lightboxInfoFoldedPreference() {
 function syncLightboxInfoFold(lbEl, emptyImage) {
   lbEl.classList.toggle('no-image', emptyImage);
   lbEl.classList.toggle('folded', !emptyImage && lightboxInfoFoldedPreference());
+  setLightboxDetailsExpanded(false);
+}
+
+// 收图是本次阅读状态，独立于「收起信息栏」的持久偏好；换图、重开和回桌面都复原。
+function setLightboxDetailsExpanded(expanded) {
+  const lb = $('#lightbox');
+  expanded = Boolean(expanded && window.matchMedia?.(LB_COMPACT_MEDIA).matches
+    && !lb.classList.contains('no-image') && !lb.classList.contains('folded'));
+  lb.classList.toggle('details-expanded', expanded);
+  const toggle = $('#lightboxImageToggle');
+  if (toggle) {
+    toggle.textContent = expanded ? '显示图片' : '收起图片';
+    toggle.setAttribute('aria-expanded', String(!expanded));
+  }
+  for (const id of ['lightboxStage', 'lightboxThumbs', 'lightboxPrev', 'lightboxNext', 'lightboxFold']) {
+    const element = $('#' + id);
+    if (!element) continue;
+    element.inert = expanded;
+    if (expanded) element.setAttribute('aria-hidden', 'true');
+    else element.removeAttribute('aria-hidden');
+  }
 }
 
 export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
@@ -521,6 +542,7 @@ function cancelLightboxPreloads({ keepOriginal = false } = {}) {
 }
 
 function clearLightboxContent() {
+  setLightboxDetailsExpanded(false);
   closeLightboxMore();
   cancelUiMotion($('#copyPositiveDock'));
   dockSelection = null;
@@ -627,7 +649,7 @@ export function closeLightbox(options = {}) {
   const src = lbSourceImg;
   const flying = lb.classList.contains('flying');
   lb.classList.remove('is-open');
-  if (!flying && src && src.isConnected && img.naturalWidth) {
+  if (!flying && !lb.classList.contains('details-expanded') && src && src.isConnected && img.naturalWidth) {
     const from = img.getBoundingClientRect();
     const to = sourceImageRect(src);
     if (from.width && to.width && to.bottom > -40 && to.top < window.innerHeight + 40) {
@@ -1850,6 +1872,60 @@ function placeTagZhToggle(compact) {
   }
 }
 
+function bindLightboxDetailsSwipe() {
+  const lb = $('#lightbox');
+  const info = $('#lightboxInfo');
+  let gesture = null;
+  const canStart = target => !lb.hidden && window.matchMedia?.(LB_COMPACT_MEDIA).matches
+    && !lb.classList.contains('no-image') && !lb.classList.contains('folded')
+    && !isPageZoomed() && !isLightboxMoreOpen() && !String(window.getSelection?.() || '').trim()
+    && target instanceof Element && Boolean(target.closest('#lightboxInfo,#lightboxStage'))
+    && !target.closest('button,a,input,textarea,select,[contenteditable="true"],[role="button"],.prompt-selection-token');
+  // 捕获点击，避免收图后触摸落点变成另一颗 tag 的点击。
+  lb.addEventListener('click', ev => {
+    if (!gesture?.consumed) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+  }, true);
+  lb.addEventListener('touchstart', ev => {
+    gesture = null;
+    if (ev.touches.length !== 1 || !canStart(ev.target)) return;
+    const touch = ev.touches[0];
+    gesture = { x: touch.clientX, y: touch.clientY, at: Date.now(),
+      expanded: lb.classList.contains('details-expanded'), atTop: info.scrollTop <= 1, consumed: false };
+  }, { passive: true });
+  lb.addEventListener('touchmove', ev => {
+    if (!gesture) return;
+    if (ev.touches.length !== 1 || isPageZoomed()) { gesture = null; return; }
+    if (gesture.consumed) { ev.preventDefault(); return; }
+    if (Date.now() - gesture.at > 700 || String(window.getSelection?.() || '').trim()) { gesture = null; return; }
+    const dx = ev.touches[0].clientX - gesture.x;
+    const dy = ev.touches[0].clientY - gesture.y;
+    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) { gesture = null; return; }
+    const resizing = !gesture.expanded ? dy < -10 : gesture.atTop && dy > 10;
+    if (!resizing || Math.abs(dy) < Math.abs(dx) * 1.25) return;
+    // 首次上滑用于展开抽屉，已展开后的上滑继续交给原生文字滚动。
+    ev.preventDefault();
+    if (Math.abs(dy) < 40) return;
+    gesture.consumed = true;
+    closeArtistPeek();
+    setLightboxDetailsExpanded(!gesture.expanded);
+  }, { passive: false });
+  lb.addEventListener('touchend', () => {
+    const finished = gesture;
+    window.setTimeout(() => { if (gesture === finished) gesture = null; }, 350);
+  }, { passive: true });
+  lb.addEventListener('touchcancel', () => { gesture = null; }, { passive: true });
+  lb.addEventListener('wheel', ev => {
+    if (ev.ctrlKey || !canStart(ev.target) || Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;
+    const expanded = lb.classList.contains('details-expanded');
+    if ((!expanded && ev.deltaY > 12) || (expanded && info.scrollTop <= 1 && ev.deltaY < -24)) {
+      ev.preventDefault();
+      setLightboxDetailsExpanded(!expanded);
+    }
+  }, { passive: false });
+}
+
 export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-width:600px)') } = {}) {
   let suppressLightboxClick = false;
   let moreClosedByThisClick = false;
@@ -1890,9 +1966,16 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   $('#lightboxFold').onclick = ev => {
     ev.stopPropagation();
     const lbEl = $('#lightbox');
+    setLightboxDetailsExpanded(false);
     lbEl.classList.toggle('folded');
     localStorage.setItem('fadian-lbinfo', lbEl.classList.contains('folded') ? 'folded' : 'open');
   };
+  $('#lightboxImageToggle')?.addEventListener('click', ev => {
+    ev.stopPropagation();
+    setLightboxDetailsExpanded(!$('#lightbox').classList.contains('details-expanded'));
+  });
+  window.matchMedia?.(LB_COMPACT_MEDIA).addEventListener?.('change', () => setLightboxDetailsExpanded(false));
+  bindLightboxDetailsSwipe();
   $('#lightboxClose').onclick = closeLightbox;
   const tagZhToggle = $('#tagZhToggle');
   if (tagZhToggle) {
@@ -1943,6 +2026,8 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   const canStartLightboxSwipe = target =>
     !isPageZoomed() && !target.closest('.lightbox-info,.lightbox-thumbs,.lb-circle,.lb-fold');
   const commitLightboxSwipe = (dx, dy, elapsed) => {
+    // 同一次触摸可能先发 pointerup、再发 touchend，只结算一次翻页。
+    if (Date.now() - lastLightboxSwipeAt < 220) return false;
     if (elapsed > 800 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.2) return false;
     const direction = dx < 0 ? 1 : -1;
     if (!stepLightbox(direction)) return false;
@@ -1995,7 +2080,6 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
     const dy = ev.clientY - lightboxPointer.y;
     const elapsed = Date.now() - lightboxPointer.at;
     lightboxPointer = null;
-    if (Date.now() - lastLightboxSwipeAt < 220) return;
     commitLightboxSwipe(dx, dy, elapsed);
   });
   $('#lightbox').addEventListener('pointercancel', ev => {
