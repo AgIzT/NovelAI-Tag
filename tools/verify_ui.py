@@ -2152,9 +2152,9 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         def click(sel):
             cdp.eval("document.querySelector(%s).click()" % json.dumps(sel))
 
-        # 1) 六套皮肤都要真的换掉 accent，不许两套撞色
+        # 1) 每套皮肤都要真的换掉 accent，不许两套撞色
         accents = {}
-        for skin in ["", "teal", "sakura", "amber", "indigo", "ink"]:
+        for skin in ["", "teal", "sakura", "amber", "indigo", "ink", "dream"]:
             click('#themeControl [data-theme="%s"]' % skin)
             settle(cdp, 120)
             now = cdp.eval(state_expr)
@@ -2163,6 +2163,45 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             accents[skin or "base"] = now["accent"]
         if len(set(accents.values())) != len(accents):
             raise CheckFailed("有皮肤共用同一个 accent：%s" % accents)
+
+        # 1b) 梦境：光晕只在浅色档、铺在内容后面；手机选择栏静止透明，吸顶后恢复蒙层；其它皮肤都不受影响
+        wash_expr = """(() => {
+  const s = getComputedStyle(document.body, '::before');
+  return { content: s.content, image: s.backgroundImage, position: s.position, zIndex: s.zIndex };
+})()"""
+        rail_bg_expr = "getComputedStyle(document.querySelector('#chipRail')).backgroundColor"
+        click('#darkModeControl [data-dark-mode="light"]')
+        click('#themeControl [data-theme="dream"]')
+        settle(cdp, 150)
+        wash = cdp.eval(wash_expr)
+        if "radial-gradient" not in wash["image"] or wash["position"] != "fixed" or wash["zIndex"] != "-1":
+            raise CheckFailed("梦境浅色档没有铺光晕：%s" % wash)
+        click('#darkModeControl [data-dark-mode="dark"]')
+        settle(cdp, 150)
+        if cdp.eval(wash_expr)["content"] != "none":
+            raise CheckFailed("梦境深色档不该有光晕：%s" % cdp.eval(wash_expr))
+        click('#darkModeControl [data-dark-mode="light"]')
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        wait_for(cdp, "document.querySelector('#chipRail .rail-chip') && document.querySelectorAll('.card').length >= 4", "theme axes rail", timeout=15)
+        cdp.eval("scrollTo(0, 0)")
+        settle(cdp, 400)
+        rail_rest = cdp.eval(rail_bg_expr)
+        if rail_rest != "rgba(0, 0, 0, 0)":
+            raise CheckFailed("梦境手机选择栏静止时应透明：%s" % rail_rest)
+        cdp.eval("scrollTo(0, 700)")
+        settle(cdp, 500)
+        rail_stuck = cdp.eval(rail_bg_expr)
+        if rail_stuck == "rgba(0, 0, 0, 0)":
+            raise CheckFailed("梦境手机选择栏吸顶后没有恢复蒙层")
+        cdp.eval("scrollTo(0, 0)")
+        settle(cdp, 200)
+        click('#themeControl [data-theme=""]')
+        settle(cdp, 400)
+        rail_default = cdp.eval(rail_bg_expr)
+        if cdp.eval(wash_expr)["content"] != "none" or rail_default == "rgba(0, 0, 0, 0)":
+            raise CheckFailed("默认皮肤被梦境的光晕或选择栏规则影响：%s" % rail_default)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        settle(cdp, 200)
 
         # 2) 素墨深色档：accent 是亮灰，前景必须靠 --on-accent 压深，否则按钮上的字会糊掉
         click('#themeControl [data-theme="ink"]')

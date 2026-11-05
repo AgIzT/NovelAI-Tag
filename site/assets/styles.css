@@ -3142,6 +3142,8 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border-bottom:1px solid var(--line);
   }
+  /* 梦境浅色有页面光晕：白色蒙层静止时会切出一条白带，吸顶压到图片上才需要它（.is-stuck 见 ui.js） */
+  body.theme-dream:not(.dark) .chip-rail:not(.is-stuck){background:transparent;border-bottom-color:transparent}
   .main.skeleton-visible .chip-rail:empty{min-height:46px}
   .main.skeleton-visible .chip-rail:empty::before{
     width:70px;height:29px;
@@ -3234,6 +3236,9 @@ html.vt-arrived .float-actions{animation:none}
 .banner-cover img.is-loaded{opacity:1}
 /* skeleton-visible 的 0.72 变暗恢复时平滑过渡，不再瞬跳 */
 .codex-banner,.chip-rail,.result-bar{transition:opacity .25s ease}
+@media (max-width:600px) and (prefers-reduced-motion:no-preference){
+  body.theme-dream:not(.dark) .chip-rail{transition:opacity .25s ease,background-color .18s ease,border-color .18s ease}
+}
 
 /* 分类胶囊错峰荡入：胶囊每次换法典都是 innerHTML 重建的新节点，插入即播（同横幅子元素模式，免疫 display 重启）；
    平时点选分类只改 active 类不重建，不会误触发 */
@@ -3318,6 +3323,7 @@ html.intro-arm .intro-stage{
   display:block;position:fixed;inset:0;z-index:90;pointer-events:none;
 }
 html.intro-arm .intro-veil{position:absolute;inset:0;background:var(--bg);pointer-events:auto}
+html.intro-arm body.theme-dream:not(.dark) .intro-veil{background:var(--page-wash),var(--bg)}
 /* 牌堆：站里同款卡片的背面叠成一副牌，等数据时由 intro.js 切牌；开幕时首排几张从牌顶翻面飞到各自的位置。
    尺寸照首排卡片估：竖图（753×1100）+ 卡身；桌面宽随视口在 172–236px 之间，手机取 40vw。
    放在屏幕中间偏上：开幕后首排就在它两侧和下方，发牌的路线以横向为主。 */

@@ -15,6 +15,7 @@ export const THEMES = [
   { id: 'amber', name: '暖金' },
   { id: 'indigo', name: '靛蓝' },
   { id: 'ink', name: '素墨' },
+  { id: 'dream', name: '梦境' },
 ];
 /* 界面字体：与配色、深浅色都正交，字族全部已在 index.html 载入，换档不发新请求 */
 export const FONT_STORAGE_KEY = 'fadian-font';

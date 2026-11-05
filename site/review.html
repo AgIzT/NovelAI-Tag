@@ -15,7 +15,7 @@
   const dark=mode==='dark'||(mode==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)
     ||(!mode&&(storedDark==='1'||(storedDark===null&&legacyDark==='true')));
   const storedTheme=localStorage.getItem('fadian-theme');
-  const theme=['teal','sakura','amber','indigo','ink'].includes(storedTheme)?storedTheme:'';
+  const theme=['teal','sakura','amber','indigo','ink','dream'].includes(storedTheme)?storedTheme:'';
   window.__adminTheme={dark,theme};
   document.documentElement.style.colorScheme=dark?'dark':'light';
 }catch(e){window.__adminTheme={dark:false,theme:''}}})();

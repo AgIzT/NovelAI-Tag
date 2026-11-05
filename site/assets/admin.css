@@ -7,6 +7,7 @@
 }
 html,body{margin:0}
 html{min-width:320px;scrollbar-gutter:stable;background:var(--bg)}
+body.theme-dream:not(.dark)::before{content:none}   /* 审核台有自己的底，梦境的页面光晕不进来 */
 body{
   min-height:100vh;overflow-x:clip;
   background:

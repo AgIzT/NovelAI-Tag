@@ -1175,6 +1175,18 @@ export function bindUI() {
     rail.scrollLeft += ev.deltaY;
   }, { passive: false });
 
+  /* 手机选择栏吸顶判定：零高度哨兵越过顶栏下沿就算吸顶，目前只有梦境浅色用（styles.css）。
+     顶栏收起时吸顶线会上移，这里按展开时算：蒙层最多早出现一小段，那时选择栏下面还没有内容。 */
+  if (rail) {
+    const sentinel = document.createElement('div');
+    sentinel.setAttribute('aria-hidden', 'true');
+    rail.before(sentinel);
+    const topbarHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 64;
+    new IntersectionObserver(([entry]) => {
+      rail.classList.toggle('is-stuck', !entry.isIntersecting);
+    }, { rootMargin: `-${topbarHeight + 2}px 0px 0px 0px` }).observe(sentinel);
+  }
+
   backTopBtn.onclick = () => {
     scrollToTop();
   };
