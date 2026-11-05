@@ -62,6 +62,7 @@ let lbNoticeTimer = 0;
 let lbOriginalState = { status: '', readable: false };
 let lbOriginalPreload = null;
 let lbNegativeFollowUpSeq = 0;
+let lbDetailsMotion = null;
 const lbPreloadCache = new Map();
 const LB_PRELOAD_CACHE_LIMIT = 300;
 
@@ -292,6 +293,7 @@ export function lightboxImageAspect(entry, images = []) {
 }
 
 export function layoutLightboxFrame() {
+  cancelLightboxDetailsMotion();
   const lbEl = $('#lightbox');
   const lb = state.lightbox;
   const item = lb?.images?.[lb.index];
@@ -419,11 +421,37 @@ function syncLightboxMediaVisibility(lb = $('#lightbox')) {
   }
 }
 
+function cancelLightboxDetailsMotion() {
+  const motion = lbDetailsMotion;
+  if (!motion) return;
+  lbDetailsMotion = null;
+  motion.animations.forEach(animation => animation.cancel());
+  $('#lightbox').classList.remove('details-moving', 'details-measuring');
+}
+
 // 收图是本次阅读状态，独立于「收起信息栏」的持久偏好；换图、重开和回桌面都复原。
-function setLightboxDetailsExpanded(expanded) {
+function setLightboxDetailsExpanded(expanded, { animate = false } = {}) {
   const lb = $('#lightbox');
   expanded = Boolean(expanded && window.matchMedia?.(LB_COMPACT_MEDIA).matches
     && !lb.classList.contains('no-image') && !lb.classList.contains('folded'));
+  const info = $('#lightboxInfo');
+  const actions = $('#lightboxActions');
+  const media = ['lightboxStage', 'lightboxThumbs', 'lightboxPrev', 'lightboxNext', 'lightboxFold']
+    .map(id => $('#' + id)).filter(Boolean);
+  const moving = animate && expanded !== lb.classList.contains('details-expanded')
+    && !lb.hidden && lb.classList.contains('is-open') && !lb.classList.contains('lb-settling')
+    && !prefersReducedMotion() && !document.documentElement.classList.contains('motion-off')
+    && Boolean(info?.animate && actions?.animate);
+  // 先取正在显示的帧再取消：连点反向从当前位置接续，不跳回上一个端点。
+  const from = moving ? {
+    top: info.getBoundingClientRect().top,
+    actionsTop: actions.getBoundingClientRect().top,
+    media: media.map(element => {
+      const style = getComputedStyle(element);
+      return { opacity: style.opacity, translate: style.translate };
+    }),
+  } : null;
+  cancelLightboxDetailsMotion();
   lb.classList.toggle('details-expanded', expanded);
   const toggle = $('#lightboxImageToggle');
   if (toggle) {
@@ -431,6 +459,41 @@ function setLightboxDetailsExpanded(expanded) {
     toggle.setAttribute('aria-expanded', String(!expanded));
   }
   syncLightboxMediaVisibility(lb);
+  if (!moving) return;
+
+  // 两端只排版一次；过渡中保持大抽屉几何，用平移和裁剪让底边固定，文字不缩放。
+  lb.classList.add('details-moving', 'details-measuring');
+  const compactRect = info.getBoundingClientRect();
+  const compactActionsTop = actions.getBoundingClientRect().top;
+  lb.classList.remove('details-measuring');
+  const fullRect = info.getBoundingClientRect();
+  const fullActionsTop = actions.getBoundingClientRect().top;
+  const travel = compactRect.top - fullRect.top;
+  const start = clamp(from.top - fullRect.top, 0, travel);
+  const end = expanded ? 0 : travel;
+  const duration = Math.max(180, 440 * Math.min(1, Math.abs(end - start) / Math.max(1, travel)));
+  const motion = { animations: [] };
+  const play = (element, frames) => motion.animations.push(element.animate(frames, {
+    duration, easing: 'cubic-bezier(.25,.75,.25,1)', fill: 'both',
+  }));
+  const clip = offset => `inset(0px 0px ${offset}px 0px round 20px 20px 16px 16px)`;
+  play(info, [
+    { translate: `0 ${start}px`, clipPath: clip(start) },
+    { translate: `0 ${end}px`, clipPath: clip(end) },
+  ]);
+  // sticky 动作栏独立抵消抽屉的位移，复制与收藏始终留在原来的底边。
+  play(actions, [
+    { translate: `0 ${from.actionsTop - fullActionsTop - start}px` },
+    { translate: `0 ${(expanded ? fullActionsTop : compactActionsTop) - fullActionsTop - end}px` },
+  ]);
+  media.forEach((element, index) => play(element, [
+    { opacity: from.media[index].opacity, translate: from.media[index].translate },
+    { opacity: expanded ? 0 : 1, translate: expanded ? '0 -24px' : '0 0' },
+  ]));
+  lbDetailsMotion = motion;
+  Promise.all(motion.animations.map(animation => animation.finished)).then(() => {
+    if (lbDetailsMotion === motion) cancelLightboxDetailsMotion();
+  }, () => {});
 }
 
 export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
@@ -601,6 +664,7 @@ function clearLightboxContent() {
 
 export function closeLightbox(options = {}) {
   const lb = $('#lightbox');
+  cancelLightboxDetailsMotion();
   if (lb.hidden) {
     lbSeq += 1;
     clearTimeout(lbCloseTimer);
@@ -1985,7 +2049,7 @@ function bindLightboxDetailsSwipe() {
     if (Math.abs(dy) < 40) return;
     gesture.consumed = true;
     closeArtistPeek();
-    setLightboxDetailsExpanded(!gesture.expanded);
+    setLightboxDetailsExpanded(!gesture.expanded, { animate: true });
   }, { passive: false });
   lb.addEventListener('touchend', () => {
     const finished = gesture;
@@ -1997,7 +2061,7 @@ function bindLightboxDetailsSwipe() {
     const expanded = lb.classList.contains('details-expanded');
     if ((!expanded && ev.deltaY > 12) || (expanded && info.scrollTop <= 1 && ev.deltaY < -24)) {
       ev.preventDefault();
-      setLightboxDetailsExpanded(!expanded);
+      setLightboxDetailsExpanded(!expanded, { animate: true });
     }
   }, { passive: false });
 }
@@ -2048,7 +2112,7 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   };
   $('#lightboxImageToggle')?.addEventListener('click', ev => {
     ev.stopPropagation();
-    setLightboxDetailsExpanded(!$('#lightbox').classList.contains('details-expanded'));
+    setLightboxDetailsExpanded(!$('#lightbox').classList.contains('details-expanded'), { animate: true });
   });
   window.matchMedia?.(LB_COMPACT_MEDIA).addEventListener?.('change', () => setLightboxDetailsExpanded(false));
   bindLightboxDetailsSwipe();

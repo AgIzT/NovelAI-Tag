@@ -2861,17 +2861,25 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox-info{
     left:10px;right:10px;top:auto;bottom:10px;width:auto;height:var(--lb-sheet-height);
     padding:24px 14px 14px;border-radius:20px 20px 16px 16px;
-    overscroll-behavior-y:contain;overflow-anchor:none;
-    transition:height .3s cubic-bezier(.22,1,.36,1),transform .3s cubic-bezier(.22,1,.36,1),translate .32s cubic-bezier(.22,1,.36,1),opacity .25s;
+    display:flex;flex-direction:column;overscroll-behavior-y:contain;overflow-anchor:none;
+    transition:transform .3s cubic-bezier(.22,1,.36,1),translate .32s cubic-bezier(.22,1,.36,1),opacity .25s;
   }
   /* 上滑后收起图片，把空间交给提示词；恢复入口固定在顶部，不随长文滚走。 */
-  .lightbox:is(.details-expanded,.no-image-reader){--lb-sheet-height:calc(100vh - 66px)}
-  @supports (height:1dvh){.lightbox:is(.details-expanded,.no-image-reader){--lb-sheet-height:calc(100dvh - 66px)}}
-  .lightbox:is(.details-expanded,.no-image-reader) :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){visibility:hidden;pointer-events:none}
-  /* 无图详情短文也让底栏贴底；长文保留整栏滚动和既有 sticky 底栏。 */
-  .lightbox.no-image-reader .lightbox-info{display:flex;flex-direction:column}
-  .lightbox.no-image-reader :is(.lightbox-head,.lightbox-section,.lightbox-actions){flex-shrink:0}
-  .lightbox.no-image-reader .lightbox-actions{margin-top:auto}
+  .lightbox.no-image-reader{--lb-sheet-height:calc(100vh - 66px)}
+  .lightbox:is(.details-expanded,.details-moving) .lightbox-info{height:calc(100vh - 66px)}
+  @supports (height:1dvh){
+    .lightbox.no-image-reader{--lb-sheet-height:calc(100dvh - 66px)}
+    .lightbox:is(.details-expanded,.details-moving) .lightbox-info{height:calc(100dvh - 66px)}
+  }
+  /* 两端沿用同一排版，短文的底栏也贴底，避免动效起止重新切换 flex / block。 */
+  .lightbox-info :is(.lightbox-head,.lightbox-section,.lightbox-actions){flex-shrink:0}
+  .lightbox-info .lightbox-actions{margin-top:auto}
+  .lightbox.details-measuring .lightbox-info{height:var(--lb-sheet-height)}
+  .lightbox.details-expanded :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){opacity:0;translate:0 -24px;visibility:hidden;pointer-events:none}
+  .lightbox.no-image-reader :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){visibility:hidden;pointer-events:none}
+  .lightbox.details-moving :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){visibility:visible;pointer-events:none;will-change:opacity,translate}
+  .lightbox.details-moving .lightbox-info{transition:none;will-change:translate,clip-path}
+  .lightbox.details-moving .lightbox-actions{will-change:translate}
   .lightbox:not(.no-image):not(.folded) .lb-image-toggle{
     display:block;position:absolute;z-index:5;right:10px;top:10px;min-height:36px;padding:7px 14px;
     border:1px solid var(--line);border-radius:999px;background:var(--glass);color:var(--text);
