@@ -2592,18 +2592,18 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px)}
 #copyPositive{background:var(--accent);color:var(--on-accent)}
 /* 负面复制是描边按钮：--new 同时表示 NEW 和出错，实心粉红读起来像危险操作 */
-:is(#copyNegative,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)){
+:is(#copyNegative,#copyNegativeDock,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)){
   border:1px solid color-mix(in srgb,var(--new) 45%,var(--line));
   background:color-mix(in srgb,var(--new) 8%,var(--card));color:var(--neg-ink);
 }
-:is(#copyNegative,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)):hover{
+:is(#copyNegative,#copyNegativeDock,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)):hover{
   background:color-mix(in srgb,var(--new) 14%,var(--card));filter:none;
 }
 /* 动作行：收藏、原图、分享平底细边框；原始提示词、反馈、不想看是不带底的文字按钮，靠右。
    电脑上复制都在各小节标题栏里，不放「复制全部」（瀑布流卡片上有「全部」）。 */
 #copyPositiveDock{background:var(--accent);color:var(--on-accent);border:1px solid transparent}
 /* 底栏的「复制正向」「⋯」和菜单里的「复制全部」只在手机抽屉里出现（见下方窄屏规则） */
-#copyPositiveDock,.lightbox-more,#copyAll{display:none}
+#copyPositiveDock,#copyNegativeDock,.lightbox-more,#copyAll{display:none}
 #favoriteLightbox,#viewOriginal,#shareLightbox{background:var(--tagbg);color:var(--text);border:1px solid var(--line);box-shadow:none}
 #favoriteLightbox:hover,#viewOriginal:not(:disabled):hover,#shareLightbox:hover{background:var(--tagbg-hover);filter:none}
 .lightbox-actions-minor{display:flex;flex-wrap:wrap;gap:2px;margin-left:auto}
@@ -2865,10 +2865,13 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     transition:height .3s cubic-bezier(.22,1,.36,1),transform .3s cubic-bezier(.22,1,.36,1),translate .32s cubic-bezier(.22,1,.36,1),opacity .25s;
   }
   /* 上滑后收起图片，把空间交给提示词；恢复入口固定在顶部，不随长文滚走。 */
-  .lightbox.details-expanded{--lb-sheet-height:calc(100vh - 66px)}
-  @supports (height:1dvh){.lightbox.details-expanded{--lb-sheet-height:calc(100dvh - 66px)}}
-  .lightbox.details-expanded .lightbox-stage,.lightbox.details-expanded .lightbox-thumbs,
-  .lightbox.details-expanded .lightbox-nav,.lightbox.details-expanded .lb-fold{visibility:hidden;pointer-events:none}
+  .lightbox:is(.details-expanded,.no-image-reader){--lb-sheet-height:calc(100vh - 66px)}
+  @supports (height:1dvh){.lightbox:is(.details-expanded,.no-image-reader){--lb-sheet-height:calc(100dvh - 66px)}}
+  .lightbox:is(.details-expanded,.no-image-reader) :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){visibility:hidden;pointer-events:none}
+  /* 无图详情短文也让底栏贴底；长文保留整栏滚动和既有 sticky 底栏。 */
+  .lightbox.no-image-reader .lightbox-info{display:flex;flex-direction:column}
+  .lightbox.no-image-reader :is(.lightbox-head,.lightbox-section,.lightbox-actions){flex-shrink:0}
+  .lightbox.no-image-reader .lightbox-actions{margin-top:auto}
   .lightbox:not(.no-image):not(.folded) .lb-image-toggle{
     display:block;position:absolute;z-index:5;right:10px;top:10px;min-height:36px;padding:7px 14px;
     border:1px solid var(--line);border-radius:999px;background:var(--glass);color:var(--text);
@@ -2887,7 +2890,11 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   /* 抽屉矮，折起高度跟着收到「展开全部」在首屏露在吸底动作行之上；收起后滚回按钮时也让开动作行 */
   .lightbox-info{--prompt-fold:120px}
   .prompt-fold-toggle{min-height:38px;scroll-margin-bottom:76px}
-  #copyPositiveDock:not([hidden]),#copyAll:not([hidden]){display:inline-block}
+  #copyPositiveDock:not([hidden]),#copyNegativeDock:not([hidden]),#copyAll:not([hidden]){display:inline-block}
+  /* 复制正向后把负面接在底栏；原图与分享由脚本移进更多，四颗按钮留在一行。 */
+  .lightbox-actions.has-negative-followup{flex-wrap:nowrap}
+  .lightbox-actions.has-negative-followup > :is(#copyPositiveDock,#copyNegativeDock){flex:1 1 auto;min-width:0;padding-inline:10px;white-space:nowrap}
+  .lightbox-actions.has-negative-followup > :is(#favoriteLightbox,#lightboxMore){flex:none}
   /* 选 tag 时底栏主按钮改成「复制所选 / 复制 N 项」，一项没选时不可点 */
   #copyPositiveDock:disabled{opacity:.45;cursor:default;filter:none;transform:none}
   .lightbox-more:not([hidden]){
@@ -3025,6 +3032,17 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     flex-basis:248px;width:248px;padding:14px 10px;border-color:var(--line);
   }
   .tree{overscroll-behavior:contain}
+  .tree-row{min-height:44px;padding-block:0}
+  /* 触摸外框固定不转不缩；只转内部字形，避免快速连点落到父目录。 */
+  .tree .tree-row .tw-arrow[role="button"]{
+    display:grid;place-items:center;flex:0 0 44px;width:44px;height:44px;border-radius:9px;
+    position:relative;font-size:0;transform:none;scale:none;touch-action:manipulation;transition:background .16s;
+  }
+  .tree .tree-row .tw-arrow[role="button"]::before{content:"▾";position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;font-size:10px;line-height:1;transform:rotate(0);transition:transform .2s cubic-bezier(.22,1,.36,1)}
+  .tree-item.collapsed>.tree-row .tw-arrow[role="button"]::before{transform:rotate(-90deg)}
+  .tree-row .tw-arrow[role="button"]:is(:hover,:active){background:var(--tagbg-hover)}
+  .tree-row .tw-arrow[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+  @media (prefers-reduced-motion:reduce){.tree .tree-row .tw-arrow[role="button"]::before{transition:none}}
   .codex-pick{flex:1;min-width:0}
   .codex-btn{width:100%;max-width:none;padding:0 10px}
   .codex-btn span{flex:1}
@@ -3052,12 +3070,13 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   /* 原生按钮保留键盘 / 读屏入口；键盘聚焦才显示，不占卡片正文高度。 */
   .masonry .card-detail-btn{display:block}
   .masonry .card-img{object-fit:contain}
-  body .masonry .card-title-row{flex-wrap:nowrap;gap:6px;margin-bottom:6px}
+  body .masonry .card-title-row{flex-wrap:nowrap;align-items:center;min-height:44px;gap:6px;margin-bottom:6px}
   .masonry .card-title{flex:1;min-width:0}
   body .masonry .card-title-row .fav-btn{
-    display:flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:20px;
-    margin:0;padding:0;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;
+    margin:0;padding:0;border-radius:8px;scale:none;touch-action:manipulation;
   }
+  body .masonry .card-title-row .fav-btn:active::before{scale:.88}
   .masonry :is(.hide-card-btn,.card-actions,.zoom-btn,.favorite-organize-button),
   .masonry .card-title-row :is(.badge-new,.badge-neg-chip,.badge-char-chip){display:none}
   body.density-standard .masonry .card-body{padding:9px}
@@ -3065,7 +3084,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   body.density-compact .masonry .card-img{object-fit:cover}
   body.density-compact .masonry .card-title-row{gap:5px;margin-bottom:5px}
   body.density-compact .masonry .card-title{-webkit-line-clamp:1}
-  body.density-compact .masonry .card-title-row .fav-btn{flex:none;width:auto;height:auto;padding:1px 3px;border-radius:6px}
+  body.density-compact .masonry .card-title-row .fav-btn{border-radius:8px}
   body.density-compact .masonry .card:not(.no-img) .card-tags{display:none}
   body .masonry .card-foot{flex-wrap:wrap;gap:4px;margin-top:6px;min-height:14px}
   body .masonry .card-path{flex:1;min-width:0;font-size:10px;line-height:14px}

@@ -29,9 +29,11 @@ import { bindBackdropDismiss, isGlobalShortcutBlocked, trapFocus } from './modal
 import {
   flushDeferredFavoritesViewRefresh,
   isFav,
+  openFavoriteOrganize,
   setFavoriteButtonState,
   toggleFav,
 } from './favorites.js';
+import { subscribeLibrary } from './favorites-library-store.js';
 import {
   clearTagZhDetails,
   isTagZhComplete,
@@ -59,6 +61,7 @@ let lbRecentTimer = 0;
 let lbNoticeTimer = 0;
 let lbOriginalState = { status: '', readable: false };
 let lbOriginalPreload = null;
+let lbNegativeFollowUpSeq = 0;
 const lbPreloadCache = new Map();
 const LB_PRELOAD_CACHE_LIMIT = 300;
 
@@ -288,7 +291,7 @@ export function lightboxImageAspect(entry, images = []) {
   return aspect;
 }
 
-function layoutLightboxFrame() {
+export function layoutLightboxFrame() {
   const lbEl = $('#lightbox');
   const lb = state.lightbox;
   const item = lb?.images?.[lb.index];
@@ -297,6 +300,7 @@ function layoutLightboxFrame() {
     ? (lightboxImageAspect(lb.entry, lb.images) || (img?.naturalHeight ? img.naturalWidth / img.naturalHeight : 0))
     : 0;
   if (!lbEl || lbEl.hidden) return;
+  syncLightboxReaderLayout(lbEl);
   const compact = window.matchMedia?.(LB_COMPACT_MEDIA).matches;
   // 量灯箱自身：根元素的 scrollbar-gutter 会让它比 innerWidth 窄一条滚动条槽
   const width = lbEl.clientWidth;
@@ -394,7 +398,25 @@ function lightboxInfoFoldedPreference() {
 function syncLightboxInfoFold(lbEl, emptyImage) {
   lbEl.classList.toggle('no-image', emptyImage);
   lbEl.classList.toggle('folded', !emptyImage && lightboxInfoFoldedPreference());
+  syncLightboxReaderLayout(lbEl);
   setLightboxDetailsExpanded(false);
+}
+
+function syncLightboxReaderLayout(lb = $('#lightbox')) {
+  lb.classList.toggle('no-image-reader', lb.classList.contains('no-image')
+    && Boolean(window.matchMedia?.(LB_COMPACT_MEDIA).matches) && !document.getElementById('editModeCss'));
+  syncLightboxMediaVisibility(lb);
+}
+
+function syncLightboxMediaVisibility(lb = $('#lightbox')) {
+  const hidden = lb.classList.contains('details-expanded') || lb.classList.contains('no-image-reader');
+  for (const id of ['lightboxStage', 'lightboxThumbs', 'lightboxPrev', 'lightboxNext', 'lightboxFold']) {
+    const element = $('#' + id);
+    if (!element) continue;
+    element.inert = hidden;
+    if (hidden) element.setAttribute('aria-hidden', 'true');
+    else element.removeAttribute('aria-hidden');
+  }
 }
 
 // 收图是本次阅读状态，独立于「收起信息栏」的持久偏好；换图、重开和回桌面都复原。
@@ -408,13 +430,7 @@ function setLightboxDetailsExpanded(expanded) {
     toggle.textContent = expanded ? '显示图片' : '收起图片';
     toggle.setAttribute('aria-expanded', String(!expanded));
   }
-  for (const id of ['lightboxStage', 'lightboxThumbs', 'lightboxPrev', 'lightboxNext', 'lightboxFold']) {
-    const element = $('#' + id);
-    if (!element) continue;
-    element.inert = expanded;
-    if (expanded) element.setAttribute('aria-hidden', 'true');
-    else element.removeAttribute('aria-hidden');
-  }
+  syncLightboxMediaVisibility(lb);
 }
 
 export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
@@ -542,10 +558,13 @@ function cancelLightboxPreloads({ keepOriginal = false } = {}) {
 }
 
 function clearLightboxContent() {
+  $('#lightbox').classList.remove('no-image-reader');
+  lbNegativeFollowUpSeq = 0;
   setLightboxDetailsExpanded(false);
   closeLightboxMore();
   cancelUiMotion($('#copyPositiveDock'));
   dockSelection = null;
+  syncLightboxFollowUp();
   resetArtistStrip();
   clearTagZhDetails($('#lightboxInfo'));
   for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');
@@ -558,8 +577,8 @@ function clearLightboxContent() {
     const element = $(`#${id}`);
     if (element) element.hidden = true;
   }
-  for (const id of ['copyPositive', 'copyPositiveDock', 'copyNegative', 'copyAll', 'copyRawTag', 'viewOriginal',
-    'shareLightbox', 'favoriteLightbox', 'reportLightbox', 'hideLightbox', 'sdPositivePreview', 'sdNegativePreview', 'artistPeekOpen']) {
+  for (const id of ['copyPositive', 'copyPositiveDock', 'copyNegative', 'copyNegativeDock', 'copyAll', 'copyRawTag', 'viewOriginal',
+    'shareLightbox', 'favoriteLightbox', 'organizeLightbox', 'reportLightbox', 'hideLightbox', 'sdPositivePreview', 'sdNegativePreview', 'artistPeekOpen']) {
     const button = $(`#${id}`);
     if (button) button.onclick = null;
   }
@@ -873,6 +892,51 @@ function syncSelectionDock() {
     const opacity = Number(getComputedStyle(dock).opacity);
     animateUi(dock, [{ opacity: opacity * .6, translate: '0 3px' }, { opacity, translate: '0 0' }], { duration: 160 });
   }
+  syncLightboxFollowUp();
+}
+
+// 复制正向后，手机底栏保留下一步；换图或重开重置，选词时先把位置交给所选复制。
+function syncLightboxFollowUp() {
+  const dock = $('#copyNegativeDock');
+  const actions = $('#lightboxActions');
+  const menu = $('#lightboxActionsMinor');
+  if (!dock || !actions || !menu) return;
+  const compact = Boolean(window.matchMedia?.(LB_COMPACT_MEDIA).matches);
+  const negative = $('#copyNegative');
+  const active = compact && !$('#lightbox').hidden && lbNegativeFollowUpSeq > 0
+    && lbNegativeFollowUpSeq === lbSeq && !liveSelection(dockSelection) && !negative?.hidden;
+  dock.hidden = !active;
+  dock.onclick = active ? negative?.onclick || null : null;
+  dock.title = negative?.title || '';
+  actions.classList.toggle('has-negative-followup', active);
+  const original = $('#viewOriginal');
+  const share = $('#shareLightbox');
+  if (active) {
+    if (original && original.parentElement !== menu) menu.prepend(original);
+    if (share && share.previousElementSibling !== original) original?.after(share);
+  } else {
+    if (original && original.previousElementSibling !== dock) dock.after(original);
+    if (share && share.previousElementSibling !== original) original?.after(share);
+  }
+  placeTagZhToggle(compact);
+  syncLightboxMoreButton();
+}
+
+function syncLightboxMoreButton() {
+  const more = $('#lightboxMore');
+  if (more) more.hidden = ![...document.querySelectorAll('#lightboxActionsMinor button')]
+    .some(button => !button.hidden && getComputedStyle(button).display !== 'none');
+}
+
+function syncLightboxFavoriteActions() {
+  const lb = $('#lightbox');
+  const entry = state.lightbox?.entry;
+  const organize = $('#organizeLightbox');
+  if (!organize) return;
+  const on = Boolean(entry && !lb.hidden && isFav(entry));
+  organize.hidden = !on || lb.classList.contains('no-image') || !window.matchMedia?.(LB_COMPACT_MEDIA).matches;
+  if (entry && !lb.hidden) setFavoriteButtonState($('#favoriteLightbox'), on);
+  syncLightboxMoreButton();
 }
 
 /* 选 tag 沿用阅读排版（同 tag-zh.js 的 renderTagZhPrompt）：有中文的 tag 是「英文 + 中文小字」小块，
@@ -1478,6 +1542,7 @@ export function renderLightbox() {
   }
   const emptyImage = item._editPlaceholder === true;
   const seq = ++lbSeq;
+  lbNegativeFollowUpSeq = 0;
   if (lbOriginalPreload) {
     lbOriginalPreload.onload = null;
     lbOriginalPreload.onerror = null;
@@ -1637,10 +1702,10 @@ export function renderLightbox() {
 
   $('#copyPositive').hidden = !hasPositive;
   $('#copyPositive').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';
-  $('#copyPositive').onclick = ev => {
+  $('#copyPositive').onclick = async ev => {
     ev.stopPropagation();
     if (!refreshLightboxAccess(e)) return;
-    copyText(positive, `已复制正向${noteFor(prompts.ownTags)}：${e.title}`, ev.currentTarget, {
+    const result = await copyText(positive, `已复制正向${noteFor(prompts.ownTags)}：${e.title}`, ev.currentTarget, {
       entry: e,
       fragment: { text: positive, channel: 'positive', scope: 'positive', label: labelFor(prompts.ownTags) },
       followUp: negative.trim() ? {
@@ -1650,6 +1715,10 @@ export function renderLightbox() {
         fragment: { text: negative, channel: 'negative', scope: 'negative', label: labelFor(prompts.ownNegative) },
       } : null,
     });
+    if (result.ok && negative.trim() && seq === lbSeq && !$('#lightbox').hidden) {
+      lbNegativeFollowUpSeq = seq;
+      syncLightboxFollowUp();
+    }
   };
   // 手机底栏的「复制正向」与小节里的同一个动作，复制反馈落在被点的那个按钮上
   const dockCopy = $('#copyPositiveDock');
@@ -1697,11 +1766,19 @@ export function renderLightbox() {
   if (favoriteBtn) {
     favoriteBtn.hidden = emptyImage;
     setFavoriteButtonState(favoriteBtn, isFav(e));
-    favoriteBtn.onclick = ev => {
+    favoriteBtn.onclick = async ev => {
       ev.stopPropagation();
-      toggleFav(e, favoriteBtn, { deferViewRefresh: true });
+      await toggleFav(e, favoriteBtn, { deferViewRefresh: true });
+      syncLightboxFavoriteActions();
     };
   }
+  const organizeBtn = $('#organizeLightbox');
+  if (organizeBtn) organizeBtn.onclick = ev => {
+    ev.stopPropagation();
+    if (!refreshLightboxAccess(e) || !isFav(e)) return;
+    const anchor = window.matchMedia?.(LB_COMPACT_MEDIA).matches ? $('#lightboxMore') : organizeBtn;
+    openFavoriteOrganize(e, anchor);
+  };
   const originalBtn = $('#viewOriginal');
   if (originalBtn) {
     const action = lightboxOriginalAction(Boolean(hasOriginal && origSrc), sourceAllowsOriginal);
@@ -1760,11 +1837,8 @@ export function renderLightbox() {
       .every(button => button.hidden);
   }
   // 「⋯」里一项都没有（本地版还会用样式藏掉反馈）就不出现
-  const more = $('#lightboxMore');
-  if (more) {
-    more.hidden = ![...document.querySelectorAll('#lightboxActionsMinor button')]
-      .some(button => !button.hidden && getComputedStyle(button).display !== 'none');
-  }
+  syncLightboxFavoriteActions();
+  syncLightboxFollowUp();
 
   const thumbs = $('#lightboxThumbs');
   const reuseThumbs = lbThumbEntry === e
@@ -1856,6 +1930,8 @@ function placeLightboxActions() {
     columns.before(actions);
   }
   placeTagZhToggle(compact);
+  syncLightboxFollowUp();
+  syncLightboxFavoriteActions();
 }
 
 /* 中文对照在电脑上排在动作行「分享」后面，正向标题栏就和角色、负面一样只剩选词和复制；
@@ -1976,6 +2052,7 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
   });
   window.matchMedia?.(LB_COMPACT_MEDIA).addEventListener?.('change', () => setLightboxDetailsExpanded(false));
   bindLightboxDetailsSwipe();
+  subscribeLibrary(syncLightboxFavoriteActions);
   $('#lightboxClose').onclick = closeLightbox;
   const tagZhToggle = $('#tagZhToggle');
   if (tagZhToggle) {

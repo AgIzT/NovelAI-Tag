@@ -105,6 +105,7 @@ const MOBILE_DENSITY_PRESETS = {
   comfort: {
     ...DENSITY_PRESETS.comfort, mobile: true, columns: 1, gap: 12,
     imageMaxRatio: 1.15, imageMaxHeight: 320,
+    titleActionWidth: 50, titleMinHeight: 44,
     titleGap: 6, footGap: 6, footHeight: 14,
     maxTagHeight: 76, maxTagLines: 3,
   },
@@ -112,12 +113,13 @@ const MOBILE_DENSITY_PRESETS = {
     ...DENSITY_PRESETS.standard, mobile: true, columns: 2, gap: 10,
     imageMaxRatio: 1.35, imageMaxHeight: 280,
     bodyPadX: 9, bodyPadTop: 9, bodyPadBottom: 9,
+    titleActionWidth: 50, titleMinHeight: 44,
     titleGap: 6, footGap: 6, footHeight: 14,
     tagPaddingY: 10, maxTagHeight: 42, maxTagLines: 2,
   },
   compact: {
     ...DENSITY_PRESETS.compact, mobile: true, minWidth: 108, maxColumns: 3, gap: 6,
-    titleActionWidth: 25, titleMinHeight: 16, maxTitleLines: 1, footHeight: 13,
+    titleActionWidth: 49, titleMinHeight: 44, maxTitleLines: 1, footHeight: 13,
     hideImageTags: true,
   },
 };

@@ -2634,7 +2634,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
               return {expanded:lb.classList.contains('details-expanded'), height:r.height,
                 top:r.top, scroll:info.scrollTop, toggleVisible:visible(toggle), toggleText:toggle?.textContent.trim(),
                 dockVisible:visible(dock) && d.top >= r.top && d.bottom <= innerHeight && d.bottom <= r.bottom + 1,
-                title:document.querySelector('#lightboxTitle').textContent,
+                title:document.querySelector('#lightboxTitle').textContent, viewportHeight:innerHeight,
                 pageScroll:scrollY};
             })()"""
 
@@ -2703,7 +2703,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             wait_for(cdp, "document.querySelector('#lightbox').classList.contains('no-image')", "text-only detail opens")
             swipe('#lightboxInfo')
             no_image = cdp.eval(geometry)
-            if no_image['expanded'] or no_image['toggleVisible']:
+            if no_image['expanded'] or no_image['toggleVisible'] or no_image['height'] < no_image['viewportHeight'] - 80:
                 raise CheckFailed(f"无图词条错误显示收图交互：{no_image}")
             cdp.command("Emulation.setDeviceMetricsOverride", {
                 "width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False,
@@ -2727,6 +2727,227 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp.command("Emulation.setDeviceMetricsOverride", {
                 "width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False,
             })
+
+    def mobile_tap(selector, *, edge=False, right=False):
+        """真实触摸，先等控件的实际命中点；edge 用来验扩大后的触区。"""
+        literal = js_string(selector)
+        block = 'center' if selector.startswith('#masonry') else 'nearest'
+        cdp.eval(f"document.querySelector({literal})?.scrollIntoView({{block:'{block}'}}); true")
+        pos = wait_for(cdp, f"""(() => {{
+          const e = document.querySelector({literal}), r = e?.getBoundingClientRect();
+          if (!r?.width || !r.height) return null;
+          const x = r.left + {"r.width - 3" if right else "3" if edge else "r.width / 2"}, y = r.top + {"3" if edge else "r.height / 2"};
+          const hit=document.elementFromPoint(x,y);
+          if(!e.contains(hit))throw new Error('Touch target covered by '+(hit?.id||hit?.className||'nothing'));
+          return {{x,y,width:r.width,height:r.height}};
+        }})()""", "touchable " + selector)
+        point = {"x": pos['x'], "y": pos['y'], "id": 1}
+        cdp.command("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [point]})
+        cdp.command("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        settle(cdp, 120)
+        return {"width": pos['width'], "height": pos['height']}
+
+    def mobile_touch_targets_reader():
+        clear_errors(cdp)
+        cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1})
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 375, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        try:
+            navigate(cdp, base + "?codex=suozhang")
+            wait_for(cdp, "document.querySelectorAll('.card').length > 0", "touch target fixture source")
+            fixture = cdp.eval("""(async () => {
+              const {state} = await import('./assets/app/state.js');
+              const {hasEntryImage} = await import('./assets/app/media.js');
+              const {renderList} = await import('./assets/app/masonry.js');
+              const image = state.list.find(hasEntryImage), text = state.list.find(e => !hasEntryImage(e));
+              if (!image || !text) return null;
+              state.list=[image,text]; renderList({resetScroll:true});
+              return {image:image.id,text:text.id};
+            })()""")
+            if not fixture:
+                return {"status": "BLOCKED", "reason": "当前列表缺少有图或无图词条"}
+            results = []
+            for width in (375, 390):
+                cdp.command("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+                if cdp.eval("document.querySelector('#sidebar').classList.contains('closed')"):
+                    mobile_tap('#menuBtn')
+                arrow_selector = '#tree .tree-row:not(.locked) .tw-arrow[role="button"]'
+                before = cdp.eval("""(() => {
+                  const a=document.querySelector('#tree .tree-row:not(.locked) .tw-arrow[role="button"]');
+                  return {expanded:a?.getAttribute('aria-expanded'),active:document.querySelector('#tree .tree-row.active')?.dataset.path||''};
+                })()""")
+                arrow = mobile_tap(arrow_selector, edge=True)
+                wait_for(cdp, f"document.querySelector({js_string(arrow_selector)})?.getAttribute('aria-expanded') !== {js_string(before['expanded'])}", "arrow toggles branch")
+                if cdp.eval("document.querySelector('#tree .tree-row.active')?.dataset.path||''") != before['active']:
+                    raise CheckFailed("目录箭头触区边缘点击意外选择了父目录")
+                mobile_tap(arrow_selector, edge=True)
+                if cdp.eval("document.querySelector('#tree .tree-row.active')?.dataset.path||''") != before['active'] or cdp.eval("document.querySelector('#sidebar').classList.contains('closed')"):
+                    raise CheckFailed("连续点击目录箭头触区意外选择了父目录并关闭抽屉")
+                mobile_tap('#sidebarBackdrop', right=True)
+                try:
+                    wait_for(cdp, "document.querySelector('#sidebar').classList.contains('closed')", "directory drawer closes")
+                except CheckFailed as exc:
+                    state = cdp.eval("({sidebar:document.querySelector('#sidebar').className,scale:visualViewport.scale,route:history.state})")
+                    raise CheckFailed(f"{exc}; sidebar={state}") from exc
+                star_selector = '#masonry .card[data-index="0"] .fav-btn'
+                selected = cdp.eval(f"document.querySelector({js_string(star_selector)}).classList.contains('on')")
+                star = mobile_tap(star_selector, edge=True)
+                wait_for(cdp, f"document.querySelector({js_string(star_selector)})?.classList.contains('on') !== {js_string(selected)}", "star toggles favorite")
+                if not cdp.eval("document.querySelector('#lightbox').hidden"):
+                    raise CheckFailed("收藏星标触区边缘点击意外打开了卡片详情")
+                mobile_tap(star_selector, edge=True)
+                wait_for(cdp, f"document.querySelector({js_string(star_selector)})?.classList.contains('on') === {js_string(selected)}", "star restores favorite state")
+                if not cdp.eval("document.querySelector('#lightbox').hidden"):
+                    raise CheckFailed("连续点击收藏星标触区意外打开了卡片详情")
+                for name, rect in [('arrow', arrow), ('favorite', star)]:
+                    if min(rect.values()) < 44:
+                        raise CheckFailed(f"{width}px手机{name}触区不足44px：{rect}")
+                mobile_tap('#masonry .card[data-index="1"] .card-title')
+                reader = wait_for(cdp, """(() => {
+                  const lb=document.querySelector('#lightbox'), r=document.querySelector('#lightboxInfo').getBoundingClientRect();
+                  const d=document.querySelector('#copyPositiveDock').getBoundingClientRect(), a=document.querySelector('#lightboxActions').getBoundingClientRect();
+                  return !lb.hidden && lb.classList.contains('no-image-reader') ? {
+                    height:r.height,viewport:innerHeight,dock:d.top>=r.top&&d.bottom<=r.bottom+1,
+                    infoBottom:r.bottom,dockBottom:a.bottom,buttonBottom:d.bottom,bottomGap:r.bottom-a.bottom,
+                    overflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
+                    title:document.querySelector('#lightboxTitle').textContent} : null;
+                })()""", "full-height text reader")
+                if reader['height'] < reader['viewport'] - 80 or not reader['dock'] or abs(reader['bottomGap']) > 3 or reader['overflow']:
+                    raise CheckFailed(f"{width}px无图阅读空间或底栏错误：{reader}")
+                if width == 390:
+                    # 仅注入编辑器的 CSS 能力标记夹具，不启动编辑服务器或编辑数据。
+                    compatibility = cdp.eval("""(async () => {
+                      const {layoutLightboxFrame}=await import('./assets/app/lightbox.js');
+                      if(document.getElementById('editModeCss'))throw new Error('Expected read-only preview without editor CSS');
+                      const marker=document.createElement('style');marker.id='editModeCss';document.head.append(marker);
+                      try {
+                        layoutLightboxFrame();
+                        return {reader:document.querySelector('#lightbox').classList.contains('no-image-reader'),
+                          inert:['lightboxStage','lightboxPrev','lightboxNext'].map(id=>document.getElementById(id).inert)};
+                      } finally {marker.remove();layoutLightboxFrame();}
+                    })()""")
+                    if compatibility['reader'] or any(compatibility['inert']):
+                        raise CheckFailed(f"编辑器延迟出现后未释放无图阅读舞台：{compatibility}")
+                    wait_for(cdp, "document.querySelector('#lightbox').classList.contains('no-image-reader') && document.querySelector('#lightboxStage').inert", "reader restores after editor capability marker")
+                results.append({"width": width, "arrow": arrow, "favorite": star, "reader": reader})
+                shot = screenshot(cdp, out_dir, 'mobile-text-reader-' + str(width))
+                mobile_tap('#lightboxClose')
+                wait_for(cdp, "document.querySelector('#lightbox').hidden", "text reader closes")
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
+            mobile_tap('#masonry .card[data-index="1"] .card-title')
+            wait_for(cdp, "!document.querySelector('#lightbox').hidden", "desktop text detail")
+            if cdp.eval("document.querySelector('#lightbox').classList.contains('no-image-reader')"):
+                raise CheckFailed("桌面无图详情误用了手机阅读布局")
+            check_no_errors(cdp)
+            return {"fixture": fixture, "sizes": results, "editorCapabilityMarker": compatibility, "screenshot": shot}
+        finally:
+            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+
+    def mobile_copy_and_organize():
+        clear_errors(cdp)
+        cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1})
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        try:
+            navigate(cdp, base + "?codex=suozhang")
+            wait_for(cdp, "document.querySelectorAll('.card').length > 0", "copy flow fixture source")
+            origin = urllib.parse.urlsplit(base)
+            cdp.command("Browser.grantPermissions", {"origin": origin.scheme + '://' + origin.netloc,
+                "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]})
+            fixture = cdp.eval("""(async () => {
+              const {state} = await import('./assets/app/state.js');
+              const {entryImages} = await import('./assets/app/media.js');
+              const {renderList} = await import('./assets/app/masonry.js');
+              const images=state.list.filter(e=>entryImages(e).length===1);
+              const candidates=images.filter(e=>String(e.tags||'').trim()&&String(e.negative||'').trim());
+              const entry=candidates.find(e=>e.characterPrompts?.some(p=>String(p.negative||'').trim()))||candidates[0];
+              const next=images.find(e=>e!==entry);
+              if(!entry||!next)return null;
+              window.__qaCopyFlowEntries=[entry,next]; state.list=[entry,next];state.sdMode=false;
+              renderList({resetScroll:true}); localStorage.setItem('fadian-lbinfo','open');
+              return {id:entry.id,next:next.id,title:entry.title,positive:entry.tags,negative:entry.negative,
+                characterNegatives:(entry.characterPrompts||[]).filter(p=>String(p.negative||'').trim()).length};
+            })()""")
+            if not fixture:
+                return {"status": "BLOCKED", "reason": "当前列表缺少单图正负面词条与另一张单图"}
+            mobile_tap('#masonry .card[data-index="0"] .card-img')
+            wait_for(cdp, "!document.querySelector('#lightbox').hidden", "copy source detail")
+            if not cdp.eval("document.querySelector('#copyNegativeDock').hidden"):
+                raise CheckFailed("尚未复制正向时提前出现下一步负面按钮")
+            mobile_tap('#copyPositiveDock')
+            wait_for(cdp, "!document.querySelector('#copyNegativeDock').hidden", "positive copy exposes persistent negative")
+            copied_positive = cdp.eval("navigator.clipboard.readText()").replace('\r\n', '\n')
+            if copied_positive != fixture['positive'].replace('\r\n', '\n'):
+                expected = fixture['positive'].replace('\r\n', '\n')
+                mismatch = next((i for i, pair in enumerate(zip(copied_positive, expected)) if pair[0] != pair[1]), min(len(copied_positive),len(expected)))
+                raise CheckFailed(f"正向剪贴板不等：actual={len(copied_positive)},expected={len(expected)},firstDiff={mismatch},actualCR={copied_positive.count(chr(13))},expectedCR={expected.count(chr(13))}")
+            cdp.eval("new Promise(resolve=>setTimeout(resolve,5500))", timeout=8)
+            if cdp.eval("document.querySelector('#copyNegativeDock').hidden"):
+                raise CheckFailed("超过提示条显示时间后负面复制入口消失")
+            sizes=[]
+            for width in (375,390):
+                cdp.command("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+                fit=cdp.eval("""(() => {const e=document.querySelector('#copyNegativeDock'),r=e.getBoundingClientRect();return {
+                  width:innerWidth,visible:!e.hidden&&r.top>=0&&r.bottom<=innerHeight,
+                  overflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
+                  originalInMore:document.querySelector('#viewOriginal').parentElement.id==='lightboxActionsMinor',
+                  shareInMore:document.querySelector('#shareLightbox').parentElement.id==='lightboxActionsMinor'};})()""")
+                if not fit['visible'] or fit['overflow'] or not fit['originalInMore'] or not fit['shareInMore']:
+                    raise CheckFailed(f"手机持续负面复制底栏布局错误：{fit}")
+                sizes.append(fit)
+            mobile_tap('#copyNegativeDock')
+            if cdp.eval("navigator.clipboard.readText()").replace('\r\n', '\n') != fixture['negative'].replace('\r\n', '\n'):
+                raise CheckFailed("负面按钮复制了不完整内容或混入角色负面")
+            select='#lightboxInfo .lightbox-section:has(#lightboxTags) .prompt-selection-toggle'
+            mobile_tap(select)
+            wait_for(cdp, "document.querySelector('#copyNegativeDock').hidden", "selection owns copy dock")
+            mobile_tap('#lightboxInfo .lightbox-section:has(#lightboxTags) .prompt-selection-close')
+            wait_for(cdp, "!document.querySelector('#copyNegativeDock').hidden", "leaving selection restores negative next step")
+            favorite_before=cdp.eval("document.querySelector('#favoriteLightbox').getAttribute('aria-pressed')")
+            if favorite_before != 'true':
+                mobile_tap('#favoriteLightbox')
+            wait_for(cdp, "document.querySelector('#favoriteLightbox').getAttribute('aria-pressed')==='true'", "favorite source entry")
+            mobile_tap('#lightboxMore')
+            mobile_tap('#organizeLightbox')
+            wait_for(cdp, "document.querySelector('#favoritesOrganize')?.classList.contains('show')", "existing organize panel opens")
+            if fixture['title'] not in cdp.eval("document.querySelector('#favoritesOrganizeSubtitle').textContent"):
+                raise CheckFailed("整理面板丢失当前词条上下文")
+            mobile_tap('#favoritesOrganize .favorites-dialog-footer button:last-child')
+            wait_for(cdp, "document.querySelector('#favoritesOrganize').hidden", "organize closes to detail")
+            mobile_tap('#favoriteLightbox')
+            wait_for(cdp, "document.querySelector('#favoriteLightbox').getAttribute('aria-pressed')==='false'", "unfavorite entry")
+            mobile_tap('#lightboxMore')
+            if not cdp.eval("document.querySelector('#organizeLightbox').hidden"):
+                raise CheckFailed("取消收藏后仍显示整理入口")
+            mobile_tap('#lightboxMore')
+            shot=screenshot(cdp,out_dir,'mobile-persistent-negative-copy')
+            mobile_tap('#lightboxNext')
+            wait_for(cdp, "history.state?.route?.entry === "+js_string(fixture['next']), "next entry after copy")
+            if not cdp.eval("document.querySelector('#copyNegativeDock').hidden && document.querySelector('#organizeLightbox').hidden === (document.querySelector('#favoriteLightbox').getAttribute('aria-pressed') !== 'true')"):
+                raise CheckFailed("换条后保留了上一条复制或收藏整理状态")
+            mobile_tap('#lightboxClose')
+            wait_for(cdp,"document.querySelector('#lightbox').hidden","copy detail closes")
+            cdp.eval("""(async()=>{const {state}=await import('./assets/app/state.js');const {renderList}=await import('./assets/app/masonry.js');state.list=window.__qaCopyFlowEntries;renderList({resetScroll:true});})()""")
+            mobile_tap('#masonry .card[data-index="0"] .card-img')
+            wait_for(cdp,"!document.querySelector('#lightbox').hidden","copy detail reopens")
+            if not cdp.eval("document.querySelector('#copyNegativeDock').hidden"):
+                raise CheckFailed("关闭重开保留了旧的复制下一步")
+            mobile_tap('#copyPositiveDock')
+            wait_for(cdp,"!document.querySelector('#copyNegativeDock').hidden","next step before desktop resize")
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width":1280,"height":800,"deviceScaleFactor":1,"mobile":False})
+            desktop=wait_for(cdp,"""(() => {const n=document.querySelector('#copyNegativeDock');return n.hidden?{
+              original:document.querySelector('#viewOriginal').parentElement.id,
+              share:document.querySelector('#shareLightbox').parentElement.id,
+              zhAfterShare:document.querySelector('#shareLightbox').nextElementSibling?.id==='tagZhToggle'}:null;})()""","desktop copy controls restore")
+            if desktop['original']!='lightboxActions' or desktop['share']!='lightboxActions' or not desktop['zhAfterShare']:
+                raise CheckFailed(f"桌面复制控件没有归位：{desktop}")
+            check_no_errors(cdp)
+            return {"entry":fixture['id'],"characterNegatives":fixture['characterNegatives'],
+                "positiveCharacters":len(fixture['positive']),"negativeCharacters":len(fixture['negative']),
+                "waitedMs":5500,"sizes":sizes,"desktop":desktop,"screenshot":shot}
+        finally:
+            cdp.command("Browser.resetPermissions")
+            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width":1280,"height":720,"deviceScaleFactor":1,"mobile":False})
 
     def mobile_card_details():
         clear_errors(cdp)
@@ -3600,6 +3821,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("mobile home renders", mobile_home),
         ("mobile card details and keyboard", mobile_card_details),
         ("mobile lightbox expands prompt details", mobile_lightbox_details),
+        ("mobile touch targets and text reader", mobile_touch_targets_reader),
+        ("mobile persistent negative copy and organize", mobile_copy_and_organize),
         ("mobile atlas back stack", mobile_atlas_history),
         ("community internal back stack", community_history),
     ]
