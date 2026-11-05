@@ -193,7 +193,7 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   state.density = 'compact';
   window.innerWidth = 390;
   assert.equal(estimateImageHeight({ image: 'portrait.webp', imageWidth: 753, imageHeight: 1100 }, 120), 175);
-  assert.equal(estimateBodyMetrics({ image: 'portrait.webp', title: '卡片', tags: '' }, 120).height, 48);
+  assert.equal(estimateBodyMetrics({ image: 'portrait.webp', title: '卡片', tags: '' }, 120).height, 76, '紧凑卡片正文给 44px 收藏触区留足高度');
 
   // 卡宽恰好相同时，跨手机断点也不能复用旧摘要估高。
   state.density = 'compact';

@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { $, esc } from './utils.js';
 import { toast } from './feedback.js';
-import { renderLightbox, closeLightbox, openLightbox } from './lightbox.js';
+import { renderLightbox, closeLightbox, openLightbox, layoutLightboxFrame } from './lightbox.js';
 import { setCodexUiActions, closeCodexPicker, invalidateAccessViewMemo, syncCodexPickerCounts } from './codex-ui.js';
 import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
 import { fetchDataJson } from '../data-source.js';
@@ -35,6 +35,8 @@ export function initEditMode(ping, actions) {
   caps = ping;
   acts = actions || {};
   injectStyles();
+  // 深链已先开无图详情时，能力到货后释放只读阅读布局，给补图舞台让位。
+  if (state.lightbox?.entry) layoutLightboxFrame();
   buildToggle();
   // 独立本地版首次打开默认编辑，但允许切换展示态并独立记忆；
   // 不与同端口的仓库维护编辑器共享偏好，避免两种用途互相串状态。

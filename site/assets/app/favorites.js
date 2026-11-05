@@ -45,6 +45,11 @@ export function favKeys(e, codex = ownerCodex(e)) {
 export function favKey(e) { return favKeys(e)[0]; }
 export function isFav(e) { return favKeys(e).some(key => state.favs.has(key)); }
 
+export function openFavoriteOrganize(entry, trigger) {
+  if (!entry || !isFav(entry)) return;
+  return favoriteActions.openOrganize([favKey(entry)], trigger);
+}
+
 export async function saveFavs() {
   const keys = new Set(state.favs);
   const outcome = await commitLibrary(draft => {
