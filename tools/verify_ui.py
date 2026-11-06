@@ -2633,6 +2633,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 raise CheckFailed(f'收图后的阅读范围或底栏不正确：{initial};{expanded}')
             if expanded['toggleText']!='显示图片' or not cdp.eval("document.querySelector('#lightboxMedia').inert"):
                 raise CheckFailed(f'收图后的入口和隐藏媒体语义不正确：{expanded}')
+            if cdp.eval("getComputedStyle(document.querySelector('#lightboxFold')).visibility")!='hidden':
+                raise CheckFailed('收图后把手仍突出在正文顶部')
             screenshot(cdp,out_dir,'lightbox-reader-text')
             mobile_tap('#lightboxImageToggle')
             wait_for(cdp, "document.querySelector('#lightboxScroll').scrollTop<=1", 'button restores full image')

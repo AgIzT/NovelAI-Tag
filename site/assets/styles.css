@@ -2878,6 +2878,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox.native-reader.has-thumbs .lightbox-stage{bottom:94px}
   .lightbox.native-reader .lightbox-thumbs{bottom:12px;max-width:calc(100% - 10px);transition:none}
   .lightbox.native-reader .lb-fold{bottom:-13px;transition:color .12s,border-color .12s}
+  .lightbox.native-reader.details-expanded .lb-fold{visibility:hidden}
   .lightbox.native-reader .lightbox-nav{top:calc(50% - 5px);transition:border-color .12s,color .12s,scale .14s ease}
   .lightbox.native-reader.has-thumbs .lightbox-nav{top:calc(50% - 47px)}
   .lightbox.native-reader .lightbox-prev{left:0}
