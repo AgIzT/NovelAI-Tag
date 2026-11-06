@@ -1,4 +1,4 @@
-import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, CARD_ZOOM_STORAGE_KEY } from './state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, DEFAULT_THEME, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, CARD_ZOOM_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
@@ -512,7 +512,7 @@ export function bindUI() {
     };
   }
 
-  /* 界面风格（换肤）：与深浅色正交，每套 light+dark 都在 CSS 里；默认紫=不加类 */
+  /* 界面风格（换肤）：与深浅色正交，每套 light+dark 都在 CSS 里；默认梦境，紫调不加类 */
   const applySkin = (id, { persist = true } = {}) => {
     const t = THEMES.find(x => x.id === id) || THEMES[0];
     if (persist && !writePreference(THEME_STORAGE_KEY, t.id)) return null;
@@ -524,7 +524,7 @@ export function bindUI() {
   };
   for (const b of document.querySelectorAll('#themeControl [data-theme]'))
     b.onclick = () => { const selected = applySkin(b.dataset.theme); if (selected) toast(`界面风格：${selected.name}`); };
-  applySkin(readPreference(THEME_STORAGE_KEY, ''), { persist: false });
+  applySkin(readPreference(THEME_STORAGE_KEY, DEFAULT_THEME), { persist: false });
 
   /* 界面字体（换嗓子）：与配色、深浅色同样正交；默认=不加类。
      只换 UI / 展示 / 目录三支，prompt 框永远留着等宽体。 */
