@@ -144,7 +144,7 @@
 - Python · 匹配与编辑：`test_codex_update_match.py`、`test_suozhang_r18_merge_match.py`、`test_import_suozhang_models.py`、`test_import_suozhang.py`、`test_edit_server.py`、`test_nai_api_review_server.py`。
 - Node · 本地编辑器目录调序：`test_category_order.mjs`（真实节点与图片列表排序、组内原序、实际过滤链接线、收藏 / 全站搜索排序边界、空目录、旧书原序、分级及缓存失效；仅内存夹具，不写用户数据）。
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
-- Python · UI 测试驱动：`test_verify_ui.py`（CDP 离开确认/刷新新文档等待，以及 PASS/FAIL/SKIP/BLOCKED 汇总、界面状态与结果状态不串用、必需夹具缺失与 CLI 退出码；合成夹具，不启动浏览器）。`verify_ui.py --only "mobile lightbox interruptible gestures"` 单独开启动效，以原生触摸验证连续反向、动画媒体区重新起滑、原生阅读与手势取消；不把默认停用动效的用例当流畅度证据。统计只读回归使用固定时钟，另验 token 到期前后边界；匹配工具测试兼容直接运行与 `python -m unittest`。
+- Python · UI 测试驱动：`test_verify_ui.py`（CDP 离开确认/刷新新文档等待，以及 PASS/FAIL/SKIP/BLOCKED 汇总、界面状态与结果状态不串用、必需夹具缺失与 CLI 退出码；合成夹具，不启动浏览器）。`verify_ui.py --only "mobile lightbox"` 覆盖手机原生连续阅读：动效开启的用例仍名为 `mobile lightbox interruptible gestures`，以真实触摸验证正文回顶同滑露图、松手惯性跨边界、收图后同滑继续阅读、反向、按钮起滑及滚动中断、多图与触摸生命周期；相邻用例验证收放入口、横滑、无图与桌面归位。不把桌面无头浏览器结果当真机流畅度证据。统计只读回归使用固定时钟，另验 token 到期前后边界；匹配工具测试兼容直接运行与 `python -m unittest`。
 - Node · 换书动效中断：`test_render_ui.mjs` 还会回放 `app.js` 的实际过渡函数，验证隐藏文档导致 ready/finished 拒绝时不产生未处理错误、清理 CSS 状态，且正文渲染失败仍向上传递；仅合成 Promise/DOM，不需要浏览器。
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Node · 详情权重上色：`test_prompt_weights.mjs`（NAI `N::…::`、`{}` / `[]` 与 SD `(…:N)` 的标记位置和加权 / 减权方向；tag 名里的圆括号、转义括号与 tag 内数字不当权重）。

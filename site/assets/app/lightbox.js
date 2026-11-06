@@ -62,7 +62,9 @@ let lbNoticeTimer = 0;
 let lbOriginalState = { status: '', readable: false };
 let lbOriginalPreload = null;
 let lbNegativeFollowUpSeq = 0;
-let lbDetailsMotion = null;
+let lbReaderHeight = 0;
+let lbReaderTarget = null;
+let lbReaderTouching = false;
 const lbPreloadCache = new Map();
 const LB_PRELOAD_CACHE_LIMIT = 300;
 
@@ -293,7 +295,6 @@ export function lightboxImageAspect(entry, images = []) {
 }
 
 export function layoutLightboxFrame() {
-  cancelLightboxDetailsMotion();
   const lbEl = $('#lightbox');
   const lb = state.lightbox;
   const item = lb?.images?.[lb.index];
@@ -405,95 +406,92 @@ function syncLightboxInfoFold(lbEl, emptyImage) {
 }
 
 function syncLightboxReaderLayout(lb = $('#lightbox')) {
+  const compact = Boolean(window.matchMedia?.(LB_COMPACT_MEDIA).matches);
   lb.classList.toggle('no-image-reader', lb.classList.contains('no-image')
-    && Boolean(window.matchMedia?.(LB_COMPACT_MEDIA).matches) && !document.getElementById('editModeCss'));
+    && compact && !document.getElementById('editModeCss'));
+  const wasNative = lb.classList.contains('native-reader');
+  const native = compact && !lb.classList.contains('no-image') && !lb.classList.contains('folded');
+  lb.classList.toggle('native-reader', native);
+  if (wasNative !== native) {
+    stopLightboxReaderScroll();
+    $('#lightboxScroll').scrollTop = 0;
+    $('#lightboxInfo').scrollTop = 0;
+    placeLightboxActions();
+  }
+  const height = native ? $('#lightboxMedia').offsetHeight : 0;
+  if (native && wasNative && height && lbReaderHeight && height !== lbReaderHeight) {
+    const scroll = $('#lightboxScroll');
+    const top = scroll.scrollTop >= lbReaderHeight - 1
+      ? height + Math.max(0, scroll.scrollTop - lbReaderHeight)
+      : height * scroll.scrollTop / lbReaderHeight;
+    stopLightboxReaderScroll();
+    scroll.scrollTo({ top, behavior: 'instant' });
+  }
+  lbReaderHeight = height;
+  syncLightboxReaderPosition();
   syncLightboxMediaVisibility(lb);
 }
 
 function syncLightboxMediaVisibility(lb = $('#lightbox')) {
   const hidden = lb.classList.contains('details-expanded') || lb.classList.contains('no-image-reader');
+  const media = $('#lightboxMedia');
+  media.inert = hidden;
+  if (hidden) media.setAttribute('aria-hidden', 'true');
+  else media.removeAttribute('aria-hidden');
   for (const id of ['lightboxStage', 'lightboxThumbs', 'lightboxPrev', 'lightboxNext', 'lightboxFold']) {
     const element = $('#' + id);
-    if (!element) continue;
     element.inert = hidden;
     if (hidden) element.setAttribute('aria-hidden', 'true');
     else element.removeAttribute('aria-hidden');
   }
 }
 
-function cancelLightboxDetailsMotion() {
-  const motion = lbDetailsMotion;
-  if (!motion) return;
-  lbDetailsMotion = null;
-  motion.animations.forEach(animation => animation.cancel());
-  $('#lightbox').classList.remove('details-moving', 'details-measuring');
+function syncLightboxReaderPosition() {
+  const lb = $('#lightbox');
+  const top = lb.classList.contains('native-reader') ? $('#lightboxScroll').scrollTop : 0;
+  const expanded = lbReaderHeight > 0 && top >= lbReaderHeight - 1;
+  if (lb.classList.contains('details-expanded') !== expanded) {
+    lb.classList.toggle('details-expanded', expanded);
+    syncLightboxMediaVisibility(lb);
+  }
+  const toggle = $('#lightboxImageToggle');
+  const visible = top <= 1;
+  const label = visible ? '收起图片' : '显示图片';
+  if (toggle.textContent !== label) toggle.textContent = label;
+  if (toggle.getAttribute('aria-expanded') !== String(visible)) {
+    toggle.setAttribute('aria-expanded', String(visible));
+  }
+  if (lbReaderTarget !== null && Math.abs(top - lbReaderTarget) <= 1) lbReaderTarget = null;
 }
 
-// 收图是本次阅读状态，独立于「收起信息栏」的持久偏好；换图、重开和回桌面都复原。
+function stopLightboxReaderScroll() {
+  const scroll = $('#lightboxScroll');
+  lbReaderTarget = null;
+  scroll.scrollTo({ top: scroll.scrollTop, behavior: 'instant' });
+}
+
+// 图片与正文是同一条原生滚动轴；只有按钮发起平滑滚动，触摸不经过二值手势开关。
 function setLightboxDetailsExpanded(expanded, { animate = false } = {}) {
   const lb = $('#lightbox');
-  expanded = Boolean(expanded && window.matchMedia?.(LB_COMPACT_MEDIA).matches
-    && !lb.classList.contains('no-image') && !lb.classList.contains('folded'));
-  const info = $('#lightboxInfo');
-  const actions = $('#lightboxActions');
-  const media = ['lightboxStage', 'lightboxThumbs', 'lightboxPrev', 'lightboxNext', 'lightboxFold']
-    .map(id => $('#' + id)).filter(Boolean);
-  const moving = animate && expanded !== lb.classList.contains('details-expanded')
-    && !lb.hidden && lb.classList.contains('is-open') && !lb.classList.contains('lb-settling')
-    && !prefersReducedMotion() && !document.documentElement.classList.contains('motion-off')
-    && Boolean(info?.animate && actions?.animate);
-  // 先取正在显示的帧再取消：连点反向从当前位置接续，不跳回上一个端点。
-  const from = moving ? {
-    top: info.getBoundingClientRect().top,
-    actionsTop: actions.getBoundingClientRect().top,
-    media: media.map(element => {
-      const style = getComputedStyle(element);
-      return { opacity: style.opacity, translate: style.translate };
-    }),
-  } : null;
-  cancelLightboxDetailsMotion();
-  lb.classList.toggle('details-expanded', expanded);
-  const toggle = $('#lightboxImageToggle');
-  if (toggle) {
-    toggle.textContent = expanded ? '显示图片' : '收起图片';
-    toggle.setAttribute('aria-expanded', String(!expanded));
+  let scroll = $('#lightboxScroll');
+  if (!animate) {
+    // 原生滚动锁定在滚动节点上：换条时更换节点，让旧接触/惯性留在旧节点结束。
+    // 保留内容节点和焦点，新的手势无需等 touchend 或临时开关 overflow。
+    if (lbReaderTouching || lbReaderTarget !== null || scroll.scrollTop > 0) {
+      const next = scroll.cloneNode(false);
+      const focused = document.activeElement;
+      next.append(...scroll.childNodes);
+      scroll.replaceWith(next);
+      if (next.contains(focused)) focused.focus({ preventScroll: true });
+      scroll = next;
+    }
+    $('#lightboxInfo').scrollTop = 0;
   }
-  syncLightboxMediaVisibility(lb);
-  if (!moving) return;
-
-  // 两端只排版一次；过渡中保持大抽屉几何，用平移和裁剪让底边固定，文字不缩放。
-  lb.classList.add('details-moving', 'details-measuring');
-  const compactRect = info.getBoundingClientRect();
-  const compactActionsTop = actions.getBoundingClientRect().top;
-  lb.classList.remove('details-measuring');
-  const fullRect = info.getBoundingClientRect();
-  const fullActionsTop = actions.getBoundingClientRect().top;
-  const travel = compactRect.top - fullRect.top;
-  const start = clamp(from.top - fullRect.top, 0, travel);
-  const end = expanded ? 0 : travel;
-  const duration = Math.max(180, 440 * Math.min(1, Math.abs(end - start) / Math.max(1, travel)));
-  const motion = { animations: [] };
-  const play = (element, frames) => motion.animations.push(element.animate(frames, {
-    duration, easing: 'cubic-bezier(.25,.75,.25,1)', fill: 'both',
-  }));
-  const clip = offset => `inset(0px 0px ${offset}px 0px round 20px 20px 16px 16px)`;
-  play(info, [
-    { translate: `0 ${start}px`, clipPath: clip(start) },
-    { translate: `0 ${end}px`, clipPath: clip(end) },
-  ]);
-  // sticky 动作栏独立抵消抽屉的位移，复制与收藏始终留在原来的底边。
-  play(actions, [
-    { translate: `0 ${from.actionsTop - fullActionsTop - start}px` },
-    { translate: `0 ${(expanded ? fullActionsTop : compactActionsTop) - fullActionsTop - end}px` },
-  ]);
-  media.forEach((element, index) => play(element, [
-    { opacity: from.media[index].opacity, translate: from.media[index].translate },
-    { opacity: expanded ? 0 : 1, translate: expanded ? '0 -24px' : '0 0' },
-  ]));
-  lbDetailsMotion = motion;
-  Promise.all(motion.animations.map(animation => animation.finished)).then(() => {
-    if (lbDetailsMotion === motion) cancelLightboxDetailsMotion();
-  }, () => {});
+  const top = expanded && lb.classList.contains('native-reader') ? lbReaderHeight : 0;
+  lbReaderTarget = animate ? top : null;
+  scroll.scrollTo({ top, behavior: animate && !prefersReducedMotion()
+    && !document.documentElement.classList.contains('motion-off') ? 'smooth' : 'instant' });
+  syncLightboxReaderPosition();
 }
 
 export function openLightbox(entry, index = 0, sourceEl = null, options = {}) {
@@ -664,7 +662,7 @@ function clearLightboxContent() {
 
 export function closeLightbox(options = {}) {
   const lb = $('#lightbox');
-  cancelLightboxDetailsMotion();
+  stopLightboxReaderScroll();
   if (lb.hidden) {
     lbSeq += 1;
     clearTimeout(lbCloseTimer);
@@ -732,7 +730,8 @@ export function closeLightbox(options = {}) {
   const src = lbSourceImg;
   const flying = lb.classList.contains('flying');
   lb.classList.remove('is-open');
-  if (!flying && !lb.classList.contains('details-expanded') && src && src.isConnected && img.naturalWidth) {
+  const imageAtRest = !lb.classList.contains('native-reader') || $('#lightboxScroll').scrollTop <= 1;
+  if (!flying && imageAtRest && src && src.isConnected && img.naturalWidth) {
     const from = img.getBoundingClientRect();
     const to = sourceImageRect(src);
     if (from.width && to.width && to.bottom > -40 && to.top < window.innerHeight + 40) {
@@ -1981,7 +1980,7 @@ function visibleLightboxAnchor(button) {
   return button?.offsetParent ? button : ($('#lightboxMore') || button);
 }
 
-/* 动作行在电脑上紧跟标题，手机上挪到栏尾，好让样式表把它吸在抽屉底部 */
+/* 电脑动作行紧跟标题；手机原生阅读固定在滚动区外，其余手机布局在栏尾吸底。 */
 function placeLightboxActions() {
   const actions = $('#lightboxActions');
   const columns = document.querySelector('#lightboxInfo .lightbox-columns');
@@ -1990,7 +1989,9 @@ function placeLightboxActions() {
   const compact = window.matchMedia?.(LB_COMPACT_MEDIA).matches;
   const menu = $('#lightboxActionsMinor');
   if (menu) menu.inert = Boolean(compact);
-  if (compact) {
+  if ($('#lightbox').classList.contains('native-reader')) {
+    if (actions.parentElement !== $('#lightbox')) $('#lightbox').append(actions);
+  } else if (compact) {
     if (actions.previousElementSibling !== columns) columns.after(actions);
   } else if (actions.nextElementSibling !== columns) {
     columns.before(actions);
@@ -2014,86 +2015,35 @@ function placeTagZhToggle(compact) {
   }
 }
 
-function bindLightboxDetailsSwipe() {
+function bindLightboxReader() {
   const lb = $('#lightbox');
-  const info = $('#lightboxInfo');
-  const stage = $('#lightboxStage');
-  const reverseSlop = 22;
-  let gesture = null;
-  const canResize = () => !lb.hidden && lb.classList.contains('is-open') && window.matchMedia?.(LB_COMPACT_MEDIA).matches
-    && !lb.classList.contains('no-image') && !lb.classList.contains('folded')
-    && !isPageZoomed() && !isLightboxMoreOpen() && !String(window.getSelection?.() || '').trim();
-  const canStart = ev => {
-    const target = ev.target;
-    if (!canResize() || !(target instanceof Element)
-        || target.closest('button,a,input,textarea,select,[contenteditable="true"],[role="button"],.prompt-selection-token')) return false;
-    if (target.closest('#lightboxInfo,#lightboxStage')) return true;
-    // 动画媒体仍须 inert；新触点会穿透到遮罩，只接管图片区内的纵滑，不放开隐藏按钮。
-    if (target !== lb || !lbDetailsMotion) return false;
-    const point = ev.touches?.[0] || ev;
-    const rect = stage.getBoundingClientRect();
-    return point.clientX >= rect.left && point.clientX <= rect.right
-      && point.clientY >= rect.top && point.clientY <= rect.bottom
-      && point.clientY < info.getBoundingClientRect().top;
-  };
-  // 捕获点击，避免收图后触摸落点变成另一颗 tag 的点击。
-  lb.addEventListener('click', ev => {
-    if (!gesture?.consumed) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-  }, true);
+  lb.addEventListener('scroll', ev => {
+    if (ev.target.id !== 'lightboxScroll') return;
+    if (lb.classList.contains('artist-peeking')) closeArtistPeek();
+    syncLightboxReaderPosition();
+  }, { capture: true, passive: true });
   lb.addEventListener('touchstart', ev => {
-    gesture = null;
-    if (ev.touches.length !== 1 || !canStart(ev)) return;
-    const touch = ev.touches[0];
-    gesture = { x: touch.clientX, y: touch.clientY, at: Date.now(), seq: lbSeq,
-      expanded: lb.classList.contains('details-expanded'), atTop: info.scrollTop <= 1,
-      interrupting: Boolean(lbDetailsMotion), consumed: false };
+    if (!ev.target.closest('#lightboxScroll')) return;
+    lbReaderTouching = true;
+    if (lbReaderTarget !== null) stopLightboxReaderScroll();
   }, { passive: true });
-  lb.addEventListener('touchmove', ev => {
-    if (!gesture) return;
-    if (ev.touches.length !== 1 || gesture.seq !== lbSeq || !canResize()) { gesture = null; return; }
-    const y = ev.touches[0].clientY;
-    // consumed 只表示吞掉这次手势的合成点击；方向仍跟踪，反向从最近极值点起算。
-    if (gesture.consumed) {
-      ev.preventDefault();
-      gesture.pivot = gesture.expanded ? Math.min(gesture.pivot, y) : Math.max(gesture.pivot, y);
-      const reverse = y - gesture.pivot;
-      if ((gesture.expanded && reverse > reverseSlop) || (!gesture.expanded && reverse < -reverseSlop)) {
-        gesture.expanded = !gesture.expanded;
-        gesture.pivot = y;
-        setLightboxDetailsExpanded(gesture.expanded, { animate: true });
-      }
-      return;
-    }
-    if (Date.now() - gesture.at > 700) { gesture = null; return; }
-    const dx = ev.touches[0].clientX - gesture.x;
-    const dy = y - gesture.y;
-    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) { gesture = null; return; }
-    const resizing = !gesture.expanded ? dy < -10 : (gesture.atTop || gesture.interrupting) && dy > 10;
-    if (!resizing || Math.abs(dy) < Math.abs(dx) * 1.25) return;
-    // 首次上滑用于展开抽屉，已展开后的上滑继续交给原生文字滚动。
-    ev.preventDefault();
-    if (Math.abs(dy) < (gesture.interrupting ? reverseSlop : 40)) return;
-    gesture.consumed = true;
-    gesture.pivot = y;
-    gesture.expanded = !gesture.expanded;
-    closeArtistPeek();
-    setLightboxDetailsExpanded(gesture.expanded, { animate: true });
-  }, { passive: false });
-  lb.addEventListener('touchend', () => {
-    const finished = gesture;
-    window.setTimeout(() => { if (gesture === finished) gesture = null; }, 350);
-  }, { passive: true });
-  lb.addEventListener('touchcancel', () => { gesture = null; }, { passive: true });
+  const release = ev => {
+    if (ev.touches.length) return;
+    lbReaderTouching = false;
+  };
+  window.addEventListener('touchend', release, { passive: true });
+  window.addEventListener('touchcancel', release, { passive: true });
   lb.addEventListener('wheel', ev => {
-    if (ev.ctrlKey || !canStart(ev) || Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;
-    const expanded = lb.classList.contains('details-expanded');
-    if ((!expanded && ev.deltaY > 12) || (expanded && info.scrollTop <= 1 && ev.deltaY < -24)) {
-      ev.preventDefault();
-      setLightboxDetailsExpanded(!expanded, { animate: true });
-    }
-  }, { passive: false });
+    if (!ev.target.closest('#lightboxScroll')) return;
+    if (lbReaderTarget !== null) stopLightboxReaderScroll();
+  }, { passive: true });
+  if ('ResizeObserver' in window) {
+    const observer = new ResizeObserver(() => {
+      const height = Math.ceil($('#lightboxActions').getBoundingClientRect().height);
+      if (height) lb.style.setProperty('--lb-actions-height', height + 'px');
+    });
+    observer.observe($('#lightboxActions'));
+  }
 }
 
 export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-width:600px)') } = {}) {
@@ -2138,14 +2088,19 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
     const lbEl = $('#lightbox');
     setLightboxDetailsExpanded(false);
     lbEl.classList.toggle('folded');
+    syncLightboxReaderLayout(lbEl);
     localStorage.setItem('fadian-lbinfo', lbEl.classList.contains('folded') ? 'folded' : 'open');
   };
   $('#lightboxImageToggle')?.addEventListener('click', ev => {
     ev.stopPropagation();
-    setLightboxDetailsExpanded(!$('#lightbox').classList.contains('details-expanded'), { animate: true });
+    const hidden = lbReaderTarget !== null ? lbReaderTarget > 0 : $('#lightboxScroll').scrollTop > 1;
+    setLightboxDetailsExpanded(!hidden, { animate: true });
   });
-  window.matchMedia?.(LB_COMPACT_MEDIA).addEventListener?.('change', () => setLightboxDetailsExpanded(false));
-  bindLightboxDetailsSwipe();
+  window.matchMedia?.(LB_COMPACT_MEDIA).addEventListener?.('change', () => {
+    syncLightboxReaderLayout();
+    setLightboxDetailsExpanded(false);
+  });
+  bindLightboxReader();
   subscribeLibrary(syncLightboxFavoriteActions);
   $('#lightboxClose').onclick = closeLightbox;
   const tagZhToggle = $('#tagZhToggle');

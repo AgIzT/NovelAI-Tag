@@ -2586,394 +2586,326 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         return data
 
     def mobile_lightbox_details():
-        """原生触摸收图腾出提示词空间；保留滚动、翻页与详情生命周期。"""
+        """手机原生滚动的按钮、翻页与详情生命周期，桌面及无图仍用原布局。"""
         try:
             clear_errors(cdp)
-            cdp.command("Emulation.setDeviceMetricsOverride", {
-                "width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True,
-            })
-            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1})
-            navigate(cdp, base + "?codex=suozhang")
-            wait_for(cdp, "document.querySelectorAll('.card').length > 0", "mobile detail fixture source")
-            # 只缩小当前内存列表，不改真实法典数据和收藏。单图确保横滑跨到下一词条。
-            fixture = cdp.eval("""(async () => {
-              const {state} = await import('./assets/app/state.js');
-              const {hasEntryImage, entryImages} = await import('./assets/app/media.js');
-              const {renderList} = await import('./assets/app/masonry.js');
-              const images = state.list.filter(e => hasEntryImage(e) && entryImages(e).length === 1);
-              const long = images.find(e => String(e.tags || '').length > 900);
-              const next = images.find(e => e !== long);
-              const text = state.list.find(e => !hasEntryImage(e));
-              if (!long || !next || !text) return null;
-              window.__qaLightboxDetailEntries = [long, next, text];
-              state.list = [long, next, text];
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':390,'height':844,'deviceScaleFactor':1,'mobile':True})
+            cdp.command('Emulation.setTouchEmulationEnabled', {'enabled':True,'maxTouchPoints':1})
+            navigate(cdp, base + '?codex=suozhang')
+            wait_for(cdp, "document.querySelectorAll('.card').length>0", 'mobile detail source')
+            fixture = cdp.eval("""(async()=>{
+              const {state}=await import('./assets/app/state.js');
+              const {hasEntryImage,entryImages}=await import('./assets/app/media.js');
+              const {openLightbox}=await import('./assets/app/lightbox.js');
+              const {renderList}=await import('./assets/app/masonry.js');
+              const images=state.list.filter(e=>hasEntryImage(e)&&entryImages(e).length===1);
+              const long=images.find(e=>String(e.tags||'').length>900),next=images.find(e=>e!==long);
+              const text=state.list.find(e=>!hasEntryImage(e));
+              if(!long||!next||!text)return null;
+              state.list=[long,next,text];window.__qaReaderEntries=state.list;
               renderList({resetScroll:true});
-              localStorage.setItem('fadian-lbinfo', 'open');
-              localStorage.setItem('fadian-onboarding-v1-done', '1');
-              window.__qaTrustedDetailTouches = 0;
-              document.querySelector('#lightbox').addEventListener('touchmove', ev => {
-                if (ev.isTrusted) window.__qaTrustedDetailTouches += 1;
-              }, {passive:true});
-              return {long:long.id, next:next.id, text:text.id};
+              window.__qaReaderOpen=i=>openLightbox(state.list[i],0,null,{historyMode:'replace',allowEmpty:true});
+              localStorage.setItem('fadian-lbinfo','open');window.__qaReaderOpen(0);
+              return {long:long.id,next:next.id,text:text.id};
             })()""")
             if not fixture:
-                return {"status": "BLOCKED", "reason": "当前公开列表缺少单图长提示词、另一单图或无图词条"}
-
-            def tap(selector):
-                cdp.eval("document.querySelector(" + js_string(selector) + ")?.scrollIntoView({block:'nearest'}); true")
-                pos = wait_for(cdp, """(() => {
-                  const e = document.querySelector(__SELECTOR__);
-                  const r = e?.getBoundingClientRect();
-                  if (!r || !r.width || !r.height) return null;
-                  const x = r.x + r.width / 2, y = r.y + r.height / 2;
-                  return e.contains(document.elementFromPoint(x, y)) ? {x,y} : null;
-                })()""".replace('__SELECTOR__', js_string(selector)), "touchable " + selector)
-                cdp.command("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{**pos, "id": 1}]})
-                cdp.command("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-                settle(cdp, 120)
-
-            def swipe(selector, dx=0, dy=-110):
-                pos = cdp.eval("""(() => {
-                  const r = document.querySelector(__SELECTOR__).getBoundingClientRect();
-                  const x = r.left + r.width / 2;
-                  const y = dy > 0 ? r.top + 45 : Math.min(r.bottom - 90, r.top + r.height * .7);
-                  if (!__INFO__) return {x,y};
-                  // Chrome 会把靠近按钮的触摸吸附到按钮；从正文内部、远离按钮处起滑。
-                  const controls = [...document.querySelectorAll('#lightboxInfo button,#lightboxInfo a')]
-                    .map(e => e.getBoundingClientRect()).filter(b => b.width && b.height);
-                  const direction = dy > 0 ? 1 : -1;
-                  for (let offset = 0; offset < r.height - 60; offset += 20) {
-                    const cy = y + offset * direction;
-                    if (cy < r.top + 30 || cy > r.bottom - 30) break;
-                    const hit = document.elementFromPoint(x, cy);
-                    if (!hit?.closest('#lightboxInfo') || hit.closest('button,a,input,textarea,select,[role="button"]')) continue;
-                    if (controls.some(b => x > b.left - 28 && x < b.right + 28 && cy > b.top - 28 && cy < b.bottom + 28)) continue;
-                    return {x,y:cy};
-                  }
-                  throw new Error('No non-control touch start inside lightbox info');
-                })()""".replace('__SELECTOR__', js_string(selector))
-                    .replace('__INFO__', 'true' if selector == '#lightboxInfo' else 'false')
-                    .replace('dy > 0', 'true' if dy > 0 else 'false'))
-                cdp.command("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{**pos, "id": 1}]})
-                for step in range(1, 7):
-                    point = {"x": pos['x'] + dx * step / 6, "y": pos['y'] + dy * step / 6, "id": 1}
-                    cdp.command("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [point]})
-                    settle(cdp, 35)
-                cdp.command("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-                settle(cdp, 160)
-
-            geometry = """(() => {
-              const lb = document.querySelector('#lightbox');
-              const info = document.querySelector('#lightboxInfo');
-              const toggle = document.querySelector('#lightboxImageToggle');
-              const dock = document.querySelector('#copyPositiveDock');
-              const r = info.getBoundingClientRect(), d = dock.getBoundingClientRect();
-              const visible = e => Boolean(e && e.getBoundingClientRect().width && e.getBoundingClientRect().height
-                && getComputedStyle(e).visibility !== 'hidden' && !e.hidden);
-              return {expanded:lb.classList.contains('details-expanded'), height:r.height,
-                top:r.top, scroll:info.scrollTop, toggleVisible:visible(toggle), toggleText:toggle?.textContent.trim(),
-                dockVisible:visible(dock) && d.top >= r.top && d.bottom <= innerHeight && d.bottom <= r.bottom + 1,
-                title:document.querySelector('#lightboxTitle').textContent, viewportHeight:innerHeight,
-                pageScroll:scrollY};
+                return {'status':'BLOCKED','reason':'缺少单图长提示词、另一单图或无图词条'}
+            wait_for(cdp, "document.querySelector('#lightboxImg').naturalWidth>0", 'reader image ready')
+            settle(cdp, 400)
+            read = """(() => {
+              const lb=document.querySelector('#lightbox'),s=document.querySelector('#lightboxScroll');
+              const info=document.querySelector('#lightboxInfo'),r=info.getBoundingClientRect();
+              const dock=document.querySelector('#lightboxActions').getBoundingClientRect();
+              const toggle=document.querySelector('#lightboxImageToggle');
+              const native=lb.classList.contains('native-reader');
+              return {native,top:r.top,visibleHeight:Math.max(0,Math.min(r.bottom,dock.top)-Math.max(r.top,native?s.getBoundingClientRect().top:0)),
+                scroll:s.scrollTop,height:r.height,dock:dock.bottom,expanded:lb.classList.contains('details-expanded'),
+                toggleVisible:!!toggle.offsetWidth,toggleText:toggle.textContent,hidden:lb.hidden};
             })()"""
-
-            def expect_expanded(value, label):
-                return wait_for(cdp, "(() => { const s = " + geometry
-                                + "; return s.expanded === " + ('true' if value else 'false') + " ? s : null; })()", label)
-
-            async_open = """(async () => {
-              const {openLightbox} = await import('./assets/app/lightbox.js');
-              openLightbox(window.__qaLightboxDetailEntries[__INDEX__], 0, null, {allowEmpty:true});
-            })()"""
-            tap('#masonry .card[data-index="0"] .card-img')
-            wait_for(cdp, "document.querySelector('#lightbox').classList.contains('is-open')", "mobile image detail opens")
-            initial = cdp.eval(geometry)
-            if initial['expanded'] or not initial['toggleVisible']:
-                raise CheckFailed(f"初始详情没有显示图片与收图入口：{initial}")
-            swipe('#lightboxStage')
-            stage_expanded = expect_expanded(True, "stage upward swipe expands details")
-            if stage_expanded['height'] <= initial['height'] + 180 or not stage_expanded['dockVisible']:
-                raise CheckFailed(f"收图后提示词空间或底栏不正确：before={initial}; after={stage_expanded}")
-            if not stage_expanded['toggleVisible'] or stage_expanded['toggleText'] != '显示图片':
-                raise CheckFailed(f"收图后没有可操作的显示图片入口：{stage_expanded}")
-            tap('#lightboxImageToggle')
-            restored = expect_expanded(False, "button restores image")
-            if abs(restored['height'] - initial['height']) > 2:
-                raise CheckFailed(f"恢复图片后抽屉高度未复原：{restored}")
-            cdp.eval("document.querySelector('#lightboxInfo').scrollTop = 0")
-            swipe('#lightboxInfo')
-            expect_expanded(True, "info upward swipe expands details")
-            # 真正展开长提示词，再用原生手势检验原滚动容器仍工作。
-            tap('#lightboxTags ~ .prompt-fold-toggle')
-            wait_for(cdp, "!document.querySelector('#lightboxTags').classList.contains('prompt-folded')", "long prompt unfolds for reading")
-            cdp.eval("document.querySelector('#lightboxInfo').scrollTop = 0")
-            swipe('#lightboxInfo', dy=-170)
-            scrolling = cdp.eval(geometry)
-            if scrolling['scroll'] < 20 or not scrolling['expanded']:
-                raise CheckFailed(f"收图后的长提示词不能自然滚动：{scrolling}")
-            cdp.eval("document.querySelector('#lightboxInfo').scrollTop = 180")
-            swipe('#lightboxInfo', dy=80)
-            expect_expanded(True, "downward reading scroll keeps details expanded")
-            cdp.eval("document.querySelector('#lightboxInfo').scrollTop = 0")
-            swipe('#lightboxInfo', dy=110)
-            expect_expanded(False, "top downward swipe restores image")
-            # 横滑保留翻页，不能触发垂直收图。
-            swipe('#lightboxStage', dx=-120, dy=2)
-            wait_for(cdp, "history.state?.route?.entry === " + js_string(fixture['next']), "horizontal swipe goes to next entry")
-            horizontal = cdp.eval(geometry)
-            if horizontal['expanded']:
-                raise CheckFailed(f"横滑翻页误收起图片：{horizontal}")
-            swipe('#lightboxStage')
-            expect_expanded(True, "next entry expands")
-            cdp.eval("(async () => { const {stepLightbox} = await import('./assets/app/lightbox.js'); stepLightbox(-1); })()")
-            wait_for(cdp, "history.state?.route?.entry === " + js_string(fixture['long']), "previous entry restores first entry")
-            expect_expanded(False, "entry change resets image")
-            swipe('#lightboxStage')
-            expect_expanded(True, "entry expanded before close")
-            tap('#lightboxClose')
-            wait_for(cdp, "document.querySelector('#lightbox').hidden", "expanded detail closes")
-            cdp.eval(async_open.replace('__INDEX__', '0'))
-            expect_expanded(False, "reopening resets image")
-            screenshot(cdp, out_dir, 'mobile-lightbox-image')
-            swipe('#lightboxInfo')
-            expect_expanded(True, "expanded screenshot state")
-            shot = screenshot(cdp, out_dir, 'mobile-lightbox-details')
-            cdp.eval(async_open.replace('__INDEX__', '2'))
-            wait_for(cdp, "document.querySelector('#lightbox').classList.contains('no-image')", "text-only detail opens")
-            swipe('#lightboxInfo')
-            no_image = cdp.eval(geometry)
-            if no_image['expanded'] or no_image['toggleVisible'] or no_image['height'] < no_image['viewportHeight'] - 80:
-                raise CheckFailed(f"无图词条错误显示收图交互：{no_image}")
-            cdp.command("Emulation.setDeviceMetricsOverride", {
-                "width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False,
-            })
-            cdp.eval(async_open.replace('__INDEX__', '0'))
-            settle(cdp, 160)
-            desktop_before = cdp.eval(geometry)
-            swipe('#lightboxInfo')
-            desktop = cdp.eval(geometry)
-            if desktop['expanded'] or desktop['toggleVisible'] or abs(desktop['height'] - desktop_before['height']) > 2:
-                raise CheckFailed(f"电脑端受手机收图手势影响：{desktop}")
-            trusted = cdp.eval("window.__qaTrustedDetailTouches")
-            if trusted < 12:
-                raise CheckFailed(f"没有收到足够的原生触摸事件：{trusted}")
+            initial=cdp.eval(read)
+            if not initial['native'] or initial['expanded'] or not initial['toggleVisible']:
+                raise CheckFailed(f'手机初始图片区或入口不正确：{initial}')
+            screenshot(cdp,out_dir,'lightbox-reader-image')
+            mobile_tap('#lightboxImageToggle')
+            expanded=wait_for(cdp, "document.querySelector('#lightbox').classList.contains('details-expanded')", 'button hides image')
+            expanded=cdp.eval(read)
+            if expanded['visibleHeight']<initial['visibleHeight']+180 or abs(expanded['dock']-834)>2:
+                raise CheckFailed(f'收图后的阅读范围或底栏不正确：{initial};{expanded}')
+            if expanded['toggleText']!='显示图片' or not cdp.eval("document.querySelector('#lightboxMedia').inert"):
+                raise CheckFailed(f'收图后的入口和隐藏媒体语义不正确：{expanded}')
+            screenshot(cdp,out_dir,'lightbox-reader-text')
+            mobile_tap('#lightboxImageToggle')
+            wait_for(cdp, "document.querySelector('#lightboxScroll').scrollTop<=1", 'button restores full image')
+            if cdp.eval("document.querySelector('#lightboxStage').inert"):
+                raise CheckFailed('恢复图片后媒体仍不可交互')
+            # 横滑仍跨条，下一条从图片位置开始。
+            cdp.command('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[{'x':260,'y':180,'id':1}]})
+            for x in [235,210,180,150,120]:
+                cdp.command('Input.dispatchTouchEvent', {'type':'touchMove','touchPoints':[{'x':x,'y':181,'id':1}]})
+                settle(cdp,25)
+            cdp.command('Input.dispatchTouchEvent', {'type':'touchEnd','touchPoints':[]})
+            wait_for(cdp, "history.state?.route?.entry==="+js_string(fixture['next']), 'horizontal navigation')
+            if cdp.eval("document.querySelector('#lightboxScroll').scrollTop")>1:
+                raise CheckFailed('换条没有重置图片位置')
+            mobile_tap('#lightboxImageToggle')
+            wait_for(cdp, "document.querySelector('#lightbox').classList.contains('details-expanded')", 'next entry hides image')
+            cdp.eval("(async()=>{const{closeLightbox}=await import('./assets/app/lightbox.js');closeLightbox({historyMode:'none',immediate:true})})()")
+            cdp.eval("window.__qaReaderOpen(0)")
+            if cdp.eval("document.querySelector('#lightboxScroll').scrollTop")>1:
+                raise CheckFailed('关闭重开未重置滚动')
+            cdp.eval("window.__qaReaderOpen(2)")
+            settle(cdp,150)
+            no_image=cdp.eval(read)
+            if no_image['native'] or no_image['toggleVisible'] or no_image['height']<764:
+                raise CheckFailed(f'无图阅读布局回归：{no_image}')
+            if cdp.eval("document.querySelector('#lightboxActions').parentElement.id")!='lightboxInfo':
+                raise CheckFailed('无图底栏没有回到信息栏')
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':1280,'height':800,'deviceScaleFactor':1,'mobile':False})
+            cdp.eval("window.__qaReaderOpen(0)")
+            settle(cdp,150)
+            desktop=cdp.eval(read)
+            if desktop['native'] or desktop['toggleVisible'] or desktop['expanded']:
+                raise CheckFailed(f'桌面仍采用手机阅读布局：{desktop}')
+            if cdp.eval("document.querySelector('#lightboxActions').nextElementSibling?.className")!='lightbox-columns':
+                raise CheckFailed('桌面动作栏没有恢复到标题之后')
             check_no_errors(cdp)
-            return {"fixture": fixture, "initial": initial, "expanded": stage_expanded,
-                    "scrolling": scrolling, "horizontal": horizontal, "noImage": no_image,
-                    "desktop": desktop, "trustedTouchMoves": trusted, "screenshot": shot}
+            return {'fixture':fixture,'initial':initial,'expanded':expanded,'noImage':no_image,'desktop':desktop,
+                    'screenshot':screenshot(cdp,out_dir,'lightbox-reader-desktop')}
         finally:
-            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
-            cdp.command("Emulation.setDeviceMetricsOverride", {
-                "width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False,
-            })
+            cdp.command('Emulation.setTouchEmulationEnabled', {'enabled':False})
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':1280,'height':720,'deviceScaleFactor':1,'mobile':False})
 
     def mobile_lightbox_interruptions():
-        """开启动效，以真实触摸验证同接触反向与媒体退入退场中的重新起滑。"""
-        samples = []
-        touching = False
-        read = """(() => {
-          const lb = document.querySelector('#lightbox'), info = document.querySelector('#lightboxInfo');
-          const stage = document.querySelector('#lightboxStage'), actions = document.querySelector('#lightboxActions');
-          return {expanded:lb.classList.contains('details-expanded'), moving:lb.classList.contains('details-moving'),
-            hidden:lb.hidden, top:info.getBoundingClientRect().top, scroll:info.scrollTop,
-            opacity:Number(getComputedStyle(stage).opacity), footer:actions.getBoundingClientRect().bottom,
-            inert:stage.inert};
+        """全动效真实触摸：同一原生滚动轴跨过图片/正文，含惯性、反向和生命周期。"""
+        samples=[]
+        touching=False
+        read="""(() => {
+          const lb=document.querySelector('#lightbox'),s=document.querySelector('#lightboxScroll');
+          const h=document.querySelector('#lightboxMedia').offsetHeight;
+          return {native:lb.classList.contains('native-reader'),hidden:lb.hidden,offset:s.scrollTop,
+            body:Math.max(0,s.scrollTop-h),reveal:Math.max(0,h-s.scrollTop),mediaHeight:h,
+            top:document.querySelector('#lightboxInfo').getBoundingClientRect().top,
+            footer:document.querySelector('#lightboxActions').getBoundingClientRect().bottom,
+            expanded:lb.classList.contains('details-expanded'),inert:document.querySelector('#lightboxMedia').inert};
         })()"""
-
-        def touch(kind, x=195, y=310):
+        def touch(kind,y=350,x=100,*,timestamp=None):
             nonlocal touching
-            points = [] if kind in ('touchEnd', 'touchCancel') else [{"x": x, "y": y, "id": 1}]
-            cdp.command("Input.dispatchTouchEvent", {"type": kind, "touchPoints": points})
-            touching = bool(points)
-
-        def move(y, x=195):
-            touch('touchMove', x, y)
-            settle(cdp, 18)
-
-        def expect(expanded, label, *, moving=False):
-            value = cdp.eval(read)
-            samples.append({"label": label, **value})
-            if value['expanded'] != expanded or value['hidden'] or (moving and not value['moving']):
-                raise CheckFailed(f"{label}: {value}")
-            if abs(value['footer'] - 833) > 2:
-                raise CheckFailed(f"反向时底栏偏离底边：{label}: {value}")
+            points=[] if kind in ('touchEnd','touchCancel') else [{'x':x,'y':y,'id':1}]
+            params={'type':kind,'touchPoints':points}
+            if timestamp is not None: params['timestamp']=timestamp
+            cdp.command('Input.dispatchTouchEvent',params)
+            touching=bool(points)
+        def move(y,x=100):
+            touch('touchMove',y,x)
+            settle(cdp,22)
+        def stroke(start=350,end=750,steps=16,hold=0,x=100):
+            touch('touchStart',start,x)
+            if hold: settle(cdp,hold)
+            for i in range(1,steps+1): move(start+(end-start)*i/steps,x)
+            value=cdp.eval(read)
+            touch('touchEnd')
             return value
-
+        def sample(label,value=None):
+            value=value or cdp.eval(read)
+            samples.append({'label':label,**value})
+            if not value['native'] or value['hidden'] or abs(value['footer']-834)>2:
+                raise CheckFailed(f'{label}：滚动容器或固定底栏不正确：{value}')
+            return value
         try:
-            cdp.command("Emulation.setDeviceMetricsOverride", {
-                "width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True,
-            })
-            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 2})
-            cdp.command("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-reduced-motion", "value": "no-preference"}]})
-            navigate(cdp, base + "?codex=suozhang")
-            wait_for(cdp, "document.querySelectorAll('.card').length > 0", "interruptible gesture fixture")
-            fixture = cdp.eval("""(async () => {
-              const {state} = await import('./assets/app/state.js');
-              const {hasEntryImage,entryImages} = await import('./assets/app/media.js');
-              const {openLightbox} = await import('./assets/app/lightbox.js');
-              const long = state.list.find(e => hasEntryImage(e) && entryImages(e).length === 1 && String(e.tags || '').length > 900);
-              const next = state.list.find(e => hasEntryImage(e) && entryImages(e).length === 1 && e !== long);
-              if (!long || !next) return null;
-              state.list = [long, next];
-              window.__qaInterruptEntries = [long, next];
-              window.__qaInterruptOpen = () => openLightbox(long, 0, null, {historyMode:'replace'});
-              localStorage.setItem('fadian-lbinfo', 'open');
-              localStorage.setItem('fadian-motion', 'on');
-              document.documentElement.classList.remove('motion-off');
-              window.__qaInterruptTrusted = 0;
-              document.querySelector('#lightbox').addEventListener('touchmove', e => {
-                if (e.isTrusted) window.__qaInterruptTrusted++;
-              });
-              document.querySelector('#lightbox').addEventListener('touchstart', e => {
-                window.__qaInterruptStartTarget = e.target.id;
-              });
-              window.__qaInterruptOpen();
-              return {long:long.id,next:next.id};
-            })()""")
-            if not fixture:
-                return {"status": "BLOCKED", "reason": "缺少单图长提示词及另一单图词条"}
-            wait_for(cdp, "document.querySelector('#lightboxImg').complete && document.querySelector('#lightboxImg').naturalWidth > 0", "interruptible image ready", timeout=20)
-            cdp.eval("document.fonts.ready.then(() => true)")
-            clear_errors(cdp)
-
-            def reset(expanded=False):
-                cdp.eval("window.__qaInterruptOpen()")
-                settle(cdp, 500)
-                cdp.eval("""(() => {
-                  const pre = document.querySelector('#lightboxTags');
-                  if (pre.classList.contains('prompt-folded')) pre.parentElement.querySelector('.prompt-fold-toggle').click();
-                })()""")
-                settle(cdp, 300)
-                if expanded:
-                    cdp.eval("document.querySelector('#lightboxImageToggle').click()")
-                    settle(cdp, 500)
-                cdp.eval("document.querySelector('#lightboxInfo').scrollTop=0")
-
-            reset()
-            touch('touchStart');move(280);move(250)
-            expect(True, 'first upward gesture', moving=True)
-            for goal, ys in [(False, (280, 320)), (True, (290, 250)), (False, (280, 320))]:
-                for y in ys:
-                    move(y)
-                expect(goal, 'same contact reverses', moving=True)
-            touch('touchEnd')
-            settle(cdp, 500)
-            expect(False, 'last direction wins')
-
-            reset(True)
-            touch('touchStart', y=400);move(430);move(460)
-            expect(False, 'first downward gesture', moving=True)
-            move(430);move(390)
-            expect(True, 'same contact reverses upward', moving=True)
-            touch('touchEnd')
-
-            # 未先回到触点原位也能反向：基准是最近极值，小幅抖动不算反向。
-            reset()
-            touch('touchStart');move(270);move(210);move(150)
-            move(160)
-            expect(True, 'small reversal jitter keeps direction')
-            move(180)
-            expect(False, 'reverse from latest extreme', moving=True)
-            touch('touchEnd')
-
-            for initially_expanded in (False, True):
-                reset(initially_expanded)
-                start = 400 if initially_expanded else 310
-                sign = 1 if initially_expanded else -1
-                touch('touchStart', y=start);move(start + 30 * sign);move(start + 60 * sign)
-                touch('touchEnd')
-                expect(not initially_expanded, 'media starts transition', moving=True)
-                hit = cdp.eval("document.elementFromPoint(195,130)?.id")
-                if hit != 'lightbox':
-                    raise CheckFailed(f"媒体动画中的新触点没有覆盖遮罩命中路径：{hit}")
-                touch('touchStart', y=130);move(130 - 30 * sign);move(130 - 65 * sign)
-                expect(initially_expanded, 'new contact interrupts moving media', moving=True)
-                touch('touchEnd')
-
-            reset(True)
-            touch('touchStart', 100, 600);move(560, 100);move(520, 100);touch('touchEnd')
-            settle(cdp, 120)
-            if expect(True, 'reading scroll remains native')['scroll'] < 20:
-                raise CheckFailed('连续手势修复阻断了正文滚动')
-            cdp.eval("document.querySelector('#lightboxInfo').scrollTop=180")
-            touch('touchStart', 100, 400);move(430, 100);move(470, 100);touch('touchEnd')
-            expect(True, 'reading downward away from top')
-
-            # 过渡中允许下一次手势接管，不受紧凑栏之前的正文滚动位置阻塞。
-            reset()
-            cdp.eval("document.querySelector('#lightboxInfo').scrollTop=80")
-            touch('touchStart');move(280);move(250);touch('touchEnd')
-            touch('touchStart', y=130);move(160);move(195)
-            expect(False, 'moving media interrupts scrolled panel', moving=True)
-            touch('touchEnd')
-
-            reset()
-            touch('touchStart');move(280);move(250);touch('touchEnd')
-            # 远离正文/按钮，避免Chrome将边缘触摸吸附到信息栏内。
-            touch('touchStart', 1, 130)
-            if cdp.eval("window.__qaInterruptStartTarget") != 'lightbox':
-                raise CheckFailed('媒体外触摸被吸附到控件，未覆盖遮罩边界')
-            move(160, 1);move(195, 1);touch('touchEnd')
-            expect(True, 'outside media does not claim vertical gesture')
-
-            reset()
-            touch('touchStart');move(280);move(250)
-            cdp.command('Input.dispatchTouchEvent', {'type':'touchStart', 'touchPoints':[
-                {'x':195,'y':250,'id':1}, {'x':240,'y':250,'id':2}]})
-            cdp.command('Input.dispatchTouchEvent', {'type':'touchMove', 'touchPoints':[
-                {'x':195,'y':300,'id':1}, {'x':240,'y':300,'id':2}]})
-            touch('touchCancel')
-            settle(cdp, 500)
-            expect(True, 'second finger cancels gesture ownership')
-
-            reset()
-            touch('touchStart');move(280);move(250)
-            touch('touchCancel')
-            move_state = cdp.eval(read)
-            settle(cdp, 500)
-            if not move_state['expanded'] or not expect(True, 'cancel keeps last goal')['inert']:
-                raise CheckFailed('触摸取消破坏收图终态')
-            reset()
-            touch('touchStart');move(280);move(250)
-            cdp.eval("(async () => {const{stepLightbox}=await import('./assets/app/lightbox.js');stepLightbox(1)})()")
-            move(290);move(330);touch('touchEnd')
-            expect(False, 'entry change drops old gesture')
-            if cdp.eval("document.querySelector('#lightboxTitle').textContent") != cdp.eval("window.__qaInterruptEntries[1].title"):
-                raise CheckFailed('旧触摸改变了下一条词条')
-            reset()
-            touch('touchStart');move(280);move(250)
-            cdp.eval("(async () => {const{closeLightbox}=await import('./assets/app/lightbox.js');closeLightbox({historyMode:'none',immediate:true})})()")
-            cdp.eval("window.__qaInterruptOpen()")
-            move(290);move(330);touch('touchEnd')
-            settle(cdp, 500)
-            expect(False, 'close and reopen drops old gesture')
-
-            cdp.command('Emulation.setEmulatedMedia', {'features':[{'name':'prefers-reduced-motion','value':'reduce'}]})
-            reset()
-            touch('touchStart');move(280);move(250)
-            move(280);move(320);touch('touchEnd')
-            if expect(False, 'reduced motion accepts reversal')['moving']:
-                raise CheckFailed('减少动态效果时仍播放收放动画')
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':390,'height':844,'deviceScaleFactor':1,'mobile':True})
+            cdp.command('Emulation.setTouchEmulationEnabled', {'enabled':True,'maxTouchPoints':2})
             cdp.command('Emulation.setEmulatedMedia', {'features':[{'name':'prefers-reduced-motion','value':'no-preference'}]})
+            navigate(cdp,base+'?codex=suozhang')
+            wait_for(cdp,"document.querySelectorAll('.card').length>0",'continuous reading fixture')
+            fixture=cdp.eval("""(async()=>{
+              const{state}=await import('./assets/app/state.js');
+              const{entryImages,hasEntryImage}=await import('./assets/app/media.js');
+              const{openLightbox}=await import('./assets/app/lightbox.js');
+              const{renderList}=await import('./assets/app/masonry.js');
+              const long=state.list.find(e=>e.id==='suozhang-0210')||state.list.find(e=>hasEntryImage(e)&&String(e.tags||'').length>900);
+              const next=state.list.find(e=>hasEntryImage(e)&&e!==long);
+              if(!long||!next)return null;
+              const multi=state.list.find(e=>entryImages(e).length>1)||{...long,images:[entryImages(long)[0],entryImages(next)[0]]};
+              window.__qaContinuousEntries=[long,next,multi];state.list=[long,next];
+              renderList({resetScroll:true});
+              window.__qaContinuousOpen=(i=0)=>openLightbox(window.__qaContinuousEntries[i],0,null,{historyMode:'replace'});
+              localStorage.setItem('fadian-lbinfo','open');localStorage.setItem('fadian-motion','on');
+              document.documentElement.classList.remove('motion-off');
+              window.__qaReaderTrusted=0;window.__qaReaderClicks=0;
+              document.querySelector('#lightbox').addEventListener('touchmove',e=>{if(e.isTrusted)window.__qaReaderTrusted++},{passive:true});
+              document.querySelector('#lightbox').addEventListener('touchstart',e=>{
+                window.__qaReaderTarget=e.target.id;
+                window.__qaReaderTouchOffset=document.querySelector('#lightboxScroll').scrollTop;
+              },{passive:true});
+              document.querySelector('#copyPositive').addEventListener('click',()=>window.__qaReaderClicks++);
+              window.__qaContinuousOpen();await document.fonts.ready;
+              return {long:long.id,next:next.id,multi:multi.id};
+            })()""",timeout=30)
+            if not fixture:
+                return {'status':'BLOCKED','reason':'缺少长提示词图片与另一图片词条'}
+            wait_for(cdp,"document.querySelector('#lightboxImg').naturalWidth>0",'continuous image ready',timeout=20)
+            clear_errors(cdp)
+            cdp.eval("document.querySelector('#lightbox').addEventListener('touchend',()=>window.__qaReaderEndState="+read+",{passive:true})")
+            def reset(body=0,visible=False,index=0):
+                cdp.eval(f"window.__qaContinuousOpen({index})")
+                settle(cdp,400)
+                cdp.eval("""(() => {
+                  const p=document.querySelector('#lightboxTags');
+                  if(p.classList.contains('prompt-folded'))p.parentElement.querySelector('.prompt-fold-toggle').click();
+                })()""")
+                settle(cdp,250)
+                cdp.eval("document.querySelector('#lightboxScroll').scrollTo({top:"+
+                         ("0" if visible else "document.querySelector('#lightboxMedia').offsetHeight+"+str(body))+
+                         ",behavior:'instant'})")
+                settle(cdp,80)
+            for distance in [2,12,60,180]:
+                reset(distance)
+                value=sample('continuous pull from '+str(distance),stroke())
+                if value['body']>1 or value['reveal']<80:
+                    raise CheckFailed(f'正文到顶后同一滑动没有继续露图：{distance}px：{value}')
+            reset(180)
+            # 固定输入时间戳，避免CDP往返/机器负载改变甩动速度；仍由浏览器产生真实触摸。
+            cdp.eval("window.__qaReaderEndState=null")
+            at=time.time()
+            touch('touchStart',timestamp=at)
+            for i,y in enumerate([383,417,450],1):
+                touch('touchMove',y,timestamp=at+i/60)
+                settle(cdp,12)
+            touch('touchEnd',timestamp=at+4/60)
+            before=sample('flick before release',wait_for(cdp,"window.__qaReaderEndState",'native fling touchend'))
+            if before['body']<20:
+                raise CheckFailed(f'惯性夹具在松手前已经到顶：{before}')
+            try:
+                wait_for(cdp,"document.querySelector('#lightboxScroll').scrollTop<document.querySelector('#lightboxMedia').offsetHeight-40",'momentum continues into image')
+            except CheckFailed as exc:
+                raise CheckFailed(f'{exc}; release={before}; current={cdp.eval(read)}') from exc
+            sample('flick after momentum')
+            reset(visible=True)
+            value=sample('one stroke hides image and reads',stroke(700,100,20))
+            if value['body']<80:
+                raise CheckFailed(f'收图后吞掉了同一滑动的正文余量：{value}')
             reset()
-            touch('touchStart');move(280);move(250);touch('touchEnd')
-            # 普通遮罩点击仍可关闭，不会因新增的纵滑接收区失效。
-            touch('touchStart', 1, 130);touch('touchEnd')
-            wait_for(cdp, "document.querySelector('#lightbox').hidden", 'backdrop tap closes during motion')
+            touch('touchStart',400)
+            for y in [430,470,510,550]: move(y)
+            first=sample('finger pulls image')
+            for y in [510,470,430,390,350,310,270,230]: move(y)
+            second=sample('same contact reverses into text')
+            if first['reveal']<60 or second['body']<60:
+                raise CheckFailed(f'同一接触反向不连续：{first};{second}')
+            touch('touchEnd')
             reset()
-            trusted = cdp.eval("window.__qaInterruptTrusted")
-            if trusted < 24:
-                raise CheckFailed(f"原生触摸覆盖不足：{trusted}")
+            value=sample('slow hold then drag',stroke(end=470,steps=8,hold=780))
+            if value['reveal']<50:
+                raise CheckFailed(f'慢起滑仍被丢弃：{value}')
+            reset()
+            pos=cdp.eval("(()=>{const r=document.querySelector('#copyPositive').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()")
+            clicks=cdp.eval('window.__qaReaderClicks')
+            value=sample('drag starts on button',stroke(pos['y'],pos['y']+120,8,x=pos['x']))
+            if cdp.eval('window.__qaReaderTarget')!='copyPositive' or value['reveal']<50 or cdp.eval('window.__qaReaderClicks')!=clicks:
+                raise CheckFailed(f'按钮起滑被排除或误点击：{value}')
+            # 平滑按钮滚动被新触摸立刻停住，保持手指不动时不能继续漂移。
+            reset(visible=True)
+            cdp.eval("document.querySelector('#lightboxImageToggle').click()")
+            settle(cdp,60)
+            cdp.eval("window.__qaReaderTouchOffset=null")
+            touch('touchStart',650)
+            # passive touchstart 的 CDP 回执可早于页面回调；等真实处理后再量停住位置。
+            wait_for(cdp,"window.__qaReaderTouchOffset!==null",'native touchstart delivered',interval=.01)
+            # 原生滚动的合成线程可能还有一个已提交的末帧；按实际绘制帧检查停止后的漂移。
+            frames=cdp.eval("new Promise(resolve=>{const frames=[];const tick=()=>{frames.push(document.querySelector('#lightboxScroll').scrollTop);if(frames.length<4)requestAnimationFrame(tick);else resolve(frames)};requestAnimationFrame(tick)})")
+            stopped=sample('button scroll interrupted by touch')
+            samples.append({'label':'native scroll stop frames','frames':frames})
+            if abs(frames[-1]-frames[-2])>2:
+                raise CheckFailed(f'触摸后按钮滚动仍持续运行：{frames}')
+            settle(cdp,160)
+            held=sample('held finger stays still')
+            if abs(held['offset']-stopped['offset'])>2:
+                raise CheckFailed(f'新触摸没有停住按钮滚动：{stopped};{held}')
+            move(690);move(730)
+            touch('touchEnd')
+            # 新按钮目标能立刻反向，最后一次显示目标必须回到完整图片。
+            reset(visible=True)
+            cdp.eval("document.querySelector('#lightboxImageToggle').click()")
+            settle(cdp,45)
+            cdp.eval("document.querySelector('#lightboxImageToggle').click()")
+            wait_for(cdp,"document.querySelector('#lightboxScroll').scrollTop<=1",'rapid button reversal')
+            reset()
+            touch('touchStart');move(400);touch('touchCancel')
+            sample('cancel leaves usable position')
+            stroke(400,250,6)
+            sample('fresh stroke after cancel')
+            # 换条/重开时仍按着的旧接触不能把新内容拖走。
+            for reopen in [False,True]:
+                reset(visible=True)
+                touch('touchStart',650);move(600)
+                if reopen:
+                    cdp.eval("(async()=>{const{closeLightbox}=await import('./assets/app/lightbox.js');closeLightbox({historyMode:'none',immediate:true});window.__qaContinuousOpen()})()")
+                else:
+                    cdp.eval("window.__qaContinuousOpen(1)")
+                move(540);move(480);touch('touchEnd')
+                settle(cdp,120)
+                value=sample('lifecycle cancels old contact '+str(reopen))
+                if value['offset']>1:
+                    raise CheckFailed(f'旧触摸移动了新内容（重开={reopen}）：{value}')
+                value=sample('new contact after lifecycle',stroke(700,100,20))
+                if value['offset']<100:
+                    raise CheckFailed(f'新接触没有立即解锁：{value}')
+            reset(index=2,visible=True)
+            if cdp.eval("document.querySelector('#lightboxThumbs').hidden"):
+                raise CheckFailed('多图缩略条未显示')
+            thumb=cdp.eval("(()=>{const e=document.querySelectorAll('#lightboxThumbs button')[1],r=e?.getBoundingClientRect();return r?{x:r.x+r.width/2,y:r.y+r.height/2}:null})()")
+            if not thumb:
+                raise CheckFailed('多图夹具缺少第二张')
+            touch('touchStart',thumb['y'],thumb['x']);touch('touchEnd')
+            wait_for(cdp,"document.querySelectorAll('#lightboxThumbs button')[1]?.classList.contains('active')",'thumbnail selects second image')
+            sample('multi image thumbnail tap')
+            mobile_tap('#lightboxFold')
+            if cdp.eval("document.querySelector('#lightbox').classList.contains('native-reader')"):
+                raise CheckFailed('收起信息栏没有释放原生阅读布局')
+            mobile_tap('#lightboxFold')
+            sample('unfold restores native reader')
+            # 原生双指操作不应被脚本误判成横向翻页或按钮点击。
+            reset(visible=True)
+            entry=cdp.eval("history.state.route.entry")
+            touch('touchStart',200,170)
+            cdp.command('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[{'x':170,'y':200,'id':1},{'x':220,'y':200,'id':2}]})
+            cdp.command('Input.dispatchTouchEvent', {'type':'touchMove','touchPoints':[{'x':145,'y':175,'id':1},{'x':245,'y':225,'id':2}]})
+            touch('touchCancel')
+            if cdp.eval("history.state.route.entry")!=entry:
+                raise CheckFailed('双指手势误触发翻页')
+            cdp.command('Emulation.setPageScaleFactor', {'pageScaleFactor':1})
+            # 同断点高度变化保留正文偏移；转桌面后恢复传统排版。
+            reset(100)
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':390,'height':760,'deviceScaleFactor':1,'mobile':True})
+            settle(cdp,150)
+            resized=cdp.eval(read)
+            if abs(resized['body']-100)>3:
+                raise CheckFailed(f'高度变化丢失阅读位置：{resized}')
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':900,'height':760,'deviceScaleFactor':1,'mobile':False})
+            settle(cdp,150)
+            if cdp.eval("document.querySelector('#lightbox').classList.contains('native-reader')"):
+                raise CheckFailed('桌面断点没有释放原生阅读布局')
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':390,'height':844,'deviceScaleFactor':1,'mobile':True})
+            cdp.command('Emulation.setEmulatedMedia', {'features':[{'name':'prefers-reduced-motion','value':'reduce'}]})
+            reset(visible=True)
+            cdp.eval("document.querySelector('#lightboxImageToggle').click()")
+            if cdp.eval(read)['offset']<cdp.eval(read)['mediaHeight']-1:
+                raise CheckFailed('减少动态效果时按钮没有立即落到阅读位置')
+            sample('reduced motion button')
+            # 从顶部宽遮罩区点按，10px边缘触点可能被Chrome吸附到正文。
+            touch('touchStart',20,150);touch('touchEnd')
+            wait_for(cdp,"document.querySelector('#lightbox').hidden",'backdrop tap closes reader')
+            trusted=cdp.eval('window.__qaReaderTrusted')
+            if trusted<100:
+                raise CheckFailed(f'真实触摸覆盖不足：{trusted}')
             check_no_errors(cdp)
-            return {"fixture": fixture, "trustedTouchMoves": trusted, "samples": samples,
-                    "screenshot": screenshot(cdp, out_dir, 'mobile-interruptible-gestures')}
+            return {'fixture':fixture,'trustedTouchMoves':trusted,'samples':samples}
         finally:
-            if touching:
-                touch('touchCancel')
+            if touching: touch('touchCancel')
             cdp.eval("localStorage.setItem('fadian-motion','off');document.documentElement.classList.add('motion-off')")
-            cdp.command("Emulation.setEmulatedMedia", {"features": []})
-            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
-            cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+            cdp.command('Emulation.setEmulatedMedia', {'features':[]})
+            cdp.command('Emulation.setTouchEmulationEnabled', {'enabled':False})
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':1280,'height':720,'deviceScaleFactor':1,'mobile':False})
 
     def mobile_tap(selector, *, edge=False, right=False):
         """真实触摸，先等控件的实际命中点；edge 用来验扩大后的触区。"""

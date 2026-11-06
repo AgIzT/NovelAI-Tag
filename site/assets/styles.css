@@ -2450,6 +2450,7 @@ body.lightbox-open{overflow:clip;overscroll-behavior:none}
 body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted);--neg-ink:var(--new)}
 .lightbox:not([hidden]){display:block}
 .lightbox.is-open{opacity:1;pointer-events:auto}
+.lightbox-scroll,.lightbox-media{display:contents}
 .lightbox.folded{--lb-right:18px}
 .lightbox-stage{
   position:absolute;left:18px;top:18px;bottom:18px;right:var(--lb-right);
@@ -2864,22 +2865,40 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     display:flex;flex-direction:column;overscroll-behavior-y:contain;overflow-anchor:none;
     transition:transform .3s cubic-bezier(.22,1,.36,1),translate .32s cubic-bezier(.22,1,.36,1),opacity .25s;
   }
-  /* 上滑后收起图片，把空间交给提示词；恢复入口固定在顶部，不随长文滚走。 */
+  /* 图片与正文共用原生滚动，惯性可直接跨过图片区，不在边界重新接管触摸。 */
+  .lightbox.native-reader .lightbox-scroll{
+    display:block;position:absolute;inset:56px 10px 10px;overflow-y:auto;overflow-anchor:none;
+    overscroll-behavior-y:contain;touch-action:pan-y pinch-zoom;
+    scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+    scroll-padding-bottom:calc(var(--lb-actions-height,61px) + 14px);
+  }
+  .lightbox.native-reader .lightbox-media{display:block;position:relative;height:calc(100% - var(--lb-sheet-height));min-height:86px}
+  .lightbox.native-reader.has-thumbs .lightbox-media{min-height:150px}
+  .lightbox.native-reader .lightbox-stage{inset:0 0 10px;transition:none}
+  .lightbox.native-reader.has-thumbs .lightbox-stage{bottom:94px}
+  .lightbox.native-reader .lightbox-thumbs{bottom:12px;max-width:calc(100% - 10px);transition:none}
+  .lightbox.native-reader .lb-fold{bottom:-13px;transition:color .12s,border-color .12s}
+  .lightbox.native-reader .lightbox-nav{top:calc(50% - 5px);transition:border-color .12s,color .12s,scale .14s ease}
+  .lightbox.native-reader.has-thumbs .lightbox-nav{top:calc(50% - 47px)}
+  .lightbox.native-reader .lightbox-prev{left:0}
+  .lightbox.native-reader .lightbox-next{right:0}
+  .lightbox.native-reader .lightbox-info{
+    position:relative;inset:auto;width:auto;height:auto;min-height:100%;max-height:none;margin:0;
+    overflow:visible;translate:none;transform:none;transition:opacity .25s;
+    padding-bottom:calc(var(--lb-actions-height,61px) + 14px);
+  }
+  .lightbox.native-reader > .lightbox-actions{
+    position:absolute;left:10px;right:10px;bottom:10px;margin:0;border-radius:0 0 16px 16px;
+    border:1px solid var(--line);z-index:6;
+  }
   .lightbox.no-image-reader{--lb-sheet-height:calc(100vh - 66px)}
-  .lightbox:is(.details-expanded,.details-moving) .lightbox-info{height:calc(100vh - 66px)}
   @supports (height:1dvh){
     .lightbox.no-image-reader{--lb-sheet-height:calc(100dvh - 66px)}
-    .lightbox:is(.details-expanded,.details-moving) .lightbox-info{height:calc(100dvh - 66px)}
   }
   /* 两端沿用同一排版，短文的底栏也贴底，避免动效起止重新切换 flex / block。 */
   .lightbox-info :is(.lightbox-head,.lightbox-section,.lightbox-actions){flex-shrink:0}
   .lightbox-info .lightbox-actions{margin-top:auto}
-  .lightbox.details-measuring .lightbox-info{height:var(--lb-sheet-height)}
-  .lightbox.details-expanded :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){opacity:0;translate:0 -24px;visibility:hidden;pointer-events:none}
   .lightbox.no-image-reader :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){visibility:hidden;pointer-events:none}
-  .lightbox.details-moving :is(.lightbox-stage,.lightbox-thumbs,.lightbox-nav,.lb-fold){visibility:visible;pointer-events:none;will-change:opacity,translate}
-  .lightbox.details-moving .lightbox-info{transition:none;will-change:translate,clip-path}
-  .lightbox.details-moving .lightbox-actions{will-change:translate}
   .lightbox:not(.no-image):not(.folded) .lb-image-toggle{
     display:block;position:absolute;z-index:5;right:10px;top:10px;min-height:36px;padding:7px 14px;
     border:1px solid var(--line);border-radius:999px;background:var(--glass);color:var(--text);
