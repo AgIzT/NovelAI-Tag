@@ -2015,12 +2015,25 @@ function placeTagZhToggle(compact) {
 function bindLightboxDetailsSwipe() {
   const lb = $('#lightbox');
   const info = $('#lightboxInfo');
+  const stage = $('#lightboxStage');
+  const reverseSlop = 22;
   let gesture = null;
-  const canStart = target => !lb.hidden && window.matchMedia?.(LB_COMPACT_MEDIA).matches
+  const canResize = () => !lb.hidden && lb.classList.contains('is-open') && window.matchMedia?.(LB_COMPACT_MEDIA).matches
     && !lb.classList.contains('no-image') && !lb.classList.contains('folded')
-    && !isPageZoomed() && !isLightboxMoreOpen() && !String(window.getSelection?.() || '').trim()
-    && target instanceof Element && Boolean(target.closest('#lightboxInfo,#lightboxStage'))
-    && !target.closest('button,a,input,textarea,select,[contenteditable="true"],[role="button"],.prompt-selection-token');
+    && !isPageZoomed() && !isLightboxMoreOpen() && !String(window.getSelection?.() || '').trim();
+  const canStart = ev => {
+    const target = ev.target;
+    if (!canResize() || !(target instanceof Element)
+        || target.closest('button,a,input,textarea,select,[contenteditable="true"],[role="button"],.prompt-selection-token')) return false;
+    if (target.closest('#lightboxInfo,#lightboxStage')) return true;
+    // 动画媒体仍须 inert；新触点会穿透到遮罩，只接管图片区内的纵滑，不放开隐藏按钮。
+    if (target !== lb || !lbDetailsMotion) return false;
+    const point = ev.touches?.[0] || ev;
+    const rect = stage.getBoundingClientRect();
+    return point.clientX >= rect.left && point.clientX <= rect.right
+      && point.clientY >= rect.top && point.clientY <= rect.bottom
+      && point.clientY < info.getBoundingClientRect().top;
+  };
   // 捕获点击，避免收图后触摸落点变成另一颗 tag 的点击。
   lb.addEventListener('click', ev => {
     if (!gesture?.consumed) return;
@@ -2029,27 +2042,42 @@ function bindLightboxDetailsSwipe() {
   }, true);
   lb.addEventListener('touchstart', ev => {
     gesture = null;
-    if (ev.touches.length !== 1 || !canStart(ev.target)) return;
+    if (ev.touches.length !== 1 || !canStart(ev)) return;
     const touch = ev.touches[0];
-    gesture = { x: touch.clientX, y: touch.clientY, at: Date.now(),
-      expanded: lb.classList.contains('details-expanded'), atTop: info.scrollTop <= 1, consumed: false };
+    gesture = { x: touch.clientX, y: touch.clientY, at: Date.now(), seq: lbSeq,
+      expanded: lb.classList.contains('details-expanded'), atTop: info.scrollTop <= 1,
+      interrupting: Boolean(lbDetailsMotion), consumed: false };
   }, { passive: true });
   lb.addEventListener('touchmove', ev => {
     if (!gesture) return;
-    if (ev.touches.length !== 1 || isPageZoomed()) { gesture = null; return; }
-    if (gesture.consumed) { ev.preventDefault(); return; }
-    if (Date.now() - gesture.at > 700 || String(window.getSelection?.() || '').trim()) { gesture = null; return; }
+    if (ev.touches.length !== 1 || gesture.seq !== lbSeq || !canResize()) { gesture = null; return; }
+    const y = ev.touches[0].clientY;
+    // consumed 只表示吞掉这次手势的合成点击；方向仍跟踪，反向从最近极值点起算。
+    if (gesture.consumed) {
+      ev.preventDefault();
+      gesture.pivot = gesture.expanded ? Math.min(gesture.pivot, y) : Math.max(gesture.pivot, y);
+      const reverse = y - gesture.pivot;
+      if ((gesture.expanded && reverse > reverseSlop) || (!gesture.expanded && reverse < -reverseSlop)) {
+        gesture.expanded = !gesture.expanded;
+        gesture.pivot = y;
+        setLightboxDetailsExpanded(gesture.expanded, { animate: true });
+      }
+      return;
+    }
+    if (Date.now() - gesture.at > 700) { gesture = null; return; }
     const dx = ev.touches[0].clientX - gesture.x;
-    const dy = ev.touches[0].clientY - gesture.y;
+    const dy = y - gesture.y;
     if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) { gesture = null; return; }
-    const resizing = !gesture.expanded ? dy < -10 : gesture.atTop && dy > 10;
+    const resizing = !gesture.expanded ? dy < -10 : (gesture.atTop || gesture.interrupting) && dy > 10;
     if (!resizing || Math.abs(dy) < Math.abs(dx) * 1.25) return;
     // 首次上滑用于展开抽屉，已展开后的上滑继续交给原生文字滚动。
     ev.preventDefault();
-    if (Math.abs(dy) < 40) return;
+    if (Math.abs(dy) < (gesture.interrupting ? reverseSlop : 40)) return;
     gesture.consumed = true;
+    gesture.pivot = y;
+    gesture.expanded = !gesture.expanded;
     closeArtistPeek();
-    setLightboxDetailsExpanded(!gesture.expanded, { animate: true });
+    setLightboxDetailsExpanded(gesture.expanded, { animate: true });
   }, { passive: false });
   lb.addEventListener('touchend', () => {
     const finished = gesture;
@@ -2057,7 +2085,7 @@ function bindLightboxDetailsSwipe() {
   }, { passive: true });
   lb.addEventListener('touchcancel', () => { gesture = null; }, { passive: true });
   lb.addEventListener('wheel', ev => {
-    if (ev.ctrlKey || !canStart(ev.target) || Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;
+    if (ev.ctrlKey || !canStart(ev) || Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;
     const expanded = lb.classList.contains('details-expanded');
     if ((!expanded && ev.deltaY > 12) || (expanded && info.scrollTop <= 1 && ev.deltaY < -24)) {
       ev.preventDefault();

@@ -135,6 +135,7 @@
 - `router.js`、`history.js`、`codex-ui.js` 通过注入调用瀑布流，避免反向静态依赖；`masonry.js` 同理通过动作注入打开灯箱和反馈。
 - `browser-history.js` 必须保持页面无关。历史层的底层 open / close handler 不得自己改 history；用户动作包装器才决定 push、replace 或 back。完整套路见本地私有文档 `docs/经验/浏览器历史状态管理.md`。
 - 视觉顶层与全局快捷键归属统一由 `modal.js` 判断，不能把 history 顶层直接当作模态：选择模式不是模态，停靠中转站也不是。全局监听先检查 `isGlobalShortcutBlocked(event, owner)`；局部列表/菜单自己处理按键并保留 Tab 的焦点管理。
+- `lightbox.js` 的手机纵滑接管后持续跟踪方向，按最近极值点识别反向；动画中落到遮罩的触点只在图片区内接管，隐藏控件仍保持 inert。稳定阅读保留原生滚动，换条 / 关闭 / 重开按渲染序号作废旧手势；动效反向从当前可见帧接续。
 - `ui-kit.css` 提供 `.ui-press` 显式按压、`.bar-btn`、`.panel-action`、`.panel-input` 与 `.ui-select-*` 共用表面；结果栏同排选择器使用 `.ui-select.is-pill`。名称/整理弹窗沿用 `styles.css` 的 settings 家族，功能样式只写业务布局和必要变量。
 - 收藏工具栏与排序实例跨普通重绘存活，来源按钮按 sourceId 复用；收藏夹更多菜单登记交互层，并随所属抽屉关闭清理。共创广场分类与卡片按稳定 ID 复用，事件读取当前数据，详情回焦可按 ID 重新定位。
 - 内容分级统一经过 `access.js`；快照、历史或虚拟视图无法证明可访问时，保持 fail-closed。
