@@ -3078,19 +3078,22 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   /* 原生按钮保留键盘 / 读屏入口；键盘聚焦才显示，不占卡片正文高度。 */
   .masonry .card-detail-btn{display:block}
   .masonry .card-img{object-fit:contain}
-  body .masonry .card-title-row{flex-wrap:nowrap;align-items:center;min-height:44px;gap:6px;margin-bottom:6px}
+  /* 收藏触区独立覆盖正文右侧，图标对齐首行；44px 按钮不再撑高标题。 */
+  .masonry .card-body{position:relative;min-height:44px;--card-title-action:37px;--card-fav-top:14px}
+  body .masonry .card-title-row{flex-wrap:nowrap;align-items:center;min-height:20px;padding-right:var(--card-title-action);gap:6px;margin-bottom:6px}
   .masonry .card-title{flex:1;min-width:0}
   body .masonry .card-title-row .fav-btn{
-    display:flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;
-    margin:0;padding:0;border-radius:8px;scale:none;touch-action:manipulation;
+    position:absolute;top:0;right:0;z-index:1;display:flex;align-items:flex-start;justify-content:center;width:44px;height:44px;
+    margin:0;padding:var(--card-fav-top) 0 0;border-radius:8px;scale:none;touch-action:manipulation;
   }
   body .masonry .card-title-row .fav-btn:active::before{scale:.88}
   .masonry :is(.hide-card-btn,.card-actions,.zoom-btn,.favorite-organize-button),
   .masonry .card-title-row :is(.badge-new,.badge-neg-chip,.badge-char-chip){display:none}
-  body.density-standard .masonry .card-body{padding:9px}
+  body.density-standard .masonry .card-body{padding:9px;--card-title-action:41px;--card-fav-top:11px}
   body.density-standard .masonry .card-tags{font-size:11.5px;line-height:16px;padding:5px 6px}
   body.density-compact .masonry .card-img{object-fit:cover}
-  body.density-compact .masonry .card-title-row{gap:5px;margin-bottom:5px}
+  body.density-compact .masonry .card-body{--card-title-action:42px;--card-fav-top:8px}
+  body.density-compact .masonry .card-title-row{min-height:16px;gap:5px;margin-bottom:5px}
   body.density-compact .masonry .card-title{-webkit-line-clamp:1}
   body.density-compact .masonry .card-title-row .fav-btn{border-radius:8px}
   body.density-compact .masonry .card:not(.no-img) .card-tags{display:none}
