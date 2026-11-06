@@ -16,14 +16,13 @@
   var m=localStorage.getItem('fadian-dark-mode');
   var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)
     ||(!m&&localStorage.getItem('fadian-dark')==='1');
-  var storedTheme=localStorage.getItem('fadian-theme');
-  var t=['','teal','sakura','amber','indigo','ink','dream'].includes(storedTheme)?storedTheme:'dream';
+  var t=localStorage.getItem('fadian-theme');
   var c=[];
   if(d)c.push('dark');
-  if(t)c.push('theme-'+t);
+  if(t==='teal'||t==='sakura'||t==='amber'||t==='indigo'||t==='ink'||t==='dream')c.push('theme-'+t);
   document.documentElement.style.colorScheme=d?'dark':'light';
   if(c.length)document.documentElement.className=c.join(' ');
-}catch(e){document.documentElement.classList.add('theme-dream')}})();
+}catch(e){}})();
 </script>
 <style>
 /* 自带一份最小 token，不外链 tokens.css：兜底页得在别的东西都坏掉时还能自己站住。
