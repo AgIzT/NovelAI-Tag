@@ -21,7 +21,7 @@
   --red:var(--new);
   --danger:#d74b66; --danger-text:#c33f59;
 }
-/* ============ 主题色（换肤）：每套含 light + dark，与深浅色正交；默认紫=base 不加类 ============ */
+/* ============ 主题色（换肤）：每套含 light + dark，与深浅色正交；默认梦境 ============ */
 body.theme-teal{--bg:#eaeef5;--panel:#ffffff;--card:#ffffff;--text:#22304a;--muted:#7d8aa3;--line:#dbe2ee;--accent:#0fa173;--accent-soft:#dff4ea;--tagbg:#f1f4f9;--tagbg-hover:#e8eef6;--accent-glow:rgba(15,161,115,.18);--on-accent:#131316}
 body.theme-teal.dark{--text:#e4e9f3;--muted:#7e8aa0;--accent:#2ecb86;--accent-soft:#14352a;--accent-glow:rgba(46,203,134,.20)}
 body.theme-sakura{--bg:#fbf4f1;--panel:#fffaf7;--card:#ffffff;--text:#3d3034;--muted:#a18d92;--line:#f0dde0;--accent:#e0577f;--accent-soft:#fce8ee;--tagbg:#faf1ef;--tagbg-hover:#f7e9e7;--new:#c2342d;--accent-glow:rgba(224,87,127,.18);--on-accent:#131316}

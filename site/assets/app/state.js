@@ -8,14 +8,14 @@ export const RANDOM_RECENT_LIMIT = 20;
 export const DENSITY_STORAGE_KEY = 'fadian-density';
 export const DEFAULT_DENSITY = 'standard';
 export const THEME_STORAGE_KEY = 'fadian-theme';
+export const DEFAULT_THEME = 'dream';
 export const THEMES = [
-  { id: '', name: '紫调' },
+  { id: 'dream', name: '梦境' },
   { id: 'teal', name: '青翠' },
   { id: 'sakura', name: '樱粉' },
   { id: 'amber', name: '暖金' },
   { id: 'indigo', name: '靛蓝' },
   { id: 'ink', name: '素墨' },
-  { id: 'dream', name: '梦境' },
 ];
 /* 界面字体：与配色、深浅色都正交，字族全部已在 index.html 载入，换档不发新请求 */
 export const FONT_STORAGE_KEY = 'fadian-font';

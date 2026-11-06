@@ -909,8 +909,10 @@ function syncTheme() {
   document.body.classList.toggle('dark', dark);
   document.documentElement.classList.toggle('dark', dark);
   document.documentElement.style.colorScheme = dark ? 'dark' : '';
-  const theme = localStorage.getItem('fadian-theme') || '';
-  for (const id of ['teal', 'sakura', 'amber']) document.body.classList.toggle(`theme-${id}`, theme === id);
+  const themes = ['dream', 'teal', 'sakura', 'amber', 'indigo', 'ink'];
+  const storedTheme = localStorage.getItem('fadian-theme');
+  const theme = themes.includes(storedTheme) ? storedTheme : 'dream';
+  for (const id of themes) document.body.classList.toggle(`theme-${id}`, theme === id);
 }
 
 function handleError(error, replaceList = false) {

@@ -108,13 +108,14 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <body>
 <script>/* 主题早应用：正式主题在 bindUI（等完网络请求后）才挂，这里先按本地偏好上类，消除深色/换肤用户的首帧闪色 */
 (()=>{try{
-  const c=document.body.classList,ls=k=>localStorage.getItem(k);
+  const c=document.body.classList,ls=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
   /* 深浅色三档：没有新键就按旧的 fadian-dark 迁移（老用户手感不变），两个都没有才跟随系统 */
   let m=ls('fadian-dark-mode');
   if(m!=='auto'&&m!=='light'&&m!=='dark'){const o=ls('fadian-dark');m=o==='1'?'dark':o==='0'?'light':'auto';}
   if(m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches)){c.add('dark');document.documentElement.style.colorScheme='dark';}
-  const t=ls('fadian-theme');
-  if(t==='teal'||t==='sakura'||t==='amber'||t==='indigo'||t==='ink'||t==='dream')c.add('theme-'+t);
+  const storedTheme=ls('fadian-theme');
+  const t=['dream','teal','sakura','amber','indigo','ink'].includes(storedTheme)?storedTheme:'dream';
+  c.add('theme-'+t);
   const f=ls('fadian-font');
   if(f==='classic'||f==='terminal')c.add('font-'+f);
   const d=ls('fadian-density');
@@ -631,13 +632,12 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div class="set-desc">整站换肤 · 深浅色通用</div>
       </div>
       <div id="themeControl" class="theme-control" role="group" aria-label="界面风格">
-        <button class="theme-option" type="button" data-theme="" aria-pressed="true"><i style="background:#6f5cf2"></i>紫调</button>
+        <button class="theme-option" type="button" data-theme="dream" aria-pressed="true"><i style="background:linear-gradient(135deg,#dbddff,#ffd0d0)"></i>梦境</button>
         <button class="theme-option" type="button" data-theme="teal" aria-pressed="false"><i style="background:#0fa173"></i>青翠</button>
         <button class="theme-option" type="button" data-theme="sakura" aria-pressed="false"><i style="background:#e0577f"></i>樱粉</button>
         <button class="theme-option" type="button" data-theme="amber" aria-pressed="false"><i style="background:#a87f2f"></i>暖金</button>
         <button class="theme-option" type="button" data-theme="indigo" aria-pressed="false"><i style="background:#2563c9"></i>靛蓝</button>
         <button class="theme-option" type="button" data-theme="ink" aria-pressed="false"><i style="background:#3c3c45"></i>素墨</button>
-        <button class="theme-option" type="button" data-theme="dream" aria-pressed="false"><i style="background:linear-gradient(135deg,#dbddff,#ffd0d0)"></i>梦境</button>
       </div>
     </div>
     <div class="set-row card-zoom-set-row">

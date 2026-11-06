@@ -2152,15 +2152,28 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         def click(sel):
             cdp.eval("document.querySelector(%s).click()" % json.dumps(sel))
 
+        # 首次进入与旧紫调（空字符串）都进入梦境，移除的主题不能再出现在设置里。
+        for stored in [None, ""]:
+            cdp.eval("localStorage.removeItem('fadian-theme')" if stored is None else
+                     "localStorage.setItem('fadian-theme', '')")
+            navigate(cdp, base)
+            wait_for(cdp, "!!document.querySelector('#themeBtn svg')", "default theme bound", timeout=15)
+            initial = cdp.eval(state_expr)
+            if initial["skin"] != "dream" or "theme-dream" not in initial["body"].split():
+                raise CheckFailed("首次进入或旧紫调没有切到梦境：%s" % initial)
+            options = cdp.eval("[...document.querySelectorAll('#themeControl [data-theme]')].map(b => b.dataset.theme)")
+            if options != ["dream", "teal", "sakura", "amber", "indigo", "ink"]:
+                raise CheckFailed("主题选项没有用梦境替换紫调：%s" % options)
+
         # 1) 每套皮肤都要真的换掉 accent，不许两套撞色
         accents = {}
-        for skin in ["", "teal", "sakura", "amber", "indigo", "ink", "dream"]:
+        for skin in ["dream", "teal", "sakura", "amber", "indigo", "ink"]:
             click('#themeControl [data-theme="%s"]' % skin)
             settle(cdp, 120)
             now = cdp.eval(state_expr)
             if now["skin"] != skin:
                 raise CheckFailed("皮肤 %r 没有被选中：%s" % (skin, now))
-            accents[skin or "base"] = now["accent"]
+            accents[skin] = now["accent"]
         if len(set(accents.values())) != len(accents):
             raise CheckFailed("有皮肤共用同一个 accent：%s" % accents)
 
@@ -2195,11 +2208,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("梦境手机选择栏吸顶后没有恢复蒙层")
         cdp.eval("scrollTo(0, 0)")
         settle(cdp, 200)
-        click('#themeControl [data-theme=""]')
+        click('#themeControl [data-theme="teal"]')
         settle(cdp, 400)
         rail_default = cdp.eval(rail_bg_expr)
         if cdp.eval(wash_expr)["content"] != "none" or rail_default == "rgba(0, 0, 0, 0)":
-            raise CheckFailed("默认皮肤被梦境的光晕或选择栏规则影响：%s" % rail_default)
+            raise CheckFailed("青翠皮肤被梦境的光晕或选择栏规则影响：%s" % rail_default)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
         settle(cdp, 200)
 
@@ -2242,7 +2255,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("字体档之间没有实际区别：%s" % fonts)
 
         # 5) 深浅色三档：显式档锁死、auto 跟随系统，legacy 键始终同步给 404/strings/review
-        click('#themeControl [data-theme=""]')
+        click('#themeControl [data-theme="dream"]')
         click('#fontControl [data-font=""]')
         click('#darkModeControl [data-dark-mode="light"]')
         settle(cdp, 120)
