@@ -545,8 +545,8 @@ function execDocument(result) {
   }
   // 灯箱的「复制全部」只在手机「⋯」里：电脑由样式藏掉（瀑布流卡片上有「全部」），窄屏规则再放出来
   assert.match(indexSource, /id="lightboxActionsMinor">\s*<button class="ui-press" id="copyAll"/);
-  assert.match(styleSource, /#copyPositiveDock,\.lightbox-more,#copyAll\{display:none\}/);
-  assert.match(styleSource, /#copyPositiveDock:not\(\[hidden\]\),#copyAll:not\(\[hidden\]\)\{display:inline-block\}/);
+  assert.match(styleSource, /#copyPositiveDock,#copyNegativeDock,\.lightbox-more,#copyAll\{display:none\}/);
+  assert.match(styleSource, /#copyPositiveDock:not\(\[hidden\]\),#copyNegativeDock:not\(\[hidden\]\),#copyAll:not\(\[hidden\]\)\{display:inline-block\}/);
 }
 
 /* copyText 的实时判定探针：入库快照建不出来时不得 fail-open。

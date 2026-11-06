@@ -4,7 +4,7 @@ import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl }
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
-import { toast } from './feedback.js';
+import { toast, dismissToast } from './feedback.js';
 import { relayKeyFor, snapshotFragment, snapshotLocked } from './tag-relay-snapshot.js';
 import { tokenizePrompt, serializeSelection } from './prompt-fragments.js';
 import { lookupTagZh } from './tag-zh-core.js';
@@ -1960,6 +1960,8 @@ function isLightboxMoreOpen() {
 }
 
 function setLightboxMoreOpen(open) {
+  // 短横屏的菜单会经过复制提示所在区域；打开新操作面板时即刻清掉提示及其可点击动作。
+  if (open) dismissToast({ clear: true });
   $('#lightboxActions')?.classList.toggle('is-more-open', open);
   $('#lightboxMore')?.setAttribute('aria-expanded', String(open));
   const menu = $('#lightboxActionsMinor');

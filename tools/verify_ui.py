@@ -3127,6 +3127,23 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
                 expected = fixture['positive'].replace('\r\n', '\n')
                 mismatch = next((i for i, pair in enumerate(zip(copied_positive, expected)) if pair[0] != pair[1]), min(len(copied_positive),len(expected)))
                 raise CheckFailed(f"正向剪贴板不等：actual={len(copied_positive)},expected={len(expected)},firstDiff={mismatch},actualCR={copied_positive.count(chr(13))},expectedCR={expected.count(chr(13))}")
+            # 复制成功后立即开菜单：短横屏菜单与复制提示位于同一高度，不能等提示消失再验。
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width":600,"height":320,"deviceScaleFactor":1,"mobile":True})
+            if not cdp.eval("document.querySelector('#toast').classList.contains('show')"):
+                raise CheckFailed('未覆盖复制提示仍显示时打开更多的路径')
+            mobile_tap('#lightboxMore')
+            immediate_menu = cdp.eval("""(() => {
+              const buttons = ['viewOriginal','shareLightbox'].map(id => {
+                const e = document.getElementById(id), r = e.getBoundingClientRect();
+                const hit = document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);
+                return {id, inMenu:e.parentElement.id==='lightboxActionsMinor', hit:e.contains(hit), target:hit?.id||hit?.className};
+              });
+              return {buttons, negativeVisible:!document.querySelector('#copyNegativeDock').hidden};
+            })()""")
+            if not immediate_menu['negativeVisible'] or not all(b['inMenu'] and b['hit'] for b in immediate_menu['buttons']):
+                raise CheckFailed(f"复制后立即打开更多时菜单被遮挡：{immediate_menu}")
+            mobile_tap('#lightboxMore')
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width":390,"height":844,"deviceScaleFactor":1,"mobile":True})
             cdp.eval("new Promise(resolve=>setTimeout(resolve,5500))", timeout=8)
             if cdp.eval("document.querySelector('#copyNegativeDock').hidden"):
                 raise CheckFailed("超过提示条显示时间后负面复制入口消失")
@@ -3190,7 +3207,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             check_no_errors(cdp)
             return {"entry":fixture['id'],"characterNegatives":fixture['characterNegatives'],
                 "positiveCharacters":len(fixture['positive']),"negativeCharacters":len(fixture['negative']),
-                "waitedMs":5500,"sizes":sizes,"desktop":desktop,"screenshot":shot}
+                "waitedMs":5500,"immediateMenu":immediate_menu,"sizes":sizes,"desktop":desktop,"screenshot":shot}
         finally:
             cdp.command("Browser.resetPermissions")
             cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
