@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { prepareSearchZh } from '../site/assets/app/search-zh.js';
 
 // Execute the real, bounded action bodies with in-memory dependencies. This is
 // not a browser integration test and never accesses the user's stored content.
@@ -170,7 +171,7 @@ for (const [hasErrors, entries] of [[false, [{}]], [false, []], [true, []]]) {
   const plan = { hasActiveSearch: true, hasErrors, filters: [], positiveTerms: [] };
   const state = { codex: { entries }, favoritesView: false, siteSearchView: false, activePath: [], updateFilter: '' };
   const applyFilter = bindFunction(filterBody, {
-    state, compileSearchState: () => plan, isCodexLocked: () => false, isEntryAccessBlocked: () => false,
+    state, compileSearchState: () => plan, prepareSearchZh, isCodexLocked: () => false, isEntryAccessBlocked: () => false,
     listSearchDirectories: () => [], searchDirectoryOptions: () => [], virtualView: () => false,
     matchSearchPlan: () => true, codexUpdateFilters: () => [], entryMatchesUpdateFilter: () => true,
     filterFavoritesScope: value => value, isContentBlocked: () => false, filterFavoritesEntries: value => value,

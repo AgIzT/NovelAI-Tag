@@ -312,7 +312,7 @@ export async function fetchDataJsonResult(path, { cache = 'default', allowFallba
     return { ...await readSource(path, source, cache, signal), source: sourceLabel(source), release: source.release };
   } catch (error) {
     signal?.throwIfAborted();
-    if (source.mode !== 'r2' || !allowFallback) throw error;
+    if (source.mode !== 'r2' || !allowFallback || error.code === 'missing_logical_file') throw error;
     const proxy = DEMOTING_PATHS.has(normalizeKey(path)) ? proxySourceForRelease(source, error) : sameReleaseProxy(source, error);
     console.warn(`R2 data file unavailable; using the Pages proxy: ${path}`, error);
     return { ...await readSource(path, proxy, 'no-store', signal), source: 'proxy-fallback', release: source.release, error };

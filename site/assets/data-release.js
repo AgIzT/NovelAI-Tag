@@ -119,7 +119,11 @@ export async function parseReleaseManifest(raw, expectedRelease) {
 export async function readV2Json(value, logical, loadBytes) {
   const manifest = await validateManifest(value);
   requirePath(logical);
-  if (!Object.hasOwn(manifest.files, logical)) throw new Error('logical file is absent from this release');
+  if (!Object.hasOwn(manifest.files, logical)) {
+    const error = new Error('logical file is absent from this release');
+    error.code = 'missing_logical_file';
+    throw error;
+  }
   if (typeof loadBytes !== 'function') throw new TypeError('loadBytes callback is required');
   const item = manifest.files[logical];
   const body = Uint8Array.from(requireBytes(await loadBytes(objectPath(item.sha256))));

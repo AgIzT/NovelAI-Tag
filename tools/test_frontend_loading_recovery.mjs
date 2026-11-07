@@ -23,7 +23,7 @@ async function environment(handler, hostname = 'localhost') {
   const timers = new Map();
   const calls = [];
   const context = vm.createContext({
-    URL, URLSearchParams, AbortController, DOMException, Response, Promise,
+    URL, URLSearchParams, AbortController, DOMException, Response, Promise, TextEncoder,
     console: { warn() {}, error() {}, log() {} },
     Date: class extends Date { static now() { return now; } },
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, at: now + delay }); return id; },
@@ -66,6 +66,49 @@ function hanging(call) {
 
 const cases = [];
 const test = (name, run) => cases.push({ name, run });
+
+test('Chinese search: exact buckets, shared deadline and explicit retry', async () => {
+  let attempts = 0;
+  const env = await environment(call => {
+    attempts++;
+    if (attempts === 1) return hanging(call);
+    return response({ schema: 1, bucket: call.url.slice(-7, -5), terms: { 长发: ['long hair'] } });
+  });
+  const zh = await env.load('app/search-zh.js');
+  const search = await env.load('app/search.js');
+  assert.equal(zh.prepareSearchZh(search.parseSearchQuery('long hair')), null);
+  assert.equal(zh.prepareSearchZh(search.parseSearchQuery('title:长发')), null);
+  assert.equal(zh.prepareSearchZh(search.parseSearchQuery('长发, has:wrong')), null);
+  assert.equal(env.calls.length, 0);
+  const plan = search.parseSearchQuery('长发');
+  const first = zh.prepareSearchZh(plan);
+  const same = zh.prepareSearchZh(plan);
+  await flush();
+  assert.equal(env.calls.length, 1);
+  await env.advance(2000);
+  await Promise.all([first.pending, same.pending]);
+  assert.equal(env.calls[0].aborted, true);
+  assert.equal(zh.prepareSearchZh(plan).failed, true);
+  await zh.prepareSearchZh(plan, { retry: true }).pending;
+  assert.equal(env.calls.length, 2);
+  assert.deepEqual([...zh.prepareSearchZh(plan).translated.get('长发')], ['long hair']);
+  const missing = search.parseSearchQuery('长头发');
+  await zh.prepareSearchZh(missing).pending;
+  assert.equal(zh.prepareSearchZh(missing).translated.size, 0);
+});
+
+test('Chinese search: missing old index differs from a missing new shard', async () => {
+  for (const newIndex of [false, true]) {
+    const env = await environment(call => call.url.endsWith('/meta.json') && newIndex
+      ? response({ schema: 1, buckets: 64 }) : response(null, 404));
+    const zh = await env.load('app/search-zh.js');
+    const search = await env.load('app/search.js');
+    const plan = search.parseSearchQuery('长发');
+    await zh.prepareSearchZh(plan).pending;
+    assert.equal(zh.prepareSearchZh(plan).failed, newIndex);
+    assert.equal(env.calls.length, 2);
+  }
+});
 
 async function relayTranslationCaller(env) {
   const tag = await env.load('app/tag-zh.js');

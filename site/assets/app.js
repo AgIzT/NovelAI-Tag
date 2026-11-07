@@ -6,6 +6,7 @@ import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlo
 import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
 import { sortCategoryEntries } from './app/category-order.js';
 import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults, splitSearchPhrases } from './app/search.js';
+import { prepareSearchZh } from './app/search-zh.js';
 import { findRelatedDirectories, listSearchDirectories } from './app/search-directories.js';
 import { renderRelatedDirectories, renderSearchFilters, renderSearchStatus } from './app/search-ui.js';
 import { hasEntryImage, primeResourceHints, isLocalOrigin } from './app/media.js';
@@ -16,7 +17,7 @@ import { ensureLibrary, librarySnapshot, setLibraryStoreActions, setupLibrarySto
 import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderFavoritesRail, renderFavoritesHeader, filterFavoritesScope, filterFavoritesEntries, decorateFavoriteCard, refreshFavoriteBadges, folderBadges, openOrganize, invalidateOrganizeRequest, restoreFavoriteObjects, refreshOpenOrganize, toggleFavoritesFolders } from './app/favorites-view.js';
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
-import { renderList, clearMasonry, updateVirtualCards, setMasonryActions, settleCardEntry } from './app/masonry.js';
+import { renderList, clearMasonry, updateVirtualCards, setMasonryActions, settleCardEntry, captureMasonryAnchor, restoreMasonryAnchor } from './app/masonry.js';
 import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
@@ -619,6 +620,10 @@ export async function openSiteSearchView(options = {}) {
 
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
+  const route = options.urlState?.scope === 'site' ? options.urlState : null;
+  const searchPlan = parseSearchQuery(route?.q ?? state.query, route ? searchFilterValues(route) : state.searchFilterValues);
+  // 精确目录过滤要等实际来源可用后再验证。
+  if (!searchPlan.filters.some(filter => filter.field === 'directory')) prepareSearchZh(searchPlan);
   if (!options.isCurrent) {
     showSkeleton(seq);
     setLoading('');
@@ -804,7 +809,7 @@ function searchFilterViewModels(directoryOptions) {
   });
 }
 
-function renderSearchExperience(plan, directoryOptions) {
+function renderSearchExperience(plan, directoryOptions, searchZh) {
   const active = Boolean(plan?.hasActiveSearch);
   renderSearchFilters({
     filters: searchFilterViewModels(directoryOptions),
@@ -817,6 +822,12 @@ function renderSearchExperience(plan, directoryOptions) {
   renderRelatedDirectories(state.relatedDirectories, { totalCount: state.relatedDirectoryCount });
   // 全站索引有加载截止，慢网下只有已加载那几本的结果；不说明的话，少结果和 0 条看起来都像真的搜不到。
   const missingBooks = state.siteSearchView ? Number(state.codex?._siteSearchFailedSources) || 0 : 0;
+  const zhNotice = searchZh?.pending ? '正在补充中文对照匹配…'
+    : (searchZh?.failed ? '部分中文对照未加载。' : '');
+  const missingNotice = missingBooks ? `结果不完整：${missingBooks} 本法典没有加载完。` : '';
+  const retryActions = [];
+  if (missingBooks) retryActions.push({ id: 'reload-site-search', label: '重新加载' });
+  if (searchZh?.failed && !searchZh.pending) retryActions.push({ id: 'retry-search-zh', label: '重试中文对照' });
   if (plan?.hasErrors) {
     renderSearchStatus({
       kind: 'error',
@@ -826,27 +837,25 @@ function renderSearchExperience(plan, directoryOptions) {
     });
   } else if (active && state.list.length === 0) {
     const count = state.relatedDirectoryCount;
-    const actions = [];
-    if (missingBooks) actions.push({ id: 'reload-site-search', label: '重新加载', primary: true });
+    const actions = retryActions.map((action, index) => ({ ...action, primary: index === 0 }));
     if (splitSearchPhrases(plan)) actions.push({ id: 'split-phrases', label: '拆词搜索' });
     if (state.searchFilterValues.length) actions.push({ id: 'clear-filters', label: '清除筛选条件' });
-    actions.push({ id: 'clear-all', label: '清空整个搜索', primary: !missingBooks });
+    actions.push({ id: 'clear-all', label: '清空整个搜索', primary: !retryActions.length });
     if (state.searchScope === 'codex' && !state.siteSearchView) actions.push({ id: 'scope-site', label: '切换到全站搜索' });
     renderSearchStatus({
       kind: 'empty',
       message: missingBooks
         ? `已加载的法典里没有结果，还有 ${missingBooks} 本没有加载完。`
-        : `0 条图片结果，找到 ${count} 个相关目录。`,
-      detail: count
-        ? '可打开下方相关目录，或调整搜索条件。'
-        : (missingBooks ? '' : '调整关键词或减少筛选条件。'),
+        : (zhNotice ? '已加载的数据中没有匹配结果。' : `0 条图片结果，找到 ${count} 个相关目录。`),
+      detail: [zhNotice, count ? '可打开下方相关目录，或调整搜索条件。'
+        : (missingBooks || zhNotice ? '' : '调整关键词或减少筛选条件。')].filter(Boolean).join(' '),
       actions,
     });
-  } else if (active && missingBooks) {
+  } else if (active && (missingBooks || zhNotice)) {
     renderSearchStatus({
       kind: 'info',
-      message: `结果不完整：${missingBooks} 本法典没有加载完。`,
-      actions: [{ id: 'reload-site-search', label: '重新加载' }],
+      message: [missingNotice, zhNotice].filter(Boolean).join(' '),
+      actions: retryActions,
     });
   } else {
     renderSearchStatus(null);
@@ -869,6 +878,22 @@ export function applyFilter(options = {}) {
     plan.issues = [...plan.issues, issue];
     plan.hasErrors = true;
     state.searchIssues = [...plan.issues];
+  }
+  const searchZh = prepareSearchZh(plan, { retry: options.retrySearchZh });
+  if (searchZh?.translated.size) {
+    plan.translatedTerms = searchZh.translated;
+    plan.promptHighlightTerms = [...new Set([...plan.highlightTerms, ...[...searchZh.translated.values()].flat()])];
+  }
+  if (searchZh?.pending) {
+    const seq = codexLoadSeq;
+    const scope = state.searchScope;
+    searchZh.pending.then(() => {
+      if (state.searchPlan !== plan || codexLoadSeq !== seq || state.searchScope !== scope) return;
+      if ($('#search')?.value !== state.query) return;
+      const anchor = window.scrollY > 0 ? captureMasonryAnchor() : null;
+      applyFilter({ onSearchSettled: options.onSearchSettled });
+      if (anchor) restoreMasonryAnchor(anchor);
+    });
   }
   let list = visibleEntries;
   const byActivePath = l => {
@@ -906,7 +931,7 @@ export function applyFilter(options = {}) {
     : [];
   state.relatedDirectories = relatedDirectories;
   state.relatedDirectoryCount = Number(relatedDirectories.totalCount) || relatedDirectories.length;
-  renderSearchExperience(plan, directoryOptions);
+  renderSearchExperience(plan, directoryOptions, searchZh);
   updateResultBar();
   if (state.favoritesView) {
     syncFavoritesView();
@@ -916,7 +941,7 @@ export function applyFilter(options = {}) {
   }
   renderList(options);
   updateBlockingSummary(blockedCount);
-  options.onSearchSettled?.({
+  if (!searchZh?.pending) options.onSearchSettled?.({
     active: plan.hasActiveSearch, valid: !plan.hasErrors,
     hasResults: state.list.length > 0,
     scope: state.favoritesView ? 'favorites' : state.siteSearchView ? 'site' : 'codex',

@@ -2,7 +2,7 @@ import { state, VIRTUAL_BUFFER_UP, VIRTUAL_BUFFER_DOWN, IMAGE_LOAD_DELAY, RELAYO
 import { densityConfig } from './state.js';
 import { $, clamp, prefersReducedMotion, updateScrollProgress } from './utils.js';
 import { toast } from './feedback.js';
-import { currentHighlightTerms, hiddenSearchMatch, renderHighlightedText } from './search.js';
+import { currentHighlightTerms, currentPromptHighlightTerms, hiddenSearchMatch, renderHighlightedText } from './search.js';
 import { hasEntryImage, entryImages, thumbUrl, localAssetUrl, cacheBustUrl } from './media.js';
 import { copyText, combinedPrompt, combinedPromptLabel, entryPromptText } from './copy.js';
 import { isFav } from './favorites.js';
@@ -474,7 +474,7 @@ export function applyCardImageLoadPolicy(node, placement, {
 
 export function refreshCardPrompts() {
   const anchor = captureMasonryAnchor();
-  const highlightTerms = currentHighlightTerms();
+  const highlightTerms = currentPromptHighlightTerms();
   for (const [index, node] of state.nodes) {
     const entry = state.list[index];
     if (!entry?.characterPrompts?.length) continue;
@@ -568,7 +568,7 @@ export function makeCard(placement) {
 
   const highlightTerms = currentHighlightTerms();
   renderHighlightedText(node.querySelector('.card-title'), e.title, highlightTerms);
-  renderHighlightedText(node.querySelector('.card-tags'), entryPromptText(e), highlightTerms);
+  renderHighlightedText(node.querySelector('.card-tags'), entryPromptText(e), currentPromptHighlightTerms());
   node.querySelector('.card-path').textContent = e.path.join(' › ');
   const hiddenMatch = hiddenSearchMatch(e, highlightTerms);
   const hiddenMatchChip = node.querySelector('.search-match-chip');

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createSiteAnalytics } from '../site/assets/app/site-analytics.js';
+import { prepareSearchZh } from '../site/assets/app/search-zh.js';
+import { parseSearchQuery } from '../site/assets/app/search.js';
 
 function fixture() {
   let now = 0;
@@ -113,6 +115,7 @@ const observedBody = between(app, 'async function applyObservedSearch(', '\nexpo
 function filterDependencies(state, plan, analytics) {
   return {
     state, cancelSiteSearchObservation: () => analytics.cancelSearch(), compileSearchState: () => plan,
+    prepareSearchZh,
     isCodexLocked: () => false, isEntryAccessBlocked: () => false,
     listSearchDirectories: () => [], searchDirectoryOptions: () => [], virtualView: () => state.siteSearchView || state.favoritesView,
     matchSearchPlan: () => true, codexUpdateFilters: () => [], entryMatchesUpdateFilter: () => true,
@@ -149,6 +152,8 @@ for (const scope of ['codex', 'site', 'favorites']) {
   const deps = {
     state, window: { scrollY: 0 }, cancelSiteSearchObservation: () => f.analytics.cancelSearch(),
     cancelCodexSwitch() {}, virtualView: () => state.siteSearchView, invalidateOrganizeRequest() {},
+    parseSearchQuery, prepareSearchZh, prepareViewBaseCodex: async () => state.codex,
+    normalizeCodexRoutePath: () => [], commitCodexView: (_seq, _options, render) => render(),
     showSkeleton() {}, hideSkeleton() {}, setLoading() {}, clearMasonry() {}, setOnlyFavControl() {},
     buildSiteSearchCodex: () => new Promise(resolve => pending.push(resolve)),
     siteSearchStillWanted: () => state.searchScope === 'site' && state.active,
@@ -170,7 +175,9 @@ for (const scope of ['codex', 'site', 'favorites']) {
   });
   const observed = bindFunction(observedBody, { beginSiteSearchObservation: () => f.analytics.beginSearch(), applySearch: apply });
   const old = observed();
+  await Promise.resolve();
   const latest = observed();
+  await Promise.resolve();
   pending[0]({ entries: [] }); await old;
   assert.equal(renders, 0, 'real async site search rejects the obsolete load generation');
   await f.tick(800); await f.analytics.flush();
@@ -180,6 +187,7 @@ for (const scope of ['codex', 'site', 'favorites']) {
   assert.deepEqual(f.events(), [{ name: 'search_success', detail: 'site' }]);
   state.siteSearchView = false;
   const departed = observed();
+  await Promise.resolve();
   state.searchScope = 'codex';
   await apply();
   pending[2]({ entries: [] }); await departed;
@@ -229,7 +237,7 @@ for (const operation of ['raw-search', 'raw-results', 'invalid-results']) {
     searchInput: { value: state.query }, updateSearchClear() {},
     searchHistoryIntent: { begin: () => ({ needsInitialHistory: false, layered: false, historyMode: 'replace' }) },
     mobileQuery: { matches: false }, topHistoryLayerId: () => '',
-    goBackFrom() { returnedByHistory = true; return true; },
+    goBackFromSearch() { returnedByHistory = true; return true; },
     uiActions: { cancelSearchObservation: () => f.analytics.cancelSearch(), applySearch() { assert.fail('history early return must remain unchanged'); } },
   });
   await clear({ query: '' });

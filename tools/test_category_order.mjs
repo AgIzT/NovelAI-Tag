@@ -5,6 +5,7 @@ import { normalizeCategoryOrder, sortCategoryTree, sortCategoryEntries } from '.
 import { normalizeCodex } from '../site/assets/app/data.js';
 import { state } from '../site/assets/app/state.js';
 import { parseSearchQuery, rankSearchResults } from '../site/assets/app/search.js';
+import { prepareSearchZh } from '../site/assets/app/search-zh.js';
 
 globalThis.window = { addEventListener() {} };
 const { accessHiddenCount, invalidateAccessViewMemo, visibleTree } = await import('../site/assets/app/codex-ui.js');
@@ -134,7 +135,7 @@ assert.equal(accessHiddenCount(), entries.length);
       favoritesView: favorites, siteSearchView: site, activePath, updateFilter: '' };
     let rendered;
     const deps = {
-      state: model, compileSearchState: () => parseSearchQuery(query),
+      state: model, compileSearchState: () => parseSearchQuery(query), prepareSearchZh,
       cancelSiteSearchObservation() {}, isCodexLocked: () => false, isEntryAccessBlocked: () => false,
       listSearchDirectories: () => [], searchDirectoryOptions: () => [], virtualView: () => favorites || site,
       matchSearchPlan: () => true, codexUpdateFilters: () => [], entryMatchesUpdateFilter: () => true,

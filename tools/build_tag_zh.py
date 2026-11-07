@@ -16,6 +16,8 @@
 输出：
 - site/data/tag_zh/core.json：全站高频 tag 的译名，外加分片清单 shards；
 - site/data/tag_zh/<codexId>.json：只在该书出现、没进 core 的译名；
+- site/data/tag_zh/search-v1/：从本轮对照反查完整中文译名，按 UTF-8 CRC32 分片。
+- site/data/tag_zh/search-v1/：从本轮对照反查完整中文译名，按 UTF-8 CRC32 分片。
 - output/tag-zh/构建报告.md 与 待翻译.csv（按出现条数降序，供 AI 或人工补译）。
 输出不含时间戳，内容不变时文件字节不变，R2 发布不会白传。
 
@@ -32,7 +34,9 @@ import io
 import json
 import re
 import sys
+import unicodedata
 import urllib.request
+import zlib
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -47,6 +51,12 @@ MANUAL_PATH = SRC_DIR / "人工译名.csv"
 AI_PATH = SRC_DIR / "AI译名.csv"
 REPORT_DIR = ROOT / "output" / "tag-zh"
 SCHEMA = 1
+SEARCH_BUCKETS = 64
+SEARCH_DIR = "search-v1"
+SEARCH_HAN = re.compile(r"[\u3005\u3007\u3400-\u9fff\uf900-\ufaff\U00020000-\U000323af]")
+# 与 search.js 的 normalizeSearchTerm 使用相同的空白、下划线和引号规则。
+SEARCH_SPACES = re.compile(r"[_\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+")
+SEARCH_QUOTES = str.maketrans("“”‘’", "\"\"''")
 
 DICT_URL = (
     "https://raw.githubusercontent.com/zhulinyv/Auto-NovelAI-Refactor/"
@@ -340,6 +350,39 @@ def dump(value) -> bytes:
     return (json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=False) + "\n").encode("utf-8")
 
 
+def search_translation_key(value: str) -> str:
+    text = unicodedata.normalize("NFKC", value).translate(SEARCH_QUOTES)
+    return SEARCH_SPACES.sub(" ", text).strip(" ").lower()
+
+
+def build_search_shards(payloads) -> dict:
+    buckets = [defaultdict(set) for _ in range(SEARCH_BUCKETS)]
+    for payload in payloads:
+        for source in ("m", "d", "a"):
+            for original, translation in payload[source].items():
+                key = search_translation_key(translation)
+                if SEARCH_HAN.search(key):
+                    bucket = zlib.crc32(key.encode("utf-8")) % SEARCH_BUCKETS
+                    buckets[bucket][key].add(original)
+    shards = {f"{SEARCH_DIR}/meta.json": {"schema": 1, "buckets": SEARCH_BUCKETS}}
+    for index, bucket in enumerate(buckets):
+        name = f"{index:02x}"
+        shards[f"{SEARCH_DIR}/{name}.json"] = {
+            "schema": 1, "bucket": name,
+            "terms": {key: sorted(bucket[key]) for key in sorted(bucket)},
+        }
+    return shards
+
+
+def write_payloads(directory: Path, payloads: dict) -> None:
+    for name, payload in payloads.items():
+        target = directory / name
+        body = dump(payload)
+        if not target.exists() or target.read_bytes() != body:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(body)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="生成 tag 中文对照分片 site/data/tag_zh/")
     parser.add_argument("--dry-run", action="store_true", help="只统计并写报告，不写 site/data/tag_zh/")
@@ -366,14 +409,11 @@ def main(argv=None) -> int:
                               "source": DICT_SOURCE, "shards": sorted(shards)}}
     for cid, keys in sorted(shards.items()):
         payloads[f"{cid}.json"] = shard_payload(keys, manual, dictionary, ai)
+    search_shards = build_search_shards(payloads.values())
 
     if not args.dry_run:
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        for name, payload in payloads.items():
-            target = OUT_DIR / name
-            body = dump(payload)
-            if not target.exists() or target.read_bytes() != body:
-                target.write_bytes(body)
+        write_payloads(OUT_DIR, payloads)
+        write_payloads(OUT_DIR, search_shards)
         # 只清理本工具自己产出的旧分片（书被删或改名后留下的）
         for stale in OUT_DIR.glob("*.json"):
             if stale.name not in payloads:

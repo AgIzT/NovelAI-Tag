@@ -726,7 +726,16 @@ export function matchSearchPlan(entry, plan) {
     : (plan.terms?.length ? plan.terms : (plan.text ? [normalizeSearchText(plan.text)] : []));
   if (positiveTerms.length) {
     const text = searchableText(entry);
-    if (!positiveTerms.every(term => searchTextIncludes(text, term))) return false;
+    const translated = plan.translatedTerms;
+    if (!translated) {
+      if (!positiveTerms.every(term => searchTextIncludes(text, term))) return false;
+    } else if (!positiveTerms.every(term => {
+      if (searchTextIncludes(text, term)) return true;
+      const originals = translated.get(term);
+      if (!originals?.length) return false;
+      const prompt = fieldText(entry, 'prompt');
+      return originals.some(original => searchTextIncludes(prompt, original));
+    })) return false;
   }
   if (Array.isArray(plan.filters)) return !plan.filters.length || plan.filters.every(filter => matchesFilter(entry, filter));
   // 兼容尚未接入 filters 的旧调用者手工构造的 plan。
@@ -753,6 +762,7 @@ export function searchRelevanceTier(entry, plan) {
   const promptHits = terms.some(term => searchTextIncludes(prompt, term));
   if (titleHits && promptHits && terms.every(term => searchTextIncludes(title, term) || searchTextIncludes(prompt, term))) return 3;
   if (terms.every(term => searchTextIncludes(prompt, term))) return 4;
+  if (plan.translatedTerms?.size && !terms.every(term => searchTextIncludes(searchableText(entry), term))) return 6;
   return 5;
 }
 
@@ -810,6 +820,10 @@ export function highlightTermsFromText(text) {
 
 export function currentHighlightTerms() {
   return state.searchPlan?.highlightTerms || [];
+}
+
+export function currentPromptHighlightTerms() {
+  return state.searchPlan?.promptHighlightTerms || currentHighlightTerms();
 }
 
 export function hiddenSearchMatch(entry, terms = currentHighlightTerms()) {

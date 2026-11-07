@@ -31,6 +31,30 @@ const { buildFavoritesCodex } = await import(moduleUrl('fav-codex.js'));
 const { state } = await import(moduleUrl('state.js'));
 const { renderSearchFilters, setSearchUiActions, setupSearchUi } = await import(moduleUrl('search-ui.js'));
 
+{
+  const plan = parseSearchQuery('长发、cat ears');
+  plan.translatedTerms = new Map([['长发', ['long hair', 'long hairs']]]);
+  const translated = { title: 'A', tags: 'long_hair, cat ears' };
+  const direct = { title: '长发', tags: 'cat ears' };
+  const another = { tags: 'cat ears', characterPrompts: [{ prompt: 'long hairs' }] };
+  assert.equal(matchSearchPlan(translated, plan), true);
+  assert.equal(matchSearchPlan(another, plan), true);
+  assert.deepEqual(rankSearchResults([translated, direct, another], plan), [direct, translated, another]);
+  for (const entry of [{ tags: 'long hair' }, { title: 'long hair', tags: 'cat ears' },
+    { tags: 'cat ears', negative: 'long hair' }, { tags: 'long hairpin, cat ears' }]) {
+    assert.equal(matchSearchPlan(entry, plan), false);
+  }
+  const literalFilter = parseSearchQuery('长发, -prompt:"long hair"');
+  literalFilter.translatedTerms = plan.translatedTerms;
+  assert.equal(matchSearchPlan(translated, literalFilter), false);
+
+  const sentence = parseSearchQuery('"一个女孩，站在海边"');
+  assert.equal(sentence.positiveTerms.length, 1);
+  sentence.translatedTerms = new Map([[sentence.positiveTerms[0], ['a girl stands by the sea']]]);
+  assert.equal(matchSearchPlan({ tags: 'a girl stands by the sea' }, sentence), true);
+  assert.equal(matchSearchPlan({ tags: 'a girl, stands by the sea' }, sentence), false);
+}
+
 // 普通词和短语显示为可移除条件，但仍属于 q；删除时保留字段筛选和未完成输入。
 {
   const query = '猫, 蓝眼睛 "blue eyes"';
