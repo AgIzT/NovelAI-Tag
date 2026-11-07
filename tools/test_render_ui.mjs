@@ -2054,4 +2054,20 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   }
 }
 
+{
+  // 更新面板对未解锁的书不出封面图：牌背加锁，连图片请求也不发
+  const { updateRowCover } = await import('../site/assets/app/updates.js');
+  const allowNsfw = state.allowNsfw;
+  const lockedBook = { id: 'locked-book', nsfw: true, cover: 'locked-cover.jpg' };
+  state.allowNsfw = false;
+  const lockedCover = updateRowCover(lockedBook);
+  assert.match(lockedCover, /class="update-row-cover is-locked"/);
+  assert.doesNotMatch(lockedCover, /<img|locked-cover/);
+  assert.match(updateRowCover({ id: 'open-book', cover: 'open-cover.jpg' }), /<img class="update-row-cover"[^>]*open-cover/);
+  assert.match(updateRowCover(null), /update-row-cover is-empty/);
+  state.allowNsfw = true;
+  assert.match(updateRowCover(lockedBook), /<img class="update-row-cover"[^>]*locked-cover/, '解锁后恢复真实封面');
+  state.allowNsfw = allowNsfw;
+}
+
 console.log('render UI regressions: PASS');

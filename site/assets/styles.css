@@ -316,7 +316,7 @@ body.dark .ci-n5-chip{background:#f5f5f7;color:#1d1d1f}
   border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:0 2px 6px rgba(28,32,58,.08)}
 .codex-item.locked .ci-veil{display:grid}
 .codex-item.locked .ci-cover img{visibility:hidden}
-.codex-item.locked .ci-ph,.vs-thumb.locked,.vc-card.locked{
+.codex-item.locked .ci-ph,.vs-thumb.locked,.vc-card.locked,.update-row-cover.is-locked{
   background:
     repeating-linear-gradient(45deg,color-mix(in srgb,var(--accent) 12%,transparent) 0 1px,transparent 1px 9px),
     repeating-linear-gradient(-45deg,color-mix(in srgb,var(--accent) 12%,transparent) 0 1px,transparent 1px 9px),
@@ -1984,6 +1984,8 @@ body.dark .nsfw-note{color:#ffb4ab;background:rgba(217,45,32,.18)}
 .update-row:hover{background:var(--tagbg);border-color:var(--line)}
 .update-row-cover{flex:none;width:40px;height:40px;border-radius:9px;object-fit:cover;background:var(--tagbg)}
 .update-row-cover.is-empty{background:linear-gradient(135deg,var(--tagbg),var(--accent-soft))}
+.update-row-cover.is-locked{display:grid;place-items:center;color:var(--accent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent)}
+.update-row-cover.is-locked svg{display:block;width:16px;height:16px}
 .update-row-main{min-width:0;flex:1;display:grid;gap:2px}
 .update-row-title{
   font-size:13px;font-weight:600;line-height:1.35;

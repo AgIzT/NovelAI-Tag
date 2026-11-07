@@ -1,7 +1,8 @@
 import { esc, relativeDay, safeJsonParse } from './utils.js';
 import { fetchDataJson } from '../data-source.js';
 import { findCodexMeta } from './data.js';
-import { codexCoverUrl } from './codex-ui.js';
+import { isCodexLocked } from './access.js';
+import { codexCoverUrl, LOCK_ICON } from './codex-ui.js';
 
 /* 跨书更新时间线。数据来自 site/data/updates.json（`tools/build_updates_index.py`
    聚合 codexes.json 的批次与各书词条的 updateBatches/isNew 生成）；条数口径与进书后的
@@ -142,9 +143,19 @@ export function renderUpdatesDigest(container, { limit = 3 } = {}) {
     </div>`;
 }
 
+/* 面板和气泡每次打开都重画，解锁后下次打开就是真实封面。未解锁时不出 img，连请求也不发。 */
+export function updateRowCover(meta) {
+  if (meta && isCodexLocked(meta)) {
+    return `<span class="update-row-cover is-locked" aria-hidden="true">${LOCK_ICON}</span>`;
+  }
+  const cover = meta ? codexCoverUrl(meta) : '';
+  return cover
+    ? `<img class="update-row-cover" src="${esc(cover)}" alt="" loading="lazy" decoding="async">`
+    : '<span class="update-row-cover is-empty" aria-hidden="true"></span>';
+}
+
 function updateRow(batch, book, { showDate = false } = {}) {
   const meta = findCodexMeta(book.codexId);
-  const cover = meta ? codexCoverUrl(meta) : '';
   const title = meta?.title || book.title || book.codexId;
   const unread = !isRead(batch.id, book.codexId);
   const sub = showDate
@@ -153,9 +164,7 @@ function updateRow(batch, book, { showDate = false } = {}) {
   return `
     <button type="button" class="update-row${unread ? ' is-unread' : ''}"
             data-update-batch="${esc(batch.id)}" data-update-codex="${esc(book.codexId)}">
-      ${cover
-        ? `<img class="update-row-cover" src="${esc(cover)}" alt="" loading="lazy" decoding="async">`
-        : '<span class="update-row-cover is-empty" aria-hidden="true"></span>'}
+      ${updateRowCover(meta)}
       <span class="update-row-main">
         <span class="update-row-title">${esc(title)}</span>
         <span class="update-row-sub">${sub}</span>

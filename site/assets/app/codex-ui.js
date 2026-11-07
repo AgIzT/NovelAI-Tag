@@ -32,8 +32,8 @@ const TYPE_ICONS = {
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>',
 };
 
-/* 锁图标：封面蒙版与 R18 小标共用 */
-const LOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
+/* 锁图标：牌背、R18 小标与更新面板共用 */
+export const LOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
 
 /* 投稿门图标：加号（贡献语义）+ 外链箭头（离站前往社区） */
 const DOOR_PLUS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -389,7 +389,7 @@ export function setupCodexPicker() {
   };
 
   /* 4 本卷「样张条」：封面位换成封面 + 书内几张竖图并排（构建时挑好，codexes.json 写 previews 可单独指定）。
-     未解锁的书保持糊掉的单张封面；带 nsfw 标记的样图只给已解锁访客看；索引里没有就保持单张封面。 */
+     未解锁的书保持牌背；带 nsfw 标记的样图只给已解锁访客看；索引里没有就保持单张封面。 */
   const addPreviewStrip = card => {
     if (card.classList.contains('locked') || card.querySelector('.vb-strip')) return;
     const c = state.codexes.find(item => item.id === card.dataset.id);
