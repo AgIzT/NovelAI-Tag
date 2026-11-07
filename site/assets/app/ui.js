@@ -439,6 +439,9 @@ export function bindUI() {
         state.searchScope = 'site';
         updateSearchScopeControl();
         await applySearchConditions();
+      } else if (action?.id === 'reload-site-search') {
+        // 索引不完整时 applySearch 会重建，已加载的书走缓存，只重新下载没加载完的
+        await applySearchConditions();
       }
     },
   });

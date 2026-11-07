@@ -815,6 +815,8 @@ function renderSearchExperience(plan, directoryOptions) {
     directoryOptions,
   });
   renderRelatedDirectories(state.relatedDirectories, { totalCount: state.relatedDirectoryCount });
+  // 全站索引有加载截止，慢网下只有已加载那几本的结果；不说明的话，少结果和 0 条看起来都像真的搜不到。
+  const missingBooks = state.siteSearchView ? Number(state.codex?._siteSearchFailedSources) || 0 : 0;
   if (plan?.hasErrors) {
     renderSearchStatus({
       kind: 'error',
@@ -825,15 +827,26 @@ function renderSearchExperience(plan, directoryOptions) {
   } else if (active && state.list.length === 0) {
     const count = state.relatedDirectoryCount;
     const actions = [];
+    if (missingBooks) actions.push({ id: 'reload-site-search', label: '重新加载', primary: true });
     if (splitSearchPhrases(plan)) actions.push({ id: 'split-phrases', label: '拆词搜索' });
     if (state.searchFilterValues.length) actions.push({ id: 'clear-filters', label: '清除筛选条件' });
-    actions.push({ id: 'clear-all', label: '清空整个搜索', primary: true });
+    actions.push({ id: 'clear-all', label: '清空整个搜索', primary: !missingBooks });
     if (state.searchScope === 'codex' && !state.siteSearchView) actions.push({ id: 'scope-site', label: '切换到全站搜索' });
     renderSearchStatus({
       kind: 'empty',
-      message: `0 条图片结果，找到 ${count} 个相关目录。`,
-      detail: count ? '可打开下方相关目录，或调整搜索条件。' : '调整关键词或减少筛选条件。',
+      message: missingBooks
+        ? `已加载的法典里没有结果，还有 ${missingBooks} 本没有加载完。`
+        : `0 条图片结果，找到 ${count} 个相关目录。`,
+      detail: count
+        ? '可打开下方相关目录，或调整搜索条件。'
+        : (missingBooks ? '' : '调整关键词或减少筛选条件。'),
       actions,
+    });
+  } else if (active && missingBooks) {
+    renderSearchStatus({
+      kind: 'info',
+      message: `结果不完整：${missingBooks} 本法典没有加载完。`,
+      actions: [{ id: 'reload-site-search', label: '重新加载' }],
     });
   } else {
     renderSearchStatus(null);

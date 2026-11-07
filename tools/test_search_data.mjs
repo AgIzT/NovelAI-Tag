@@ -656,11 +656,13 @@ try {
     console.warn = () => {};
     const partial = await buildSiteSearchCodex();
     assert.match(partial.dataNotice, /加载失败/);
+    assert.equal(partial._siteSearchFailedSources, 1, '页面要据此提示结果不完整');
     state.codexCache.set('b', Promise.resolve(codexB));
     const retried = await buildSiteSearchCodex();
     assert.notStrictEqual(retried, partial);
     assert.equal(retried.entryCount, 3);
     assert.equal(retried.dataNotice, '');
+    assert.equal(retried._siteSearchFailedSources, 0);
 
     state.codexes = [metaA];
     state.codexCache.set('a', Promise.resolve({ ...codexA, dataStatus: '发布回退数据' }));

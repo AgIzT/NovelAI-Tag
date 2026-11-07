@@ -145,6 +145,7 @@ async function buildSiteSearchCodexFresh(signal) {
     codex: {
       ...siteSearchMeta(),
       _siteSearchComplete: complete,
+      _siteSearchFailedSources: failedSources,
       assetPathMode: 'codex',
       assetBaseUrl: '',
       dataUrl: '',

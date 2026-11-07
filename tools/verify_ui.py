@@ -1692,6 +1692,56 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return {**data, "head": head, "tabOrder": tab_order}
 
+    def site_search_incomplete_notice():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 960, "deviceScaleFactor": 1, "mobile": False})
+        cdp.command("Network.enable")
+        cdp.command("Network.setBlockedURLs", {"urls": ["*/data/qianteng.json*"]})
+        type_query = """
+(() => {
+  const input = document.querySelector('#search');
+  input.value = %s;
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'x' }));
+  return true;
+})()
+"""
+        status = """({
+  hidden: document.querySelector('#searchStatus').hidden,
+  kind: document.querySelector('#searchStatus').dataset.kind || '',
+  text: document.querySelector('#searchStatusLive').textContent,
+  actions: [...document.querySelectorAll('#searchStatusActions button')].map(node => ({label: node.textContent, primary: node.dataset.primary === 'true'})),
+  cards: document.querySelectorAll('.card').length,
+  historyLength: history.length,
+})"""
+        try:
+            navigate(cdp, base + "?codex=suozhang")
+            wait_for(cdp, "document.querySelectorAll('.card').length > 0", "incomplete notice source cards")
+            cdp.eval(type_query % json.dumps("hair"))
+            wait_for(cdp, "document.querySelector('#searchStatusLive')?.textContent.includes('结果不完整')", "partial results notice", timeout=20)
+            partial = cdp.eval(status)
+            if partial["kind"] != "info" or "1 本法典没有加载完" not in partial["text"] or partial["cards"] <= 0:
+                raise CheckFailed(f"Partial results notice is wrong: {partial}")
+            if [item["label"] for item in partial["actions"]] != ["重新加载"]:
+                raise CheckFailed(f"Partial results notice should offer reload: {partial}")
+            cdp.eval(type_query % json.dumps("zzzqqqxxnothing"))
+            wait_for(cdp, "document.querySelector('#searchStatusLive')?.textContent.includes('已加载的法典里没有结果')", "partial zero notice", timeout=20)
+            zero = cdp.eval(status)
+            if zero["kind"] != "empty" or not zero["actions"] or zero["actions"][0] != {"label": "重新加载", "primary": True}:
+                raise CheckFailed(f"Partial zero notice should lead with reload: {zero}")
+            # 恢复网络后点重新加载：不增加历史，提示消失，回到普通零结果说法
+            cdp.command("Network.setBlockedURLs", {"urls": []})
+            cdp.eval("document.querySelector('#searchStatusActions button').click(); true")
+            wait_for(cdp, "document.querySelector('#searchStatusLive')?.textContent.includes('0 条图片结果')", "complete zero notice", timeout=20)
+            recovered = cdp.eval(status)
+            if any(item["label"] == "重新加载" for item in recovered["actions"]) or recovered["historyLength"] != zero["historyLength"]:
+                raise CheckFailed(f"Reload should recover in place: {recovered}")
+            cdp.eval(type_query % json.dumps("hair"))
+            wait_for(cdp, "document.querySelector('#searchStatus').hidden && document.querySelectorAll('.card').length > 0", "complete results without notice", timeout=20)
+        finally:
+            cdp.command("Network.setBlockedURLs", {"urls": []})
+        check_no_errors(cdp)
+        return {"partial": partial["text"], "zero": zero["text"], "recovered": recovered["text"]}
+
     def author_search():
         clear_errors(cdp)
         navigate(cdp, base + "?codex=suozhang")
@@ -4081,6 +4131,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("feedback panel responsive", feedback_panel_responsive),
         ("NEW update filter", new_update_filter),
         ("search highlights text", search_highlight),
+        ("site search incomplete notice", site_search_incomplete_notice),
         ("author search syntax", author_search),
         ("desktop search clear all", desktop_search_clear_all),
         ("copy card shows feedback", copy_card_feedback),
