@@ -158,7 +158,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 {
   const previous = { createElement: document.createElement, appendChild: document.body.appendChild,
     getComputedStyle, requestAnimationFrame, setTimeout: window.setTimeout };
-  const target = { left: 500, top: 10, width: 300, height: 600 };
+  const target = { left: 500, top: 10, width: 400, height: 800 };
   let clone;
   let frame;
   dom.set('#lightbox', { classList: fakeClassList() });
@@ -170,7 +170,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   window.setTimeout = () => 0;
   try {
     const cases = [
-      { fit: 'contain', box: [300, 200], image: [200, 400], expected: [110, 20, 100, 200] },
+      { fit: 'contain', box: [300, 200], image: [200, 400], expected: [110, 20, 100, 200],
+        transform: 'translate(-390px, 10px) scale(0.25, 0.25)' },
       { fit: 'contain', box: [200, 300], image: [400, 200], expected: [10, 120, 200, 100] },
       { fit: 'contain', box: [200, 200], image: [400, 400], expected: [10, 20, 200, 200] },
       { fit: 'cover', box: [300, 200], image: [200, 400], expected: [10, 20, 300, 200] },
@@ -178,9 +179,13 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
     for (const sample of cases) {
       flyIn({ fit: sample.fit, src: 'thumb.webp', naturalWidth: sample.image[0], naturalHeight: sample.image[1],
         getBoundingClientRect: () => ({ left: 10, top: 20, width: sample.box[0], height: sample.box[1] }) });
-      assert.deepEqual(['left', 'top', 'width', 'height'].map(key => parseFloat(clone.style[key])), sample.expected);
+      const rect = () => ['left', 'top', 'width', 'height'].map(key => parseFloat(clone.style[key]));
+      const targetRect = [500, 10, 400, 800];
+      assert.deepEqual(rect(), sample.transform ? targetRect : sample.expected);
+      assert.equal(clone.style.transform, sample.transform);
       frame();
-      assert.deepEqual(['left', 'top', 'width', 'height'].map(key => parseFloat(clone.style[key])), [500, 10, 300, 600]);
+      assert.deepEqual(rect(), targetRect);
+      assert.equal(clone.style.transform, sample.transform ? 'none' : undefined);
     }
   } finally {
     document.createElement = previous.createElement;

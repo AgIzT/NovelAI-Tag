@@ -192,7 +192,7 @@ export function applyFlyRect(el, rect, radius) {
   el.style.borderRadius = radius + 'px';
 }
 
-export function makeFlyClone(src, rect) {
+export function makeFlyClone(src, rect, transform = '') {
   const clone = document.createElement('img');
   clone.className = 'lb-fly';
   clone.alt = '';
@@ -200,6 +200,7 @@ export function makeFlyClone(src, rect) {
   clone.loading = 'eager';
   clone.src = src;
   applyFlyRect(clone, rect, 14);
+  if (transform) clone.style.transform = transform;
   document.body.appendChild(clone);
   void clone.offsetWidth;
   return clone;
@@ -377,10 +378,19 @@ export function flyIn(sourceEl) {
   const targetEl = $('#lightboxImg');
   const renderedTarget = targetEl?.getBoundingClientRect();
   const target = renderedTarget?.width && renderedTarget?.height ? renderedTarget : fitStageRect(ratio);
-  if (!target.width) return;
+  if (!target.width || !target.height) return;
+  const scaleX = from.width / target.width;
+  const scaleY = from.height / target.height;
+  // 同比例时直接在终点排版，再用 transform 还原起点；裁切比例不同的图片沿用原过渡，避免拉伸。
+  const transform = Math.abs(scaleX / scaleY - 1) <= 0.01
+    ? `translate(${from.left - target.left}px, ${from.top - target.top}px) scale(${scaleX}, ${scaleY})`
+    : '';
   lb.classList.add('flying');
-  const clone = makeFlyClone(sourceEl.currentSrc || sourceEl.src, from);
-  requestAnimationFrame(() => applyFlyRect(clone, target, 14));
+  const clone = makeFlyClone(sourceEl.currentSrc || sourceEl.src, transform ? target : from, transform);
+  requestAnimationFrame(() => {
+    if (transform) clone.style.transform = 'none';
+    else applyFlyRect(clone, target, 14);
+  });
   let finished = false;
   const finish = () => {
     if (finished) return;

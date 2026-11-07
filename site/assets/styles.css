@@ -2534,8 +2534,8 @@ body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted);--neg-in
 .lightbox.flying #lightboxImg{visibility:hidden}
 .lb-fly{
   position:fixed;z-index:90;object-fit:cover;pointer-events:none;
-  box-shadow:0 10px 32px rgba(10,15,35,.2);
-  transition:left .34s cubic-bezier(.22,1,.36,1),top .34s cubic-bezier(.22,1,.36,1),
+  box-shadow:0 10px 32px rgba(10,15,35,.2);transform-origin:top left;
+  transition:transform .34s cubic-bezier(.22,1,.36,1),left .34s cubic-bezier(.22,1,.36,1),top .34s cubic-bezier(.22,1,.36,1),
     width .34s cubic-bezier(.22,1,.36,1),height .34s cubic-bezier(.22,1,.36,1),
     border-radius .34s ease;
 }
