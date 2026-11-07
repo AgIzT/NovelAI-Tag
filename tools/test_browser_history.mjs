@@ -8,6 +8,7 @@ import {
   createManagedHistoryEntry,
   getManagedHistoryEntry,
   goBackFrom,
+  goBackFromSearch,
   initializeBrowserHistory,
   isManagedHistoryEntry,
   isRestoringHistory,
@@ -122,6 +123,37 @@ assert.equal(Object.hasOwn(malformedRetirement, 'retiredLayerOpening'), false, '
 const boundedRetirement = createManagedHistoryEntry({ page: 'atlas',
   retiredLayerIds: Array.from({ length: 100 }, (_, n) => 'layer-' + n) });
 assert.equal(boundedRetirement.retiredLayerIds.length, 32, 'retirement metadata has a fixed per-record bound');
+
+// Only Back to a parent known to have no search conditions, including after reload.
+{
+  const env = configure();
+  const browse = initializeBrowserHistory();
+  env.route = { view: 'all', q: '', searchFilters: ['has:image'] };
+  commitHistoryRoute({ mode: 'push', transition: 'search', sessionId: 's1' });
+  const firstSearch = getManagedHistoryEntry();
+
+  env.route = { ...env.route, view: 'source' };
+  commitHistoryRoute({ mode: 'push', transition: 'route' });
+  env.route = { ...env.route, q: 'fox' };
+  commitHistoryRoute({ mode: 'replace', transition: 'search', sessionId: 's1' });
+  const edited = initializeBrowserHistory();
+  assert.equal(goBackFromSearch(), false, 'filter-only parent still has active search');
+  assert.equal(getManagedHistoryEntry().id, edited.id);
+
+  env.window.history.back();
+  await tick();
+  assert.equal(getManagedHistoryEntry().id, firstSearch.id);
+  initializeBrowserHistory({ route: firstSearch.route });
+  assert.equal(goBackFromSearch(), true, 'reload preserves a known empty search parent');
+  await tick();
+  assert.equal(getManagedHistoryEntry().id, browse.id);
+
+  env.window.history.pushState(createManagedHistoryEntry({
+    page: 'atlas', parentId: browse.id, transition: 'search', route: { q: 'fox' },
+  }), '');
+  initializeBrowserHistory({ route: { q: 'fox' } });
+  assert.equal(goBackFromSearch(), false, 'legacy entries lack proof of an empty search parent');
+}
 
 // Initial entries have no parent; push creates a child and replace keeps its identity.
 {

@@ -26,7 +26,7 @@ import {
   closeHistoryLayer,
   forgetHistoryLayer,
   getManagedHistoryEntry,
-  goBackFrom,
+  goBackFromSearch,
   openHistoryLayer,
   registerHistoryLayer,
   scheduleHistoryScrollCheckpoint,
@@ -237,7 +237,7 @@ export function bindUI() {
       mobileLayered: mobileQuery.matches && topHistoryLayerId() === 'mobile-search',
     });
     const { needsInitialHistory, layered, historyMode } = historyIntent;
-    if (!next && previous && !mobileQuery.matches && goBackFrom('search')) return plan;
+    if (!next && previous && !mobileQuery.matches && goBackFromSearch()) return plan;
     const sessionId = state.searchHistorySessionId || getManagedHistoryEntry()?.sessionId || undefined;
     await uiActions.applySearch({
       resetScroll: true,

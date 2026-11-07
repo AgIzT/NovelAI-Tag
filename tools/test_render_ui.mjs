@@ -2042,4 +2042,16 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.deepEqual(unhandled, [], 'transition ready rejection must not escape to the page');
 }
 
+{
+  const { FEATURED_CODEX_ID, pinFeatured, todayFeatured } = await import('../site/assets/app/featured.js');
+  const portrait = { rating: 'safe', image: 'sample.jpg', tags: 'artist:example', imageWidth: 600, imageHeight: 900 };
+  const eligible = { ...portrait, path: ['单画师词典', 'MayRain', '购物'] };
+  for (const chapter of ['wwuumm', 'wwuumm(无原图)', 'WWUUMM （无原图）']) {
+    const excluded = { ...portrait, path: ['单画师词典', chapter, '购物'] };
+    assert.equal(todayFeatured({ id: FEATURED_CODEX_ID, entries: [excluded] }), null, chapter);
+    const entries = [excluded, eligible];
+    assert.deepEqual(pinFeatured(entries, { id: FEATURED_CODEX_ID, entries }), [eligible, excluded]);
+  }
+}
+
 console.log('render UI regressions: PASS');

@@ -1690,6 +1690,52 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return data
 
+    def desktop_search_clear_all():
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "history.state?.route?.codex === 'suozhang' && !!document.querySelector('#masonry .card')", "desktop browse view")
+        clear_errors(cdp)
+        browse_id = cdp.eval("history.state.id")
+        cdp.eval("if (history.state.route.scope !== 'site') document.querySelector('#searchScopeBtn').click()")
+
+        def search(query: str):
+            cdp.eval("document.querySelector('#search').select()")
+            cdp.command("Input.insertText", {"text": query})
+            wait_for(cdp, f"history.state?.route?.siteSearch && history.state.route.q === {js_string(query)} && !document.querySelector('#searchClearAllBtn').hidden", f"site search for {query}", timeout=20)
+
+        def clear(label: str):
+            cdp.eval("document.querySelector('#searchClearAllBtn').click()")
+            wait_for(cdp, """(() => {
+              const route = history.state?.route;
+              const params = new URLSearchParams(location.search);
+              return route?.codex === 'suozhang' && !route.siteSearch && route.q === ''
+                && !route.searchFilters.length && !params.has('q') && !params.has('f')
+                && document.querySelector('#search').value === '' && document.querySelector('#searchClearAllBtn').hidden;
+            })()""", label, timeout=5)
+
+        search("dress")
+        clear("clear all after a simple desktop search")
+        if cdp.eval("history.state.id") != browse_id:
+            raise CheckFailed("Simple desktop search did not return to its browse record")
+
+        search("dress")
+        first_search_id = cdp.eval("history.state.id")
+        cdp.eval("""document.querySelector('#chipRail .rail-chip:not(.locked):not([data-path=""])').click()""")
+        wait_for(cdp, "history.state?.parentId === " + js_string(first_search_id)
+                 + " && history.state.route.q === 'dress' && history.state.route.path.length === 1", "source chip records a narrowed search")
+        source_id = cdp.eval("history.state.id")
+        search("skirt")
+        wait_for(cdp, "history.state.id === " + js_string(source_id) + " && history.state.route.path.length === 1", "edited search retains its source")
+        clear("clear all after narrowing to a source and editing the query")
+        if cdp.eval("history.state.id") != source_id:
+            raise CheckFailed("Clear all should update the current record when its parent is a search")
+
+        cdp.eval("history.back()")
+        wait_for(cdp, "history.state?.id === " + js_string(first_search_id)
+                 + " && history.state.route.siteSearch && document.querySelector('#search').value === 'dress'", "explicit Back restores the previous search")
+        check_no_errors(cdp)
+        return {"query": "skirt", "restoredByBack": "dress"}
+
     def copy_card_feedback():
         clear_errors(cdp)
         navigate(cdp, base + "?codex=suozhang")
@@ -4013,6 +4059,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("NEW update filter", new_update_filter),
         ("search highlights text", search_highlight),
         ("author search syntax", author_search),
+        ("desktop search clear all", desktop_search_clear_all),
         ("copy card shows feedback", copy_card_feedback),
         ("pack character prompts render", pack_character_prompts),
         ("entry deep-link opens lightbox", deep_link_lightbox),

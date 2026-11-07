@@ -53,6 +53,7 @@ export function createManagedHistoryEntry({
   parentId = null,
   transition = 'initial',
   sessionId = null,
+  emptySearchParent = false,
   route = {},
   layers = [],
   retiredLayerIds: retiredIds = [],
@@ -68,6 +69,7 @@ export function createManagedHistoryEntry({
     parentId,
     transition,
     sessionId,
+    ...(emptySearchParent === true && parentId ? { emptySearchParent: true } : {}),
     route: cloneValue(route || {}),
     layers: cloneValue(layers || []),
     ...(retiredIdsToKeep.length ? { retiredLayerIds: retiredIdsToKeep } : {}),
@@ -183,6 +185,7 @@ export function initializeBrowserHistory({ transition = 'initial', route: routeO
     parentId: previous?.parentId ?? null,
     transition: previous?.transition || transition,
     sessionId: previous?.sessionId ?? null,
+    emptySearchParent: previous?.emptySearchParent,
     route,
     layers: [],
     retiredLayerIds: retiredLayerIds(previous),
@@ -297,6 +300,7 @@ export function openHistoryLayer(id, { mode = 'push' } = {}) {
     page: config.page,
     parentId: parent?.id || null,
     transition: 'layer',
+    emptySearchParent: parent && config.isEmptySearchRoute?.(parent.route),
     route: captureRoute(),
     layers: [...layers, { id }],
     scrollY: currentScrollY(),
@@ -380,6 +384,7 @@ export function commitHistoryRoute({
       parentId: parent?.id || null,
       transition: transition || 'route',
       sessionId: sessionId ?? null,
+      emptySearchParent: parent && config.isEmptySearchRoute?.(parent.route),
       route,
       layers: ids.map(id => ({ id })),
       scrollY: currentScrollY(),
@@ -461,6 +466,11 @@ export function goBackFrom(transition) {
   if (!canGoBackFrom(transition)) return false;
   if (!pendingBack) requestHistoryBack();
   return true;
+}
+
+export function goBackFromSearch() {
+  // 改词会把来源或目录记录改成 search，只有确认父记录无搜索条件才自动返回。
+  return currentEntry?.emptySearchParent === true && goBackFrom('search');
 }
 
 export function checkpointHistoryScroll() {

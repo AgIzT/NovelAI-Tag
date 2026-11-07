@@ -1,5 +1,5 @@
 /* 今日画师：默认进站那本书（v5 画师词典）每天抽一位画师，放在「全部」视图的第一格并挂小签。
-   - 按**本地日期**抽，同一天所有人同一位；抽签池只看词条本身（单画师、不受分级限制、有竖图），
+   - 按**本地日期**抽，同一天所有人同一位；候选为有竖图的常规级单画师（排除 wwuumm 章节），
      与个人的分级开关、屏蔽清单无关——被某人屏蔽了就对他不置顶，不会换成别人。
    - 只挪显示列表，不改 entries：目录树按 entries 顺序现算，挪数据会把那位画师所在的整组顶到目录最前。
    决策见本地私有文档 docs/decisions/今日画师.md。 */
@@ -19,6 +19,7 @@ function isCandidate(entry) {
     && Boolean(entry.image)
     && /^artist:/.test(String(entry.tags || ''))
     && String(entry.path?.[0] || '').startsWith('单画师')
+    && !/^wwuumm(?:$|\s*[（(])/i.test(String(entry.path?.[1] || '').trim())
     && Number(entry.imageHeight) > Number(entry.imageWidth);
 }
 
