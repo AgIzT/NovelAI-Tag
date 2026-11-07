@@ -7,7 +7,7 @@ import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
 import { playCopySample } from './copy-fx.js';
 import { relayTossTarget } from './tag-relay-rail.js';
-import { prepareCopiedEntry, prepareCopiedFragment, recordPreparedCopiedEntry } from './tag-relay-store.js';
+import { prepareCopiedEntry, prepareCopiedFragment, recordPreparedCopiedEntry, relayInbox } from './tag-relay-store.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { isEntryAccessBlocked, isR18gEntry, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { findCodexMeta } from './data.js';
@@ -113,6 +113,19 @@ function probeLocked(probe) {
 function sampleLabelFrom(message) {
   const head = String(message || '').split('：')[0].split('（')[0].trim();
   return head.startsWith('已复制') ? head : '已复制';
+}
+
+/* 第一次存进中转站时说一句去向，只说一次。标记写不进去就不说，免得每次都说；
+   素材里已有别的条目说明用过中转站，只记标记。 */
+const RELAY_INTAKE_HINT_KEY = 'fadian-relay-intake-hint-v1';
+function isFirstIntake() {
+  try {
+    if (localStorage.getItem(RELAY_INTAKE_HINT_KEY)) return false;
+    localStorage.setItem(RELAY_INTAKE_HINT_KEY, '1');
+    return relayInbox().length <= 1;
+  } catch {
+    return false;
+  }
 }
 
 export async function copyText(text, message, node, options = {}) {
@@ -229,8 +242,13 @@ export async function copyText(text, message, node, options = {}) {
   /* 看 options.entry 而不是 relaySnapshot：快照压根没建出来也是「没入库」，
      用户点的是词条复制，中转站里却什么都没多，这件事必须说出来。 */
   const intakeFailed = Boolean(options.entry || options.relaySnapshot || options.expectRelayIntake) && !intake;
+  /* 带「再复制负面」的提示只有一行，标题在前会把后半句挤没，所以要交代中转站的那两种情况不带标题 */
+  const suffix = formatted.converted ? '（SD 格式）' : '';
+  const brief = message.split('：')[0];
   toast(
-    `${message}${formatted.converted ? '（SD 格式）' : ''}${intakeFailed ? '；未存入中转站，再复制一次重试' : ''}`,
+    intakeFailed ? `${brief}${suffix}；未存入中转站，再复制一次重试`
+      : intake && isFirstIntake() ? `${brief}${suffix}，已存入中转站`
+        : `${message}${suffix}`,
     intakeFailed ? '!' : '✓',
     action,
   );

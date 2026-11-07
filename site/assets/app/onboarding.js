@@ -18,7 +18,7 @@ const STEPS = [
     cls: 'obs-3',
     scene: `<div class="ob-searchbox"><b>本书</b><i></i><span></span></div><div class="ob-searchscope"><i>本书</i><b>全站</b></div>${CUR}`,
     title: '多本法典随时切，也能全站搜',
-    body: '点顶栏书名切换法典；搜索栏左侧可在「本书」和「全站」间切换，也能用 path:、has:image、fav:true 等语法筛选。',
+    body: '点顶栏书名切换法典；搜索栏左侧可在「本书」和「全站」间切换。',
   },
   {
     cls: 'obs-2',
@@ -31,7 +31,8 @@ const STEPS = [
     cls: 'obs-4',
     scene: `<div class="ob-card"><b></b></div><div class="ob-panel"><u></u><u></u></div><div class="ob-fb">!</div>${CUR}`,
     title: '有问题，点反馈',
-    body: '词条有错、图打不开或复制不对，点卡片上的反馈按钮。',
+    mobileBody: '词条有错、图打不开或复制不对，在详情的「⋯」里点「反馈此图」。',
+    body: '词条有错、图打不开或复制不对，鼠标移到卡片上，点「!」。',
   },
 ];
 

@@ -440,7 +440,9 @@ export function setupFavoritesBackup(options = {}) {
     resetImport();
     showPickup(null);
     if (pickupInput) pickupInput.value = '';
-    openMask(panel, event?.currentTarget || document.activeElement);
+    // 空状态和提示里的入口会代点收在菜单里的按钮，那枚按钮看不见，焦点要回到实际点的地方
+    const trigger = event?.currentTarget;
+    openMask(panel, trigger && trigger.getClientRects?.().length !== 0 ? trigger : document.activeElement);
     setBusy(true);
     try {
       await refreshCounts();

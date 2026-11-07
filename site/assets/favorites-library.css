@@ -42,6 +42,7 @@
 .favorites-head-more { flex: none; }
 .favorites-sources { display: flex; flex-wrap: nowrap; gap: 6px; padding: 0 0 9px; margin-bottom: 6px; overflow-x: auto; scrollbar-width: none; }
 .favorites-sources::-webkit-scrollbar { display: none; }
+.favorites-sources.is-library-empty, .is-library-empty .favorites-desktop-controls { display: none; }
 .favorites-source-chip { cursor: pointer; }
 .favorites-library-view .result-bar:not(:has(#blockingResultBtn:not([hidden]), #searchClearAllBtn:not([hidden]), #searchFilterSummary:not([hidden]), #updateFilterControls:not([hidden]))) { display: none; }
 .favorites-source-dot { background: hsl(var(--source-hue) 58% 52%); }
@@ -132,6 +133,8 @@
   .favorites-content-head { min-height: 45px; gap: 10px; flex-wrap: wrap; }
   .favorites-heading { flex-basis: 100%; }
   .favorites-head-controls { width: 100%; justify-content: space-between; }
+  .is-library-empty .favorites-heading { flex-basis: auto; }
+  .is-library-empty .favorites-head-controls { width: auto; }
   .favorites-desktop-controls { flex: 1; }
   /* 排序/批量整理/⋯ 的触屏高度交给 ui-kit 的 .bar-btn 与 .is-pill 统一给，这里别再单独撑到 44px。 */
   .favorites-heading h1 { font-size: 23px; }

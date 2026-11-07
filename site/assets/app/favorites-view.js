@@ -356,6 +356,10 @@ export function renderFavoritesHeader() {
   const selection = header.querySelector('.favorites-selection-toggle');
   selection.textContent = state.favSelecting ? '完成整理' : '批量整理';
   selection.setAttribute('aria-pressed', String(Boolean(state.favSelecting)));
+  // 一条收藏都没有时，排序、批量整理和来源都没有作用对象；整理到一半删光时仍要留着「完成整理」
+  const nothingYet = !library().items.length && !state.favSelecting;
+  header.classList.toggle('is-library-empty', nothingYet);
+  sourceRail.classList.toggle('is-library-empty', nothingYet);
   header.querySelector('.favorites-head-more').classList.toggle('is-system', !state.favFolder || state.favFolder === '_unsorted');
   sortMenu?.setValue(state.favSort || 'recent');
   const currentKeys = new Set(folderKeys());
@@ -397,11 +401,24 @@ export function renderFavoritesHeader() {
   }
   for (const chip of previous.values()) chip.remove();
   const empty = byId('empty');
-  if (empty && !state.list?.length) {
+  const emptyMessage = !library().items.length ? '还没有收藏。点卡片标题旁的 ☆ 收藏词条。'
+    : hasFilter ? '没有匹配的收藏。' : state.favFolder === '_unsorted' ? '收藏都已归类。' : '这个收藏夹还没有内容。';
+  // 打开备份面板这类操作也会走到这里。内容没变就不重建，否则焦点回不到刚点的按钮
+  if (empty && !state.list?.length && empty.firstElementChild?.dataset.favoritesEmpty !== emptyMessage) {
     empty.replaceChildren();
-    const message = !library().items.length ? '还没有收藏。点卡片标题旁的 ☆ 收藏词条。'
-      : hasFilter ? '没有匹配的收藏。' : state.favFolder === '_unsorted' ? '收藏都已归类。' : '这个收藏夹还没有内容。';
-    empty.append(element('p', '', message));
+    const lead = element('p', '', emptyMessage);
+    lead.dataset.favoritesEmpty = emptyMessage;
+    empty.append(lead);
+    if (!library().items.length) {
+      empty.append(element('p', '', '收藏保存在本机浏览器，换设备用取件码或备份文件恢复。'));
+      const next = element('div', 'empty-actions');
+      // 提示说的下一步要去法典里点星标，这里没有卡片可点
+      next.append(
+        button('返回法典', '', () => byId('onlyFav')?.click()),
+        button('恢复收藏', '', () => document.querySelector('[data-favorites-backup-open]')?.click()),
+      );
+      empty.append(next);
+    }
     if (library().items.length && (hasFilter || state.favFolder)) {
       const add = button(hasFilter ? '清除筛选' : '从全部收藏中选择', 'panel-action', async () => {
         state.favSource = ''; state.query = ''; state.searchFilterValues = [];

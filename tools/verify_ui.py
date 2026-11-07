@@ -1927,6 +1927,124 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return {"top": top, "scrolled": scrolled, "rest": rest, "hover": hover, "detail": detail, "zero": zero}
 
+    def stage3_first_time():
+        clear_errors(cdp)
+        ready = "document.querySelectorAll('#masonry .card').length > 0"
+        hint_key = "fadian-relay-intake-hint-v1"
+        toast_text = "(document.querySelector('#toast')?.textContent || '')"
+        origin = urllib.parse.urlparse(base)
+        cdp.command("Emulation.setFocusEmulationEnabled", {"enabled": True})
+        cdp.command("Browser.grantPermissions", {"origin": origin.scheme + "://" + origin.netloc, "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]})
+        reset = """(() => {
+  for (const key of Object.keys(localStorage)) if (key.startsWith('fadian-favs') || key.startsWith('fadian-tag-relay') || key === %s) localStorage.removeItem(key);
+  return true;
+})()""" % js_string(hint_key)
+
+        # 引导：手机第 4 步指向详情，第 2 步没有语法
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, ready, "mobile book")
+        guide = """(async () => {
+  const { openOnboarding } = await import('./assets/app/onboarding.js');
+  openOnboarding({ historyMode: 'none' });
+  const read = () => document.querySelector('#onboardingBody').textContent;
+  const next = () => document.querySelector('#onboardingNext').click();
+  const steps = [read()];
+  for (let i = 0; i < 3; i += 1) { next(); steps.push(read()); }
+  next();
+  return steps;
+})()"""
+        steps = cdp.eval(guide)
+        if "path:" in steps[1] or "「⋯」" not in steps[3] or "卡片上的反馈" in steps[3]:
+            raise CheckFailed(f"Mobile onboarding text is wrong: {steps}")
+
+        try:
+            # 收藏为空：有下一步，没有用不上的控件
+            cdp.eval(reset)
+            navigate(cdp, base + "?codex=suozhang")
+            wait_for(cdp, ready, "book before favorites")
+            cdp.eval("document.querySelector('#onlyFav').click(); true")
+            wait_for(cdp, "Boolean(document.querySelector('#empty .empty-actions'))", "empty favorites actions", timeout=10)
+            shown = cdp.eval("""(() => {
+  const vis = sel => { const el = document.querySelector(sel); return Boolean(el && el.getClientRects().length); };
+  return { buttons: [...document.querySelectorAll('#empty .empty-actions button')].map(n => n.textContent), text: document.querySelector('#empty').textContent, sort: vis('.favorites-desktop-controls'), sources: vis('#favoritesSources'), more: vis('.favorites-head-more') };
+})()""")
+            if shown["buttons"] != ["返回法典", "恢复收藏"] or shown["sort"] or shown["sources"] or not shown["more"] or "本机浏览器" not in shown["text"]:
+                raise CheckFailed(f"Empty favorites state is wrong: {shown}")
+            # 恢复收藏打开备份面板，关闭后焦点回到按钮。进入收藏页后还有一次异步重绘，等它过去
+            settle(cdp, 800)
+            cdp.eval("(() => { const b = document.querySelectorAll('#empty .empty-actions button')[1]; b.focus(); b.click(); return true; })()")
+            wait_for(cdp, "document.querySelector('#favoritesBackupPanel')?.classList.contains('show')", "backup from empty favorites")
+            cdp.eval("document.querySelector('#favoritesBackupClose').click(); true")
+            wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.classList.contains('show') && document.activeElement?.textContent === '恢复收藏'", "focus returns to restore button")
+            # 返回法典回到原来那本书
+            cdp.eval("document.querySelectorAll('#empty .empty-actions button')[0].click(); true")
+            wait_for(cdp, ready + " && !document.body.classList.contains('favorites-library-view') && history.state?.route?.codex === 'suozhang'", "back to the book", timeout=15)
+            # 有收藏后控件回来
+            cdp.eval("document.querySelector('#masonry .fav-btn').click(); true")
+            settle(cdp, 300)
+            cdp.eval("document.querySelector('#onlyFav').click(); true")
+            wait_for(cdp, "document.querySelectorAll('#masonry .card').length > 0 && document.querySelector('#onlyFav').checked", "favorites with an item", timeout=10)
+            settle(cdp, 400)
+            filled = cdp.eval("(() => { const vis = sel => { const el = document.querySelector(sel); return Boolean(el && el.getClientRects().length); }; return { sort: vis('.favorites-desktop-controls'), sources: vis('#favoritesSources'), actions: vis('#empty .empty-actions') }; })()")
+            if not filled["sort"] or not filled["sources"] or filled["actions"]:
+                raise CheckFailed(f"Favorites controls did not return: {filled}")
+
+            # 中转站：手机素材条为空时有说明
+            cdp.eval(reset)
+            navigate(cdp, base + "?codex=suozhang")
+            wait_for(cdp, ready, "book before relay")
+            settle(cdp, 400)
+            bar = cdp.eval("document.querySelector('#relayMobileSourceCount').textContent")
+            if bar != "复制过的词条会出现在这里":
+                raise CheckFailed(f"Mobile relay source bar is wrong: {bar}")
+
+            # 第一次收录说去向，第二次不说
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False})
+            navigate(cdp, base + "?codex=suozhang")
+            wait_for(cdp, ready, "desktop book")
+            settle(cdp, 400)
+            cdp.eval("document.querySelectorAll('#masonry .card:not(.no-img)')[0].click(); true")
+            wait_for(cdp, toast_text + ".includes('已复制')", "first copy toast")
+            settle(cdp, 200)
+            first = cdp.eval(toast_text)
+            clipped = cdp.eval("(() => { const m = document.querySelector('#toast .toast-message'); return m.scrollWidth > m.clientWidth + 1; })()")
+            if "，已存入中转站" not in first or clipped or cdp.eval(f"localStorage.getItem({js_string(hint_key)})") != "1":
+                raise CheckFailed(f"First intake should explain where it went: {first} clipped={clipped}")
+            cdp.eval("document.querySelectorAll('#masonry .card:not(.no-img)')[1].click(); true")
+            wait_for(cdp, "document.querySelector('#tagRelayCount')?.textContent === '2'", "second intake")
+            settle(cdp, 200)
+            second = cdp.eval(toast_text)
+            if "已存入中转站" in second:
+                raise CheckFailed(f"Intake hint should show only once: {second}")
+
+            # 已经用过中转站的人不提示，只记标记
+            cdp.eval(f"localStorage.removeItem({js_string(hint_key)}); true")
+            cdp.eval("document.querySelectorAll('#masonry .card:not(.no-img)')[2].click(); true")
+            wait_for(cdp, "document.querySelector('#tagRelayCount')?.textContent === '3'", "third intake")
+            settle(cdp, 200)
+            returning = cdp.eval(toast_text)
+            if "已存入中转站" in returning or cdp.eval(f"localStorage.getItem({js_string(hint_key)})") != "1":
+                raise CheckFailed(f"Returning relay user should not see the hint: {returning}")
+
+            # 中转站复制反馈不带条数
+            cdp.eval("document.querySelector('#tagRelayBtn').click(); true")
+            wait_for(cdp, "!document.querySelector('#tagRelayRail').classList.contains('closed')", "relay opens")
+            settle(cdp, 500)
+            cdp.eval("[...document.querySelectorAll('#tagRelayPaneWarehouse [role=button]')].filter(n => n.getClientRects().length)[0].click(); true")
+            wait_for(cdp, "!document.querySelector('#relayCopyPositive').disabled", "plan has content")
+            cdp.eval("document.querySelector('#relayCopyPositive').click(); true")
+            wait_for(cdp, "(document.querySelector('.copy-seed-chip')?.textContent || '').includes('已复制正向提示词')", "relay copy chip", timeout=6)
+            chip = cdp.eval("document.querySelector('.copy-seed-chip').textContent")
+            if "tags" in chip:
+                raise CheckFailed(f"Relay copy chip should not count tags: {chip}")
+            cdp.eval("document.querySelector('#tagRelayRailClose').click(); true")
+        finally:
+            cdp.eval(reset)
+            cdp.command("Emulation.setFocusEmulationEnabled", {"enabled": False})
+        check_no_errors(cdp)
+        return {"steps": steps, "empty": shown, "first": first, "second": second, "chip": chip}
+
     def author_search():
         clear_errors(cdp)
         navigate(cdp, base + "?codex=suozhang")
@@ -4319,6 +4437,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("site search incomplete notice", site_search_incomplete_notice),
         ("browse result bar", browse_result_bar),
         ("stage2 controls", stage2_controls),
+        ("stage3 first time", stage3_first_time),
         ("author search syntax", author_search),
         ("desktop search clear all", desktop_search_clear_all),
         ("copy card shows feedback", copy_card_feedback),

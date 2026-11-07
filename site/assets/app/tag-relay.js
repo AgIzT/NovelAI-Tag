@@ -360,7 +360,7 @@ function renderWarehouse({ motion = true } = {}) {
     inboxCount.textContent = total ? (total > 99 ? '99+' : String(total)) : '';
   }
   const mobileCount = relayScope().querySelector('#relayMobileSourceCount');
-  if (mobileCount) mobileCount.textContent = relayInbox().length ? `最近复制 ${relayInbox().length} · 收藏` : '最近复制 · 收藏';
+  if (mobileCount) mobileCount.textContent = relayInbox().length ? `最近复制 ${relayInbox().length} · 收藏` : '复制过的词条会出现在这里';
   /* 「清空最近复制」回到素材分区自己的「⋯」里：它的对象是这个货架，不是方案。 */
   const clear = relayScope().querySelector('#tagRelayClear');
   if (clear) {
