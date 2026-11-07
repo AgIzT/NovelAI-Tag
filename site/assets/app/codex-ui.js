@@ -529,9 +529,11 @@ export function setupCodexPicker() {
       visual + `</span>`;
   };
 
-  /* 类型清单：每类带真实法典 real[] 与是否占位 soon */
+  /* 类型清单：每类带真实法典 real[] 与是否占位 soon。
+     锁定的书排到本类末尾，扣着的牌聚在一起；权限变化时菜单整体重建，顺序随之复原。 */
   const buildTypes = () => CODEX_TYPES.map(t => {
-    const real = realCodexesOfType(t.id);
+    const books = realCodexesOfType(t.id);
+    const real = [...books.filter(c => !isCodexLocked(c)), ...books.filter(isCodexLocked)];
     return { ...t, real, soon: real.length === 0 };
   }).filter(t => !document.body.classList.contains('local-edition') || t.real.length > 0);
 
