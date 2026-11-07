@@ -1595,7 +1595,37 @@ function updateFilterControls() {
   }
 }
 
+/* 全站搜索专用页头：书籍横幅回答「这本书是谁的」，搜索结果没有这个问题。藏掉横幅，把结果栏做成卡片当页头，
+   结果数打头；来源轨只留书名，因为整本容量和当前结果数是两回事。样式挂在 body.site-search-head 上。 */
+let siteSearchHeadLaidOut = false;
+
+function syncSiteSearchHead(on = Boolean(state.siteSearchView)) {
+  if (!document.body?.classList) return;
+  document.body.classList.toggle('site-search-head', on);
+  if (on === siteSearchHeadLaidOut) return;
+  const bar = document.querySelector('.result-bar');
+  const barHead = bar?.querySelector('.result-bar-head');
+  const rail = $('#chipRail');
+  const info = $('#resultInfo');
+  const filters = $('#searchFilterSummary');
+  const blocking = $('#blockingResultBtn');
+  if (!barHead || !rail || !info || !filters || !blocking) return;
+  if (on) {
+    // 轨道前面贴着手机吸顶判定的零高度哨兵（ui.js），两者不能分开，所以挪结果栏，不挪轨道
+    const sentinel = rail.previousElementSibling;
+    (sentinel?.getAttribute('aria-hidden') === 'true' ? sentinel : rail).before(bar);
+    // 键盘顺序跟视觉走：结果数与范围 → 搜索条件 → 受限提示 → 屏蔽管理 → 清除全部
+    info.after(filters, blocking);
+  } else {
+    rail.after(bar);
+    barHead.after(blocking, filters);
+  }
+  siteSearchHeadLaidOut = on;
+}
+
 export function updateResultBar() {
+  syncSiteSearchHead();
+  const searchHead = Boolean(state.siteSearchView);
   const n = state.list.length;
   const box = $('#resultInfo');
   const favoritesBackupButton = $('#favoritesViewBackupBtn');
@@ -1626,23 +1656,27 @@ export function updateResultBar() {
   if (searching && !state.siteSearchView) {
     addChip('全部', [], false);
   } else {
-    addChip('全部', [], state.activePath.length === 0);
+    addChip(searchHead ? '全站' : '全部', [], state.activePath.length === 0);
     state.activePath.forEach((seg, i) => {
       addSep();
       addChip(seg, state.activePath.slice(0, i + 1), i === state.activePath.length - 1);
     });
   }
-  box.appendChild(crumbs);
+  if (!searchHead) box.appendChild(crumbs);
 
   const count = document.createElement('span');
+  if (searchHead) count.className = 'search-head-count';
   let t;
   if (searching) {
-    const scope = state.favoritesView ? '收藏内' : (state.siteSearchView ? '全站' : '本书');
+    const scope = state.favoritesView ? '收藏内' : '本书';
     const queryLabel = q ? ` “${esc(q)}”` : '';
     const filterCount = state.searchFilterValues?.length || 0;
     const filterLabel = filterCount ? `${q ? ' · ' : ' · '}${filterCount} 个筛选` : '';
     const relatedLabel = state.relatedDirectoryCount ? ` · ${state.relatedDirectoryCount} 个相关目录` : '';
-    t = `${scope}搜索${queryLabel}${filterLabel}：<b>${n}</b> 条图片结果${relatedLabel}`;
+    // 全站搜索页头里，关键词和筛选都由条件胶囊呈现，这里不再写一遍
+    t = searchHead
+      ? `<b>${n}</b> 条图片结果${relatedLabel}`
+      : `${scope}搜索${queryLabel}${filterLabel}：<b>${n}</b> 条图片结果${relatedLabel}`;
   }
   else if (state.favoritesView) t = `收藏：<b>${n}</b> 条`;
   else if (activeUpdateFilter()) t = `${esc(activeUpdateFilter().label)}：<b>${n}</b> 条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
@@ -1650,6 +1684,7 @@ export function updateResultBar() {
   else t = `共 <b>${n}</b> 条词条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
   count.innerHTML = t;
   box.appendChild(count);
+  if (searchHead) box.appendChild(crumbs);
 
   const hiddenCount = (!state.siteSearchView && !state.favoritesView) ? accessHiddenCount() : 0;
   if (hiddenCount > 0) {
@@ -1661,15 +1696,17 @@ export function updateResultBar() {
     hiddenHint.onclick = showAccessLockedHint;
     box.appendChild(hiddenHint);
   }
+  // 受限提示排在搜索条件后面，不在 #resultInfo 里，上面清空 box 时清不到它
+  document.querySelector('.search-head-locked')?.remove();
   const lockedBooks = state.siteSearchView ? lockedCodexCount() : 0;
   if (lockedBooks > 0) {
     const lockedHint = document.createElement('button');
     lockedHint.type = 'button';
-    lockedHint.className = 'access-hidden-hint';
-    lockedHint.textContent = `另有 ${lockedBooks} 本受限法典未解锁，未纳入全站搜索`;
+    lockedHint.className = 'access-hidden-hint search-head-locked';
+    lockedHint.textContent = `${lockedBooks} 本受限法典未纳入搜索`;
     lockedHint.title = '查看解锁说明';
     lockedHint.onclick = showNsfwLockedHint;
-    box.appendChild(lockedHint);
+    $('#searchFilterSummary')?.after(lockedHint);
   }
 
   updateEmptyState(n);
@@ -1834,7 +1871,7 @@ const bannerImagedPct = c => (c.entryCount ? Math.round((c.imagedCount / c.entry
 /* 横幅主体：封面；字栏自上而下是卷号眉标、书名、作者（单独一行）、版本 · 原图签 · 作者主页；
    配图进度沉到卡片底边一条细线、条数在右下角（样式见 styles.css「法典横幅」）。这些都只读 codexes.json 也有的字段，
    所以换书接力时可以先用 meta 画好（pending：封面不播二段浮现、进度行留给计步与落地揭开）。
-   收藏墙 / 全站搜索这类虚拟视图没有卷别，保留「书名 + 作者 · 版本」两行。 */
+   收藏墙和全站搜索不用横幅，各有自己的页头。 */
 function originalPillTitle(c) {
   if (c.hasOriginal) return '本法典保留原图：放大后可拖入 NovelAI 读取生成参数';
   const sections = originalSectionsOf(c);
@@ -1922,29 +1959,26 @@ function scheduleBannerCelebration(banner, id) {
   else fire();
 }
 
-function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
+function fillBanner(banner, c, { pending = false } = {}) {
   const cover = codexBannerCoverEntry(c);
-  const birthday = !virtualView && isBirthdayCodex(c);
+  const birthday = isBirthdayCodex(c);
   const previousIdentity = banner.dataset.identity;
   const exampleLabel = codexExampleLabel(c);
-  const originalPill = virtualView || document.body.classList.contains('local-edition') ? '' : exampleLabel ?
+  const originalPill = document.body.classList.contains('local-edition') ? '' : exampleLabel ?
     `<span class="data-pill model-example">${esc(exampleLabel)}</span>` :
     `<span class="data-pill ${c.hasOriginal ? 'has-orig' : 'no-orig'}" title="${esc(originalPillTitle(c))}">${c.hasOriginal ? '含原图' : '无原图'}</span>`;
-  const home = virtualView ? null : authorHomepage(c);
+  const home = authorHomepage(c);
   // 卷号与分类色同选择器四卷：cat-* 类取 styles.css 里那套由强调色转色相的分类辅助色
   const typeIndex = Math.max(0, CODEX_TYPES.findIndex(t => t.id === codexType(c)));
   banner.classList.remove(...CODEX_TYPES.map(t => `cat-${t.id}`));
-  if (!virtualView) banner.classList.add(`cat-${CODEX_TYPES[typeIndex].id}`);
-  const head = virtualView
-    ? `<div class="banner-title">${esc(c.title)}</div>` +
-      `<div class="banner-meta"><span>${esc([c.author, c.version].filter(Boolean).join(' · '))}</span></div>`
-    : `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
-      `<div class="banner-title">${esc(c.title)}</div>` +
-      (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}` +
-        `${birthday ? `<button type="button" class="banner-bday" title="送上祝福">生日快乐${wishCountHTML()}</button>` +
-          '<button type="button" class="banner-wall">生日贺卡</button>' : ''}</div>` : '') +
-      `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
-      `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
+  banner.classList.add(`cat-${CODEX_TYPES[typeIndex].id}`);
+  const head = `<div class="banner-eyebrow"><b>${volumeLabel(typeIndex)}</b><span>${esc(CODEX_TYPES[typeIndex].name)}</span></div>` +
+    `<div class="banner-title">${esc(c.title)}</div>` +
+    (c.author ? `<div class="banner-author" title="${esc(c.author)}">${esc(c.author)}` +
+      `${birthday ? `<button type="button" class="banner-bday" title="送上祝福">生日快乐${wishCountHTML()}</button>` +
+        '<button type="button" class="banner-wall">生日贺卡</button>' : ''}</div>` : '') +
+    `<div class="banner-meta">${c.version ? `<span class="banner-version"><small>版本</small>${esc(c.version)}</span>` : ''}` +
+    `${originalPill}${home ? renderAuthorHomepage(home) : ''}</div>`;
   banner.innerHTML =
     `<div class="banner-cover${pending ? ' no-enter' : ''}">${cover ? `<img src="${esc(thumbUrl(cover, c))}" alt=""${codexCoverStyle(c)}>` : ''}</div>` +
     `<div class="banner-info">${head}</div>` +
@@ -1952,7 +1986,7 @@ function fillBanner(banner, c, { virtualView = false, pending = false } = {}) {
     // 进度行直接挂在横幅下（不进 .banner-info）：字栏入场动画带位移，会临时成为绝对定位的参照，沉底的进度线会跟着跳
     `<div class="banner-progress${pending ? ' is-pending' : ''}"><div class="bp-track"><div class="bp-fill" style="width:${bannerImagedPct(c)}%"></div></div>` +
     `<span class="bp-text">${pending ? '' : `${c.imagedCount} / ${c.entryCount} 已配图`}</span></div>`;
-  banner.dataset.identity = virtualView ? '' : c.id;
+  banner.dataset.identity = c.id;
   if (birthday) {
     watchWishes();
     banner.querySelector('.banner-bday').onclick = () => wishFromBanner(banner);
@@ -1975,6 +2009,7 @@ export function renderBannerIdentity(c, { awaitingCover = false } = {}) {
   if (!banner) return;
   closeBannerAbout();
   document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
+  syncSiteSearchHead(false);   // 从搜索切书：回顶这一刻就把书籍横幅换回来，撤销时 renderCodexHeader 再同步
   fillBanner(banner, c, { pending: true });
   if (awaitingCover) banner.querySelector('.banner-cover')?.classList.add('awaiting-cover');
 }
@@ -1985,17 +2020,20 @@ export function renderCodexHeader({ keepIdentity = false } = {}) {
   if (!banner) return;
   closeBannerAbout();
   document.querySelectorAll('.banner-pop').forEach(pop => pop.remove());
-  const virtualView = state.favoritesView || state.siteSearchView;
-  if (keepIdentity && !virtualView && banner.dataset.identity === c.id) {
+  syncSiteSearchHead();
+  if (state.siteSearchView) {
+    banner.replaceChildren();
+    banner.dataset.identity = '';
+  } else if (keepIdentity && banner.dataset.identity === c.id) {
     /* 接力时已用 meta 画好：重建会让封面 / 文字的二段浮现在落地时再播一遍。
        只补数据才有的「关于」气泡；进度条按数据校准宽度，揭开与计数由编排器落地时做。 */
     banner.querySelector('.banner-about-btn')?.remove();
     const fill = banner.querySelector('.bp-fill');
     if (fill) fill.style.width = `${bannerImagedPct(c)}%`;
   } else {
-    fillBanner(banner, c, { virtualView });
+    fillBanner(banner, c);
   }
-  if (!virtualView) renderBannerAbout(c, banner);
+  if (!state.siteSearchView) renderBannerAbout(c, banner);
   renderCategoryRail();
   /* 结果栏只在换书时一次性淡入（renderCodexHeader 只在 loadCodex/换书渲染时调）；搜索/筛选/就地刷新的高频更新保持瞬时 */
   const resultBar = document.querySelector('.result-bar');
@@ -2022,7 +2060,7 @@ export function renderCategoryRail({ animate = true } = {}) {
     chip.dataset.path = path.join('\u0001');
     chip.setAttribute('aria-disabled', locked ? 'true' : 'false');
     if (locked) chip.title = NSFW_LOCKED_MESSAGE;
-    chip.innerHTML = `<span class="rc-dot" style="background:${hue}"></span>${esc(label)}<span class="rc-n">${count}</span>`;
+    chip.innerHTML = `<span class="rc-dot" style="background:${hue}"></span>${esc(label)}${state.siteSearchView ? '' : `<span class="rc-n">${count}</span>`}`;
     chip.onclick = () => locked ? showNsfwLockedHint() : selectPathByPath(path);
     chip.style.setProperty('--chip-i', String(Math.min(rail.childElementCount, 12)));   // 错峰序号=插入位置，封顶防长尾
     if (!animate) chip.style.animation = 'none';

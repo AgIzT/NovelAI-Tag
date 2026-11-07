@@ -1517,7 +1517,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(localEditionBuilderSource, /body\.local-edition #onboardingBtn,/);
   assert.match(codexUiSource, /const hiddenCount = \(!state\.siteSearchView && !state\.favoritesView\) \? accessHiddenCount\(\) : 0;/);
   assert.match(codexUiSource, /另有 \$\{hiddenCount\} 条受限内容/);
-  assert.match(codexUiSource, /另有 \$\{lockedBooks\} 本受限法典未解锁，未纳入全站搜索/);
+  assert.match(codexUiSource, /\$\{lockedBooks\} 本受限法典未纳入搜索/);
   assert.match(codexUiSource, /查看未解锁范围[\s\S]*access-hint/);
   assert.match(reportSource, /image && entryImageCanUseOriginal\(entry, image\)/);
   assert.match(lightboxSource, /return entryImageCanUseOriginal\(entry, item\);/);

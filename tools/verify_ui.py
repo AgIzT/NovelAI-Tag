@@ -1661,13 +1661,36 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
   return true;
 })()
 """)
-        wait_for(cdp, "document.querySelector('#resultInfo')?.textContent.includes('hair')", "search result")
+        wait_for(cdp, "document.querySelector('#searchFilterChips')?.textContent.includes('hair') && document.querySelector('#resultInfo')?.textContent.includes('条图片结果')", "search result")
         settle(cdp, 350)
+        layout = """(() => {
+  const bar = document.querySelector('.result-bar');
+  const rail = document.querySelector('#chipRail');
+  const banner = document.querySelector('#codexBanner');
+  return {
+    head: document.body.classList.contains('site-search-head'),
+    bannerHidden: getComputedStyle(banner).display === 'none',
+    barBeforeRail: Boolean(bar.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING),
+    railFollowsStuckSentinel: rail.previousElementSibling?.getAttribute('aria-hidden') === 'true',
+    railCounts: rail.querySelectorAll('.rc-n').length,
+  };
+})()"""
         data = cdp.eval("({result: document.querySelector('#resultInfo')?.textContent || '', marks: document.querySelectorAll('mark').length, cards: document.querySelectorAll('.card').length})")
         if data["marks"] <= 0:
             raise CheckFailed("Search did not render highlight marks")
+        head = cdp.eval(layout)
+        if not (head["head"] and head["bannerHidden"] and head["barBeforeRail"] and head["railFollowsStuckSentinel"]) or head["railCounts"]:
+            raise CheckFailed(f"Site search head layout is wrong: {head}")
+        tab_order = cdp.eval("[...document.querySelectorAll('.result-bar button:not([hidden])')].filter(node => node.offsetParent !== null && !node.closest('#chipRail')).map(node => node.id || node.className.split(' ')[0])")
+        if tab_order[-2:] != ["blockingResultBtn", "searchClearAllBtn"]:
+            raise CheckFailed(f"Site search head keyboard order is wrong: {tab_order}")
+        cdp.eval("document.querySelector('#searchClearAllBtn').click(); true")
+        wait_for(cdp, "!document.body.classList.contains('site-search-head') && Boolean(document.querySelector('#codexBanner .banner-title')) && Boolean(document.querySelector('#chipRail .rc-n'))", "book banner after clearing search")
+        book = cdp.eval(layout)
+        if book["bannerHidden"] or book["barBeforeRail"] or not book["railFollowsStuckSentinel"]:
+            raise CheckFailed(f"Book layout did not recover after search: {book}")
         check_no_errors(cdp)
-        return data
+        return {**data, "head": head, "tabOrder": tab_order}
 
     def author_search():
         clear_errors(cdp)

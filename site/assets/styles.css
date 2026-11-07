@@ -1437,6 +1437,38 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 .crumb.current{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);font-weight:600}
 .crumb-sep{color:var(--muted);opacity:.6;font-size:11px}
 
+/* ---------- 全站搜索专用页头 ---------- */
+/* 结果栏整体当页头卡片，形制同法典横幅；子项拍平成一行，排成「结果数 · 范围 · 条件 … 动作」，窄了自然折行。
+   DOM 顺序由 codex-ui.js 的 syncSiteSearchHead 摆好，键盘顺序与视觉一致。 */
+.site-search-head #codexBanner{display:none!important}
+.site-search-head #codexMeta,
+.site-search-head #tree .tw-count{display:none}
+.site-search-head .result-bar{
+  background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
+  padding:10px 16px;gap:8px 12px;
+}
+.site-search-head .result-bar .result-bar-head:has(#searchClearAllBtn:not([hidden])),
+.site-search-head .result-bar .result-bar-head:has(#searchClearAllBtn:not([hidden])) #resultInfo{display:contents}
+.search-head-count{color:var(--text);white-space:nowrap}
+.search-head-count b{margin-right:4px;font-size:24px;font-weight:800;line-height:1.25}
+.site-search-head .crumbs::before{content:"·";margin-right:4px;color:var(--muted)}
+.site-search-head .crumb{border:0;background:transparent;padding:2px 3px;font-size:13px}
+.site-search-head .crumb.current{color:var(--text);background:transparent;font-weight:600}
+.site-search-head button.crumb:hover{background:transparent;color:var(--accent)}
+.site-search-head .search-filter-summary{flex:0 1 auto;min-width:0}
+.site-search-head #blockingResultBtn{margin-left:auto}
+.site-search-head .result-bar-head .search-clear-all{margin-left:0}
+@media (max-width:600px){
+  .site-search-head .result-bar{padding:8px 12px;border-radius:14px;gap:6px 8px}
+  .search-head-count b{font-size:20px}
+  /* 第一行固定「结果数 … 清除全部」，只有清除按钮的视觉位置比键盘顺序靠前；收窄到来源时路径独占第二行 */
+  .search-head-count,.site-search-head .crumbs,.site-search-head .result-bar-head .search-clear-all{order:-1}
+  .site-search-head .result-bar-head .search-clear-all{margin-left:auto}
+  .site-search-head .crumbs:has(button.crumb){order:0;flex:1 0 100%}
+  .site-search-head .crumbs:has(button.crumb)::before{content:none}
+  .site-search-head #blockingResultBtn{margin-left:0}
+}
+
 /* ---------- 瀑布流 ---------- */
 .masonry{position:relative;min-height:1px;contain:layout paint}
 .masonry.is-filtering{pointer-events:none}
