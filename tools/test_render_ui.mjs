@@ -1644,7 +1644,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   // 高度预估、卡片渲染、一键复制必须共用同一个文本源，否则预览和剪贴板对不上、布局也会算错。
   const masonrySource = await readFile(new URL('../site/assets/app/masonry.js', import.meta.url), 'utf8');
   assert.match(masonrySource, /estimateTagLines\(entryPromptText\(e\), contentWidth, cfg\)/);
-  assert.match(masonrySource, /renderHighlightedText\(node\.querySelector\('\.card-tags'\), entryPromptText\(e\), highlightTerms\)/);
+  assert.match(masonrySource, /renderHighlightedText\(node\.querySelector\('\.card-tags'\), entryPromptText\(e\), currentPromptHighlightTerms\(\)\)/);
   const indexSource = await readFile(new URL('../site/index.html', import.meta.url), 'utf8');
   assert.match(indexSource, /<span class="badge-char" hidden>角色词<\/span>/);
   assert.match(indexSource, /<span class="badge-char-chip" hidden title="含角色词">角色词<\/span>/);
