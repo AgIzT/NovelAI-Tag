@@ -1510,7 +1510,9 @@ function updateFilterChip(filter) {
     btn.appendChild(mark);
   }
   const label = document.createElement('span');
-  label.textContent = filter.label;
+  const batch = /^(.+)更新$/.exec(filter.label);
+  label.textContent = batch ? batch[1] : filter.label;
+  if (batch) label.append(Object.assign(document.createElement('span'), { className: 'result-wide-only', textContent: '更新' }));
   btn.append(label, Object.assign(document.createElement('span'), { textContent: '·' }));
   const count = document.createElement('strong');
   count.textContent = String(filter.count);
@@ -1528,7 +1530,7 @@ function updateFilterChip(filter) {
 function pastUpdatesMenu(past) {
   const activeId = past.some(filter => filter.id === state.updateFilter) ? String(state.updateFilter) : '';
   const active = activeId ? past.find(filter => filter.id === activeId) : null;
-  /* 「不筛选」只在选中往期时才给：没选中时它会顶掉触发按钮上「往期更新 · N 期」这句邀请。 */
+  /* 「不筛选」只在选中往期时才给：没选中时它会顶掉触发按钮上「往期 · N 期」这句邀请。 */
   const options = [
     ...(active ? [{ value: '', label: '不筛选' }] : []),
     ...past.map(filter => ({
@@ -1549,7 +1551,7 @@ function pastUpdatesMenu(past) {
     updateSelectKey = key;
     updateSelect.setOptions(options);
   }
-  updateSelect.setLabel(`往期更新 · ${past.length} 期`);
+  updateSelect.setLabel(`往期 · ${past.length} 期`);
   updateSelect.setValue(activeId);
   updateSelect.setTriggerLabel(active
     ? `往期更新：${active.label} · ${active.count} 条，当前已开启，可更换或取消`
@@ -1632,7 +1634,6 @@ export function updateResultBar() {
   if (favoritesBackupButton) favoritesBackupButton.hidden = !state.favoritesView;
   updateFilterControls();
   box.innerHTML = '';
-  const q = state.query.trim();
   const searching = hasActiveSearch();
 
   const crumbs = document.createElement('span');
@@ -1662,26 +1663,27 @@ export function updateResultBar() {
       addChip(seg, state.activePath.slice(0, i + 1), i === state.activePath.length - 1);
     });
   }
-  if (!searchHead) box.appendChild(crumbs);
+  // 分类轨上的「全部」已经是选中态，根目录不再写一遍；进目录和搜索才需要面包屑退回
+  if (!searchHead && (searching || state.activePath.length || state.favoritesView)) box.appendChild(crumbs);
 
   const count = document.createElement('span');
   if (searchHead) count.className = 'search-head-count';
   let t;
   if (searching) {
     const scope = state.favoritesView ? '收藏内' : '本书';
-    const queryLabel = q ? ` “${esc(q)}”` : '';
-    const filterCount = state.searchFilterValues?.length || 0;
-    const filterLabel = filterCount ? `${q ? ' · ' : ' · '}${filterCount} 个筛选` : '';
     const relatedLabel = state.relatedDirectoryCount ? ` · ${state.relatedDirectoryCount} 个相关目录` : '';
-    // 全站搜索页头里，关键词和筛选都由条件胶囊呈现，这里不再写一遍
+    // 关键词和筛选都由条件胶囊呈现，这里不再写一遍
     t = searchHead
       ? `<b>${n}</b> 条图片结果${relatedLabel}`
-      : `${scope}搜索${queryLabel}${filterLabel}：<b>${n}</b> 条图片结果${relatedLabel}`;
+      : `${scope}搜索：<b>${n}</b> 条图片结果${relatedLabel}`;
   }
   else if (state.favoritesView) t = `收藏：<b>${n}</b> 条`;
   else if (activeUpdateFilter()) t = `${esc(activeUpdateFilter().label)}：<b>${n}</b> 条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
   else if (state.activePath.length) t = `<b>${n}</b> 条`;
-  else t = `共 <b>${n}</b> 条词条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
+  else {
+    t = `共 <b>${n}</b> 条`;
+    count.className = 'result-root-count';
+  }
   count.innerHTML = t;
   box.appendChild(count);
   if (searchHead) box.appendChild(crumbs);
@@ -1691,7 +1693,8 @@ export function updateResultBar() {
     const hiddenHint = document.createElement('button');
     hiddenHint.type = 'button';
     hiddenHint.className = 'access-hidden-hint';
-    hiddenHint.textContent = `另有 ${hiddenCount} 条受限内容`;
+    // 外层再包一层：提示本身是 inline-flex，直接放会把「另有 」后面的空格吃掉
+    hiddenHint.innerHTML = `<span><span class="result-wide-only">另有 </span>${hiddenCount} 条受限<span class="result-wide-only">内容</span></span>`;
     hiddenHint.title = '查看解锁说明';
     hiddenHint.onclick = showAccessLockedHint;
     box.appendChild(hiddenHint);

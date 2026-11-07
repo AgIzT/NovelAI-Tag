@@ -1564,7 +1564,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if chip.get("text") != chip_expected or chip.get("id") != latest_update["id"] \
                 or chip.get("pressed") != "false" or not chip.get("latest"):
             raise CheckFailed(f"Latest update chip mismatch: expected={chip_expected!r}, actual={initial}")
-        if initial["trigger"] != f"往期更新 · {len(past_updates)} 期" or initial["triggerActive"] is not False:
+        if initial["trigger"] != f"往期 · {len(past_updates)} 期" or initial["triggerActive"] is not False:
             raise CheckFailed(f"Past updates trigger mismatch: {initial}")
         expected_options = [
             {"value": item["id"], "label": f"{item['label']} · {item['count']}"}
@@ -1682,7 +1682,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if not (head["head"] and head["bannerHidden"] and head["barBeforeRail"] and head["railFollowsStuckSentinel"]) or head["railCounts"]:
             raise CheckFailed(f"Site search head layout is wrong: {head}")
         tab_order = cdp.eval("[...document.querySelectorAll('.result-bar button:not([hidden])')].filter(node => node.offsetParent !== null && !node.closest('#chipRail')).map(node => node.id || node.className.split(' ')[0])")
-        if tab_order[-2:] != ["blockingResultBtn", "searchClearAllBtn"]:
+        if tab_order[-1] != "searchClearAllBtn" or "blockingResultBtn" in tab_order:
             raise CheckFailed(f"Site search head keyboard order is wrong: {tab_order}")
         cdp.eval("document.querySelector('#searchClearAllBtn').click(); true")
         wait_for(cdp, "!document.body.classList.contains('site-search-head') && Boolean(document.querySelector('#codexBanner .banner-title')) && Boolean(document.querySelector('#chipRail .rc-n'))", "book banner after clearing search")
@@ -1741,6 +1741,76 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp.command("Network.setBlockedURLs", {"urls": []})
         check_no_errors(cdp)
         return {"partial": partial["text"], "zero": zero["text"], "recovered": recovered["text"]}
+
+    def browse_result_bar():
+        clear_errors(cdp)
+        storage_key = "fadian-content-blocking-v1"
+        bar = """(() => {
+  const button = document.querySelector('#blockingResultBtn');
+  return {
+    barHeight: Math.round(document.querySelector('.result-bar').getBoundingClientRect().height),
+    crumbs: document.querySelectorAll('#resultInfo .crumb').length,
+    blockingVisible: Boolean(button.offsetParent),
+    blockingText: button.textContent,
+  };
+})()"""
+        book_ready = "document.querySelectorAll('.card').length > 0 && Boolean(document.querySelector('#codexBanner .banner-title'))"
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        navigate(cdp, base + "?codex=suozhang_nai5")
+        try:
+            cdp.eval(f"localStorage.removeItem({json.dumps(storage_key)}); true")
+            navigate(cdp, base + "?codex=suozhang_nai5")
+            wait_for(cdp, book_ready, "mobile book")
+            settle(cdp, 350)
+            # 手机根目录一行，受限提示和更新入口都还在，条数在分类轨上
+            mobile = cdp.eval(bar)
+            kept = cdp.eval("""({
+  hint: document.querySelector('#resultInfo .access-hidden-hint')?.innerText || '',
+  latest: document.querySelector('.update-filter-btn.is-latest')?.innerText.replace(/\\s+/g, ' ') || '',
+  railCount: document.querySelector('#chipRail .rail-chip.active .rc-n')?.textContent || '',
+})""")
+            if mobile["barHeight"] > 36 or mobile["crumbs"] or mobile["blockingVisible"]:
+                raise CheckFailed(f"Mobile root result bar should stay on one row: {mobile}")
+            if "条受限" not in kept["hint"] or "NEW" not in kept["latest"] or not kept["railCount"]:
+                raise CheckFailed(f"Mobile root result bar lost state: {kept}")
+            # 进目录后面包屑回来，点「全部」退回根目录
+            cdp.eval("document.querySelectorAll('#chipRail .rail-chip')[1].click(); true")
+            wait_for(cdp, "document.querySelectorAll('#resultInfo button.crumb').length === 1", "path crumbs")
+            cdp.eval("document.querySelector('#resultInfo button.crumb').click(); true")
+            wait_for(cdp, "document.querySelectorAll('#resultInfo .crumb').length === 0", "root without crumbs")
+
+            # 「更多」是常驻入口；关闭后焦点回到「更多」
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 960, "deviceScaleFactor": 1, "mobile": False})
+            cdp.eval("document.querySelector('#moreBtn').click(); document.querySelector('#blockingMenuBtn').click(); true")
+            wait_for(cdp, "document.querySelector('#contentBlocking').classList.contains('show') && document.querySelector('#moreMenu').hidden", "manager from more menu")
+            cdp.eval("document.querySelector('#blockingClose').click(); true")
+            wait_for(cdp, "!document.querySelector('#contentBlocking').classList.contains('show') && document.activeElement === document.querySelector('#moreBtn')", "manager closed to more button")
+
+            # 第一次隐藏卡片时，结果栏就地出现入口；清单清空后再次收起
+            cdp.eval("document.querySelector('#masonry .card .hide-card-btn').click(); true")
+            wait_for(cdp, "Boolean(document.querySelector('#blockingResultBtn').offsetParent) && document.querySelector('#blockingResultBtn').textContent.includes('已屏蔽 1 项')", "blocking entry after hiding a card")
+            cdp.eval("document.querySelector('#blockingResultBtn').click(); true")
+            wait_for(cdp, "document.querySelector('#contentBlocking').classList.contains('show')", "manager from result bar")
+            cdp.eval("document.querySelector('#blockingClose').click(); true")
+            wait_for(cdp, "!document.querySelector('#contentBlocking').classList.contains('show')", "manager closed")
+            cdp.eval(f"localStorage.setItem({json.dumps(storage_key)}, JSON.stringify({{version: 1, enabled: true, words: ['zzzqqqxxnothing'], entries: []}})); true")
+            navigate(cdp, base + "?codex=suozhang_nai5")
+            wait_for(cdp, book_ready, "book with a blocked word")
+            settle(cdp, 350)
+            unaffected = cdp.eval(bar)
+            if not unaffected["blockingVisible"] or unaffected["blockingText"] != "屏蔽管理":
+                raise CheckFailed(f"Saved blocking should keep the result bar entry: {unaffected}")
+        finally:
+            # 手机上选分类会写入侧栏偏好，留着会让后面的桌面用例把它改成展开，再盖住手机用例的卡片
+            cdp.eval(f"localStorage.removeItem({json.dumps(storage_key)}); localStorage.removeItem('fadian-sidebar'); true")
+        navigate(cdp, base + "?codex=suozhang_nai5")
+        wait_for(cdp, book_ready, "book after clearing blocking")
+        settle(cdp, 350)
+        cleared = cdp.eval(bar)
+        if cleared["blockingVisible"]:
+            raise CheckFailed(f"Empty blocking list should hide the result bar entry: {cleared}")
+        check_no_errors(cdp)
+        return {"mobile": mobile, "kept": kept}
 
     def author_search():
         clear_errors(cdp)
@@ -3420,8 +3490,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("Mobile search button missing")
         # 重设的目的就是这一行不再随发版长高：手机上永远是一行两枚件。
         past_count = len([item for item in update_filters if not item["latest"]])
-        expected_updates = [f"NEW {latest_update['label']} · {latest_update['count']}"]
-        expected_trigger = f"往期更新 · {past_count} 期" if past_count else ""
+        expected_updates = [f"NEW {latest_update['label'].removesuffix('更新')} · {latest_update['count']}"]
+        expected_trigger = f"往期 · {past_count} 期" if past_count else ""
         if data["updates"] != expected_updates or data["updateTrigger"] != expected_trigger or data["overflow"] > 1:
             raise CheckFailed(f"Mobile update controls are missing or overflowed: {data}")
         if data["updateRows"] > 1:
@@ -4132,6 +4202,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("NEW update filter", new_update_filter),
         ("search highlights text", search_highlight),
         ("site search incomplete notice", site_search_incomplete_notice),
+        ("browse result bar", browse_result_bar),
         ("author search syntax", author_search),
         ("desktop search clear all", desktop_search_clear_all),
         ("copy card shows feedback", copy_card_feedback),

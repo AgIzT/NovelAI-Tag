@@ -862,7 +862,6 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
 .sb-tip-text.fade{opacity:0}
 .sb-head{padding:6px 10px 12px}
 .codex-title{display:block;font-weight:700;font-size:15px}
-.codex-meta{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 .main{flex:1;min-width:0;padding:16px 0 80px}
 .loading{
   color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;
@@ -1332,10 +1331,8 @@ html.motion-off .bwall-drift{display:none}
 .rail-chip.active .rc-n{background:transparent;color:inherit}
 
 /* ---------- 结果栏 / 面包屑 ---------- */
-/* min-height 取 30px = 宽屏实测成品高度（原 26 会在文案填进来时长高 4px 顶动下方）。
-   ⚠ 窄屏另有一档：375px 下本栏会折到 3 行、实测 66px，仍会顶动 #masonry。
-   那档没在这里占死——不同法典的「NEW」按钮有无会让成品高度在 44~66px 之间浮动，
-   占 66 会给没有 NEW 的法典留一条常驻空白。要根治得先定窄屏版式（是否允许折行），属视觉决策。 */
+/* min-height 取 30px = 宽屏实测成品高度（原 26 会在文案填进来时长高 4px 顶动下方）；手机一档见 max-width:600px，
+   手机根目录固定一行，进目录、开更新筛选或有屏蔽时才折到第二行。 */
 .result-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--muted);font-size:13px;margin-bottom:12px;min-height:30px}
 .result-bar b{color:var(--accent)}
 #resultInfo{display:contents}
@@ -1343,7 +1340,7 @@ html.motion-off .bwall-drift{display:none}
 .result-bar-head:has(#searchClearAllBtn:not([hidden])){flex:1 0 100%;display:flex;align-items:flex-start;gap:12px}
 .result-bar-head:has(#searchClearAllBtn:not([hidden])) #resultInfo{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .result-bar-head .search-clear-all{margin-left:auto;white-space:nowrap}
-.search-filter-summary{flex:1 0 100%;display:flex;align-items:flex-start;gap:8px}
+.search-filter-summary{flex:0 1 auto;min-width:0;display:flex;align-items:flex-start;gap:8px}
 .search-filter-chips{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:7px}
 .search-filter-chip{
   min-height:28px;max-width:100%;border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:999px;
@@ -1405,7 +1402,14 @@ html.motion-off .bwall-drift{display:none}
 }
 /* 往期批次收在下拉里，所以这一行现在恒定是「NEW 胶囊 + 往期下拉」两件，不再随发版增高。
    position/z-index 不能去掉：下拉浮层要盖住瀑布流卡片（卡内角标本身就带 z-index 6~7）。 */
-.update-filter-controls{position:relative;z-index:20;display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
+.update-filter-controls{position:relative;z-index:20;display:inline-flex;align-items:center}
+/* 最新一期和往期是同一个入口，连成一枚胶囊 */
+.update-filter-btn.is-latest:not(:only-child){border-radius:999px 0 0 999px}
+.update-filter-controls>.update-filter-select{margin-left:-1px}
+.update-filter-controls>.update-filter-select .ui-select-button{border-radius:0 999px 999px 0}
+.update-filter-controls>.update-filter-select .ui-select-label{flex:none}
+.update-filter-controls>.update-filter-select:only-child{margin-left:0}
+.update-filter-controls>.update-filter-select:only-child .ui-select-button{border-radius:999px}
 /* 形制来自 ui-kit 的 is-pill；这里只留结果栏定位。 */
 .update-filter-select{flex:none;width:auto}
 /* 这一栏排在结果栏末尾，下拉默认的 left:0 在手机上会顶出右边界；改成贴着触发按钮右缘向左展开。
@@ -1441,7 +1445,6 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 /* 结果栏整体当页头卡片，形制同法典横幅；子项拍平成一行，排成「结果数 · 范围 · 条件 … 动作」，窄了自然折行。
    DOM 顺序由 codex-ui.js 的 syncSiteSearchHead 摆好，键盘顺序与视觉一致。 */
 .site-search-head #codexBanner{display:none!important}
-.site-search-head #codexMeta,
 .site-search-head #tree .tw-count{display:none}
 .site-search-head .result-bar{
   background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
@@ -1455,15 +1458,15 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 .site-search-head .crumb{border:0;background:transparent;padding:2px 3px;font-size:13px}
 .site-search-head .crumb.current{color:var(--text);background:transparent;font-weight:600}
 .site-search-head button.crumb:hover{background:transparent;color:var(--accent)}
-.site-search-head .search-filter-summary{flex:0 1 auto;min-width:0}
 .site-search-head #blockingResultBtn{margin-left:auto}
-.site-search-head .result-bar-head .search-clear-all{margin-left:0}
+.site-search-head .result-bar-head .search-clear-all{margin-left:auto}
+.site-search-head #blockingResultBtn:not([hidden]) ~ .search-clear-all{margin-left:0}
 @media (max-width:600px){
   .site-search-head .result-bar{padding:8px 12px;border-radius:14px;gap:6px 8px}
   .search-head-count b{font-size:20px}
   /* 第一行固定「结果数 … 清除全部」，只有清除按钮的视觉位置比键盘顺序靠前；收窄到来源时路径独占第二行 */
   .search-head-count,.site-search-head .crumbs,.site-search-head .result-bar-head .search-clear-all{order:-1}
-  .site-search-head .result-bar-head .search-clear-all{margin-left:auto}
+  .site-search-head #blockingResultBtn:not([hidden]) ~ .search-clear-all{margin-left:auto}
   .site-search-head .crumbs:has(button.crumb){order:0;flex:1 0 100%}
   .site-search-head .crumbs:has(button.crumb)::before{content:none}
   .site-search-head #blockingResultBtn{margin-left:0}
@@ -3205,7 +3208,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .banner-pop{width:min(280px,calc(100vw - 16px))}
   .chip-rail{
     position:sticky;top:calc(var(--topbar-h) + 2px);z-index:18;
-    margin:0 -8px 8px;padding:6px 10px 7px;
+    margin:0 -8px 4px;padding:6px 10px 7px;
     background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border-bottom:1px solid var(--line);
   }
@@ -3217,6 +3220,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     box-shadow:82px 0 0 var(--tagbg-hover),164px 0 0 var(--tagbg),246px 0 0 var(--tagbg-hover);
   }
   .rail-chip{padding:7px 12px;font-size:12px}
+  .result-bar{min-height:var(--ui-bar-touch-height);margin-bottom:10px}
   .settings-panel{padding:18px 16px 10px;border-radius:18px}
   .density-row,.seg-row{align-items:stretch;flex-direction:column}
   .density-control,.seg-control{width:100%;min-width:0}
@@ -3235,6 +3239,11 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .resume-prompt-thumb{width:42px;height:42px}
   .resume-prompt-close{top:50%;right:6px;width:32px;height:32px;translate:0 -50%}
   .brand{display:none}
+}
+/* 手机上结果栏只留一行：当前分类和条数看分类轨选中的那枚，受限提示和更新入口收短 */
+@media (max-width:480px){
+  .result-wide-only{display:none}
+  .result-bar:has(#updateFilterControls:not([hidden])) .result-root-count{display:none}
 }
 @media (max-width:420px){
   .topbar{gap:4px}

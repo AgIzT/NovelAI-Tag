@@ -36,10 +36,10 @@ export async function hideCard(entry) {
   });
 }
 
-export function openBlockingManager(trigger = document.activeElement) {
+export function openBlockingManager(trigger = document.activeElement, open = openMask) {
   settleManagerMotion();
   renderBlockingManager({ motion: false });
-  openMask($('#contentBlocking'), trigger);
+  open($('#contentBlocking'), trigger);
 }
 
 export function updateBlockingSummary(hiddenCount = resultHiddenCount) {
@@ -48,7 +48,8 @@ export function updateBlockingSummary(hiddenCount = resultHiddenCount) {
   const count = prefs.words.length + prefs.entries.length;
   const button = $('#blockingResultBtn');
   if (button) {
-    button.hidden = Boolean(state.favoritesView && !hiddenCount);
+    // 常驻入口在「更多」；结果栏只在有屏蔽时显示，收藏页还要当前结果真被屏蔽才显示
+    button.hidden = !hiddenCount && (!count || Boolean(state.favoritesView));
     button.textContent = count && !prefs.enabled ? '屏蔽已暂停' : (hiddenCount ? `已屏蔽 ${hiddenCount} 项` : '屏蔽管理');
     button.classList.toggle('is-on', Boolean(count && prefs.enabled));
   }
@@ -295,7 +296,7 @@ export function setupContentBlocking() {
     if (panel === mask) settleManagerMotion();
     closeMask(panel);
   };
-  /* 设置面板里那行入口已撤（主页结果栏的按钮够显眼），这里留空守卫免得少一个节点就整条接线断掉 */
+  /* 设置面板里那行入口已撤（常驻入口在「更多」菜单，ui.js 接线），这里留空守卫免得少一个节点就整条接线断掉 */
   const blockingSettingsBtn = $('#blockingSettingsBtn');
   if (blockingSettingsBtn) blockingSettingsBtn.onclick = event => openBlockingManager(event.currentTarget);
   $('#blockingResultBtn').onclick = event => openBlockingManager(event.currentTarget);

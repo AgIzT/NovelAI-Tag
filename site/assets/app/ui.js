@@ -6,6 +6,7 @@ import { readPreference, writePreference, writePreferences } from './preferences
 import { animateUi } from './ui-motion.js';
 import { firstUnlockedCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
+import { openBlockingManager } from './content-blocking-ui.js';
 import { beginAtlasLayeredSearch, syncUrlState } from './router.js';
 import { parseSearchFilter, parseSearchQuery, removeSearchQueryTerm, serializeSearchFilter, splitSearchPhrases } from './search.js';
 import { closeSearchFilterPanel, renderSearchStatus, setSearchUiActions, setupSearchUi } from './search-ui.js';
@@ -1044,6 +1045,7 @@ export function bindUI() {
     bindResumePromptToggle($('#resumePromptToggle'));
     openFromMore(historyMask);
   };
+  $('#blockingMenuBtn').onclick = () => openBlockingManager(moreBtn, openFromMore);
   $('#historyClose').onclick = () => closeMask(historyMask);
   bindBackdropDismiss(historyMask, () => closeMask(historyMask));
   historyMask.onkeydown = ev => trapFocus(ev, historyMask);

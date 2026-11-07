@@ -283,6 +283,10 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
             <span><b>浏览记录</b><small>继续上次浏览 · 最近浏览</small></span>
           </button>
+          <button id="blockingMenuBtn" class="more-item" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></svg>
+            <span><b>屏蔽管理</b><small>屏蔽词与单独隐藏的卡片</small></span>
+          </button>
         </div>
         <div class="more-group more-group-compact" role="group" aria-label="偏好">
           <button id="settingsMenuBtn" class="more-item topbar-compact-action" type="button" role="menuitem">
@@ -327,7 +331,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <aside id="sidebar" class="sidebar">
     <div class="sb-head">
       <span id="codexTitle" class="codex-title"></span>
-      <span id="codexMeta" class="codex-meta"></span>
     </div>
     <nav id="tree" class="tree"></nav>
     <div id="sbFoot" class="sb-foot" hidden>
@@ -358,7 +361,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span id="resultInfo"></span>
         <button id="searchClearAllBtn" class="bar-btn search-clear-all" type="button" hidden>清除全部</button>
       </div>
-      <button id="blockingResultBtn" class="bar-btn blocking-result-btn" type="button">屏蔽管理</button>
+      <button id="blockingResultBtn" class="bar-btn blocking-result-btn" type="button" hidden>屏蔽管理</button>
       <div id="searchFilterSummary" class="search-filter-summary" hidden>
         <div id="searchFilterChips" class="search-filter-chips" role="list" aria-label="当前搜索筛选"></div>
       </div>

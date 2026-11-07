@@ -138,7 +138,6 @@ function renderCodexView(codex, seq, {
   selectedCodexId,
   buttonCodex,
   buttonFallback,
-  metaText,
   resolveUrlState,
   applyViewUrlState,
   resolveQuery,
@@ -158,7 +157,6 @@ function renderCodexView(codex, seq, {
   const codexSelect = $('#codexSelect');
   if (codexSelect && selectId) codexSelect.value = selectId;
   $('#codexTitle').textContent = c.title;
-  $('#codexMeta').textContent = metaText(c);
   const codexBtnText = $('#codexBtnText');
   if (codexBtnText) codexBtnText.textContent = codexPickerTitle(buttonCodex(c)) || buttonFallback(c);
   updateCodexPickerState();
@@ -377,8 +375,6 @@ async function syncAtlasFavoritesFromStorage(detail = {}) {
   applyFilter({ transition: 'none' });
 }
 
-const codexMetaText = c => `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`;
-
 /* 普通法典视图的渲染参数：原路与换书接力共用 */
 const codexViewArgs = (options, parentScrollY) => ({
   options,
@@ -393,7 +389,6 @@ const codexViewArgs = (options, parentScrollY) => ({
   selectedCodexId: c => c.id,
   buttonCodex: c => findCodexMeta(c.id),
   buttonFallback: c => c.title,
-  metaText: codexMetaText,
   resolveUrlState: c => options.urlState
     && (!options.urlState.codex || options.urlState.codex === c.id || (c.aliases || []).includes(options.urlState.codex))
     ? options.urlState
@@ -408,7 +403,6 @@ const codexViewArgs = (options, parentScrollY) => ({
 /* 侧栏标题与顶栏按钮：接力时用 meta 先换，加载失败时换回仍在显示的那本 */
 function showCodexIdentity(c) {
   $('#codexTitle').textContent = c.title;
-  $('#codexMeta').textContent = codexMetaText(c);
   const codexBtnText = $('#codexBtnText');
   if (codexBtnText) codexBtnText.textContent = codexPickerTitle(findCodexMeta(c.id)) || c.title;
 }
@@ -525,12 +519,10 @@ function refreshAccessView({ revoked = false } = {}) {
    不然再点同一本会被当成「没换书」只关菜单。 */
 function snapshotCodexIdentity() {
   const title = $('#codexTitle')?.textContent ?? '';
-  const meta = $('#codexMeta')?.textContent ?? '';
   const button = $('#codexBtnText')?.textContent ?? '';
   return () => {
     if (state.codex && !state.favoritesView) renderCodexHeader();
     $('#codexTitle').textContent = title;
-    $('#codexMeta').textContent = meta;
     const codexBtnText = $('#codexBtnText');
     if (codexBtnText) codexBtnText.textContent = button;
     const codexSelect = $('#codexSelect');
@@ -586,7 +578,6 @@ export async function openFavoritesView(options = {}) {
       // 选择器是「当前在看什么」：收藏视图显示我的收藏；展开列表仍高亮返回时回到的那本书。
       buttonCodex: () => null,
       buttonFallback: () => '我的收藏',
-      metaText: c => `${c.version} · ${c.entryCount} 条`,
       resolveUrlState: () => options.urlState
         && (options.urlState.favorites || options.urlState.codex === FAVORITES_CODEX_ID)
         ? options.urlState
@@ -651,7 +642,6 @@ export async function openSiteSearchView(options = {}) {
       selectedCodexId: () => state.browseCodex?.id || '',
       buttonCodex: () => findCodexMeta(state.browseCodex?.id) || state.browseCodex,
       buttonFallback: () => '选择法典',
-      metaText: c => `${c.version} · ${c.entryCount} 条`,
       resolveUrlState: () => options.urlState && options.urlState.scope === 'site'
         ? options.urlState
         : null,
@@ -691,7 +681,6 @@ export function exitSiteSearchView(options = {}) {
   const codexSelect = $('#codexSelect');
   if (codexSelect) codexSelect.value = c.id;
   $('#codexTitle').textContent = c.title;
-  $('#codexMeta').textContent = `${c.author ? c.author + ' · ' : ''}${c.version} · ${c.entryCount} 条`;
   const codexBtnText = $('#codexBtnText');
   if (codexBtnText) codexBtnText.textContent = codexPickerTitle(findCodexMeta(c.id)) || c.title;
   updateCodexPickerState();
@@ -969,8 +958,6 @@ async function refreshFavoritesView(options = {}) {
   favoritesBuiltKeys = builtKeys;
   state.codex = c;
   state.activePath = [];
-  const meta = $('#codexMeta');
-  if (meta) meta.textContent = `${c.version} · ${c.entryCount} 条`;
   syncFavoritesView();
   applyFilter(options);
 }

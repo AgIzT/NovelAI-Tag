@@ -342,7 +342,7 @@ export function renderHistoryPanel() {
     empty.className = 'recent-empty';
     empty.textContent = state.recentEntries.length
       ? (pending ? '正在检查最近记录…' : failed ? '部分记录加载失败，重新打开此面板可重试。'
-        : accessibleEntries.length ? '最近记录已被屏蔽，可在设置中管理屏蔽清单。'
+        : accessibleEntries.length ? '最近记录已被屏蔽，在「更多」的「屏蔽管理」里管理屏蔽清单。'
           : '最近记录中只有当前已隐藏的限制级内容。开启对应内容权限后可查看。')
       : '最近还没有打开过词条。点卡片放大图或复制词条后，这里会自动记录。';
     list.appendChild(empty);

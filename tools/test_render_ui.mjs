@@ -541,9 +541,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.equal(resultButton.hidden, false);
   assert.equal(resultButton.textContent, '已屏蔽 2 项');
   state.favoritesView = false;
+  // 没有任何屏蔽时结果栏不留入口，常驻入口在「更多」
   updateBlockingSummary(0);
-  assert.equal(resultButton.hidden, false);
-  assert.equal(resultButton.textContent, '屏蔽管理');
+  assert.equal(resultButton.hidden, true);
   Object.assign(state, previous);
   dom.delete('#blockingResultBtn'); dom.delete('#blockingSettingsSummary'); dom.delete('#empty');
 }
@@ -1516,7 +1516,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(localEditionBuilderSource, /body\.local-edition #communityBrowseLink,/);
   assert.match(localEditionBuilderSource, /body\.local-edition #onboardingBtn,/);
   assert.match(codexUiSource, /const hiddenCount = \(!state\.siteSearchView && !state\.favoritesView\) \? accessHiddenCount\(\) : 0;/);
-  assert.match(codexUiSource, /另有 \$\{hiddenCount\} 条受限内容/);
+  assert.match(codexUiSource, /\$\{hiddenCount\} 条受限/);
   assert.match(codexUiSource, /\$\{lockedBooks\} 本受限法典未纳入搜索/);
   assert.match(codexUiSource, /查看未解锁范围[\s\S]*access-hint/);
   assert.match(reportSource, /image && entryImageCanUseOriginal\(entry, image\)/);
