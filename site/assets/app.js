@@ -835,7 +835,7 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
       kind: 'empty',
       message: missingBooks
         ? `已加载的法典里没有结果，还有 ${missingBooks} 本没有加载完。`
-        : (zhNotice ? '已加载的数据中没有匹配结果。' : `0 条图片结果，找到 ${count} 个相关目录。`),
+        : (zhNotice ? '已加载的数据中没有匹配结果。' : `0 条图片结果${count ? `，找到 ${count} 个相关目录` : ''}。`),
       detail: [zhNotice, count ? '可打开下方相关目录，或调整搜索条件。'
         : (missingBooks || zhNotice ? '' : '调整关键词或减少筛选条件。')].filter(Boolean).join(' '),
       actions,

@@ -40,7 +40,7 @@ SNAPSHOT = """(()=>({
   body:document.body.className.split(' ').filter(c=>/^(density-|theme-|font-|dark$|sd-mode$)/.test(c)).sort(),
   colorScheme:document.documentElement.style.colorScheme,
   controls:[...document.querySelectorAll('[data-density],[data-dark-mode],[data-theme],[data-font],#sdModeToggle,#cardZoomToggle')].map(n=>({key:n.dataset.density??n.dataset.darkMode??n.dataset.theme??n.dataset.font??n.id,pressed:n.getAttribute('aria-pressed'),checked:n.checked})),
-  quick:document.querySelector('#densityQuickBtn')?.getAttribute('aria-label'),theme:document.querySelector('#themeBtn')?.getAttribute('aria-label')
+  theme:document.querySelector('#themeBtn')?.getAttribute('aria-label')
 }))()"""
 
 
@@ -262,28 +262,28 @@ window.ready=true;
                 raise RuntimeError("actual preview failed to start")
             first.command("Page.addScriptToEvaluateOnNewDocument", {"source": "try{localStorage.setItem('fadian-motion','off');localStorage.setItem('fadian-density','standard');localStorage.setItem('fadian-theme','')}catch(e){};window.errors=[];addEventListener('error',e=>errors.push(e.message));addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));"})
             first.command("Page.navigate", {"url": preview_url})
-            wait_for(first, "Boolean(document.querySelector('#densityQuickBtn')?.onclick&&document.querySelector('#themeBtn')?.onclick)", "actual app initializes UI handlers", timeout=30)
+            wait_for(first, "Boolean(document.querySelector('[data-density]')?.onclick&&document.querySelector('#themeBtn')?.onclick)", "actual app initializes UI handlers", timeout=30)
             first.eval("(async()=>{window.stateModule=await import('/assets/app/state.js');window.originalWrite=Storage.prototype.setItem;window.originalRead=Storage.prototype.getItem;window.settingKeys=" + json.dumps(KEYS) + ";return true})()")
             before = first.eval(SNAPSHOT)
             first.eval("errors=[];document.querySelector('#toast').textContent='';Storage.prototype.setItem=function(k,v){if(k==='fadian-density')throw new DOMException('preview quota','QuotaExceededError');return originalWrite.call(this,k,v)};true")
-            click(first, "#densityQuickBtn")
+            click(first, "[data-density=compact]")
             time.sleep(.12)
             after = first.eval(SNAPSHOT)
             feedback = first.eval("({errors:[...errors],toast:document.querySelector('#toast').textContent})")
             record("1.9-actual-app-density-failure", {"before": before, "after": after, **feedback}, before == after and not feedback["errors"] and "未保存" in feedback["toast"])
             first.eval("Storage.prototype.setItem=originalWrite;true")
-            click(first, "#densityQuickBtn")
+            click(first, "[data-density=compact]")
             time.sleep(.2)
             saved = first.eval(SNAPSHOT)
             record("1.9-actual-app-density-retry", saved, saved["disk"]["fadian-density"] != "standard" and saved["state"]["density"] == saved["disk"]["fadian-density"] and not first.eval("errors"))
             first.command("Page.addScriptToEvaluateOnNewDocument", {"source": "window.originalStorageProperty=Object.getOwnPropertyDescriptor(window,'localStorage');Object.defineProperty(window,'localStorage',{configurable:true,get(){throw new DOMException('bootstrap unavailable','SecurityError')}});"})
             first.eval("window.previousPreview=true;true")
             first.command("Page.navigate", {"url": preview_url + "?unavailable=1"})
-            wait_for(first, "!window.previousPreview&&Boolean(document.querySelector('#densityQuickBtn')?.onclick&&document.querySelector('#themeBtn')?.onclick)", "actual app binds despite localStorage property denial", timeout=30)
+            wait_for(first, "!window.previousPreview&&Boolean(document.querySelector('[data-density]')?.onclick&&document.querySelector('#themeBtn')?.onclick)", "actual app binds despite localStorage property denial", timeout=30)
             boot = first.eval("({errors:[...errors],densityControls:[...document.querySelectorAll('[data-density]')].map(n=>({density:n.dataset.density,pressed:n.getAttribute('aria-pressed')})),body:document.body.className})")
             record("1.9-actual-app-storage-property-denied-startup", boot, not boot["errors"] and len(boot["densityControls"]) == 3)
             first.eval("(async()=>{Object.defineProperty(window,'localStorage',originalStorageProperty);window.stateModule=await import('/assets/app/state.js');window.originalRead=Storage.prototype.getItem;window.originalWrite=Storage.prototype.setItem;window.settingKeys=" + json.dumps(KEYS) + ";errors=[];return true})()")
-            click(first, "#densityQuickBtn")
+            click(first, "[data-density=comfort]")
             time.sleep(.15)
             recovered = first.eval(SNAPSHOT)
             record("1.9-actual-app-property-denial-recover-retry", recovered, recovered["state"]["density"] == recovered["disk"]["fadian-density"] and not first.eval("errors"))
@@ -291,7 +291,7 @@ window.ready=true;
     except Exception as error:
         evidence["fatal"] = repr(error)
         try:
-            evidence["lastPage"] = first.eval("({url:location.href,errors:window.errors||[],themeBound:Boolean(document.querySelector('#themeBtn')?.onclick),densityBound:Boolean(document.querySelector('#densityQuickBtn')?.onclick),loading:document.querySelector('#loading')?.textContent,toast:document.querySelector('#toast')?.textContent})")
+            evidence["lastPage"] = first.eval("({url:location.href,errors:window.errors||[],themeBound:Boolean(document.querySelector('#themeBtn')?.onclick),densityBound:Boolean(document.querySelector('[data-density]')?.onclick),loading:document.querySelector('#loading')?.textContent,toast:document.querySelector('#toast')?.textContent})")
             evidence["runtimeEvents"] = [event for event in first.events if event.get('method') in ('Runtime.exceptionThrown', 'Runtime.consoleAPICalled')][-12:]
         except Exception:
             pass

@@ -10,7 +10,6 @@
 /* 中转站完整继承 .float-btn 的中性圆钮样式，只负责排在快捷操作最上方。
    保留原按钮的颜色、边框、hover 和 20px 线性图标，避免同组里凭空出现一颗常驻主题色按钮。 */
 .tag-relay-float-btn{transform:translateY(-52px)}
-.float-actions.has-backtop .tag-relay-float-btn{transform:translateY(-104px)}
 .tag-relay-count{
   position:absolute;right:-5px;top:-6px;min-width:19px;height:19px;padding:0 5px;display:grid;place-items:center;
   border:2px solid var(--panel);border-radius:999px;background:var(--new);color:#fff;
@@ -287,9 +286,7 @@ body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 }
 
 @media (max-width:600px){
-  /* 手机原本已有随机 / 密度 / 回顶三层；中转按钮只追加到最上方，不改它们原有顺序。 */
-  .float-actions .tag-relay-float-btn{transform:translateY(-92px)}
-  .float-actions.has-backtop .tag-relay-float-btn{transform:translateY(-138px)}
+  .float-actions .tag-relay-float-btn{transform:translateY(-46px)}
 
 }
 

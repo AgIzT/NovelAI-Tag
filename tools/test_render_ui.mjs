@@ -139,7 +139,7 @@ const {
   visibleEntryCount,
   visibleTree,
 } = await import('../site/assets/app/codex-ui.js');
-const { createSearchHistoryIntentTracker, nextDensity } = await import('../site/assets/app/ui.js');
+const { createSearchHistoryIntentTracker } = await import('../site/assets/app/ui.js');
 const { buildFeedbackContext, feedbackTimeoutSignal, setupReport } = await import('../site/assets/app/report.js');
 const { safeHttpUrl } = await import('../site/assets/app/utils.js');
 const {
@@ -1019,9 +1019,6 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 
 // 快速密度循环不改变默认值；分类 rail 只为被裁切的 active 胶囊计算横向位移。
 {
-  assert.equal(nextDensity('standard'), 'compact');
-  assert.equal(nextDensity('compact'), 'comfort');
-  assert.equal(nextDensity('comfort'), 'standard');
   assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: 12, right: 88 }), 0);
   assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: -14, right: 42 }), -14);
   assert.equal(railRevealDelta({ left: 0, right: 100 }, { left: 72, right: 118 }), 18);
@@ -1568,8 +1565,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(stylesSource, /\.sidebar:not\(\.closed\)\+\.sidebar-backdrop\{[\s\S]*z-index:24[\s\S]*touch-action:none/);
   assert.match(stylesSource, /\.tree\{overscroll-behavior:contain\}/);
   assert.match(uiSource, /sidebarBackdrop\?\.addEventListener\('click', \(\) => \{\s*if \(!writePreference\('fadian-sidebar', 'closed'\)\) return;\s*if \(closeHistoryLayer\('mobile-sidebar'\)\) return;/);
-  assert.match(indexSource, /id="densityQuickBtn"/);
-  assert.match(uiSource, /densityQuickBtn\.onclick = \(\) => applyDensity\(nextDensity\(state\.density\), \{ render: true, announce: true \}\)/);
+  assert.doesNotMatch(indexSource, /densityQuickBtn/);
   const railActiveSource = codexUiSource.match(/export function updateRailActive\(\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(railActiveSource, /rail\.scrollTo\(\{[\s\S]*left,[\s\S]*top: rail\.scrollTop/);
   assert.doesNotMatch(railActiveSource, /window\.scroll|scrollIntoView/);
@@ -1792,8 +1788,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   // 浮动入口保持全局圆钮材质；收入反馈仍落向“最近复制”。
   assert.ok(indexSource.indexOf('id="tagRelayBtn"') < indexSource.indexOf('id="randomBtn"'));
   assert.match(relayCss, /\.tag-relay-float-btn\{transform:translateY\(-52px\)\}/);
-  assert.match(relayCss, /\.float-actions\.has-backtop \.tag-relay-float-btn\{transform:translateY\(-104px\)\}/);
-  assert.match(relayCss, /@media \(max-width:600px\)\{[\s\S]*\.float-actions \.tag-relay-float-btn\{transform:translateY\(-92px\)\}[\s\S]*\.float-actions\.has-backtop \.tag-relay-float-btn\{transform:translateY\(-138px\)\}/);
+  assert.doesNotMatch(relayCss, /has-backtop/);
+  assert.match(relayCss, /@media \(max-width:600px\)\{[\s\S]*\.float-actions \.tag-relay-float-btn\{transform:translateY\(-46px\)\}/);
   assert.doesNotMatch(relayCss, /\.tag-relay-float-btn\{[^}]*\b(?:color|background|border-color):/);
   assert.match(railSource, /return rail\.querySelector\('#relaySourceTabInbox'\)[\s\S]*#tagRelayPaneWarehouse/);
   assert.match(copyFxSource, /const TOSS_MS = 500;[\s\S]*opacity: \.94/);

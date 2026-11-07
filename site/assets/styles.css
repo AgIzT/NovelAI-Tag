@@ -1419,6 +1419,8 @@ html.motion-off .bwall-drift{display:none}
   border-color:var(--accent);background:var(--accent);color:var(--on-accent);
   box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 18%,transparent);
 }
+/* 已屏蔽是状态，用浅底，不抢结果栏里的主要内容 */
+.blocking-result-btn.is-on{border-color:color-mix(in srgb,var(--accent) 34%,var(--line));background:var(--accent-soft);color:var(--accent)}
 .update-filter-btn strong{color:var(--accent);font-weight:900}
 .update-filter-btn[aria-pressed="true"] strong{color:var(--on-accent)}
 .update-filter-btn.is-latest{border-color:color-mix(in srgb,var(--new) 34%,var(--line));background:color-mix(in srgb,var(--new) 8%,var(--card));box-shadow:0 5px 14px color-mix(in srgb,var(--new) 9%,transparent)}
@@ -1785,6 +1787,19 @@ body.density-compact .card-actions{gap:2px}
 body.density-compact .mini-copy{padding:1px 4px;font-size:9.6px;line-height:1.3}
 body.density-compact .report-card-btn{width:20px;height:20px;font-size:11px}
 body.density-compact .copy-hint{display:none}
+/* 桌面卡片底部平时只有路径。操作在鼠标移上或键盘聚焦时才盖到路径右侧，不占位，卡片高度也不变；
+   min-height 留的是原来反馈按钮撑出的高度。触屏宽屏没有悬停，仍按常驻排。 */
+@media (hover:hover) and (min-width:601px){
+  .card-foot{position:relative}
+  .card-foot,body.density-comfort .card-foot,body.density-standard .card-foot{min-height:22px}
+  body.density-compact .card-foot{min-height:20px}
+  .card-actions{
+    position:absolute;right:0;top:50%;translate:0 -50%;padding-left:18px;
+    background:linear-gradient(to right,transparent,var(--card) 14px);
+    opacity:0;pointer-events:none;transition:opacity .12s;
+  }
+  .card:is(:hover,:focus-within) .card-actions{opacity:1;pointer-events:auto}
+}
 
 /* ---------- 待配图小卡 ---------- */
 .card.no-img .card-img-wrap{display:none}
@@ -1829,12 +1844,11 @@ body.density-compact .copy-hint{display:none}
 body:has(#codexMenu:not([hidden])) .float-btn{opacity:0;visibility:hidden;pointer-events:none}
 .float-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .random-btn{opacity:1;visibility:visible;transform:none}
-.float-actions.has-backtop .random-btn{transform:translateY(-52px)}
-.density-quick-btn{display:none}
+/* 随机和中转站的位置固定（中转站是收录动画的落点），回顶只在最上面出现，不把别的按钮顶走 */
 .back-top{
-  opacity:0;visibility:hidden;pointer-events:none;transform:translateY(12px);
+  opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-92px);
 }
-.back-top.show{opacity:1;visibility:visible;pointer-events:auto;transform:none}
+.back-top.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(-104px)}
 
 /* ---------- 设置悬浮框 ---------- */
 .settings-mask{
@@ -2638,7 +2652,7 @@ a.lightbox-credit:hover{text-decoration:underline}
   transition:var(--ui-control-transition),filter .12s;
 }
 .lightbox-actions button:hover,.section-head button:hover{filter:brightness(1.06);transform:translateY(-1px)}
-#copyPositive{background:var(--accent);color:var(--on-accent)}
+#copyPositive{border:1px solid transparent;background:var(--accent);color:var(--on-accent)}
 /* 负面复制是描边按钮：--new 同时表示 NEW 和出错，实心粉红读起来像危险操作 */
 :is(#copyNegative,#copyNegativeDock,.character-prompt-negative .section-head button:not(.prompt-selection-toggle)){
   border:1px solid color-mix(in srgb,var(--new) 45%,var(--line));
@@ -2732,7 +2746,7 @@ a.lightbox-credit:hover{text-decoration:underline}
 }
 .character-prompt .section-head{margin-bottom:6px}
 .character-prompt .section-label{color:var(--accent);font-family:var(--font-prompt)}
-.character-prompt > .section-head button:not(.prompt-selection-toggle){background:var(--accent);color:var(--on-accent)}
+.character-prompt > .section-head button:not(.prompt-selection-toggle){border:1px solid transparent;background:var(--accent);color:var(--on-accent)}
 .character-prompt pre{background:var(--glass)}
 .character-prompt-negative{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
 .character-prompt-negative .section-label{color:var(--neg-ink)}
@@ -3231,9 +3245,8 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .archive-grid{grid-template-columns:1fr}
   .float-actions{right:14px;bottom:18px;width:38px;height:38px}
   .float-btn{width:38px;height:38px}
-  .density-quick-btn{display:grid;opacity:1;visibility:visible;transform:translateY(-46px)}
-  .float-actions.has-backtop .random-btn{transform:translateY(-46px)}
-  .float-actions.has-backtop .density-quick-btn{transform:translateY(-92px)}
+  .back-top{transform:translateY(-80px)}
+  .back-top.show{transform:translateY(-92px)}
   .resume-prompt.is-floating{left:14px;right:62px;bottom:18px;width:auto}   /* 62 = 按钮列 14 + 38 + 间距 10 */
   .resume-prompt-main{grid-template-columns:42px minmax(0,1fr);padding:8px 42px 8px 8px}
   .resume-prompt-thumb{width:42px;height:42px}

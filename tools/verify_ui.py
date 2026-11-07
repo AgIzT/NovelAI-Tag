@@ -1812,6 +1812,121 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return {"mobile": mobile, "kept": kept}
 
+    def stage2_controls():
+        clear_errors(cdp)
+        storage_key = "fadian-content-blocking-v1"
+        ready = "document.querySelectorAll('#masonry .card').length > 0 && Boolean(document.querySelector('#codexBanner .banner-title'))"
+        float_state = """(() => {
+  const box = id => { const el = document.getElementById(id); const s = getComputedStyle(el); if (s.visibility === 'hidden') return null; return Math.round(el.getBoundingClientRect().top); };
+  return { relay: box('tagRelayBtn'), random: box('randomBtn'), backTop: box('backTop'), density: Boolean(document.getElementById('densityQuickBtn')) };
+})()"""
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, ready, "mobile book")
+        settle(cdp, 350)
+        top = cdp.eval(float_state)
+        cdp.eval("scrollTo(0, 1500); true")
+        wait_for(cdp, "document.getElementById('backTop').classList.contains('show')", "back to top appears")
+        settle(cdp, 350)
+        scrolled = cdp.eval(float_state)
+        # 去掉密度切换；回顶出现时中转站和随机不动，回顶在最上面
+        if top["density"] or top["backTop"] is not None or scrolled["backTop"] is None:
+            raise CheckFailed(f"Mobile float buttons are wrong: {top} {scrolled}")
+        if top["relay"] != scrolled["relay"] or top["random"] != scrolled["random"] or scrolled["backTop"] >= scrolled["relay"]:
+            raise CheckFailed(f"Mobile float buttons moved on scroll: {top} {scrolled}")
+
+        # 桌面卡片底部：平时只有路径，操作不占位；移上去才出现，卡片不变高
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=nai5_community_pack")
+        wait_for(cdp, ready, "pack book")
+        settle(cdp, 500)
+        foot = """(() => {
+  const card = document.querySelector('#masonry .card');
+  const actions = card.querySelector('.card-actions');
+  return {
+    cardH: Math.round(card.getBoundingClientRect().height),
+    pathW: Math.round(card.querySelector('.card-path').getBoundingClientRect().width),
+    opacity: getComputedStyle(actions).opacity,
+    canClick: getComputedStyle(actions).pointerEvents !== 'none',
+    miniVisible: [...card.querySelectorAll('.mini-copy:not([hidden])')].length,
+  };
+})()"""
+        if not cdp.eval("matchMedia('(hover:hover)').matches"):
+            raise CheckFailed("Desktop check needs a hover-capable pointer")
+        rest = cdp.eval(foot)
+        if rest["opacity"] != "0" or rest["canClick"] or rest["pathW"] < 200:
+            raise CheckFailed(f"Card footer should show only the path at rest: {rest}")
+        pointer = cdp.eval("(() => { const r = document.querySelector('#masonry .card').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height - 16 }; })()")
+        cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", **pointer})
+        settle(cdp, 250)
+        hover = cdp.eval(foot)
+        cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 2, "y": 2})
+        if hover["opacity"] != "1" or not hover["canClick"] or hover["miniVisible"] < 2 or hover["cardH"] != rest["cardH"]:
+            raise CheckFailed(f"Card footer hover is wrong: rest={rest} hover={hover}")
+        cdp.eval("document.querySelector('#masonry .card .copy-negative').focus(); true")
+        settle(cdp, 200)
+        if cdp.eval(foot)["opacity"] != "1":
+            raise CheckFailed("Card footer should show on keyboard focus")
+        cdp.eval("document.activeElement.blur(); true")
+
+        # 详情：实色和描边的复制按钮同高，角色负面的按钮不折行，全称留在读屏文字里
+        entry = cdp.eval("""(async () => {
+  const { state } = await import('./assets/app/state.js');
+  const hit = state.list.find(e => (e.characterPrompts || []).some(p => String(p.negative || '').trim()) && e.negative);
+  return hit ? hit.id : null;
+})()""")
+        if not entry:
+            raise CheckFailed("No pack entry with character negative")
+        navigate(cdp, base + f"?codex=nai5_community_pack&entry={urllib.parse.quote(entry)}")
+        wait_for(cdp, "!document.querySelector('#lightbox').hidden && !!document.querySelector('.character-prompt-negative')", "detail with character negative", timeout=20)
+        settle(cdp, 500)
+        detail = cdp.eval("""(() => {
+  const h = sel => Math.round(document.querySelector(sel).getBoundingClientRect().height);
+  const head = document.querySelector('.character-prompt-negative .section-head');
+  const copy = head.querySelector('button:not(.prompt-selection-toggle)');
+  return { positive: h('#copyPositive'), negative: h('#copyNegative'), char: h('.character-prompt > .section-head button:not(.prompt-selection-toggle)'), text: copy.textContent, aria: copy.getAttribute('aria-label'), label: head.querySelector('.section-label').textContent, headH: Math.round(head.getBoundingClientRect().height) };
+})()""")
+        if len({detail["positive"], detail["negative"], detail["char"]}) != 1:
+            raise CheckFailed(f"Detail copy buttons differ in height: {detail}")
+        if detail["text"] != "复制" or detail["aria"] != f"复制 {detail['label']}" or detail["headH"] > 40:
+            raise CheckFailed(f"Character negative copy button is wrong: {detail}")
+
+        # 已屏蔽是状态：不用实色
+        try:
+            cdp.eval(f"localStorage.setItem({json.dumps(storage_key)}, JSON.stringify({{version: 1, enabled: true, words: ['hair'], entries: []}})); true")
+            navigate(cdp, base + "?codex=suozhang_nai5")
+            wait_for(cdp, ready, "book with blocking")
+            wait_for(cdp, "document.querySelector('#blockingResultBtn').textContent.includes('已屏蔽')", "blocking state")
+            settle(cdp, 300)
+            colors = cdp.eval("""(() => {
+  const probe = document.createElement('i');
+  probe.style.color = 'var(--accent)';
+  document.body.append(probe);
+  const accent = getComputedStyle(probe).color;
+  probe.remove();
+  return { accent, bg: getComputedStyle(document.querySelector('#blockingResultBtn')).backgroundColor };
+})()""")
+            if colors["bg"] == colors["accent"]:
+                raise CheckFailed(f"Blocking state should not be solid: {colors}")
+        finally:
+            cdp.eval(f"localStorage.removeItem({json.dumps(storage_key)}); true")
+
+        # 零结果只在有目录时才提目录
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, ready, "book before zero result")
+        cdp.eval("""(() => {
+  const input = document.querySelector('#search');
+  input.value = 'zzzqqqxxnothing';
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'x' }));
+  return true;
+})()""")
+        wait_for(cdp, "document.querySelector('#searchStatusLive')?.textContent.includes('0 条图片结果')", "zero result notice", timeout=30)
+        zero = cdp.eval("document.querySelector('#searchStatusLive').textContent")
+        if "个相关目录" in zero:
+            raise CheckFailed(f"Zero result should not mention empty directories: {zero}")
+        check_no_errors(cdp)
+        return {"top": top, "scrolled": scrolled, "rest": rest, "hover": hover, "detail": detail, "zero": zero}
+
     def author_search():
         clear_errors(cdp)
         navigate(cdp, base + "?codex=suozhang")
@@ -1950,7 +2065,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open') && !!document.querySelector('.character-prompt-negative')", "character negative prompt box", timeout=12)
         negative_labels = cdp.eval("[...document.querySelectorAll('.character-prompt-negative .section-label')].map(node => node.textContent)")
         expected_negative_labels = [
-            f"{item['label']} Negative"
+            f"{item['label']} 负面"
             for item in negative_character_entry["characterPrompts"]
             if item.get("negative")
         ]
@@ -4163,7 +4278,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp.eval("history.back()")
             wait_for(cdp, "history.state?.id !== " + js_string(current_id), "drain community history")
             if cdp.eval("location.pathname") != initial["path"]:
-                raise CheckFailed("Community page exited before managed records were exhausted")
+                raise CheckFailed(f"Community page exited before managed records were exhausted: drained={drained} initial={initial} now={cdp.eval('({length:history.length,path:location.pathname,state:history.state})')}")
             if cdp.eval("history.state?.id") == initial["id"]:
                 if initial_scroll > 80:
                     wait_for(
@@ -4203,6 +4318,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("search highlights text", search_highlight),
         ("site search incomplete notice", site_search_incomplete_notice),
         ("browse result bar", browse_result_bar),
+        ("stage2 controls", stage2_controls),
         ("author search syntax", author_search),
         ("desktop search clear all", desktop_search_clear_all),
         ("copy card shows feedback", copy_card_feedback),
@@ -4231,14 +4347,16 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("community internal back stack", community_history),
     ]
     if only:
-        needle = only.casefold()
-        checks = [(name, func) for name, func in checks if needle in name.casefold()]
+        needles = only.casefold().split('|')
+        checks = [(name, func) for name, func in checks if any(needle in name.casefold() for needle in needles)]
         if not checks:
             raise CheckFailed(f"No UI check matched --only={only!r}")
     for name, func in checks:
         # Hidden documents suppress media/animation callbacks. Keep the target
         # active so these foreground UI checks exercise their actual precondition.
         cdp.command("Page.bringToFront")
+        # 单个标签页的历史上限是 50 条，全量跑到上限后，断言历史深度的用例不可能成立
+        cdp.command("Page.resetNavigationHistory")
         run_check(results, name, func)
     return results
 
@@ -4288,7 +4406,7 @@ def main() -> int:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Preview base URL, default http://localhost:8766/")
     parser.add_argument("--out-dir", default="", help="Output directory. Defaults to output/ui-regression/<timestamp>")
     parser.add_argument("--keep-browser", action="store_true", help="Keep Chrome running after checks")
-    parser.add_argument("--only", default="", help="Run checks whose names contain this text")
+    parser.add_argument("--only", default="", help="Run checks whose names contain this text; separate several with |")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).resolve() if args.out_dir else ROOT / "output" / "ui-regression" / now_stamp()

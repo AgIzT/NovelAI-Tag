@@ -38,6 +38,7 @@ class Element {
   querySelector() { return null; }
   querySelectorAll() { return []; }
   replaceChildren() {}
+  before() {}
   addEventListener(type, listener) { this.handlers.set(type, listener); }
   closest() { return null; }
   focus() {}
@@ -69,6 +70,8 @@ globalThis.document = {
   addEventListener() {}, createElement: () => new Element(),
 };
 globalThis.requestAnimationFrame = () => 0;
+globalThis.IntersectionObserver = class { observe() {} disconnect() {} };
+globalThis.getComputedStyle = () => ({ getPropertyValue: () => '', marginTop: '0px', marginBottom: '0px' });
 const disk = new Map([
   ['fadian-density', 'standard'], ['fadian-dark-mode', 'light'], ['fadian-dark', '0'],
   ['fadian-theme', ''], ['fadian-font', ''], ['fadian-sdmode', '0'], ['fadian-card-zoom', '0'],

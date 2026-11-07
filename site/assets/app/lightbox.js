@@ -1403,11 +1403,16 @@ export function renderCharacterPrompts(entry, { prompts: source = entry?.charact
     head.className = 'section-head';
     const label = document.createElement('div');
     label.className = 'section-label';
-    label.textContent = labelText;
+    // 窄栏放不下完整说法：界面写「char1 负面」，按钮只写「复制」。复制和中转站里的标签仍用 labelText
+    const negative = channel === 'character-negative';
+    const shownLabel = negative ? labelText.replace(/ Negative$/, ' 负面') : labelText;
+    label.textContent = shownLabel;
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.className = 'ui-press';
-    copy.textContent = `复制 ${labelText}`;
+    copy.textContent = negative ? '复制' : `复制 ${shownLabel}`;
+    copy.title = `复制 ${shownLabel}`;
+    copy.setAttribute('aria-label', `复制 ${shownLabel}`);
     // 逐图角色词进中转站时标题带上图号，否则各图的 char1 分不清
     const fragmentLabel = imageLabel ? `${imageLabel} ${labelText}` : labelText;
     copy.onclick = ev => {

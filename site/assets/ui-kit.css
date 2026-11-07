@@ -35,7 +35,7 @@
 }
 .bar-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 .bar-btn:active:not(:disabled){scale:.96}
-.bar-btn.is-on,.bar-btn[aria-pressed="true"]{
+.bar-btn[aria-pressed="true"]{
   border-color:var(--accent);background:var(--accent);color:var(--on-accent);
   box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 18%,transparent);
 }

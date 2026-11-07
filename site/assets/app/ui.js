@@ -56,14 +56,6 @@ export function setUiActions(actions = {}) {
   Object.assign(uiActions, actions);
 }
 
-const DENSITY_ORDER = Object.keys(DENSITY_PRESETS);
-
-export function nextDensity(value) {
-  const current = normalizeDensity(value);
-  const index = DENSITY_ORDER.indexOf(current);
-  return DENSITY_ORDER[(index + 1) % DENSITY_ORDER.length];
-}
-
 /* 首次搜索可能要等全站法典异步汇总后才真正写入历史。把“首条记录是否仍待写”
    收在一个小状态机里，确保输入、chip 和范围切换共用同一份 push/replace 语义。 */
 export function createSearchHistoryIntentTracker() {
@@ -97,14 +89,6 @@ export function updateDensityControls() {
     const active = btn.dataset.density === state.density;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-  }
-  const quick = $('#densityQuickBtn');
-  if (quick) {
-    const currentLabel = DENSITY_PRESETS[state.density]?.label || densityConfig().label;
-    const nextLabel = DENSITY_PRESETS[nextDensity(state.density)].label;
-    const label = `卡片密度：${currentLabel}；点击切换到${nextLabel}`;
-    quick.title = label;
-    quick.setAttribute('aria-label', label);
   }
 }
 
@@ -612,10 +596,6 @@ export function bindUI() {
   for (const btn of document.querySelectorAll('[data-density]')) {
     btn.onclick = () => applyDensity(btn.dataset.density, { render: true, announce: true });
   }
-  const densityQuickBtn = $('#densityQuickBtn');
-  if (densityQuickBtn) {
-    densityQuickBtn.onclick = () => applyDensity(nextDensity(state.density), { render: true, announce: true });
-  }
   updateDensityControls();
 
   const sidebar = $('#sidebar');
@@ -1118,12 +1098,10 @@ export function bindUI() {
   /* 智能顶栏：下滑隐藏、上滑立现；搜索聚焦/移动端目录打开时锁定不收 */
   const randomBtn = $('#randomBtn');
   const backTopBtn = $('#backTop');
-  const floatActions = $('.float-actions');
   const setTopbarHidden = hide => document.body.classList.toggle('tb-hidden', hide);
   const scrollToTop = () => {
     setTopbarHidden(false);
     backTopBtn.classList.remove('show');
-    floatActions?.classList.remove('has-backtop');
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     updateScrollProgress();
   };
@@ -1132,9 +1110,7 @@ export function bindUI() {
     const y = Math.max(0, window.scrollY);
     const dy = y - lastScrollY;
     lastScrollY = y;
-    const showBackTop = y > 800;
-    backTopBtn.classList.toggle('show', showBackTop);
-    floatActions?.classList.toggle('has-backtop', showBackTop);
+    backTopBtn.classList.toggle('show', y > 800);
     updateScrollProgress();
     scheduleBrowseStateSave();
     scheduleHistoryScrollCheckpoint();
