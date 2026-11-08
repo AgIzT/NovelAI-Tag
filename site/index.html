@@ -108,53 +108,54 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/tag-relay-compose.js">
 <link rel="modulepreload" href="assets/app/tag-relay.js">
 <!-- 以下是上面各模块再往下一层的静态依赖。漏写的模块要等上一层下完、解析完才被发现，慢线路上多等一整轮；
+     这一批标 fetchpriority="low"：仍在解析 <head> 时一次发出，但让位给样式和上面那批，实测首次绘制不再被拖后。
      tools/test_module_preload.mjs 会核对整张静态 import 图，新增或删掉模块时照着它的提示同步这里。 -->
-<link rel="modulepreload" href="assets/site-metrics-contract.js">
-<link rel="modulepreload" href="assets/app/artist-core.js">
-<link rel="modulepreload" href="assets/app/artist-strip.js">
-<link rel="modulepreload" href="assets/app/birthday.js">
-<link rel="modulepreload" href="assets/app/birthday-fx.js">
-<link rel="modulepreload" href="assets/app/birthday-wall.js">
-<link rel="modulepreload" href="assets/app/birthday-wishes.js">
-<link rel="modulepreload" href="assets/app/browser-history.js">
-<link rel="modulepreload" href="assets/app/category-order.js">
-<link rel="modulepreload" href="assets/app/clipboard.js">
-<link rel="modulepreload" href="assets/app/clipboard-fallback.js">
-<link rel="modulepreload" href="assets/app/codex-route-compat.js">
-<link rel="modulepreload" href="assets/app/codex-switch.js">
-<link rel="modulepreload" href="assets/app/content-blocking.js">
-<link rel="modulepreload" href="assets/app/content-blocking-core.js">
-<link rel="modulepreload" href="assets/app/content-blocking-ui.js">
-<link rel="modulepreload" href="assets/app/fav-codex.js">
-<link rel="modulepreload" href="assets/app/favorites-backup.js">
-<link rel="modulepreload" href="assets/app/favorites-backup-core.js">
-<link rel="modulepreload" href="assets/app/favorites-backup-store.js">
-<link rel="modulepreload" href="assets/app/favorites-library-core.js">
-<link rel="modulepreload" href="assets/app/favorites-library-store.js">
-<link rel="modulepreload" href="assets/app/favorites-origin-migration.js">
-<link rel="modulepreload" href="assets/app/favorites-pickup.js">
-<link rel="modulepreload" href="assets/app/favorites-view.js">
-<link rel="modulepreload" href="assets/app/featured.js">
-<link rel="modulepreload" href="assets/app/image-queue.js">
-<link rel="modulepreload" href="assets/app/initial-codex.js">
-<link rel="modulepreload" href="assets/app/local-ownership.js">
-<link rel="modulepreload" href="assets/app/nai-default-tags.js">
-<link rel="modulepreload" href="assets/app/nai-sd.js">
-<link rel="modulepreload" href="assets/app/path-code.js">
-<link rel="modulepreload" href="assets/app/preferences-storage.js">
-<link rel="modulepreload" href="assets/app/prompt-fragments.js">
-<link rel="modulepreload" href="assets/app/prompt-weights.js">
-<link rel="modulepreload" href="assets/app/search-zh.js">
-<link rel="modulepreload" href="assets/app/select-menu.js">
-<link rel="modulepreload" href="assets/app/site-analytics.js">
-<link rel="modulepreload" href="assets/app/storage-coordinator.js">
-<link rel="modulepreload" href="assets/app/tag-relay-backup.js">
-<link rel="modulepreload" href="assets/app/tag-relay-editor.js">
-<link rel="modulepreload" href="assets/app/tag-relay-text.js">
-<link rel="modulepreload" href="assets/app/tag-relay-v4.js">
-<link rel="modulepreload" href="assets/app/tag-zh.js">
-<link rel="modulepreload" href="assets/app/tag-zh-core.js">
-<link rel="modulepreload" href="assets/app/updates.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/site-metrics-contract.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/artist-core.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/artist-strip.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/birthday.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/birthday-fx.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/birthday-wall.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/birthday-wishes.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/browser-history.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/category-order.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/clipboard.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/clipboard-fallback.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/codex-route-compat.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/codex-switch.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/content-blocking.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/content-blocking-core.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/content-blocking-ui.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/fav-codex.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-backup.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-backup-core.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-backup-store.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-library-core.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-library-store.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-origin-migration.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-pickup.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/favorites-view.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/featured.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/image-queue.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/initial-codex.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/local-ownership.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/nai-default-tags.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/nai-sd.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/path-code.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/preferences-storage.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/prompt-fragments.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/prompt-weights.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/search-zh.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/select-menu.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/site-analytics.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/storage-coordinator.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/tag-relay-backup.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/tag-relay-editor.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/tag-relay-text.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/tag-relay-v4.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/tag-zh.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/tag-zh-core.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/updates.js">
 <!-- 内测预览横幅：**保留**（2026-08-20 改判）。正式域命中第一个 return，线上永不显示。
      ⚠ 日后真要撤，手删三处、别用 git revert：整个 assets/beta-banner.js + 本页这 2 行 + _headers 里那条 no-store。
      理由见 docs/decisions/预览分支内测发布.md。 -->

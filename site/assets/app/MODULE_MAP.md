@@ -36,7 +36,7 @@
 | `content-blocking.js` | 本地屏蔽清单、稳定身份匹配、缓存与跨标签页同步 | 独立 localStorage、关键词匹配 WeakMap、变更订阅 | `state.js`、`data.js`、`favorites-backup-core.js`、`content-blocking-core.js`、`storage-coordinator.js` | 增删/暂停均异步锁内重读，读失败保留已知清单且拒写；保存成功才提交内存；编辑后失效词条缓存 |
 | `content-blocking-ui.js` | 屏蔽管理、卡片隐藏/撤销、结果提示与主动打开时临时查看 | 页签、分页、结果命中数、按键复用的行节点与退场/高度动效 | `state.js`、`utils.js`、`feedback.js`、`access.js`、`data.js`、`modal.js`、`ui-motion.js`、`content-blocking.js` | 保存与刷新不等待动画；关闭/快切结清局部动效，移除项立即 inert；调用方先执行分级门控；临时查看不修改持久清单；常驻入口在「更多」，结果栏按钮只在有屏蔽时显示 |
 | `media.js` | 图片能力判断、资源路径、版本参数、缩略图与原图 URL | — | `state.js` | 只解决资源定位，不判断“用户是否有权看原图” |
-| `image-queue.js` | 卡片图片调度：`createImageQueue` 与并发常量（可见 6、屏外 2、卡住 15 秒让位） | 每个队列实例的排队集合、在飞表与延迟分配标记 | — | 纯逻辑、不碰 DOM，任务由调用方提供 `placement` / `start` / `stop`；登记不当场分配，同批卡片建完后在微任务里统一排序（往下滚时先建的是视口上方的卡）；屏外要等可见的都完成才发；卡住的不再占名额但不取消 |
+| `image-queue.js` | 卡片图片调度：`createImageQueue` 与并发常量（可见 12、屏外 2、卡住 15 秒让位；可见按图片区域判断） | 每个队列实例的排队集合、在飞表与延迟分配标记 | — | 纯逻辑、不碰 DOM，任务由调用方提供 `placement` / `start` / `stop`；登记不当场分配，同批卡片建完后在微任务里统一排序（往下滚时先建的是视口上方的卡）；屏外要等可见的都完成才发；卡住的不再占名额但不取消 |
 | `nai-sd.js` | `naiToSd`、`fmtSdWeight`、`formatCopyText` | — | — | 无 DOM 的格式转换层，主站和共创广场可复用 |
 | `nai-default-tags.js` | `stripNaiDefaultTags`：主正向与逐图复制文本的完整默认尾段剥离 | — | — | 只处理末尾含齐 very aesthetic / masterpiece / no text 的连续裸标签；重复、混序与额外默认单项一并去除，前文原样保留；与 Python `nai_default_tags.py` 共用边界夹具 |
 | `tag-zh-core.js` | tag 中文对照纯计算：`bareTag`（剥权重与括号的公共底层，画师名归一也用它）、`tagZhKey`、`splitPromptPieces`（含 NAI 数字权重组）、`normalizeTagZhShard`、`lookupTagZh`、`danbooruWikiUrl` | — | — | 零 DOM；查表键与 `tools/build_tag_zh.py` 的 `tag_key` 共用夹具 `tools/fixtures/tag_zh_keys.json`，改一侧必须同步另一侧 |

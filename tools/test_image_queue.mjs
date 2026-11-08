@@ -158,6 +158,27 @@ function harness({ visibleLimit = 2, prefetchLimit = 1, stalledMs = 1000 } = {})
   assert.deepEqual(h.queue.stats(), { waiting: 0, running: 0, visible: 0, offscreen: 0 });
 }
 
+// 可见按图片区域判断：图片在视口上方、只露出正文的卡不占可见名额
+{
+  const h = harness({ visibleLimit: 1, prefetchLimit: 1 });
+  h.band.top = 1000;
+  h.band.bottom = 2000;
+  const bodyOnly = { name: 'body-only', placement: { top: 600, height: 500, imageHeight: 350, index: 1 }, start() { h.started.push('body-only'); }, stop() {} };
+  const image = h.job('image', 1200, 300, 2);
+  h.queue.request(bodyOnly);
+  h.queue.request(image);
+  h.flush();
+  assert.deepEqual(h.started, ['image'], '只露出正文的卡排在屏外');
+  h.queue.finish(image);
+  assert.deepEqual(h.started, ['image', 'body-only']);
+}
+
+// 默认上限：一屏常见的可见图数一次发完
+{
+  const { VISIBLE_IMAGE_CONCURRENCY } = await import('../site/assets/app/image-queue.js');
+  assert.ok(VISIBLE_IMAGE_CONCURRENCY >= 12, '可见上限低于一屏可见图数会让最后几张白等');
+}
+
 // 回归：往下滚时虚拟列表先建视口上方的卡，它们不能在可见卡登记之前抢走名额
 {
   const h = harness({ visibleLimit: 2, prefetchLimit: 1 });

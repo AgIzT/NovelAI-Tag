@@ -30,7 +30,7 @@ export function staticGraph(entries, root = ROOT) {
 }
 
 export function modulePreloads(html) {
-  return [...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match => match[1]);
+  return [...html.matchAll(/<link rel="modulepreload"(?: fetchpriority="(?:low|high)")? href="([^"]+)">/g)].map(match => match[1]);
 }
 
 export function moduleEntries(html) {

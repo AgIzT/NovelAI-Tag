@@ -4,7 +4,9 @@
    平分，可见的约 15 张和屏外的一起慢慢涨，12 秒内一张都完不成；滚走时卡片回收又把半截请求取消，字节作废，
    于是一直看到「图片加载中」（2026-11-07 实测）。这里只管「什么时候发图」，DOM 范围、布局与动效不变：
 
-   - 可见带内的图按从上到下的顺序发，最多同时 visibleLimit 张；
+   - 可见带内的图按从上到下的顺序发，最多同时 visibleLimit 张。上限给到一屏常见的可见图数以上：
+     屏外的不抢带宽才是慢线路上的主要收益；可见的再限到 6 张，实测不限速时第 7 张可见图要白等 1–2 秒；
+   - 「可见」按图片所占的区域判断（卡片顶部 imageHeight），只露出卡片正文的卡不占可见名额；
    - 屏外的图要等可见带里的图都完成（没有排队、也没有在飞）才发，最多同时 prefetchLimit 张，先下方、后上方；
    - 还没发出的图在卡片回收时直接撤队，不花一个字节；已经在飞的照旧取消，所以一次跳转最多浪费
      visibleLimit + prefetchLimit 张的半截字节；
@@ -12,10 +14,11 @@
    - 登记不当场分配名额，等同一批卡片都建完（同一任务末尾的微任务，仍在绘制之前）再统一排序分配：
      虚拟列表往下滚时先建的是视口上方的卡，当场分配会让它们在可见卡登记之前抢走预取名额。
 
-   任务对象由调用方提供：{ placement: { top, height, index }, start(), stop() }。
-   placement 用 masonry 内部坐标，可随重排替换；start() 负责真正赋 src，stop() 负责取消在飞的请求。 */
+   任务对象由调用方提供：{ placement: { top, height, imageHeight, index }, start(), stop() }。
+   placement 用 masonry 内部坐标，可随重排替换；图片在卡片顶部，没有 imageHeight 时按整张卡算。
+   start() 负责真正赋 src，stop() 负责取消在飞的请求。 */
 
-export const VISIBLE_IMAGE_CONCURRENCY = 6;
+export const VISIBLE_IMAGE_CONCURRENCY = 12;
 export const PREFETCH_IMAGE_CONCURRENCY = 2;
 export const STALLED_IMAGE_MS = 15000;
 
@@ -25,7 +28,7 @@ const ABOVE = 2;
 
 function classify(job, band) {
   const top = Number(job.placement?.top) || 0;
-  const bottom = top + (Number(job.placement?.height) || 0);
+  const bottom = top + (Number(job.placement?.imageHeight) || Number(job.placement?.height) || 0);
   if (bottom > band.top && top < band.bottom) return { tier: VISIBLE, distance: top };
   if (top >= band.bottom) return { tier: BELOW, distance: top - band.bottom };
   return { tier: ABOVE, distance: band.top - bottom };
