@@ -33,6 +33,7 @@ import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from 
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions, setIntroBirthdayCover } from './app/intro.js';
 import { setupPageGlow } from './app/page-glow.js';
+import { setupCardDepth } from './app/card-depth.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
 import { isBirthday, BIRTHDAY_CODEX_ID } from './app/birthday.js';
 import { pickInitialCodex } from './app/initial-codex.js';
@@ -241,6 +242,8 @@ export async function init() {
     startIntro();
     // 梦境的背景动效同样不等网络：幕布底下先画好 t=0 那一帧（与静态光晕一致），开幕后才开始呼吸
     setupPageGlow({ enabled: readPreference(PAGE_GLOW_STORAGE_KEY) !== '0' });
+    // 卡片悬停立体：只绑全局监听，开场期间不动，卡片出来后鼠标挪到卡上才起
+    setupCardDepth();
     configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
     setLoading('');

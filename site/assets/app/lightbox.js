@@ -11,6 +11,7 @@ import { lookupTagZh } from './tag-zh-core.js';
 import { naiToSd } from './nai-sd.js';
 import { decoratePromptWeights } from './prompt-weights.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { flattenCardDepth } from './card-depth.js';
 import { recordRecentEntry } from './history.js';
 import { atlasUrlForRoute, syncUrlState } from './router.js';
 import { findCodexMeta } from './data.js';
@@ -372,6 +373,8 @@ function sourceImageRect(image) {
 
 export function flyIn(sourceEl) {
   const lb = $('#lightbox');
+  // 悬停中的卡片带着倾斜和图片平移，先摆正再量，飞入才从卡片端正时的位置起飞
+  flattenCardDepth(sourceEl);
   const from = sourceImageRect(sourceEl);
   if (!from.width || !from.height) return;
   const ratio = sourceEl.naturalWidth / sourceEl.naturalHeight;

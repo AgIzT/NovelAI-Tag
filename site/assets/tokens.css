@@ -4,6 +4,8 @@
   --line:#e2e5f0; --accent:#6f5cf2; --accent-soft:#ece9fe; --tagbg:#f3f4fa; --tagbg-hover:#ebecf7;
   --new:#ef4d7e; --shadow:0 1px 3px rgba(28,32,58,.08),0 6px 18px rgba(28,32,58,.05);
   --shadow-hover:0 4px 12px rgba(28,32,58,.12),0 14px 34px rgba(28,32,58,.10);
+  /* 卡片悬停立体（card-depth.js）：方向阴影的颜色与浓度、强调色细环的掺量、反光强度 */
+  --depth-shadow-rgb:28 32 58; --depth-shadow-a:.26; --depth-ring:22%; --depth-sheen:.6;
   --glass:rgba(255,255,255,.74);
   --popover-glass:rgba(255,255,255,.93);
   --popover-line:rgba(226,229,240,.92);
@@ -59,6 +61,7 @@ body.dark{
   --text:#e8eaf3; --muted:#8a91a6; --on-accent:#131316;
   --accent:#8b7cf8; --accent-soft:#262050;
   --new:#f25c8a; --shadow:0 1px 3px rgba(0,0,0,.45); --shadow-hover:0 14px 40px rgba(0,0,0,.55);
+  --depth-shadow-rgb:0 0 0; --depth-shadow-a:.6; --depth-ring:32%; --depth-sheen:.32;
   --glass:rgba(0,0,0,.74);
   --popover-glass:rgba(0,0,0,.95);
   --popover-line:color-mix(in srgb,var(--accent) 22%,#000);

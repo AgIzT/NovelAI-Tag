@@ -2834,6 +2834,184 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
         return {"corner": corner, "spot": {"before": before, "lit": lit}, "screenshot": shot}
 
+    def card_depth():
+        """卡片悬停立体：鼠标悬停时朝鼠标倾斜、图片反向平移；移开后 transform 与悬停前逐字相同；悬停中重排测高不受倾斜影响；
+        大图飞入量图片前卡片已摆正；打开词条详情放手；系统减少动效时不动；手机按住只缩放不倾斜、手指一挪就取消。"""
+        def emulate(features):
+            cdp.command("Emulation.setEmulatedMedia", {"features": features})
+
+        def mouse(kind, x, y, button="none", clicks=0):
+            cdp.command("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": button, "clickCount": clicks})
+
+        def glide(x0, y0, x1, y1, steps=8):
+            for i in range(1, steps + 1):
+                mouse("mouseMoved", x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
+                time.sleep(0.016)
+
+        pick_js = """(() => {
+  document.querySelectorAll('[data-qa-depth]').forEach(c => delete c.dataset.qaDepth);
+  const cards = [...document.querySelectorAll('#masonry > .card')]
+    .filter(c => !c.classList.contains('no-img') && c.querySelector('.card-img.is-loaded'))
+    .filter(c => { const r = c.getBoundingClientRect(); return r.height < innerHeight - 200 && r.left > 0 && r.right < innerWidth; });
+  const c = cards[0];
+  if (!c) return null;
+  scrollTo({ top: scrollY + c.getBoundingClientRect().top - 140, behavior: 'instant' });
+  c.dataset.qaDepth = '1';
+  return true;
+})()"""
+        vars_js = """(() => {
+  const c = document.querySelector('[data-qa-depth]');
+  const g = n => c.style.getPropertyValue(n);
+  const r = c.getBoundingClientRect();
+  return { live: c.classList.contains('depth-live'), rx: parseFloat(g('--depth-rx')) || 0, ry: parseFloat(g('--depth-ry')) || 0,
+    s: parseFloat(g('--depth-s')) || 1, ix: parseFloat(g('--depth-ix')) || 0, iy: parseFloat(g('--depth-iy')) || 0,
+    transform: getComputedStyle(c).transform, inline: c.style.transform, height: c.style.height,
+    imgTransform: getComputedStyle(c.querySelector('.card-img')).transform,
+    box: { x: r.left, y: r.top, w: r.width, h: r.height } };
+})()"""
+
+        def pick(label):
+            wait_for(cdp, "[...document.querySelectorAll('#masonry > .card .card-img.is-loaded')].length >= 3", label + " loaded cards", timeout=20)
+            if not cdp.eval(pick_js):
+                raise CheckFailed("找不到可悬停的有图卡片：%s" % label)
+            settle(cdp, 500)
+            return cdp.eval(vars_js)
+
+        def open_page():
+            # 新档案会先弹新手引导，盖住卡片收不到鼠标；标成看过再进
+            navigate(cdp, base)
+            cdp.eval("localStorage.setItem('fadian-onboarding-v1-done','1'); localStorage.setItem('fadian-resume-prompt-dismissed-v1','1'); true")
+            navigate(cdp, base)
+            # 全套用例默认 motion=off，这里只在本页放开（与 page glow 同法）
+            cdp.eval("document.documentElement.classList.remove('motion-off'); true")
+            settle(cdp, 100)
+
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        open_page()
+        rest = pick("desktop")
+        if rest["live"] or rest["inline"] != "translate3d(var(--card-x), calc(var(--card-y) + var(--entry-offset, 0px)), 0) var(--card-tilt,)":
+            raise CheckFailed("静止卡不该带立体状态，位置模板应带空后备槽：%s" % rest)
+        # 平卡上，测高改用的布局高度与外包框高度一致
+        drift = cdp.eval("""(() => {
+  let worst = 0;
+  for (const c of document.querySelectorAll('#masonry > .card')) {
+    for (const el of [c.querySelector('.card-tags'), c.querySelector('.card-img-wrap'), c.querySelector('.card-body')]) {
+      if (!el || getComputedStyle(el).display === 'none') continue;
+      worst = Math.max(worst, Math.abs(parseFloat(getComputedStyle(el).height) - el.getBoundingClientRect().height));
+    }
+  }
+  return worst;
+})()""")
+        if drift > 0.02:
+            raise CheckFailed("平卡的布局高度与外包框不一致：%s" % drift)
+
+        box = rest["box"]
+        x, y = box["x"] + box["w"] * 0.85, box["y"] + box["h"] * 0.3
+        glide(640, 60, x, y)
+        settle(cdp, 700)
+        hover = cdp.eval(vars_js)
+        if not (hover["live"] and hover["ry"] > 2 and hover["rx"] > 0.5 and hover["ix"] < -1 and hover["transform"].startswith("matrix3d")):
+            raise CheckFailed("悬停没有朝鼠标倾斜或图片没反向平移：%s" % hover)
+
+        # 悬停中重排：测高不能把倾斜和放大算进去
+        relayout = cdp.eval("""(async () => {
+  const c = document.querySelector('[data-qa-depth]');
+  const before = c.style.height;
+  (await import('./assets/app/masonry.js')).relayoutVisible();
+  return { before, after: c.style.height };
+})()""")
+        if relayout["before"] != relayout["after"]:
+            raise CheckFailed("悬停中重排改了卡片高度：%s" % relayout)
+        settle(cdp, 300)
+
+        # 移开：回到静止，transform 读数与悬停前逐字相同
+        glide(x, y, 640, 60)
+        settle(cdp, 1200)
+        left = cdp.eval(vars_js)
+        if left["live"] or left["transform"] != rest["transform"] or left["inline"] != rest["inline"]:
+            raise CheckFailed("移开后没回到静止：%s vs %s" % (left, rest))
+
+        # 放大镜开大图：飞入量图片的那一刻，倾斜和平移已归零
+        glide(640, 60, x, y)
+        settle(cdp, 600)
+        cdp.eval("""(() => {
+  const c = document.querySelector('[data-qa-depth]');
+  const img = c.querySelector('.card-img');
+  const orig = img.getBoundingClientRect.bind(img);
+  img.getBoundingClientRect = () => {
+    const g = n => c.style.getPropertyValue(n);
+    window.__qaDepthAtMeasure ||= { rx: g('--depth-rx'), ry: g('--depth-ry'), ix: g('--depth-ix'), iy: g('--depth-iy'), is: g('--depth-is') };
+    return orig();
+  };
+  window.__qaDepthAtMeasure = null;
+  return true;
+})()""")
+        zoom = cdp.eval("(() => { const b = document.querySelector('[data-qa-depth] .zoom-btn').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()")
+        glide(x, y, zoom["x"], zoom["y"], 3)
+        mouse("mousePressed", zoom["x"], zoom["y"], "left", 1)
+        mouse("mouseReleased", zoom["x"], zoom["y"], "left", 1)
+        wait_for(cdp, "document.documentElement.classList.contains('lightbox-open')", "card depth lightbox", timeout=5)
+        measured = cdp.eval("window.__qaDepthAtMeasure")
+        if not measured or any(abs(float(str(measured[k]).rstrip("pxdeg") or 0)) > 1e-6 for k in ("rx", "ry", "ix", "iy")) or abs(float(measured["is"] or 1) - 1) > 1e-6:
+            raise CheckFailed("大图飞入量图片时卡片还没摆正：%s" % measured)
+        wait_for(cdp, "!document.querySelector('[data-qa-depth]').classList.contains('depth-live')", "card depth released under lightbox", timeout=3)
+        cdp.eval("delete document.querySelector('[data-qa-depth] .card-img').getBoundingClientRect; true")
+        cdp.command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
+        cdp.command("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
+        wait_for(cdp, "!document.documentElement.classList.contains('lightbox-open')", "card depth lightbox closed", timeout=5)
+
+        # 系统减少动态效果：悬停不接管
+        emulate([{"name": "prefers-reduced-motion", "value": "reduce"}])
+        rest = pick("reduced motion")
+        box = rest["box"]
+        x, y = box["x"] + box["w"] * 0.85, box["y"] + box["h"] * 0.3
+        glide(640, 60, x, y)
+        settle(cdp, 400)
+        if cdp.eval(vars_js)["live"]:
+            raise CheckFailed("减少动态效果时卡片不该立体")
+        glide(x, y, 640, 60)
+        emulate([])
+        check_no_errors(cdp)
+
+        # 手机：按住只缩放不倾斜，手指一挪就取消
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 2, "mobile": True})
+        cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
+        try:
+            open_page()
+            rest = pick("mobile")
+            box = rest["box"]
+            tx, ty = box["x"] + box["w"] * 0.8, box["y"] + box["h"] * 0.3
+
+            def touch(kind, points):
+                cdp.command("Input.dispatchTouchEvent", {"type": kind, "touchPoints": [{"x": px, "y": py} for px, py in points]})
+
+            touch("touchStart", [(tx, ty)])
+            touch("touchMove", [(tx, ty - 30)])
+            settle(cdp, 200)
+            moved = cdp.eval(vars_js)
+            touch("touchEnd", [])
+            if moved["live"] and moved["s"] < 0.99:
+                raise CheckFailed("手指挪动后不该下沉：%s" % moved)
+            settle(cdp, 600)
+            touch("touchStart", [(tx, ty)])
+            settle(cdp, 220)
+            held = cdp.eval(vars_js)
+            if not (held["live"] and held["s"] < 0.985 and held["rx"] == 0 and held["ry"] == 0 and held["ix"] == 0):
+                raise CheckFailed("手机按住应只缩放、不倾斜不平移：%s" % held)
+            touch("touchEnd", [])
+            settle(cdp, 300)
+            if cdp.eval("document.documentElement.classList.contains('lightbox-open')"):
+                cdp.eval("history.back(); true")
+                wait_for(cdp, "!document.documentElement.classList.contains('lightbox-open')", "mobile depth detail closed", timeout=5)
+            check_no_errors(cdp)
+        finally:
+            cdp.command("Emulation.setTouchEmulationEnabled", {"enabled": False})
+            cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+            cdp.eval("document.documentElement.classList.add('motion-off'); true")
+        return {"hover": {k: hover[k] for k in ("rx", "ry", "ix", "iy", "s")}, "measuredAtFlyIn": measured,
+                "pressed": {k: held[k] for k in ("s", "rx", "ry")}}
+
     def no_original_lightbox():
         clear_errors(cdp)
         navigate(cdp, base + "?codex=composition_style")
@@ -4565,6 +4743,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("lightbox shift range selection", lightbox_shift_selection),
         ("theme axes", theme_axes),
         ("page glow", page_glow),
+        ("card depth", card_depth),
         ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),
         ("resume last browse", resume_browse),

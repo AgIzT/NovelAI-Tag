@@ -86,7 +86,10 @@ globalThis.location = {
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
-globalThis.getComputedStyle = element => ({ display: element?.display || 'block' });
+globalThis.getComputedStyle = element => ({
+  display: element?.display || 'block',
+  get height() { return element?.layoutHeight ? `${element.layoutHeight()}px` : 'auto'; },
+});
 
 const { state } = await import('../site/assets/app/state.js');
 const {
@@ -404,6 +407,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 // 校准严格分成“全批 auto 写入 → 全批读取 → 全批最终写入”；钳制标签后高度与旧算法一致。
 {
   const events = [];
+  // 悬停卡带着倾斜与缩放，外包框比布局大；测高只能读布局高度
+  const transformedBox = () => { throw new Error('测高不得读 getBoundingClientRect（会算进悬停倾斜）'); };
   const makeMeasuredCard = ({ index, naturalTagsHeight, bodyHeight, imageHeight, oldHeight }) => {
     const placement = {
       index,
@@ -419,16 +424,19 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
       style: fakeStyle((name, value) => { if (name === 'height') events.push(`write:${index}:tags:${value}`); }),
       classList: { toggle: () => events.push(`write:${index}:class`) },
       get scrollHeight() { events.push(`read:${index}:scroll`); return naturalTagsHeight; },
-      getBoundingClientRect() { events.push(`read:${index}:tags-box`); return { height: naturalTagsHeight }; },
+      layoutHeight() { events.push(`read:${index}:tags-box`); return naturalTagsHeight; },
+      getBoundingClientRect: transformedBox,
     };
     const wrap = {
       hidden: imageHeight === 0,
       display: 'block',
       style: fakeStyle(),
-      getBoundingClientRect() { events.push(`read:${index}:image`); return { height: imageHeight }; },
+      layoutHeight() { events.push(`read:${index}:image`); return imageHeight; },
+      getBoundingClientRect: transformedBox,
     };
     const body = {
-      getBoundingClientRect() { events.push(`read:${index}:body`); return { height: bodyHeight }; },
+      layoutHeight() { events.push(`read:${index}:body`); return bodyHeight; },
+      getBoundingClientRect: transformedBox,
     };
     const node = {
       style: fakeStyle((name, value) => { if (name === 'height') events.push(`write:${index}:card:${value}`); }),
@@ -1662,6 +1670,16 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(uiGlowSource, /const applyPageGlow = on => \{\s*if \(!writePreference\(PAGE_GLOW_STORAGE_KEY, on \? '1' : '0'\)\)[\s\S]*?setPageGlowEnabled\(on\);/);
   assert.match(uiGlowSource, /const applySkin = [\s\S]*?syncPageGlow\(\);\s*return t;/);
   assert.match(indexSource, /rel="modulepreload" href="assets\/app\/page-glow\.js"/);
+  // 卡片悬停立体：倾斜只进位置模板末尾的空后备槽（静止卡 transform 不变）；大图飞入先摆正再量；入口与预载齐全。
+  assert.match(masonrySource, /node\.style\.transform = 'translate3d\(var\(--card-x\), calc\(var\(--card-y\) \+ var\(--entry-offset, 0px\)\), 0\) var\(--card-tilt,\)'/);
+  const lightboxDepthSource = await readFile(new URL('../site/assets/app/lightbox.js', import.meta.url), 'utf8');
+  assert.match(lightboxDepthSource, /export function flyIn\(sourceEl\) \{[\s\S]*?flattenCardDepth\(sourceEl\);\s*const from = sourceImageRect\(sourceEl\);/);
+  const appDepthSource = await readFile(new URL('../site/assets/app.js', import.meta.url), 'utf8');
+  assert.match(appDepthSource, /setupPageGlow\(\{[^}]*\}\);[\s\S]{0,120}setupCardDepth\(\);/);
+  assert.match(indexSource, /rel="modulepreload" href="assets\/app\/card-depth\.js"/);
+  assert.match(stylesSource, /\.masonry>\.card\.depth-live:not\(\.card-retiring\)\{\s*--card-tilt:perspective\(900px\) rotateX\(var\(--depth-rx,0deg\)\) rotateY\(var\(--depth-ry,0deg\)\) scale\(var\(--depth-s,1\)\);/);
+  assert.ok(stylesSource.indexOf('.masonry.depth-hold>.card:hover{') < stylesSource.indexOf('.masonry>.card.depth-live:not(.card-retiring){'),
+    '放手期间的压制规则必须排在 .depth-live 之前，同权重靠源序让活动卡赢');
   assert.match(masonrySource, /function cardOpensImage\(e\) \{\s*return hasEntryImage\(e\) && \(state\.cardZoom \|\| isPackEntry\(e\)\);/);
   assert.match(masonrySource, /node\.onclick = \(\) => \{\s*if \(cardClickOpensDetail\(e\)\)/);
   const uiZoomSource = await readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8');
