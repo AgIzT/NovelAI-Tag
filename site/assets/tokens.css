@@ -35,9 +35,12 @@ body.theme-indigo.dark{--text:#e4eaf6;--muted:#7e8aa4;--accent:#5b9bf5;--accent-
 body.theme-ink{--bg:#f1f1f3;--panel:#ffffff;--card:#ffffff;--text:#1c1c21;--muted:#82828d;--line:#e3e3e8;--accent:#3c3c45;--accent-soft:#e7e7ec;--tagbg:#f0f0f4;--tagbg-hover:#e8e8ee;--accent-glow:rgba(60,60,69,.16)}
 body.theme-ink.dark{--text:#eaeaef;--muted:#85858f;--accent:#c8c8d2;--accent-soft:#2b2b32;--accent-glow:rgba(200,200,210,.16);--on-accent:#131316}
 /* 梦境=页面两角光晕 + 纯色控件。渐变只铺最底层，卡片、按钮、选中项都不再叠一段：
-   同一对颜色在一屏里以两种长度出现会撞色。--muted 比其它皮肤深，因为灰字直接压在光晕上。深色档没有光晕。 */
+   同一对颜色在一屏里以两种长度出现会撞色。--muted 比其它皮肤深，因为灰字直接压在光晕上。深色档没有光晕。
+   主站另有动态层（app/page-glow.js）在这层光晕上面画同样的两团光并让它们呼吸，颜色读 --glow-1/2/3、几何照抄 --page-wash，
+   两边改一处就要同改另一处（test_page_glow.mjs 有防漂移断言）。 */
 body.theme-dream{--bg:#f7f7fb;--panel:#ffffff;--card:#ffffff;--text:#232a3c;--muted:#5c6275;--line:#e3e3f0;--accent:#6f59fb;--accent-soft:#ece9fe;--tagbg:#f3f3fb;--tagbg-hover:#ebebf8;--accent-glow:rgba(111,89,251,.18);
-  --page-wash:radial-gradient(70vmax 52vmax at 0% 0%,#dbddff,transparent 72%),radial-gradient(70vmax 56vmax at 100% 6%,#ffd0d0,transparent 72%)}
+  --glow-1:#dbddff;--glow-2:#ffd0d0;--glow-3:#ebdcff;
+  --page-wash:radial-gradient(70vmax 52vmax at 0% 0%,var(--glow-1),transparent 72%),radial-gradient(70vmax 56vmax at 100% 6%,var(--glow-2),transparent 72%)}
 body.theme-dream.dark{--text:#e8eaf3;--muted:#8a91a6;--accent:#a596ff;--accent-soft:#2a2356;--accent-glow:rgba(165,150,255,.22)}
 body.theme-dream:not(.dark)::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:var(--page-wash)}
 

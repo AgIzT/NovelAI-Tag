@@ -42,6 +42,14 @@ body{
   font-size:14px;line-height:1.5;
 }
 button{font-family:inherit;cursor:pointer}
+/* 梦境动态背景（app/page-glow.js）：body 末尾的不透明画布，与 body::before 的静态光晕同为 z-index:-1，
+   靠 DOM 顺序盖在它上面；停用时淡出，露出底下一模一样的静态光晕，淡完再藏起来。 */
+.page-glow{
+  position:fixed;inset:0;z-index:-1;pointer-events:none;
+  opacity:0;visibility:hidden;transition:opacity .5s ease,visibility 0s linear .5s;
+}
+.page-glow.is-live{opacity:1;visibility:visible;transition:opacity .5s ease}
+.page-glow canvas{display:block;width:100%;height:100%}
 .scroll-progress{
   position:fixed;left:0;right:0;top:0;z-index:60;height:2px;
   background:linear-gradient(90deg,var(--accent),#a48cff);

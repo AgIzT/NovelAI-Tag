@@ -1,9 +1,10 @@
-import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, DEFAULT_THEME, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, CARD_ZOOM_STORAGE_KEY } from './state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, DENSITY_PRESETS, DENSITY_STORAGE_KEY, THEME_STORAGE_KEY, DEFAULT_THEME, THEMES, FONT_STORAGE_KEY, FONTS, DARK_MODE_STORAGE_KEY, LEGACY_DARK_STORAGE_KEY, DARK_MODES, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, CARD_ZOOM_STORAGE_KEY, PAGE_GLOW_STORAGE_KEY } from './state.js';
 import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.js';
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
 import { readPreference, writePreference, writePreferences } from './preferences-storage.js';
 import { animateUi } from './ui-motion.js';
+import { setPageGlowEnabled, syncPageGlow } from './page-glow.js';
 import { firstUnlockedCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
 import { openBlockingManager } from './content-blocking-ui.js';
@@ -481,6 +482,7 @@ export function bindUI() {
     if (themeMenuBtn) themeMenuBtn.innerHTML = `${icon}<span><b>${label}</b></span>`;
     for (const b of document.querySelectorAll('#darkModeControl [data-dark-mode]'))
       b.setAttribute('aria-pressed', b.dataset.darkMode === darkMode ? 'true' : 'false');
+    syncPageGlow();
     return true;
   };
   /* 顶栏按钮只管「现在翻到反面」，按下就脱离 auto——用户点它要的是确定结果，不是继续跟系统走 */
@@ -510,6 +512,7 @@ export function bindUI() {
     if (t.id) document.body.classList.add('theme-' + t.id);
     for (const b of document.querySelectorAll('#themeControl [data-theme]'))
       b.setAttribute('aria-pressed', b.dataset.theme === t.id ? 'true' : 'false');
+    syncPageGlow();
     return t;
   };
   for (const b of document.querySelectorAll('#themeControl [data-theme]'))
@@ -582,6 +585,24 @@ export function bindUI() {
   };
   if (cardZoomToggle) cardZoomToggle.onchange = e => applyCardZoom(e.target.checked);
   applyCardZoom(readPreference(CARD_ZOOM_STORAGE_KEY) === '1', { persist: false });
+
+  /* 背景动效：只作用于梦境浅色（page-glow.js）。关掉回到静态光晕；动画本身由 app.js 启动时按同一偏好起好 */
+  const pageGlowToggle = $('#pageGlowToggle');
+  let pageGlowOn = readPreference(PAGE_GLOW_STORAGE_KEY) !== '0';
+  const applyPageGlow = on => {
+    if (!writePreference(PAGE_GLOW_STORAGE_KEY, on ? '1' : '0')) {
+      if (pageGlowToggle) pageGlowToggle.checked = pageGlowOn;
+      return false;
+    }
+    pageGlowOn = on;
+    if (pageGlowToggle) pageGlowToggle.checked = on;
+    setPageGlowEnabled(on);
+    return true;
+  };
+  if (pageGlowToggle) {
+    pageGlowToggle.checked = pageGlowOn;
+    pageGlowToggle.onchange = e => applyPageGlow(e.target.checked);
+  }
 
   /* tag 中文对照：设置开关与灯箱「中文对照」按钮是同一个偏好，任一处改另一处跟着变 */
   const tagZhSetting = $('#tagZhSettingToggle');

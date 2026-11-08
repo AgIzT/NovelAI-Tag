@@ -1,4 +1,4 @@
-import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
+import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, PAGE_GLOW_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
 import { setupSiteAnalytics, recordSiteEvent, beginSiteSearchObservation, cancelSiteSearchObservation } from './app/site-analytics.js';
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
@@ -32,6 +32,7 @@ import { readPreference, writePreference } from './app/preferences-storage.js';
 import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
 import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions, setIntroBirthdayCover } from './app/intro.js';
+import { setupPageGlow } from './app/page-glow.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
 import { isBirthday, BIRTHDAY_CODEX_ID } from './app/birthday.js';
 import { dismissResumePrompt, setupResumePrompt } from './app/resume-prompt.js';
@@ -237,6 +238,8 @@ export async function init() {
   try {
     /* 开场脚本先起跑，不等任何网络请求：牌堆切牌就是数据加载期的等待画面 */
     startIntro();
+    // 梦境的背景动效同样不等网络：幕布底下先画好 t=0 那一帧（与静态光晕一致），开幕后才开始呼吸
+    setupPageGlow({ enabled: readPreference(PAGE_GLOW_STORAGE_KEY) !== '0' });
     configureAtlasHistory();
     showSkeleton(initSkeletonToken, { delay: 0 });
     setLoading('');

@@ -2718,6 +2718,122 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         return {"accents": accents, "fonts": {k: list(v) for k, v in fonts.items()},
                 "inkContrast": round(ratio, 2), "screenshot": shot}
 
+    def page_glow():
+        """梦境动态背景：只在梦境浅色、开关开着、允许动效时跑；词条详情打开时暂停；
+        开局那一帧与静态光晕同色；指尖光只认鼠标，触屏不亮；设置开关先存偏好再停。"""
+        def emulate(features):
+            cdp.command("Emulation.setEmulatedMedia", {"features": features})
+
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        emulate([{"name": "prefers-color-scheme", "value": "light"}])
+        navigate(cdp, base)
+        wait_for(cdp, "!!document.querySelector('#darkModeControl [aria-pressed=\"true\"]')", "page glow bound", timeout=15)
+        clear_errors(cdp)
+
+        def click(sel):
+            cdp.eval("document.querySelector(%s).click()" % json.dumps(sel))
+
+        def state():
+            return cdp.eval("document.querySelector('.page-glow')?.dataset.state || 'none'")
+
+        def wait_state(value, label):
+            wait_for(cdp, "document.querySelector('.page-glow')?.dataset.state === %s" % json.dumps(value), label, timeout=5)
+
+        # 全套用例默认 motion=off，这里只在本页放开（与「手机连续阅读」同法），再让模块重新判断一次
+        click('#darkModeControl [data-dark-mode="light"]')
+        click('#themeControl [data-theme="dream"]')
+        if state() not in ("none", "off"):
+            raise CheckFailed("motion=off 时动态背景不该在跑：%s" % state())
+        cdp.eval("""(async () => {
+  document.documentElement.classList.remove('motion-off');
+  (await import('./assets/app/page-glow.js')).syncPageGlow();
+  return true;
+})()""")
+        wait_state("running", "page glow running")
+        wait_for(cdp, "getComputedStyle(document.querySelector('.page-glow')).opacity === '1'", "page glow visible", timeout=5)
+        layer = cdp.eval("""(() => {
+  const el = document.querySelector('.page-glow');
+  const s = getComputedStyle(el);
+  return { parent: el.parentElement.tagName, position: s.position, zIndex: s.zIndex, pointer: s.pointerEvents, canvasW: el.querySelector('canvas').width };
+})()""")
+        if layer["parent"] != "BODY" or layer["position"] != "fixed" or layer["zIndex"] != "-1" or layer["pointer"] != "none":
+            raise CheckFailed("动态背景层没有垫在最底层：%s" % layer)
+        if not 200 <= layer["canvasW"] <= 230:
+            raise CheckFailed("画布应为视口的 1/6（1280 宽约 214）：%s" % layer)
+
+        pixel_expr = """(([x, y]) => {
+  const c = document.querySelector('.page-glow canvas');
+  const k = c.width / innerWidth;
+  return [...c.getContext('2d').getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data].slice(0, 3);
+})(%s)"""
+        def pixel(x, y):
+            return cdp.eval(pixel_expr % json.dumps([x, y]))
+
+        corner = pixel(2, 2)
+        if max(abs(a - b) for a, b in zip(corner, (219, 221, 255))) > 14:
+            raise CheckFailed("左上角应接近 --glow-1 #dbddff：%s" % corner)
+
+        # 指尖：触屏移动不亮，鼠标移动亮起（合成事件只为区分 pointerType，鼠标路径另用真实输入）
+        point = (640, 620)
+        before = pixel(*point)
+        cdp.eval("dispatchEvent(new PointerEvent('pointermove', { pointerType: 'touch', clientX: %d, clientY: %d }))" % point)
+        settle(cdp, 400)
+        touched = pixel(*point)
+        if max(abs(a - b) for a, b in zip(before, touched)) > 6:
+            raise CheckFailed("触屏不该点亮指尖光：%s → %s" % (before, touched))
+        cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": point[0], "y": point[1]})
+        settle(cdp, 500)
+        lit = pixel(*point)
+        if before[1] - lit[1] < 25:
+            raise CheckFailed("鼠标处没有亮起指尖光：%s → %s" % (before, lit))
+
+        # 词条详情打开时暂停，关掉接着跑
+        cdp.eval("document.documentElement.classList.add('lightbox-open')")
+        wait_state("paused", "page glow paused")
+        cdp.eval("document.documentElement.classList.remove('lightbox-open')")
+        wait_state("running", "page glow resumes")
+
+        # 其它皮肤、深色档不跑，换回梦境浅色立刻恢复（不等淡入）
+        click('#themeControl [data-theme="teal"]')
+        if state() != "off" or cdp.eval("document.querySelector('.page-glow').classList.contains('is-live')"):
+            raise CheckFailed("青翠皮肤不该有动态背景：%s" % state())
+        click('#themeControl [data-theme="dream"]')
+        wait_state("running", "page glow back on dream")
+        click('#darkModeControl [data-dark-mode="dark"]')
+        if state() != "off":
+            raise CheckFailed("梦境深色档不该有动态背景：%s" % state())
+        click('#darkModeControl [data-dark-mode="light"]')
+        wait_state("running", "page glow back on light")
+
+        # 设置开关：关掉先写偏好再停，打开恢复
+        click('#pageGlowToggle')
+        wait_state("off", "page glow toggled off")
+        if cdp.eval("localStorage.getItem('fadian-page-glow')") != "0" or cdp.eval("document.querySelector('#pageGlowToggle').checked"):
+            raise CheckFailed("关掉背景动效后偏好或勾选不对")
+        click('#pageGlowToggle')
+        wait_state("running", "page glow toggled on")
+        if cdp.eval("localStorage.getItem('fadian-page-glow')") != "1":
+            raise CheckFailed("打开背景动效后偏好没写回 1")
+
+        # 系统「减少动态效果」：立刻停，取消后恢复
+        emulate([{"name": "prefers-color-scheme", "value": "light"}, {"name": "prefers-reduced-motion", "value": "reduce"}])
+        wait_state("off", "page glow reduced motion")
+        emulate([{"name": "prefers-color-scheme", "value": "light"}])
+        wait_state("running", "page glow motion restored")
+
+        shot = screenshot(cdp, out_dir, "page-glow")
+        check_no_errors(cdp)
+        # 收尾还原：恢复全套的 motion-off、清掉本用例写过的键和媒体特性
+        cdp.eval("""(async () => {
+  document.documentElement.classList.add('motion-off');
+  (await import('./assets/app/page-glow.js')).syncPageGlow();
+  ['fadian-page-glow', 'fadian-theme', 'fadian-dark-mode', 'fadian-dark'].forEach(k => localStorage.removeItem(k));
+  return true;
+})()""")
+        emulate([])
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
+        return {"corner": corner, "spot": {"before": before, "lit": lit}, "screenshot": shot}
+
     def no_original_lightbox():
         clear_errors(cdp)
         navigate(cdp, base + "?codex=composition_style")
@@ -4448,6 +4564,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("lightbox long prompt folds", lightbox_prompt_fold),
         ("lightbox shift range selection", lightbox_shift_selection),
         ("theme axes", theme_axes),
+        ("page glow", page_glow),
         ("no-original codex disables original UI", no_original_lightbox),
         ("random explore opens lightbox", random_explore),
         ("resume last browse", resume_browse),
