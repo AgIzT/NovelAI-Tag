@@ -448,7 +448,7 @@ async function waitForIntroAssets() {
      只有 decode() 已完成的焦点图才允许显影；420ms 内没准备好的图直接走普通 load settle。 */
   const decoded = new Set();
   const prepare = async img => {
-    /* 无 src 的 <img> 也会报告 complete=true；首图由 masonry 的加载定时器稍后才赋 src，
+    /* 无 src 的 <img> 也会报告 complete=true；首图由 masonry 的图片队列稍后才赋 src，
        所以必须把「尚无 src」一起当 pending，否则这里会在 timer task 前误判无图并开幕。 */
     if (!img.hasAttribute('src') || !img.complete) {
       await new Promise(resolve => {

@@ -1,4 +1,5 @@
-import { state, VIRTUAL_BUFFER_UP, VIRTUAL_BUFFER_DOWN, IMAGE_LOAD_DELAY, RELAYOUT_INTERVAL, RELAYOUT_ANIM_MS, DEFAULT_IMAGE_RATIO } from './state.js';
+import { state, VIRTUAL_BUFFER_UP, VIRTUAL_BUFFER_DOWN, RELAYOUT_INTERVAL, RELAYOUT_ANIM_MS, DEFAULT_IMAGE_RATIO } from './state.js';
+import { createImageQueue } from './image-queue.js';
 import { densityConfig } from './state.js';
 import { $, clamp, prefersReducedMotion, updateScrollProgress } from './utils.js';
 import { toast } from './feedback.js';
@@ -400,6 +401,8 @@ export function textUnits(text) {
 let virtualRaf = 0;
 /* 由 updateVirtualCards 每轮写入的真实可视带（masonry 内部坐标，不含虚拟缓冲）。 */
 const visibleBand = { top: 0, bottom: 0 };
+/* 卡片图片何时发出由队列决定：可见的先下、限并发，屏外的后下（image-queue.js）。 */
+export const cardImageQueue = createImageQueue({ band: () => visibleBand });
 
 let relayoutTimer = 0;
 let relayoutAnimTimer = 0;
@@ -445,29 +448,21 @@ export function cardImageLoadPolicy(placement, band = visibleBand, columnCount =
   };
 }
 
+/* 只管第一行的 fetchpriority=high；什么时候发图交给 cardImageQueue，loading 在真正发出时统一设为 eager
+   （排队就是延迟加载，再叠一层浏览器 lazy 会让已经分到名额的图被浏览器按住、白占名额）。
+   节点会被重排或换列，降级时必须摘掉旧的 high，不能让优先级粘住。 */
 export function applyCardImageLoadPolicy(node, placement, {
   band = visibleBand,
   columnCount = state.colN,
-  promote = false,
 } = {}) {
   const policy = cardImageLoadPolicy(placement, band, columnCount);
   const img = node?.querySelector?.('.card-img');
   if (!img) return policy;
 
-  const loading = policy.eager ? 'eager' : 'lazy';
-  if (img.loading !== loading) img.loading = loading;
   if (policy.highPriority) {
     if (img.getAttribute('fetchpriority') !== 'high') img.setAttribute('fetchpriority', 'high');
   } else {
     img.removeAttribute('fetchpriority');
-  }
-
-  /* overscan 内的节点可能先以 lazy + 90ms timer 建好，随后因滚动/转屏进入真实可视带。
-     属性更新本身不会取消那道 timer；提升时直接认领并立即发出请求。已经开始的请求不做取消。 */
-  if (promote && policy.eager && node._imageTimer && typeof node._loadImage === 'function') {
-    clearTimeout(node._imageTimer);
-    node._imageTimer = 0;
-    node._loadImage();
   }
   return policy;
 }
@@ -525,7 +520,10 @@ export function updateVirtualCards(force = false) {
       updateCardPosition(node, placement);
       if (!relayoutAnimating) calibrations.push({ node, placement });
     }
-    if (node._loadImage) applyCardImageLoadPolicy(node, placement, { promote: true });
+    if (node._imageJob) {
+      node._imageJob.placement = placement;
+      applyCardImageLoadPolicy(node, placement);
+    }
     const nearViewport = placement.top + placement.height >= entryTop && placement.top <= entryBottom;
     if (node.dataset.entryPending === '1' && nearViewport) {
       delete node.dataset.entryPending;
@@ -554,6 +552,8 @@ export function updateVirtualCards(force = false) {
     node.remove();
     state.nodes.delete(index);
   }
+  // 可见带移动或卡片进出范围后，按新位置重新分配图片名额
+  cardImageQueue.pump();
   state.rendered = next.size;
   // 批量校准可能让缓冲区边缘的 placement 进出范围；下一帧按新位置收敛虚拟节点。
   if (layoutChanged) scheduleVirtualUpdate();
@@ -1091,17 +1091,31 @@ export function setupImage(node, placement) {
     notifyImageLoadError(e);
   };
   const load = (retry = false) => {
-    node._imageTimer = 0;
     markLoading();
     if (retry) {
       img.dataset.fallbackTried = '';
       state.loadedImages.delete(key);
     }
+    // 排队本身就是延迟加载；真正发出时不能再被浏览器的 lazy 按住
+    if (img.loading !== 'eager') img.loading = 'eager';
     img.src = retry ? cacheBustUrl(url) : url;
   };
-  node._loadImage = load;
+  let retryNext = false;
+  const job = {
+    placement,
+    start: () => {
+      const retry = retryNext;
+      retryNext = false;
+      load(retry);
+    },
+    stop: () => img.removeAttribute('src'),
+  };
+  node._imageJob = job;
 
-  img.onload = markLoaded;
+  img.onload = () => {
+    markLoaded();
+    cardImageQueue.finish(job);
+  };
   img.onerror = () => {
     const fallback = localAssetUrl('image', e);
     if (fallback && fallback !== img.src && img.dataset.fallbackTried !== '1') {
@@ -1110,24 +1124,23 @@ export function setupImage(node, placement) {
       return;
     }
     markError();
+    cardImageQueue.finish(job);
   };
 
-  /* 首屏图就是 LCP 元素：模板默认的 loading="lazy" 会降优先级并要等布局定完，
-     后面的 90ms 错峰定时器又把 src 再推一拍。RUM 实测 #masonry 卡片图 P75 7108ms，
-     代码链路也确认图片要等模块、数据与布局完成后才发现；FCP/LCP 不同分位数不能直接相减归因。
-     可视带内的卡改成即时加载、第一行再抢 fetchpriority=high；带外维持 lazy + 错峰，
-     否则近万卡的图会一次性铺满带宽，反而拖慢首屏那几张。 */
-  // computeLayout 按最短列排布，前 colN 个 placement 恰好是第一行。
-  const imagePolicy = applyCardImageLoadPolicy(node, placement);
+  /* 首屏图就是 LCP 元素，第一行另抢 fetchpriority=high（computeLayout 按最短列排布，前 colN 个
+     placement 恰好是第一行）。何时发图交给 cardImageQueue：可见带内按从上到下限并发先发，屏外等可见的
+     都完成后再少量预取；原先 overscan 里的卡一建好就各自发图，慢线路上一屏 40 张同时平分带宽，
+     可见的那几张反而迟迟完不成。已加载过的图命中缓存，不排队。 */
+  applyCardImageLoadPolicy(node, placement);
 
   markLoading();
-  if (state.loadedImages.has(key) || imagePolicy.eager) load();
-  else node._imageTimer = window.setTimeout(load, IMAGE_LOAD_DELAY);
+  cardImageQueue.request(job, { immediate: state.loadedImages.has(key) });
 
   if (retryBtn) {
     retryBtn.onclick = ev => {
       ev.stopPropagation();
-      load(true);
+      retryNext = true;
+      cardImageQueue.request(job, { immediate: true });
     };
   }
   wrap.querySelector('.zoom-btn').onclick = ev => {
@@ -1145,11 +1158,11 @@ export function notifyImageLoadError(e) {
 
 export function cleanupCard(node) {
   cancelUiMotion(node);
-  if (node._imageTimer) {
-    clearTimeout(node._imageTimer);
-    node._imageTimer = 0;
+  // 还在排队的直接撤掉，一个字节都不花；在飞的由队列取消请求并空出名额
+  if (node._imageJob) {
+    cardImageQueue.cancel(node._imageJob);
+    node._imageJob = null;
   }
-  node._loadImage = null;
   const img = node.querySelector('.card-img');
   if (!img) return;
   const wrap = node.querySelector('.card-img-wrap');

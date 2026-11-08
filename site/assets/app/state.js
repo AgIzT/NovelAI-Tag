@@ -1,6 +1,5 @@
 export const VIRTUAL_BUFFER_UP = 0.8;
 export const VIRTUAL_BUFFER_DOWN = 1.4;
-export const IMAGE_LOAD_DELAY = 90;
 export const RELAYOUT_INTERVAL = 150;
 export const RELAYOUT_ANIM_MS = 320;
 export const DEFAULT_IMAGE_RATIO = 1.18;

@@ -35,6 +35,7 @@ import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntr
 import { setupPageGlow } from './app/page-glow.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
 import { isBirthday, BIRTHDAY_CODEX_ID } from './app/birthday.js';
+import { pickInitialCodex } from './app/initial-codex.js';
 import { dismissResumePrompt, setupResumePrompt } from './app/resume-prompt.js';
 import { isHistoryRestoreToken } from './app/browser-history.js';
 import { setupTagRelay } from './app/tag-relay.js';
@@ -286,11 +287,14 @@ export async function init() {
     const wantsFavorites = state.pendingUrlState.favorites || state.pendingUrlState.codex === FAVORITES_CODEX_ID;
     const wantsSiteSearch = !wantsFavorites && state.pendingUrlState.scope === 'site' && hasActiveSearchRoute(state.pendingUrlState);
     const initialMeta = findCodexMeta(state.pendingUrlState.codex);
-    // 所长生日那几天，没指定书的直接进站落到所长的书（birthday.js）；地址里写了书名的照旧
-    const birthdayMeta = isBirthday() ? findCodexMeta(BIRTHDAY_CODEX_ID) : null;
-    const initialId = initialMeta && !isCodexLocked(initialMeta)
-      ? initialMeta.id
-      : (birthdayMeta && !isCodexLocked(birthdayMeta) ? birthdayMeta.id : '') || firstUnlockedCodex()?.id || codexes[0]?.id;
+    // 所长生日那几天，没指定书的直接进站落到所长的书（birthday.js）；地址里写了书名的照旧。
+    // 规则与首屏数据预热共用（initial-codex.js），两边必须选中同一本，否则预热白下一本书。
+    const initialId = pickInitialCodex({
+      codexes,
+      requested: state.pendingUrlState.codex,
+      birthdayId: isBirthday() ? BIRTHDAY_CODEX_ID : '',
+      isLocked: isCodexLocked,
+    })?.id;
     if (initialMeta && isCodexLocked(initialMeta)) showNsfwLockedHint();
     if (codexes.length) {
       hideSkeleton(initSkeletonToken);
