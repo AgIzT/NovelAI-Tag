@@ -1547,6 +1547,45 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 }
 .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent),var(--shadow-hover);border-color:transparent}
 body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,transparent),var(--shadow-hover)}
+/* 悬停立体放手期间（滚动后、大图关闭后，指针还没挪开）：压住原有悬停样式，指针一动从静止状态起弹簧，不先闪回旧样式。
+   要排在下面 .depth-live 规则之前，同权重靠源序让活动卡赢。 */
+.masonry.depth-hold>.card:hover{box-shadow:var(--shadow);border-color:var(--line)}
+.masonry.depth-hold>.card:hover .card-img.is-loaded{transform:none}
+/* 悬停立体（card-depth.js）：只有鼠标下 / 手指按着的那张卡带 .depth-live，脚本逐帧只写数字变量，这里拼成倾斜、光和影。
+   倾斜进的是 masonry 位置模板末尾的 --card-tilt 槽；不能改用独立 rotate / scale，它们排在 transform 前面，会把位移一起转偏。
+   选择器带 .masonry> 与 :not(.card-retiring)，权重压过 body.dark .card:hover；光源当作在鼠标处，影子投向另一侧。 */
+.masonry>.card.depth-live:not(.card-retiring){
+  --card-tilt:perspective(900px) rotateX(var(--depth-rx,0deg)) rotateY(var(--depth-ry,0deg)) scale(var(--depth-s,1));
+  border-color:color-mix(in srgb,var(--line) clamp(0%,calc(100% - var(--depth-light,0) * 100%),100%),transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb,var(--accent) clamp(0%,calc(var(--depth-light,0) * var(--depth-ring)),100%),transparent),
+    var(--shadow),
+    calc(var(--depth-sx,0) * 1px) calc(var(--depth-sy,0) * 1px) calc(var(--depth-sb,12) * 1px) -6px
+      rgb(var(--depth-shadow-rgb) / clamp(0,calc(var(--depth-lift,0) * var(--depth-shadow-a)),1));
+}
+/* 倾斜、阴影由脚本逐帧驱动，原有的 transform / box-shadow 过渡会把每一帧拖慢；重排、测高、屏蔽补位时交还 masonry。 */
+.masonry:not(.is-relayouting):not(.is-measuring):not(.is-blocking-update)>.card.depth-live:not(.card-retiring){transition:opacity .16s}
+/* 反光：鼠标处一团白光，soft-light 叠在图上；白底文字区几乎看不出，靠下面的亮边 */
+.masonry>.card.depth-live:not(.card-retiring)::after{
+  content:"";position:absolute;inset:0;z-index:5;pointer-events:none;
+  background:radial-gradient(circle 260px at var(--depth-mx,50%) var(--depth-my,50%),
+    rgb(255 255 255 / clamp(0,calc(var(--depth-light,0) * var(--depth-sheen)),1)),transparent 72%);
+  mix-blend-mode:soft-light;
+}
+/* 亮边：卡边离鼠标近的那一段亮起（强调色掺白），浅色皮肤的白卡也看得出 */
+.masonry>.card.depth-live:not(.card-retiring)::before{
+  content:"";position:absolute;inset:0;z-index:8;pointer-events:none;border-radius:inherit;padding:1px;
+  background:radial-gradient(circle 220px at var(--depth-mx,50%) var(--depth-my,50%),
+    color-mix(in srgb,var(--accent) 78%,#fff),transparent 78%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+  opacity:clamp(0,var(--depth-light,0),1);
+}
+/* 图片朝鼠标反方向挪几像素，放大 4% 留余量；代替那一刻的 scale(1.035)。transition 去掉 transform，其余与 .card-img 原列表一致 */
+.masonry>.card.depth-live:not(.card-retiring) .card-img.is-loaded{
+  transform:translate3d(var(--depth-ix,0px),var(--depth-iy,0px),0) scale(var(--depth-is,1));
+  transition:opacity .3s ease,scale .45s cubic-bezier(.22,1,.36,1);
+}
 /* 复制签名 =「采样」：一圈采样环从卡片边缘扩出去（原方案 0→3px α.8→6px α0 / 340ms）。
    环必须画在卡片外侧，只能用 box-shadow——.card 有 overflow:hidden，伪元素撑不出去。
    配套的图面噪声与种子芯片在 app/copy-fx.js。 */

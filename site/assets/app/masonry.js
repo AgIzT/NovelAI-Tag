@@ -722,7 +722,8 @@ export function updateCardPosition(node, placement) {
   node.style.setProperty('--card-x', `${placement.left}px`);
   node.style.setProperty('--card-y', `${placement.top}px`);
   if (!node.style.getPropertyValue('--entry-offset')) node.style.setProperty('--entry-offset', '0px');
-  node.style.transform = 'translate3d(var(--card-x), calc(var(--card-y) + var(--entry-offset, 0px)), 0)';
+  // 末尾的 --card-tilt 是悬停倾斜的槽（card-depth.js），只有活动卡有值；空后备让静止卡的 transform 与原来逐字相同
+  node.style.transform = 'translate3d(var(--card-x), calc(var(--card-y) + var(--entry-offset, 0px)), 0) var(--card-tilt,)';
   const wrap = node.querySelector('.card-img-wrap');
   if (wrap && placement.imageHeight) wrap.style.height = `${placement.imageHeight}px`;
   const tags = node.querySelector('.card-tags');
@@ -968,14 +969,14 @@ function measureCardHeights(cards) {
   // 读阶段：第一张卡会结算上面的整批写入，随后读取不再反复弄脏布局。
   return prepared.map(card => {
     const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
-    const naturalTagsBoxHeight = card.tags ? card.tags.getBoundingClientRect().height : 0;
+    const naturalTagsBoxHeight = card.tags ? layoutHeight(card.tags) : 0;
     const tagsHeight = cfg.hideImageTags && hasEntryImage(card.placement.entry) ? 0 : card.tags
       ? clamp(naturalTagsHeight, cfg.minTagHeight, cfg.maxTagHeight)
       : card.placement.tagsHeight;
     const imageHeight = card.wrap && !card.wrap.hidden && getComputedStyle(card.wrap).display !== 'none'
-      ? card.wrap.getBoundingClientRect().height
+      ? layoutHeight(card.wrap)
       : 0;
-    const naturalBodyHeight = card.body ? card.body.getBoundingClientRect().height : 0;
+    const naturalBodyHeight = card.body ? layoutHeight(card.body) : 0;
     // body 是在 tags:auto 时读取的；扣掉自然标签盒、加回钳制后的盒高，
     // 即可保持旧版“先钳制标签再量 body”的结果，又不引入第二轮布局读取。
     const bodyHeight = card.tags
@@ -989,6 +990,12 @@ function measureCardHeights(cards) {
       measuredHeight: Math.ceil(imageHeight + bodyHeight),
     };
   });
+}
+
+/* 测高读布局高度，不读 getBoundingClientRect：悬停的卡带着倾斜和缩放（card-depth.js），外包框会大出几像素，
+   超过校准阈值就会把列挪一下再挪回。全站 box-sizing:border-box，平卡两种读法数值相同。 */
+function layoutHeight(el) {
+  return parseFloat(getComputedStyle(el).height) || 0;
 }
 
 export function calibrateCardHeights(cards) {
