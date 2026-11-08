@@ -27,10 +27,13 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <!-- Static cold-start hints; keep this origin in sync with data/media.json baseUrl. -->
 <link rel="preconnect" href="https://assets.quicktagcloud.com">
 <link rel="dns-prefetch" href="https://assets.quicktagcloud.com">
+<!-- 与 data-source.json 逐字段相同（test_data_source.mjs 断言），两者随同一次程序部署更新。
+     内联是为了省掉「先取配置、再取指针」的一跳：慢线路上这一跳实测要 0.3–9 秒。 -->
+<script type="application/json" id="data-source-config">{"schemaVersion":1,"baseUrl":"https://assets.quicktagcloud.com/data","pointer":"current.json","remoteHosts":["novelai.quicktagcloud.com"],"v2Pointer":"v2/current.json","dataPrefix":"data"}</script>
 <script>/* 数据链提前起跑：init() 要等整张模块图下完才开始拉数据，而法典 JSON 线上传输约 659KB，
    这会把首图发现推迟到模块、数据和布局之后；RUM 的 FCP/LCP 来自不同分位数，不能相减归因。
-   这里在解析到 <head> 时就把
-   前两跳（data-source.json → current.json）发出去，与模块下载重叠；data-source.js 认领这两个 Promise。
+   这里在解析到 <head> 时就读上方内联的数据源配置，并立刻发出指针请求（current.json），
+   与模块下载重叠；data-source.js 认领这两个 Promise。内联配置缺失或解析失败时退回请求 data-source.json。
    ⚠ 内联只复制 remoteHosts 主机门控，防止 Pages Preview 白发公网 R2 指针；配置/release 格式校验、
      代理与本地降级仍由 data-source.js 决定。认领失败或请求失败时，模块会自己重走完整流程。 */
 (()=>{try{
@@ -38,7 +41,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   /* 本地版/localhost 读本机 site/data，提前发跨域请求纯属浪费 */
   if(['localhost','127.0.0.1','::1'].includes(loc.hostname)||loc.protocol==='file:')return;
   const j=u=>fetch(u,{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
-  const config=j('data-source.json');
+  const inline=(()=>{try{const el=document.getElementById('data-source-config');return el?JSON.parse(el.textContent):null}catch(e){return null}})();
+  const config=inline&&typeof inline==='object'?Promise.resolve(inline):j('data-source.json');
   const boot={config,pointer:null,pointerPath:null,baseUrl:null};
   const pointer=config.then(c=>{
     const hosts=Array.isArray(c&&c.remoteHosts)?c.remoteHosts.map(String):[];
@@ -50,6 +54,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   config.catch(()=>{});pointer.catch(()=>{});   // 没人认领时别冒 unhandled rejection
   boot.pointer=pointer;window.__atlasBoot=boot;
 }catch(e){}})();</script>
+<!-- 首屏数据预热：独立的小模块，不等主模块图，接着上面的指针把 manifest、启动 JSON 和首屏法典先拉下来。 -->
+<script type="module" async src="assets/first-screen-prewarm.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
@@ -101,6 +107,54 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" href="assets/app/tag-relay-rail.js">
 <link rel="modulepreload" href="assets/app/tag-relay-compose.js">
 <link rel="modulepreload" href="assets/app/tag-relay.js">
+<!-- 以下是上面各模块再往下一层的静态依赖。漏写的模块要等上一层下完、解析完才被发现，慢线路上多等一整轮；
+     tools/test_module_preload.mjs 会核对整张静态 import 图，新增或删掉模块时照着它的提示同步这里。 -->
+<link rel="modulepreload" href="assets/site-metrics-contract.js">
+<link rel="modulepreload" href="assets/app/artist-core.js">
+<link rel="modulepreload" href="assets/app/artist-strip.js">
+<link rel="modulepreload" href="assets/app/birthday.js">
+<link rel="modulepreload" href="assets/app/birthday-fx.js">
+<link rel="modulepreload" href="assets/app/birthday-wall.js">
+<link rel="modulepreload" href="assets/app/birthday-wishes.js">
+<link rel="modulepreload" href="assets/app/browser-history.js">
+<link rel="modulepreload" href="assets/app/category-order.js">
+<link rel="modulepreload" href="assets/app/clipboard.js">
+<link rel="modulepreload" href="assets/app/clipboard-fallback.js">
+<link rel="modulepreload" href="assets/app/codex-route-compat.js">
+<link rel="modulepreload" href="assets/app/codex-switch.js">
+<link rel="modulepreload" href="assets/app/content-blocking.js">
+<link rel="modulepreload" href="assets/app/content-blocking-core.js">
+<link rel="modulepreload" href="assets/app/content-blocking-ui.js">
+<link rel="modulepreload" href="assets/app/fav-codex.js">
+<link rel="modulepreload" href="assets/app/favorites-backup.js">
+<link rel="modulepreload" href="assets/app/favorites-backup-core.js">
+<link rel="modulepreload" href="assets/app/favorites-backup-store.js">
+<link rel="modulepreload" href="assets/app/favorites-library-core.js">
+<link rel="modulepreload" href="assets/app/favorites-library-store.js">
+<link rel="modulepreload" href="assets/app/favorites-origin-migration.js">
+<link rel="modulepreload" href="assets/app/favorites-pickup.js">
+<link rel="modulepreload" href="assets/app/favorites-view.js">
+<link rel="modulepreload" href="assets/app/featured.js">
+<link rel="modulepreload" href="assets/app/image-queue.js">
+<link rel="modulepreload" href="assets/app/initial-codex.js">
+<link rel="modulepreload" href="assets/app/local-ownership.js">
+<link rel="modulepreload" href="assets/app/nai-default-tags.js">
+<link rel="modulepreload" href="assets/app/nai-sd.js">
+<link rel="modulepreload" href="assets/app/path-code.js">
+<link rel="modulepreload" href="assets/app/preferences-storage.js">
+<link rel="modulepreload" href="assets/app/prompt-fragments.js">
+<link rel="modulepreload" href="assets/app/prompt-weights.js">
+<link rel="modulepreload" href="assets/app/search-zh.js">
+<link rel="modulepreload" href="assets/app/select-menu.js">
+<link rel="modulepreload" href="assets/app/site-analytics.js">
+<link rel="modulepreload" href="assets/app/storage-coordinator.js">
+<link rel="modulepreload" href="assets/app/tag-relay-backup.js">
+<link rel="modulepreload" href="assets/app/tag-relay-editor.js">
+<link rel="modulepreload" href="assets/app/tag-relay-text.js">
+<link rel="modulepreload" href="assets/app/tag-relay-v4.js">
+<link rel="modulepreload" href="assets/app/tag-zh.js">
+<link rel="modulepreload" href="assets/app/tag-zh-core.js">
+<link rel="modulepreload" href="assets/app/updates.js">
 <!-- 内测预览横幅：**保留**（2026-08-20 改判）。正式域命中第一个 return，线上永不显示。
      ⚠ 日后真要撤，手删三处、别用 git revert：整个 assets/beta-banner.js + 本页这 2 行 + _headers 里那条 no-store。
      理由见 docs/decisions/预览分支内测发布.md。 -->

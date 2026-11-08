@@ -27,6 +27,15 @@ function extractInlineBootScript() {
 
 const inlineBootScript = extractInlineBootScript();
 
+function extractInlineConfigText() {
+  const match = /<script type="application\/json" id="data-source-config">([\s\S]*?)<\/script>/.exec(indexHtml);
+  assert.ok(match, 'index.html should inline the data source config before the boot script');
+  assert.ok(indexHtml.indexOf(match[0]) < indexHtml.indexOf('/* 数据链提前起跑：'), 'inline config must be parsed before the boot script runs');
+  return match[1];
+}
+
+const inlineConfigText = extractInlineConfigText();
+
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -43,7 +52,7 @@ function config(remoteHosts = ['novelai.quicktagcloud.com']) {
   });
 }
 
-async function runInlineBootCase({ hostname, protocol = 'https:', responses, basePath = '/' }) {
+async function runInlineBootCase({ hostname, protocol = 'https:', responses, basePath = '/', inlineConfig = null }) {
   const href = protocol === 'file:'
     ? 'file:///index.html'
     : `${protocol}//${hostname}${basePath}`;
@@ -58,7 +67,11 @@ async function runInlineBootCase({ hostname, protocol = 'https:', responses, bas
     return response;
   };
   const window = {};
+  const document = {
+    getElementById: id => (id === 'data-source-config' && inlineConfig !== null ? { textContent: inlineConfig } : null),
+  };
   runInNewContext(inlineBootScript, {
+    document,
     fetch,
     location: { href, hostname, protocol },
     window,
@@ -193,6 +206,48 @@ try {
     // 认领是一次性的，用过即作废，避免失败后被反复复用
     assert.equal(globalThis.__atlasBoot.config, null);
     assert.equal(globalThis.__atlasBoot.pointer, null);
+  }
+
+  /* 内联配置：与 data-source.json 逐字段相同，且解析到就直接发指针，省掉取配置那一跳 */
+  {
+    const fileConfig = JSON.parse(readFileSync(new URL('../site/data-source.json', import.meta.url), 'utf8'));
+    assert.deepEqual(JSON.parse(inlineConfigText), fileConfig, 'index.html 内联的数据源配置必须与 site/data-source.json 一致');
+
+    const pointerUrl = `${String(fileConfig.baseUrl).replace(/\/+$/, '')}/${fileConfig.v2Pointer || fileConfig.pointer}`;
+    const { boot, calls } = await runInlineBootCase({
+      hostname: 'novelai.quicktagcloud.com',
+      inlineConfig: inlineConfigText,
+      responses: { [pointerUrl]: jsonResponse({ release }) },
+    });
+    assert.deepEqual(calls.map(call => call.url), [pointerUrl], 'inline config should skip the data-source.json request');
+    assert.equal(calls[0].cache, 'no-store');
+    // vm 沙箱里建的对象原型不同，按 JSON 值比较
+    assert.deepEqual(JSON.parse(JSON.stringify(await boot.config)), fileConfig);
+    assert.equal(boot.pointerPath, fileConfig.v2Pointer || fileConfig.pointer);
+  }
+  {
+    const { boot, calls } = await runInlineBootCase({
+      hostname: 'preview.novelai-tag.pages.dev',
+      inlineConfig: inlineConfigText,
+      responses: {},
+    });
+    assert.equal(calls.length, 0, 'Pages Preview with inline config should not send any boot request');
+    assert.equal(await boot.pointer, null);
+  }
+  {
+    const { boot, calls } = await runInlineBootCase({
+      hostname: 'novelai.quicktagcloud.com',
+      inlineConfig: '{not json',
+      responses: {
+        'https://novelai.quicktagcloud.com/data-source.json': config(),
+        'https://assets.quicktagcloud.com/data/current.json': jsonResponse({ release }),
+      },
+    });
+    assert.deepEqual(calls.map(call => call.url), [
+      'https://novelai.quicktagcloud.com/data-source.json',
+      'https://assets.quicktagcloud.com/data/current.json',
+    ], 'broken inline config should fall back to fetching data-source.json');
+    assert.equal((await boot.pointer).release, release);
   }
 
   /* localhost 与 file: 保持零 boot 请求，避免本地/离线版意外触网 */
@@ -539,6 +594,126 @@ try {
     const { mod, calls } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
     await assert.rejects(mod.fetchDataJsonResult('demo.json'), /v2 proxy unavailable/);
     assert.equal(calls.some(item => item.url === proxy + 'current.json' || item.url === proxy + 'demo.json'), false);
+  }
+
+  /* 首屏数据预热：提前发出的对象请求由应用认领一次，不重复下载；认领后照常校验 */
+  const v2Responses = lab => ({
+    'https://novelai.quicktagcloud.com/data-source.json': v2Config(),
+    [direct + 'v2/current.json']: jsonResponse(lab.pointer),
+    [direct + lab.manifestPath]: () => new Response(lab.manifestBody),
+    ...Object.fromEntries(Object.values(lab.objects).map(item => [direct + item.key, () => new Response(item.body)])),
+  });
+  {
+    const lab = v2Fixture({ 'codexes.json': [{ id: 'book' }], 'media.json': { baseUrl: 'm' }, 'book.json': { id: 'book-data' } });
+    const { mod, calls } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses: v2Responses(lab) });
+    const started = await mod.prewarmDataFiles(['codexes.json', 'book.json', 'absent.json']);
+    assert.deepEqual(Object.keys(started).sort(), ['book.json', 'codexes.json'], 'absent logical files are skipped');
+    await Promise.all(Object.values(started));
+    const [index] = await mod.fetchDataJsonBatch(['codexes.json']);
+    const book = await mod.fetchDataJsonResult('book.json');
+    assert.equal(index.data[0].id, 'book');
+    assert.equal(index.source, 'r2');
+    assert.equal(book.data.id, 'book-data');
+    const bookUrl = direct + lab.objects['book.json'].key;
+    const countOf = url => calls.filter(item => item.url === url).length;
+    assert.equal(countOf(direct + lab.objects['codexes.json'].key), 1, 'claimed prewarm must not download codexes.json again');
+    assert.equal(countOf(bookUrl), 1, 'claimed prewarm must not download the book again');
+    assert.equal(countOf(direct + lab.manifestPath), 1);
+    // 认领只有一次：之后再读走普通请求
+    await mod.fetchDataJsonResult('book.json');
+    assert.equal(countOf(bookUrl), 2);
+  }
+  {
+    const lab = v2Fixture({ 'book.json': { id: 'recovered' } });
+    const bookUrl = direct + lab.objects['book.json'].key;
+    let attempts = 0;
+    const responses = { ...v2Responses(lab), [bookUrl]: () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('prewarm network failure');
+      return new Response(lab.objects['book.json'].body);
+    } };
+    const { mod } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses });
+    const started = await mod.prewarmDataFiles(['book.json']);
+    await assert.rejects(started['book.json']);
+    const result = await mod.fetchDataJsonResult('book.json');
+    assert.equal(result.data.id, 'recovered', 'a failed prewarm falls back to a normal request');
+    assert.equal(result.source, 'r2');
+    assert.equal(attempts, 2);
+  }
+  {
+    const lab = v2Fixture({ 'book.json': { id: 'abort-claim' } });
+    const { mod } = await loadCase({ hostname: 'novelai.quicktagcloud.com', responses: v2Responses(lab) });
+    await mod.prewarmDataFiles(['book.json']);
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(mod.fetchDataJsonResult('book.json', { signal: controller.signal }), { name: 'AbortError' });
+  }
+  for (const runtime of [
+    { hostname: 'localhost', protocol: 'http:', responses: {} },
+    { hostname: 'preview.novelai-tag.pages.dev', responses: (() => {
+      const lab = v2Fixture({ 'codexes.json': [{ id: 'p' }] });
+      const root = 'https://preview.novelai-tag.pages.dev/data/';
+      return {
+        'https://preview.novelai-tag.pages.dev/data-source.json': v2Config(),
+        [root + 'v2/current.json']: jsonResponse(lab.pointer),
+        [root + lab.manifestPath]: () => new Response(lab.manifestBody),
+      };
+    })() },
+  ]) {
+    const { mod, calls } = await loadCase(runtime);
+    const before = calls.length;
+    assert.deepEqual(await mod.prewarmDataFiles(['codexes.json']), {}, `${runtime.hostname} must not prewarm`);
+    assert.equal(calls.slice(before).some(item => item.url.includes('/objects/')), false);
+  }
+
+  /* 预热模块端到端：选中与 init() 同一本书（别名、成人书锁定），只预热这一本，应用随后认领 */
+  {
+    const lab = v2Fixture({
+      'codexes.json': [{ id: 'adult', nsfw: true }, { id: 'b', aliases: ['alias-b'] }, { id: 'c' }],
+      'media.json': { baseUrl: 'media' },
+      'about.json': { intro: 'about' },
+      'adult.json': { id: 'adult-data' },
+      'b.json': { id: 'b-data' },
+      'c.json': { id: 'c-data' },
+    });
+    const calls = [];
+    const responses = v2Responses(lab);
+    globalThis.fetch = async (url, options = {}) => {
+      const key = String(url);
+      calls.push({ url: key, cache: options.cache });
+      const response = responses[key];
+      if (typeof response === 'function') return response(options);
+      if (!response) throw new Error(`unexpected fetch ${key}`);
+      return response;
+    };
+    globalThis.location = { href: 'https://novelai.quicktagcloud.com/?c=alias-b', hostname: 'novelai.quicktagcloud.com', protocol: 'https:', pathname: '/', search: '?c=alias-b' };
+    globalThis.document = { baseURI: globalThis.location.href, body: null };
+    globalThis.localStorage = { getItem: () => null };
+    globalThis.__atlasBoot = {
+      config: Promise.resolve(JSON.parse(inlineConfigText)),
+      pointer: Promise.resolve(lab.pointer),
+      pointerPath: 'v2/current.json',
+      baseUrl: direct.slice(0, -1),
+    };
+    await import('../site/assets/first-screen-prewarm.js');
+    const objectUrl = path => direct + lab.objects[path].key;
+    for (let waited = 0; waited < 2000 && !calls.some(item => item.url === objectUrl('b.json')); waited += 10) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.ok(calls.some(item => item.url === objectUrl('b.json')), 'prewarm should fetch the requested book (resolved through its alias)');
+    assert.equal(calls.some(item => item.url === objectUrl('adult.json') || item.url === objectUrl('c.json')), false, 'only the first-screen book is prewarmed');
+    assert.equal(calls.some(item => item.url.endsWith('/v2/current.json')), false, 'the boot pointer is adopted, not fetched again');
+    const shared = await import('../site/assets/data-source.js');
+    const before = calls.length;
+    const [index, media, about] = await shared.fetchDataJsonBatch(['codexes.json', 'media.json', 'about.json']);
+    const book = await shared.fetchDataJsonResult('b.json');
+    assert.equal(index.data.length, 3);
+    assert.equal(media.data.baseUrl, 'media');
+    assert.equal(about.data.intro, 'about');
+    assert.equal(book.data.id, 'b-data');
+    assert.equal(calls.length, before, 'the app claims every prewarmed object without new requests');
+    delete globalThis.__atlasBoot;
+    delete globalThis.localStorage;
   }
   console.log('data-source tests passed');
 } finally {

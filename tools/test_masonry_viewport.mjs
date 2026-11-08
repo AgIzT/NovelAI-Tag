@@ -114,7 +114,8 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
   );
 }
 
-// 已有 DOM 节点也要随滚动/转屏重算：进入视口时立即认领 timer，离开或列数变化时清掉旧 high。
+// 已有 DOM 节点也要随滚动/转屏重算：离开第一行或列数变化时清掉旧 high。
+// 何时发图交给图片队列（test_image_queue.mjs），策略不再改 loading，真正发出时才统一设为 eager。
 {
   const attrs = new Map();
   const img = {
@@ -123,41 +124,17 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
     setAttribute: (name, value) => attrs.set(name, String(value)),
     removeAttribute: name => attrs.delete(name),
   };
-  let loadCount = 0;
-  const node = {
-    _imageTimer: 123,
-    _loadImage() {
-      loadCount += 1;
-      this._imageTimer = 0;
-    },
-    querySelector: selector => selector === '.card-img' ? img : null,
-  };
+  const node = { querySelector: selector => selector === '.card-img' ? img : null };
   const placement = { index: 2, top: 0, height: 300 };
 
-  applyCardImageLoadPolicy(node, placement, {
-    band: { top: 0, bottom: 434 },
-    columnCount: 4,
-    promote: true,
-  });
-  assert.equal(img.loading, 'eager');
+  applyCardImageLoadPolicy(node, placement, { band: { top: 0, bottom: 434 }, columnCount: 4 });
   assert.equal(attrs.get('fetchpriority'), 'high');
-  assert.equal(loadCount, 1, '进入真实可视带应跳过尚未触发的 90ms timer');
+  assert.equal(img.loading, 'lazy', '加载时机属于图片队列，策略刷新不得改 loading');
 
-  applyCardImageLoadPolicy(node, placement, {
-    band: { top: 0, bottom: 434 },
-    columnCount: 1,
-    promote: true,
-  });
-  assert.equal(img.loading, 'eager');
+  applyCardImageLoadPolicy(node, placement, { band: { top: 0, bottom: 434 }, columnCount: 1 });
   assert.equal(attrs.has('fetchpriority'), false, '转为单列后第 3 张图不得保留桌面首行 high');
-  assert.equal(loadCount, 1, '重复策略刷新不得重复发图请求');
 
-  applyCardImageLoadPolicy(node, placement, {
-    band: { top: 300, bottom: 600 },
-    columnCount: 1,
-    promote: true,
-  });
-  assert.equal(img.loading, 'lazy');
+  applyCardImageLoadPolicy(node, placement, { band: { top: 300, bottom: 600 }, columnCount: 1 });
   assert.equal(attrs.has('fetchpriority'), false);
 }
 

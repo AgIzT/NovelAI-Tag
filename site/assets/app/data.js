@@ -5,6 +5,7 @@ import { toast } from './feedback.js';
 import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource } from '../data-source.js';
 import { normalizeCategoryOrder, sortCategoryTree } from './category-order.js';
 import { stripNaiDefaultTags } from './nai-default-tags.js';
+import { codexMatches } from './initial-codex.js';
 
 const EMPTY_ABOUT = { links: [], tips: [], credits: [] };
 const codexLoads = new WeakMap(); // 共享 Promise → 请求与消费者；取消一个视图不打断其它视图
@@ -132,10 +133,8 @@ function localDataPath(url) {
   return match ? match[1] : '';
 }
 
-export function codexMatches(codex, id) {
-  if (!codex || !id) return false;
-  return codex.id === id || (codex.aliases || []).includes(id);
-}
+// 定义在 initial-codex.js：首屏数据预热要在主模块图下完之前用它，那里不能依赖 state。
+export { codexMatches };
 
 export function findCodexMeta(id) {
   return state.codexes.find(c => codexMatches(c, id));

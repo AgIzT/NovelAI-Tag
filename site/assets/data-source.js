@@ -9,6 +9,11 @@ const LOCAL_DATA_BASE = 'data';
 const CONFIG_URL = 'data-source.json';
 const DEMOTING_PATHS = new Set(['codexes.json', 'media.json']);
 const manifestPromises = new WeakMap();
+/* 首屏数据预热（first-screen-prewarm.js）先发出的 v2 对象请求，键是 release 锁定、内容寻址的对象 URL。
+   应用之后读同一对象时认领一次，省掉「等整张模块图下完才开始拉数据」那一段；认领后照常做大小与
+   SHA-256 校验，预热失败就当没发过、回到普通请求。没人认领的条目到期清掉，只占一会儿内存。 */
+const prewarmedObjects = new Map();
+const PREWARM_TTL_MS = 60000;
 let sourcePromise = null;
 let activeSource = { mode: 'local', baseUrl: LOCAL_DATA_BASE, release: '', publishedAt: '', degraded: false };
 
@@ -256,9 +261,48 @@ async function readSource(path, source, cache, signal) {
   const url = source.mode === 'r2' && meta
     ? joinBase(source.dataBaseUrl, objectPath(meta.sha256))
     : joinBase(source.baseUrl, logical);
-  const data = await readV2Json(manifest, logical, () => fetchBytesUrl(url, cache, signal));
+  const data = await readV2Json(manifest, logical, () => loadObjectBytes(url, source, cache, signal));
   signal?.throwIfAborted();
   return { data, url };
+}
+
+function loadObjectBytes(url, source, cache, signal) {
+  if (source.mode === 'r2' && cache === 'default') {
+    const pending = prewarmedObjects.get(url);
+    if (pending) {
+      prewarmedObjects.delete(url);
+      return awaitShared(pending, signal).catch(() => {
+        signal?.throwIfAborted();
+        return fetchBytesUrl(url, cache, signal);
+      });
+    }
+  }
+  return fetchBytesUrl(url, cache, signal);
+}
+
+/* 只给首屏数据预热用：在公网 R2 的 v2 release 上提前发出这些逻辑文件的对象请求，不解析、不校验。
+   返回 { 逻辑路径: Promise<Uint8Array> }，本地、代理、降级和旧格式 release 一律返回空对象。 */
+export async function prewarmDataFiles(paths) {
+  const source = await initializeDataSource();
+  if (source.mode !== 'r2' || !source.v2 || source.degraded) return {};
+  const manifest = await loadManifest(source);
+  const started = {};
+  for (const path of paths || []) {
+    const logical = normalizeKey(path);
+    const meta = Object.hasOwn(manifest.files, logical) ? manifest.files[logical] : null;
+    if (!meta) continue;
+    const url = joinBase(source.dataBaseUrl, objectPath(meta.sha256));
+    if (!prewarmedObjects.has(url)) {
+      const pending = fetchBytesUrl(url, 'default');
+      pending.catch(() => {});
+      prewarmedObjects.set(url, pending);
+      setTimeout(() => {
+        if (prewarmedObjects.get(url) === pending) prewarmedObjects.delete(url);
+      }, PREWARM_TTL_MS);
+    }
+    started[logical] = prewarmedObjects.get(url);
+  }
+  return started;
 }
 
 function normalizeBatchRequest(request) {
