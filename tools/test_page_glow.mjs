@@ -9,12 +9,44 @@ const tokens = readFileSync(new URL('../site/assets/tokens.css', import.meta.url
 const close = (a, b, label, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${label}: ${a} ≠ ${b}`);
 
 // 动态层 t=0 那一帧必须和静态光晕 --page-wash 一模一样：开场幕布、停用淡出都靠它接缝。两边几何从源码对照，防漂移。
-const wash = tokens.match(/body\.theme-dream\{[^}]*--page-wash:([^}]*)\}/);
-assert.ok(wash, 'tokens.css 里找不到梦境的 --page-wash');
+const wash = tokens.match(/^body\{--page-wash:([^}]*)\}/m);
+assert.ok(wash, 'tokens.css 里找不到各皮肤共用的 body{--page-wash:…}');
 const gradients = [...wash[1].matchAll(/radial-gradient\((\d+)vmax (\d+)vmax at (\d+)% (\d+)%,var\(--glow-(\d)\),transparent 72%\)/g)];
 assert.equal(gradients.length, 2, '--page-wash 应是两段 radial-gradient，颜色走 --glow-1 / --glow-2');
-for (const name of ['--glow-1', '--glow-2', '--glow-3']) {
-  assert.match(tokens, new RegExp(`body\\.theme-dream\\{[^}]*${name}:#[0-9a-f]{6}`), `梦境缺少 ${name}`);
+assert.match(tokens, /^body:not\(\.dark\)::before\{[^}]*background:var\(--page-wash\)\}/m, '浅色档的静态光晕应铺 --page-wash');
+
+// 每套皮肤的浅色块：按分号切成声明再取值。漏一个分号时后一个变量会被前一个吞掉，这里就会报缺
+const SKINS = ['dream', 'teal', 'sakura', 'amber', 'indigo', 'ink'];
+const skinVars = id => {
+  const block = tokens.match(new RegExp(`^body\\.theme-${id}\\{([^}]*)\\}`, 'm'));
+  assert.ok(block, `tokens.css 里找不到 body.theme-${id}{…}`);
+  return Object.fromEntries(block[1].split(';').map(d => d.trim()).filter(Boolean).map(d => {
+    const i = d.indexOf(':');
+    return [d.slice(0, i).trim(), d.slice(i + 1).trim()];
+  }));
+};
+const luminance = hex => {
+  const [r, g, b] = [1, 3, 5].map(i => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+// 灰字直接压在光晕上：对底色和三种光晕色都不低于梦境现行的约 4.4:1（梦境 #5c6275 最低 4.39）
+const MUTED_MIN = 4.35;
+for (const id of SKINS) {
+  const v = skinVars(id);
+  for (const name of ['--bg', '--muted', '--glow-1', '--glow-2', '--glow-3', '--glow-spot']) {
+    assert.match(v[name] || '', /^#[0-9a-f]{6}$/, `${id} 的 ${name} 应是六位十六进制色：${v[name]}`);
+  }
+  for (const surface of ['--bg', '--glow-1', '--glow-2', '--glow-3']) {
+    const ratio = contrast(v['--muted'], v[surface]);
+    assert.ok(ratio >= MUTED_MIN, `${id} 的灰字压在 ${surface} 上只有 ${ratio.toFixed(2)}:1`);
+  }
 }
 
 for (const [vw, vh] of [[1440, 800], [390, 844], [1920, 1080]]) {

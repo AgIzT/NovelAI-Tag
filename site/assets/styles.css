@@ -42,7 +42,7 @@ body{
   font-size:14px;line-height:1.5;
 }
 button{font-family:inherit;cursor:pointer}
-/* 梦境动态背景（app/page-glow.js）：body 末尾的不透明画布，与 body::before 的静态光晕同为 z-index:-1，
+/* 动态背景（app/page-glow.js）：body 末尾的不透明画布，与 body::before 的静态光晕同为 z-index:-1，
    靠 DOM 顺序盖在它上面；停用时淡出，露出底下一模一样的静态光晕，淡完再藏起来。 */
 .page-glow{
   position:fixed;inset:0;z-index:-1;pointer-events:none;
@@ -3273,8 +3273,8 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border-bottom:1px solid var(--line);
   }
-  /* 梦境浅色有页面光晕：白色蒙层静止时会切出一条白带，吸顶压到图片上才需要它（.is-stuck 见 ui.js） */
-  body.theme-dream:not(.dark) .chip-rail:not(.is-stuck){background:transparent;border-bottom-color:transparent}
+  /* 浅色档有页面光晕：白色蒙层静止时会切出一条白带，吸顶压到图片上才需要它（.is-stuck 见 ui.js） */
+  body:not(.dark) .chip-rail:not(.is-stuck){background:transparent;border-bottom-color:transparent}
   .main.skeleton-visible .chip-rail:empty{min-height:46px}
   .main.skeleton-visible .chip-rail:empty::before{
     width:70px;height:29px;
@@ -3373,7 +3373,7 @@ html.vt-arrived .float-actions{animation:none}
 /* skeleton-visible 的 0.72 变暗恢复时平滑过渡，不再瞬跳 */
 .codex-banner,.chip-rail,.result-bar{transition:opacity .25s ease}
 @media (max-width:600px) and (prefers-reduced-motion:no-preference){
-  body.theme-dream:not(.dark) .chip-rail{transition:opacity .25s ease,background-color .18s ease,border-color .18s ease}
+  body:not(.dark) .chip-rail{transition:opacity .25s ease,background-color .18s ease,border-color .18s ease}
 }
 
 /* 分类胶囊错峰荡入：胶囊每次换法典都是 innerHTML 重建的新节点，插入即播（同横幅子元素模式，免疫 display 重启）；
@@ -3459,7 +3459,7 @@ html.intro-arm .intro-stage{
   display:block;position:fixed;inset:0;z-index:90;pointer-events:none;
 }
 html.intro-arm .intro-veil{position:absolute;inset:0;background:var(--bg);pointer-events:auto}
-html.intro-arm body.theme-dream:not(.dark) .intro-veil{background:var(--page-wash),var(--bg)}
+html.intro-arm body:not(.dark) .intro-veil{background:var(--page-wash,none),var(--bg)}   /* 没有光晕色时 --page-wash 落空，退回纯底色 */
 /* 牌堆：站里同款卡片的背面叠成一副牌，等数据时由 intro.js 切牌；开幕时首排几张从牌顶翻面飞到各自的位置。
    尺寸照首排卡片估：竖图（753×1100）+ 卡身；桌面宽随视口在 172–236px 之间，手机取 40vw。
    放在屏幕中间偏上：开幕后首排就在它两侧和下方，发牌的路线以横向为主。 */

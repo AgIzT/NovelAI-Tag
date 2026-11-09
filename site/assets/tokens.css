@@ -24,27 +24,35 @@
   --danger:#d74b66; --danger-text:#c33f59;
 }
 /* ============ 主题色（换肤）：每套含 light + dark，与深浅色正交；默认梦境 ============ */
-body.theme-teal{--bg:#eaeef5;--panel:#ffffff;--card:#ffffff;--text:#22304a;--muted:#7d8aa3;--line:#dbe2ee;--accent:#0fa173;--accent-soft:#dff4ea;--tagbg:#f1f4f9;--tagbg-hover:#e8eef6;--accent-glow:rgba(15,161,115,.18);--on-accent:#131316}
+body.theme-teal{--bg:#eaeef5;--panel:#ffffff;--card:#ffffff;--text:#22304a;--muted:#5a6881;--line:#dbe2ee;--accent:#0fa173;--accent-soft:#dff4ea;--tagbg:#f1f4f9;--tagbg-hover:#e8eef6;--accent-glow:rgba(15,161,115,.18);--on-accent:#131316;
+  --glow-1:#c5eedc;--glow-2:#e4f2c0;--glow-3:#cdeee8;--glow-spot:#92d6c4}
 body.theme-teal.dark{--text:#e4e9f3;--muted:#7e8aa0;--accent:#2ecb86;--accent-soft:#14352a;--accent-glow:rgba(46,203,134,.20)}
-body.theme-sakura{--bg:#fbf4f1;--panel:#fffaf7;--card:#ffffff;--text:#3d3034;--muted:#a18d92;--line:#f0dde0;--accent:#e0577f;--accent-soft:#fce8ee;--tagbg:#faf1ef;--tagbg-hover:#f7e9e7;--new:#c2342d;--accent-glow:rgba(224,87,127,.18);--on-accent:#131316}
+body.theme-sakura{--bg:#fbf4f1;--panel:#fffaf7;--card:#ffffff;--text:#3d3034;--muted:#705f64;--line:#f0dde0;--accent:#e0577f;--accent-soft:#fce8ee;--tagbg:#faf1ef;--tagbg-hover:#f7e9e7;--new:#c2342d;--accent-glow:rgba(224,87,127,.18);--on-accent:#131316;
+  --glow-1:#ffd3df;--glow-2:#ffe0c9;--glow-3:#fcd8d3;--glow-spot:#f4b1ba}
 body.theme-sakura.dark{--text:#f2e6ea;--muted:#9c8790;--accent:#f08fb0;--accent-soft:#3d2230;--new:#e0577f;--accent-glow:rgba(240,143,176,.20)}
-body.theme-amber{--bg:#f4eee1;--panel:#faf6ec;--card:#ffffff;--text:#2b261e;--muted:#94896f;--line:#e0d5bb;--accent:#a87f2f;--accent-soft:#f1e7cd;--tagbg:#f5f0e3;--tagbg-hover:#efe7d2;--new:#b5452f;--accent-glow:rgba(168,127,47,.18);--on-accent:#131316}
+body.theme-amber{--bg:#f4eee1;--panel:#faf6ec;--card:#ffffff;--text:#2b261e;--muted:#69604e;--line:#e0d5bb;--accent:#a87f2f;--accent-soft:#f1e7cd;--tagbg:#f5f0e3;--tagbg-hover:#efe7d2;--new:#b5452f;--accent-glow:rgba(168,127,47,.18);--on-accent:#131316;
+  --glow-1:#f3da9c;--glow-2:#efe0bb;--glow-3:#f6d6aa;--glow-spot:#efc66e}
 body.theme-amber.dark{--text:#e9e0cd;--muted:#8d8268;--accent:#d2a651;--accent-soft:#332a1a;--new:#e06a52;--accent-glow:rgba(210,166,81,.20)}
-body.theme-indigo{--bg:#eaeef7;--panel:#ffffff;--card:#ffffff;--text:#1e2740;--muted:#7b859f;--line:#dce2ef;--accent:#2563c9;--accent-soft:#e2ebfb;--tagbg:#eff3fa;--tagbg-hover:#e5ecf8;--accent-glow:rgba(37,99,201,.18)}
+body.theme-indigo{--bg:#eaeef7;--panel:#ffffff;--card:#ffffff;--text:#1e2740;--muted:#545e77;--line:#dce2ef;--accent:#2563c9;--accent-soft:#e2ebfb;--tagbg:#eff3fa;--tagbg-hover:#e5ecf8;--accent-glow:rgba(37,99,201,.18);
+  --glow-1:#c6d6ff;--glow-2:#c2e8f6;--glow-3:#cfe0fb;--glow-spot:#9fbded}
 body.theme-indigo.dark{--text:#e4eaf6;--muted:#7e8aa4;--accent:#5b9bf5;--accent-soft:#122744;--accent-glow:rgba(91,155,245,.20)}
 /* 素墨=无彩：界面退到灰阶，颜色全让给图。深色档 accent 是亮灰，必须把 --on-accent 压深，
    否则全站 accent 底上的白字（约 27 处）会糊成一片——有彩皮肤靠色相撑得住，灰阶撑不住。 */
-body.theme-ink{--bg:#f1f1f3;--panel:#ffffff;--card:#ffffff;--text:#1c1c21;--muted:#82828d;--line:#e3e3e8;--accent:#3c3c45;--accent-soft:#e7e7ec;--tagbg:#f0f0f4;--tagbg-hover:#e8e8ee;--accent-glow:rgba(60,60,69,.16)}
+body.theme-ink{--bg:#f1f1f3;--panel:#ffffff;--card:#ffffff;--text:#1c1c21;--muted:#5e5e67;--line:#e3e3e8;--accent:#3c3c45;--accent-soft:#e7e7ec;--tagbg:#f0f0f4;--tagbg-hover:#e8e8ee;--accent-glow:rgba(60,60,69,.16);
+  --glow-1:#dadbe0;--glow-2:#e6e2d8;--glow-3:#d6d8dd;--glow-spot:#c8c9cf}
 body.theme-ink.dark{--text:#eaeaef;--muted:#85858f;--accent:#c8c8d2;--accent-soft:#2b2b32;--accent-glow:rgba(200,200,210,.16);--on-accent:#131316}
-/* 梦境=页面两角光晕 + 纯色控件。渐变只铺最底层，卡片、按钮、选中项都不再叠一段：
-   同一对颜色在一屏里以两种长度出现会撞色。--muted 比其它皮肤深，因为灰字直接压在光晕上。深色档没有光晕。
-   主站另有动态层（app/page-glow.js）在这层光晕上面画同样的两团光并让它们呼吸，颜色读 --glow-1/2/3、几何照抄 --page-wash，
-   两边改一处就要同改另一处（test_page_glow.mjs 有防漂移断言）。 */
 body.theme-dream{--bg:#f7f7fb;--panel:#ffffff;--card:#ffffff;--text:#232a3c;--muted:#5c6275;--line:#e3e3f0;--accent:#6f59fb;--accent-soft:#ece9fe;--tagbg:#f3f3fb;--tagbg-hover:#ebebf8;--accent-glow:rgba(111,89,251,.18);
-  --glow-1:#dbddff;--glow-2:#ffd0d0;--glow-3:#ebdcff;
-  --page-wash:radial-gradient(70vmax 52vmax at 0% 0%,var(--glow-1),transparent 72%),radial-gradient(70vmax 56vmax at 100% 6%,var(--glow-2),transparent 72%)}
+  --glow-1:#dbddff;--glow-2:#ffd0d0;--glow-3:#ebdcff;--glow-spot:#c8b7fe}
 body.theme-dream.dark{--text:#e8eaf3;--muted:#8a91a6;--accent:#a596ff;--accent-soft:#2a2356;--accent-glow:rgba(165,150,255,.22)}
-body.theme-dream:not(.dark)::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:var(--page-wash)}
+/* 页面光晕：每套皮肤浅色档都在页面两角铺一层光晕，控件保持纯色。渐变只铺最底层，卡片、按钮、选中项都不再叠一段：
+   同一对颜色在一屏里以两种长度出现会撞色。深色档没有光晕。
+   - 颜色在各皮肤块里：--glow-1 左上、--glow-2 右上、--glow-3 底部第三色（只有动态层画）、--glow-spot 指尖光。
+     每套只用自己色系里的颜色，别和梦境的「蓝紫 + 粉」撞。
+   - 灰字直接压在光晕上，所以各皮肤的 --muted 都比纯色底时深：压在底色和三种光晕色上都不低于梦境的水平（约 4.4:1）。
+   - 主站另有动态层（app/page-glow.js）在这层光晕上面画同样的两团光并让它们呼吸，几何照抄 --page-wash，
+     两边改一处就要同改另一处（test_page_glow.mjs 有防漂移断言）。没有光晕色的页面 var() 落空，什么都不画。 */
+body{--page-wash:radial-gradient(70vmax 52vmax at 0% 0%,var(--glow-1),transparent 72%),radial-gradient(70vmax 56vmax at 100% 6%,var(--glow-2),transparent 72%)}
+body:not(.dark)::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:var(--page-wash)}
 
 /* 深色 = 纯黑。底色就是 #000，面/线/标签底靠 color-mix 往黑里掺一点 accent，
    所以每套皮肤在黑底上各自还留着色相，而不是一模一样的灰。

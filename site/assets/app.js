@@ -240,7 +240,7 @@ export async function init() {
   try {
     /* 开场脚本先起跑，不等任何网络请求：牌堆切牌就是数据加载期的等待画面 */
     startIntro();
-    // 梦境的背景动效同样不等网络：幕布底下先画好 t=0 那一帧（与静态光晕一致），开幕后才开始呼吸
+    // 背景动效同样不等网络：幕布底下先画好 t=0 那一帧（与静态光晕一致），开幕后才开始呼吸
     setupPageGlow({ enabled: readPreference(PAGE_GLOW_STORAGE_KEY) !== '0' });
     // 卡片悬停立体：只绑全局监听，开场期间不动，卡片出来后鼠标挪到卡上才起
     setupCardDepth();

@@ -36,7 +36,7 @@ export const RECENT_STORAGE_KEY = 'fadian-recent';
 export const LAST_BROWSE_STORAGE_KEY = 'fadian-last-browse';
 export const RECENT_ENTRY_LIMIT = 18;
 export const CARD_ZOOM_STORAGE_KEY = 'fadian-card-zoom';
-/* 梦境浅色的背景动效（page-glow.js）；没存过视为开，'0' 才关 */
+/* 浅色档的背景动效（page-glow.js，各皮肤共用）；没存过视为开，'0' 才关 */
 export const PAGE_GLOW_STORAGE_KEY = 'fadian-page-glow';
 export const SEARCH_SCOPE_STORAGE_KEY = 'fadian-search-scope';
 export const DEFAULT_SEARCH_SCOPE = 'site';
