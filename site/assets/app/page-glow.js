@@ -1,8 +1,9 @@
-/* 梦境动态背景：梦境浅色下，页面两角的光晕慢慢呼吸；电脑上再带一团跟着鼠标的光（触屏不响应，手机只呼吸）。
+/* 动态背景：各皮肤浅色档下，页面两角的光晕慢慢呼吸；电脑上再带一团跟着鼠标的光（触屏不响应，手机只呼吸）。
    - 只动页面最底层：body 末尾一张不透明画布（.page-glow），盖在 body::before 的静态光晕上；卡片、顶栏、控件都不碰。
    - 画布只有视口的 1/6，由浏览器放大铺满：光团本来就是糊的，放大看不出差别，也不用给每团光单独建整屏合成层。
    - t=0 那一帧与 tokens.css 的 --page-wash 完全一致：开场幕布带的是静态光晕，开幕时接得上；停用时淡出也接得上。
-   - 不动的情形：设置里关掉、系统「减少动态效果」、motion=off、其它皮肤、深色档。词条详情打开时暂停（遮罩的毛玻璃会每帧重新模糊）。
+   - 颜色读当前皮肤的 --glow-1/2/3 与 --glow-spot；换皮肤、切深浅色时由 ui.js 调 syncPageGlow 重读，逐帧不读样式。
+   - 不动的情形：设置里关掉、系统「减少动态效果」、motion=off、深色档、皮肤没有光晕色。词条详情打开时暂停（遮罩的毛玻璃会每帧重新模糊）。
    决策见本地私有文档 docs/decisions/梦境动态背景.md。 */
 
 import { prefersReducedMotion } from './utils.js';
@@ -54,24 +55,29 @@ const hex = value => {
 const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
 
+// 逐帧会调，只看类名和开关；皮肤有没有光晕色由 syncPageGlow 读样式时一并判断
 function shouldRun() {
   const body = document.body;
-  return Boolean(body) && glow.enabled
-    && body.classList.contains('theme-dream') && !body.classList.contains('dark')
+  return Boolean(body) && glow.enabled && !body.classList.contains('dark')
     && !document.documentElement.classList.contains('motion-off') && !prefersReducedMotion();
 }
 
+// 读当前皮肤的光晕色；没有 --glow-1/2 的页面或皮肤返回 false，动态层不起
 function readPalette() {
   const cs = getComputedStyle(document.body);
-  const get = (name, fallback) => hex(cs.getPropertyValue(name)) || fallback;
-  const glow3 = get('--glow-3', [235, 220, 255]);
+  const get = name => hex(cs.getPropertyValue(name));
+  const g1 = get('--glow-1');
+  const g2 = get('--glow-2');
+  if (!g1 || !g2) { glow.pal = null; return false; }
+  const g3 = get('--glow-3') || g1;
   glow.pal = {
-    bg: get('--bg', [247, 247, 251]),
-    1: get('--glow-1', [219, 221, 255]),
-    2: get('--glow-2', [255, 208, 208]),
-    3: glow3,
-    spot: mix(glow3, get('--accent', [111, 89, 251]), 0.28),
+    bg: get('--bg') || [247, 247, 251],
+    1: g1,
+    2: g2,
+    3: g3,
+    spot: get('--glow-spot') || mix(g3, get('--accent') || g1, 0.28),
   };
+  return true;
 }
 
 function ensureLayer() {
@@ -191,10 +197,9 @@ function tick(now) {
 /* 按当前皮肤 / 深浅色 / 开关 / 动效偏好开或关。fade 只给设置开关用：换皮肤、切深色时静态光晕本来也是立刻变的，
    动态层跟着立刻换，免得浅色光晕在黑底上慢慢褪掉。 */
 export function syncPageGlow({ fade = false } = {}) {
-  const want = shouldRun();
+  const want = shouldRun() && readPalette();
   if (want) {
     ensureLayer();
-    readPalette();
     resize();
     draw();   // 先画好再显形，第一眼就是对的
     if (!glow.live) {

@@ -2599,23 +2599,32 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         if len(set(accents.values())) != len(accents):
             raise CheckFailed("有皮肤共用同一个 accent：%s" % accents)
 
-        # 1b) 梦境：光晕只在浅色档、铺在内容后面；手机选择栏静止透明，吸顶后恢复蒙层；其它皮肤都不受影响
+        # 1b) 页面光晕：每套皮肤都只在浅色档铺、铺在内容后面、颜色各不相同；手机选择栏静止透明，吸顶后恢复蒙层
         wash_expr = """(() => {
   const s = getComputedStyle(document.body, '::before');
   return { content: s.content, image: s.backgroundImage, position: s.position, zIndex: s.zIndex };
 })()"""
         rail_bg_expr = "getComputedStyle(document.querySelector('#chipRail')).backgroundColor"
+        skins = ["dream", "teal", "sakura", "amber", "indigo", "ink"]
+        click('#darkModeControl [data-dark-mode="light"]')
+        washes = {}
+        for skin in skins:
+            click('#themeControl [data-theme="%s"]' % skin)
+            settle(cdp, 120)
+            wash = cdp.eval(wash_expr)
+            if "radial-gradient" not in wash["image"] or wash["position"] != "fixed" or wash["zIndex"] != "-1":
+                raise CheckFailed("%s 浅色档没有铺光晕：%s" % (skin, wash))
+            washes[skin] = wash["image"]
+        if len(set(washes.values())) != len(washes):
+            raise CheckFailed("有皮肤的光晕配色相同：%s" % washes)
+        click('#darkModeControl [data-dark-mode="dark"]')
+        for skin in skins:
+            click('#themeControl [data-theme="%s"]' % skin)
+            settle(cdp, 80)
+            if cdp.eval(wash_expr)["content"] != "none":
+                raise CheckFailed("%s 深色档不该有光晕：%s" % (skin, cdp.eval(wash_expr)))
         click('#darkModeControl [data-dark-mode="light"]')
         click('#themeControl [data-theme="dream"]')
-        settle(cdp, 150)
-        wash = cdp.eval(wash_expr)
-        if "radial-gradient" not in wash["image"] or wash["position"] != "fixed" or wash["zIndex"] != "-1":
-            raise CheckFailed("梦境浅色档没有铺光晕：%s" % wash)
-        click('#darkModeControl [data-dark-mode="dark"]')
-        settle(cdp, 150)
-        if cdp.eval(wash_expr)["content"] != "none":
-            raise CheckFailed("梦境深色档不该有光晕：%s" % cdp.eval(wash_expr))
-        click('#darkModeControl [data-dark-mode="light"]')
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         wait_for(cdp, "document.querySelector('#chipRail .rail-chip') && document.querySelectorAll('.card').length >= 4", "theme axes rail", timeout=15)
         cdp.eval("scrollTo(0, 0)")
@@ -2632,9 +2641,15 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         settle(cdp, 200)
         click('#themeControl [data-theme="teal"]')
         settle(cdp, 400)
-        rail_default = cdp.eval(rail_bg_expr)
-        if cdp.eval(wash_expr)["content"] != "none" or rail_default == "rgba(0, 0, 0, 0)":
-            raise CheckFailed("青翠皮肤被梦境的光晕或选择栏规则影响：%s" % rail_default)
+        rail_teal = cdp.eval(rail_bg_expr)
+        if rail_teal != "rgba(0, 0, 0, 0)":
+            raise CheckFailed("青翠手机选择栏静止时也应透明：%s" % rail_teal)
+        click('#darkModeControl [data-dark-mode="dark"]')
+        settle(cdp, 300)
+        rail_dark = cdp.eval(rail_bg_expr)
+        if rail_dark == "rgba(0, 0, 0, 0)":
+            raise CheckFailed("深色档没有光晕，手机选择栏应保留蒙层：%s" % rail_dark)
+        click('#darkModeControl [data-dark-mode="light"]')
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
         settle(cdp, 200)
 
@@ -2793,15 +2808,22 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("document.documentElement.classList.remove('lightbox-open')")
         wait_state("running", "page glow resumes")
 
-        # 其它皮肤、深色档不跑，换回梦境浅色立刻恢复（不等淡入）
-        click('#themeControl [data-theme="teal"]')
-        if state() != "off" or cdp.eval("document.querySelector('.page-glow').classList.contains('is-live')"):
-            raise CheckFailed("青翠皮肤不该有动态背景：%s" % state())
-        click('#themeControl [data-theme="dream"]')
-        wait_state("running", "page glow back on dream")
+        # 每套皮肤浅色档都跑，换皮肤立刻换成那套的光晕色；深色档不跑，换回浅色立刻恢复（不等淡入）
+        for skin in ["teal", "sakura", "amber", "indigo", "ink", "dream"]:
+            click('#themeControl [data-theme="%s"]' % skin)
+            wait_state("running", "page glow on %s" % skin)
+            want = cdp.eval("getComputedStyle(document.body).getPropertyValue('--glow-1').trim()")
+            want_rgb = tuple(int(want[i:i + 2], 16) for i in (1, 3, 5))
+            got = pixel(2, 2)
+            if max(abs(a - b) for a, b in zip(got, want_rgb)) > 14:
+                raise CheckFailed("%s 左上角应接近 --glow-1 %s：%s" % (skin, want, got))
         click('#darkModeControl [data-dark-mode="dark"]')
         if state() != "off":
-            raise CheckFailed("梦境深色档不该有动态背景：%s" % state())
+            raise CheckFailed("深色档不该有动态背景：%s" % state())
+        click('#themeControl [data-theme="teal"]')
+        if state() != "off":
+            raise CheckFailed("青翠深色档不该有动态背景：%s" % state())
+        click('#themeControl [data-theme="dream"]')
         click('#darkModeControl [data-dark-mode="light"]')
         wait_state("running", "page glow back on light")
 

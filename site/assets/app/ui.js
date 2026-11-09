@@ -586,7 +586,7 @@ export function bindUI() {
   if (cardZoomToggle) cardZoomToggle.onchange = e => applyCardZoom(e.target.checked);
   applyCardZoom(readPreference(CARD_ZOOM_STORAGE_KEY) === '1', { persist: false });
 
-  /* 背景动效：只作用于梦境浅色（page-glow.js）。关掉回到静态光晕；动画本身由 app.js 启动时按同一偏好起好 */
+  /* 背景动效：作用于各皮肤的浅色档（page-glow.js）。关掉回到静态光晕；动画本身由 app.js 启动时按同一偏好起好 */
   const pageGlowToggle = $('#pageGlowToggle');
   let pageGlowOn = readPreference(PAGE_GLOW_STORAGE_KEY) !== '0';
   const applyPageGlow = on => {
