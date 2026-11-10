@@ -99,6 +99,21 @@ function button(text, className = '', handler) {
   if (handler) node.addEventListener('click', handler);
   return node;
 }
+// 换了网址、这台浏览器还没找回过旧网址收藏：用过一次（找回或确认旧网址没有）之前，收藏里一直给入口。
+// 按钮只带 data 属性，点击由 favorites-origin-migration.js 在根节点委托处理。
+function moveOffer() {
+  return document.body.classList.contains('local-edition') ? null : favoritesMigrationOffer();
+}
+function moveControls(className = 'panel-action is-primary') {
+  const start = button('找回旧收藏', className);
+  start.dataset.favoritesMigrationStart = '';
+  const feedback = element('p', 'favorites-move-feedback');
+  feedback.dataset.favoritesMigrationFeedback = '';
+  feedback.setAttribute('role', 'status');
+  feedback.setAttribute('aria-live', 'polite');
+  feedback.hidden = true;
+  return [start, feedback];
+}
 function input(placeholder) {
   const node = element('input', 'panel-input favorites-input');
   node.type = 'text';
@@ -352,6 +367,22 @@ export function renderFavoritesHeader() {
     head.append(title, controls);
     header.append(head);
   }
+  // 空收藏时由空状态的大卡片给入口；有收藏时在头部常驻一行，免得先收藏了几条的人看不到
+  const move = moveOffer();
+  const moveInHeader = move && library().items.length ? move : null;
+  let moveBar = header.querySelector('.favorites-move-bar');
+  if (moveInHeader && !moveBar) {
+    moveBar = element('div', 'favorites-move-bar');
+    const text = element('span', 'favorites-move-text', '以前在 ');
+    text.append(
+      element('span', 'favorites-move-host', new URL(move.oldOrigin).host),
+      element('span', 'favorites-move-host-short', '旧网址'),
+      ' 收藏过？',
+    );
+    moveBar.append(text, ...moveControls('panel-action is-primary is-sm'));
+    header.append(moveBar);
+  }
+  if (moveBar) moveBar.hidden = !moveInHeader;
   header.querySelector('h1').textContent = folderTitle();
   header.querySelector('.favorites-heading .favorites-count').textContent = (hasFilter ? shown + ' / ' + all : all) + ' 项';
   const selection = header.querySelector('.favorites-selection-toggle');
@@ -404,27 +435,17 @@ export function renderFavoritesHeader() {
   const empty = byId('empty');
   const emptyMessage = !library().items.length ? '还没有收藏。点卡片标题旁的 ☆ 收藏词条。'
     : hasFilter ? '没有匹配的收藏。' : state.favFolder === '_unsorted' ? '收藏都已归类。' : '这个收藏夹还没有内容。';
-  // 换了网址的空收藏先给找回入口；点击由 favorites-origin-migration.js 在根节点委托处理
-  const move = !library().items.length && !document.body.classList.contains('local-edition')
-    ? favoritesMigrationOffer() : null;
-  const emptyKey = move ? emptyMessage + '\n' + move.id : emptyMessage;
+  const moveInEmpty = !library().items.length ? move : null;
+  const emptyKey = moveInEmpty ? emptyMessage + '\n' + moveInEmpty.id : emptyMessage;
   // 打开备份面板这类操作也会走到这里。内容没变就不重建，否则焦点回不到刚点的按钮
   if (empty && !state.list?.length && empty.firstElementChild?.dataset.favoritesEmpty !== emptyKey) {
     empty.replaceChildren();
-    if (move) {
+    if (moveInEmpty) {
       const offer = element('div', 'favorites-move');
-      const start = button('找回旧收藏', 'panel-action is-primary');
-      start.dataset.favoritesMigrationStart = '';
-      const feedback = element('p', 'favorites-move-feedback');
-      feedback.dataset.favoritesMigrationFeedback = '';
-      feedback.setAttribute('role', 'status');
-      feedback.setAttribute('aria-live', 'polite');
-      feedback.hidden = true;
       offer.append(
-        element('b', '', `以前在 ${new URL(move.oldOrigin).host} 收藏过？`),
+        element('b', '', `以前在 ${new URL(moveInEmpty.oldOrigin).host} 收藏过？`),
         element('p', '', '用同一个浏览器点「找回旧收藏」，收藏、收藏夹和备注会合并到这里。'),
-        start,
-        feedback,
+        ...moveControls(),
       );
       empty.append(offer);
     }

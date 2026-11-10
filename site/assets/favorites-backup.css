@@ -40,6 +40,22 @@
   margin-top:14px;min-height:42px;padding:9px 22px;border-radius:11px;font:800 13px/1.25 var(--font-ui);cursor:pointer;
 }
 .empty .favorites-move .favorites-move-feedback{margin-top:10px;color:var(--accent);font-size:12px}
+/* 已有收藏时：收藏头部常驻一行，用过一次后消失 */
+.favorites-move-bar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:10px 0 0;padding:8px 8px 8px 14px;
+  border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:14px;
+  background:linear-gradient(135deg,var(--accent-soft),color-mix(in srgb,var(--card) 90%,transparent));
+  color:var(--text);font:700 13px/1.4 var(--font-ui);
+}
+.favorites-move-bar[hidden]{display:none}
+.favorites-move-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.favorites-move-host-short{display:none}
+.favorites-move-bar .panel-action{flex:none;cursor:pointer}
+.favorites-move-bar .favorites-move-feedback{flex-basis:100%;margin:0;color:var(--accent);font-size:12px;font-weight:600;line-height:1.55}
+@media (max-width:600px){
+  .favorites-move-host{display:none}
+  .favorites-move-host-short{display:inline}
+}
 
 .favorites-backup-mask{
   position:fixed;inset:0;z-index:140;display:grid;place-items:center;padding:20px;
