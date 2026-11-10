@@ -6,11 +6,11 @@ import {
   createFavoritesBackup,
   readStoredFavorites,
 } from './favorites-backup-core.js';
-import { restoreLibraryFavorites, serializeLibraryFavorites } from './favorites-backup-store.js';
+import { restoreLibraryFavorites } from './favorites-backup-store.js';
 import {
   FavoritesLibraryError,
+  libraryKeys,
   migrateV1Favorites,
-  parseLibraryBackup,
   parseStoredLibraryDocument,
 } from './favorites-library-core.js';
 
@@ -221,7 +221,7 @@ export async function createFavoritesMigrationRestore({
   return { backup, warnings: [], ...restored };
 }
 
-/* V2 载荷：旧网址 localStorage 的三份原始字符串。新网址按「从 JSON 恢复」同一条路径合并，
+/* V2 载荷：旧网址 localStorage 的三份原始字符串。新网址按「从 JSON 恢复」同一条恢复预案与事务合并，
    收藏夹、归类和备注随收藏一起过来；V2 文档损坏时退回每次写入都会同步的 V1 镜像。 */
 export async function createLibraryMigrationRestore({
   message,
@@ -281,11 +281,15 @@ export async function createLibraryMigrationRestore({
   }
   if (skipped) warnings.push(`${skipped} 条格式异常的收藏已跳过`);
 
-  const backup = parseLibraryBackup(serializeLibraryFavorites({
+  // 直接组成已解析的备份，不经 2 MB 的备份文本：旧网址收藏库本身最多约 2 MB，换成备份格式会更大，
+  // 最重的用户会被备份文件上限挡住。恢复预案仍会逐项重新校验收藏标识和收藏库（真实数据审计覆盖上限样本）。
+  const backup = {
+    ...createFavoritesBackup({ atlasKeys: libraryKeys(library), communityIds: community.communityIds, codexes }),
+    version: 2,
+    folders: library.folders,
+    memberships: library.memberships,
     library,
-    communityIds: community.communityIds,
-    codexes,
-  }), codexes);
+  };
   const restored = await restoreFavorites({ backup, mode: 'merge', storage, codexes });
   return { backup, warnings, ...restored };
 }
