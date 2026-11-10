@@ -10,6 +10,7 @@ import { createSelectMenu } from './select-menu.js';
 import { registerHistoryLayer, openHistoryLayer, closeHistoryLayer, forgetHistoryLayer, topHistoryLayerId } from './browser-history.js';
 import { librarySnapshot, commitLibrary, subscribeLibrary, undoFailureMessage } from './favorites-library-store.js';
 import { createFolder, renameFolder, deleteFolder, removeLibraryItems, setFolderMembership, FavoritesLibraryError } from './favorites-library-core.js';
+import { favoritesMigrationOffer } from './favorites-origin-migration.js';
 
 const actions = {
   applyFilter: () => {},
@@ -403,12 +404,33 @@ export function renderFavoritesHeader() {
   const empty = byId('empty');
   const emptyMessage = !library().items.length ? '还没有收藏。点卡片标题旁的 ☆ 收藏词条。'
     : hasFilter ? '没有匹配的收藏。' : state.favFolder === '_unsorted' ? '收藏都已归类。' : '这个收藏夹还没有内容。';
+  // 换了网址的空收藏先给找回入口；点击由 favorites-origin-migration.js 在根节点委托处理
+  const move = !library().items.length && !document.body.classList.contains('local-edition')
+    ? favoritesMigrationOffer() : null;
+  const emptyKey = move ? emptyMessage + '\n' + move.id : emptyMessage;
   // 打开备份面板这类操作也会走到这里。内容没变就不重建，否则焦点回不到刚点的按钮
-  if (empty && !state.list?.length && empty.firstElementChild?.dataset.favoritesEmpty !== emptyMessage) {
+  if (empty && !state.list?.length && empty.firstElementChild?.dataset.favoritesEmpty !== emptyKey) {
     empty.replaceChildren();
+    if (move) {
+      const offer = element('div', 'favorites-move');
+      const start = button('找回旧收藏', 'panel-action is-primary');
+      start.dataset.favoritesMigrationStart = '';
+      const feedback = element('p', 'favorites-move-feedback');
+      feedback.dataset.favoritesMigrationFeedback = '';
+      feedback.setAttribute('role', 'status');
+      feedback.setAttribute('aria-live', 'polite');
+      feedback.hidden = true;
+      offer.append(
+        element('b', '', `以前在 ${new URL(move.oldOrigin).host} 收藏过？`),
+        element('p', '', '用同一个浏览器点「找回旧收藏」，收藏、收藏夹和备注会合并到这里。'),
+        start,
+        feedback,
+      );
+      empty.append(offer);
+    }
     const lead = element('p', '', emptyMessage);
-    lead.dataset.favoritesEmpty = emptyMessage;
     empty.append(lead);
+    empty.firstElementChild.dataset.favoritesEmpty = emptyKey;
     if (!library().items.length) {
       empty.append(element('p', '', '收藏保存在本机浏览器，换设备用取件码或备份文件恢复。'));
       const next = element('div', 'empty-actions');

@@ -69,6 +69,7 @@ async function setup(initialLibrary, localEdition = false) {
   const adapter = backupStore.createFavoritesBackupStore(libraryStore);
   globalThis.__backupUiModules = {
     './site-analytics.js': siteAnalytics,
+    './feedback.js': { toast() {} },
     './favorites-backup-core.js': core,
     './favorites-library-core.js': library,
     './favorites-backup-store.js': { ...backupStore, readLibraryFavorites: options => adapter.readCurrent({ ...options, storage }), restoreLibraryFavorites: options => adapter.restore({ ...options, storage }) },

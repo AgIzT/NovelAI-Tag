@@ -870,6 +870,18 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
     </header>
 
     <div class="favorites-backup-body">
+      <!-- 换到新网址后的找回入口：只有 favorites-origin-migration.js 认出当前是新网址时才去掉 hidden。 -->
+      <section class="favorites-backup-section favorites-move-section" aria-labelledby="favoritesMoveTitle" data-favorites-migration-offer hidden>
+        <div class="favorites-backup-section-heading">
+          <div>
+            <h3 id="favoritesMoveTitle">从旧网址找回</h3>
+            <p>在同一个浏览器里读取 novelai.quicktagcloud.com 的收藏、收藏夹和备注，与当前收藏合并。</p>
+          </div>
+          <button class="panel-action is-primary favorites-backup-primary" type="button" data-favorites-migration-start>找回旧收藏</button>
+        </div>
+        <p class="favorites-migration-feedback" data-favorites-migration-feedback role="status" aria-live="polite" hidden></p>
+      </section>
+
       <section class="favorites-backup-section favorites-pickup-section" id="favoritesPickupSection" aria-labelledby="favoritesPickupTitle">
         <div class="favorites-backup-section-heading">
           <div>

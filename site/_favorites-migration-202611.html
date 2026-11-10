@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<title>找回旧收藏 · 法典图鉴</title>
+<style>
+:root{color-scheme:light dark;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;background:#f5f3fb;color:#25222d}
+*{box-sizing:border-box}
+body{min-height:100vh;margin:0;display:grid;place-items:center;padding:20px;background:
+  radial-gradient(circle at 10% 10%,rgba(123,82,196,.14),transparent 38%),
+  radial-gradient(circle at 90% 90%,rgba(82,164,196,.12),transparent 34%),#f5f3fb}
+main{width:min(540px,100%);padding:28px;border:1px solid rgba(91,70,126,.16);border-radius:24px;background:rgba(255,255,255,.9);box-shadow:0 24px 70px rgba(52,39,75,.16)}
+.mark{width:52px;height:52px;display:grid;place-items:center;border-radius:17px;background:linear-gradient(135deg,#7b52c4,#a47cdd);color:#fff;font-size:26px;font-weight:900;box-shadow:0 10px 28px rgba(123,82,196,.28)}
+h1{margin:18px 0 0;font-size:24px;line-height:1.3}
+.intro{margin:8px 0 0;color:#70697c;font-size:14px;line-height:1.75}
+.counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:22px 0 0}
+.count{padding:14px;border:1px solid rgba(91,70,126,.14);border-radius:15px;background:#f8f6fc}
+.count span{display:block;color:#777080;font-size:12px;font-weight:700}
+.count strong{display:block;margin-top:5px;font-size:25px}
+.status{min-height:46px;margin:14px 0 0;padding:12px 13px;border-radius:13px;background:#f1ecfa;color:#5f457f;font-size:13px;line-height:1.6}
+.status.error{background:#fff0f0;color:#a33434}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+a{min-height:44px;border-radius:12px;padding:11px 15px;font:800 13px/1.25 inherit;text-decoration:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(91,70,126,.2);background:#fff;color:#43374f}
+[hidden]{display:none!important}
+@media(max-width:420px){body{padding:10px}main{padding:21px;border-radius:19px}.actions>*{width:100%}}
+@media(prefers-color-scheme:dark){
+  :root{background:#18151e;color:#f0edf5}
+  body{background:radial-gradient(circle at 10% 10%,rgba(147,104,216,.2),transparent 40%),#18151e}
+  main{background:rgba(37,32,45,.94);border-color:rgba(214,197,235,.14);box-shadow:0 24px 70px rgba(0,0,0,.35)}
+  .intro{color:#aaa2b3}.count{background:#2d2736;border-color:rgba(214,197,235,.13)}
+  .count span{color:#b7afbf}.status{background:#342a43;color:#d5c0ef}.status.error{background:#48292d;color:#ffc4c4}
+  a{background:#2d2736;border-color:rgba(214,197,235,.18);color:#f0edf5}
+}
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" aria-hidden="true">★</div>
+  <h1>找回旧收藏</h1>
+  <p class="intro">读取这个浏览器在旧网址 <code>novelai.quicktagcloud.com</code> 的法典图鉴与共创广场收藏，连同收藏夹和备注合并到 <code id="targetName">naitag.com</code>。</p>
+  <div class="counts" aria-label="旧网址收藏数量">
+    <div class="count"><span>法典图鉴</span><strong id="atlasCount">—</strong></div>
+    <div class="count"><span>共创广场</span><strong id="communityCount">—</strong></div>
+  </div>
+  <p id="status" class="status" role="status" aria-live="polite">正在读取旧收藏…</p>
+  <div class="actions">
+    <a id="returnLink" href="https://naitag.com/">前往 naitag.com</a>
+  </div>
+</main>
+<script>
+(() => {
+  'use strict';
+
+  const VERSION = 2;
+  const OLD_ORIGIN = 'https://novelai.quicktagcloud.com';
+  const NEW_ORIGIN = 'https://naitag.com';
+  const LIBRARY_KEY = 'fadian-favs-v2';
+  const ATLAS_KEY = 'fadian-favs';
+  const COMMUNITY_KEY = 'community-favorites-v1';
+  const MAX_BYTES = 2 * 1024 * 1024;
+  const TYPES = {
+    ready: 'ready',
+    request: 'request',
+    payload: 'payload',
+    result: 'result',
+  };
+
+  const byId = id => document.getElementById(id);
+  const status = byId('status');
+  const currentUrl = new URL(location.href);
+  const localHost = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+  const requestedTarget = currentUrl.searchParams.get('targetOrigin') || '';
+  const localTargetAllowed = /^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(requestedTarget)
+    && requestedTarget !== location.origin;
+  const targetOrigin = localHost && localTargetAllowed ? requestedTarget : NEW_ORIGIN;
+  const targetName = new URL(targetOrigin).host;
+  const nonce = new URLSearchParams(location.hash.slice(1)).get('nonce') || '';
+  const pickupHint = `在旧网址的「收藏备份与恢复」生成取件码，到 ${targetName} 取件。`;
+
+  byId('targetName').textContent = targetName;
+  byId('returnLink').href = targetOrigin + '/';
+  byId('returnLink').textContent = `前往 ${targetName}`;
+
+  function setStatus(message, error = false) {
+    status.textContent = message;
+    status.classList.toggle('error', error);
+  }
+
+  // 整站跳转到新网址后，这里已是新网址的存储，读不到旧收藏；停下说明，不来回跳。
+  if (location.origin === NEW_ORIGIN) {
+    setStatus('旧网址已跳转到 naitag.com，这里读不到旧收藏。', true);
+    return;
+  }
+  if (location.origin !== OLD_ORIGIN && !localHost) {
+    setStatus('在旧网址 novelai.quicktagcloud.com 打开本页。', true);
+    return;
+  }
+
+  function bytes(value) {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
+  function readRaw(key) {
+    const value = localStorage.getItem(key);
+    if (typeof value !== 'string' || !value) return null;
+    if (bytes(value) > MAX_BYTES) throw new RangeError('too large');
+    return value;
+  }
+
+  function arrayLength(raw) {
+    try {
+      const value = JSON.parse(raw || '[]');
+      return Array.isArray(value) ? value.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function libraryLength(raw) {
+    try {
+      const value = JSON.parse(raw);
+      return value && Array.isArray(value.items) ? value.items.length : null;
+    } catch {
+      return null;
+    }
+  }
+
+  let raws;
+  try {
+    raws = {
+      libraryRaw: readRaw(LIBRARY_KEY),
+      communityRaw: readRaw(COMMUNITY_KEY),
+      legacyAtlasRaw: readRaw(ATLAS_KEY),
+    };
+  } catch (error) {
+    setStatus(error instanceof RangeError
+      ? `旧收藏超过 2 MB，无法自动找回。${pickupHint}`
+      : '浏览器不允许本页读取旧网址的数据，在浏览器设置里允许后刷新页面。', true);
+    return;
+  }
+
+  // 解析与校验由新网址完成；这里的数量只用来让人看见读到了什么。
+  const atlasCount = libraryLength(raws.libraryRaw) ?? arrayLength(raws.legacyAtlasRaw);
+  const communityCount = arrayLength(raws.communityRaw);
+  byId('atlasCount').textContent = String(atlasCount);
+  byId('communityCount').textContent = String(communityCount);
+  const hasData = Boolean(raws.libraryRaw || raws.legacyAtlasRaw || raws.communityRaw);
+
+  if (!window.opener || !nonce) {
+    setStatus(atlasCount + communityCount
+      ? `已找到旧收藏。${pickupHint}`
+      : '这个浏览器的旧网址里没有收藏。');
+    return;
+  }
+
+  let completed = false;
+  const timeout = setTimeout(() => {
+    if (completed) return;
+    setStatus(`连接 ${targetName} 超时。关掉本页，回到 ${targetName} 再点一次「找回旧收藏」。`, true);
+  }, 20000);
+
+  window.addEventListener('message', event => {
+    if (event.origin !== targetOrigin
+      || event.source !== window.opener
+      || !event.data
+      || event.data.version !== VERSION
+      || event.data.nonce !== nonce) return;
+
+    if (event.data.type === TYPES.request) {
+      window.opener.postMessage({
+        type: TYPES.payload,
+        version: VERSION,
+        nonce,
+        libraryRaw: raws.libraryRaw,
+        communityRaw: raws.communityRaw,
+        legacyAtlasRaw: raws.legacyAtlasRaw,
+      }, targetOrigin);
+      setStatus(`正在合并到 ${targetName}…`);
+      return;
+    }
+
+    if (event.data.type !== TYPES.result) return;
+    completed = true;
+    clearTimeout(timeout);
+    const warnings = Array.isArray(event.data.warnings)
+      ? event.data.warnings.filter(item => typeof item === 'string')
+      : [];
+    const notes = warnings.length ? ` ${warnings.join('；')}。` : '';
+    if (event.data.status === 'migrated' || event.data.status === 'empty') {
+      const summary = event.data.status === 'migrated'
+        ? `已找回旧收藏：新增 ${Number(event.data.added) || 0} 条${Number(event.data.duplicate) ? `，${Number(event.data.duplicate)} 条已存在` : ''}。`
+        : '这个浏览器的旧网址里没有收藏。';
+      if (warnings.length) {
+        setStatus(summary + notes, true);
+      } else {
+        setStatus(`${summary}本页即将关闭。`);
+        setTimeout(() => window.close(), 1100);
+      }
+    } else {
+      const reason = typeof event.data.message === 'string' && event.data.message
+        ? event.data.message.replace(/[。.]$/, '')
+        : '找回旧收藏失败';
+      setStatus(`${reason}。${pickupHint}`, true);
+    }
+  });
+
+  window.opener.postMessage({
+    type: TYPES.ready,
+    version: VERSION,
+    nonce,
+    counts: { atlas: atlasCount, community: communityCount },
+  }, targetOrigin);
+  setStatus(hasData ? `已读取旧收藏，正在连接 ${targetName}…` : `正在连接 ${targetName}…`);
+})();
+</script>
+</body>
+</html>

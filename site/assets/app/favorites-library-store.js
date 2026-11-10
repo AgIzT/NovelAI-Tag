@@ -3,9 +3,9 @@ import { toast } from './feedback.js';
 import { createStorageCoordinator } from './storage-coordinator.js';
 import { ATLAS_FAVORITES_STORAGE_KEY, COMMUNITY_FAVORITES_STORAGE_KEY, readStoredFavorites } from './favorites-backup-core.js';
 import {
-  FAVORITES_LIBRARY_STORAGE_KEY, FAVORITES_LIBRARY_FORMAT, FAVORITES_LIBRARY_LIMITS,
-  FavoritesLibraryError, canonicalLibraryKey, libraryKeys,
-  migrateV1Favorites, newLibraryId, normalizeLibrary, seedPresetFolders, trimLibraryToBudget,
+  FAVORITES_LIBRARY_STORAGE_KEY, FAVORITES_LIBRARY_LIMITS,
+  FavoritesLibraryError, libraryKeys,
+  migrateV1Favorites, newLibraryId, normalizeLibrary, parseStoredLibraryDocument, seedPresetFolders, trimLibraryToBudget,
 } from './favorites-library-core.js';
 
 export const LIBRARY_STORAGE_KEY = FAVORITES_LIBRARY_STORAGE_KEY;
@@ -27,23 +27,6 @@ function freeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   Object.values(value).forEach(freeze);
   return Object.freeze(value);
-}
-function validDocument(raw, codexes) {
-  let value;
-  try { value = JSON.parse(raw); } catch { throw new FavoritesLibraryError('CORRUPT', '收藏数据无法读取，先导出备份再恢复。'); }
-  if (!value || value.format !== FAVORITES_LIBRARY_FORMAT || value.version !== 2
-      || typeof value.libraryId !== 'string' || !value.libraryId
-      || !Array.isArray(value.items) || !Array.isArray(value.folders) || !Array.isArray(value.memberships)) {
-    throw new FavoritesLibraryError('CORRUPT', '收藏数据无法读取，先导出备份再恢复。');
-  }
-  // 身份错误不能由 normalize 的容错悄悄删掉后写回。脏字段可修复，收藏本身必须保留。
-  for (const item of value.items) {
-    if (!item || typeof item !== 'object') throw new FavoritesLibraryError('CORRUPT', '收藏数据无法读取，先导出备份再恢复。');
-    try { canonicalLibraryKey(item.key, codexes); } catch {
-      throw new FavoritesLibraryError('CORRUPT', '收藏数据无法读取，先导出备份再恢复。');
-    }
-  }
-  return normalizeLibrary(value, { codexes });
 }
 
 export function createLibraryStore({
@@ -133,7 +116,7 @@ export function createLibraryStore({
       if (access.ok) {
         const raw = access.storage.getItem(FAVORITES_LIBRARY_STORAGE_KEY);
         if (raw !== null) {
-          current = validDocument(raw, codexes);
+          current = parseStoredLibraryDocument(raw, codexes);
           initialized = true;
         }
         else if (!initialized) current = readV1(access.storage, codexes);
@@ -205,7 +188,7 @@ export function createLibraryStore({
     try {
       const raw = storage.getItem(FAVORITES_LIBRARY_STORAGE_KEY);
       if (raw !== null) {
-        const next = validDocument(raw, codexes);
+        const next = parseStoredLibraryDocument(raw, codexes);
         // 兼容早期未标记 V2，只补标记，绝不重读旧镜像。
         return { ok: true, next, migration: next.migratedFrom !== 'v1' };
       }
@@ -225,7 +208,7 @@ export function createLibraryStore({
     // 只有备份面板明确确认覆盖的那一份原文可替换；不能覆盖别页已修好的库。
     if (typeof expectedRaw !== 'string' || raw !== expectedRaw) return { ok: false, reason: 'stale' };
     try {
-      validDocument(raw, codexes);
+      parseStoredLibraryDocument(raw, codexes);
       return { ok: false, reason: 'stale' };
     } catch (error) {
       if (!(error instanceof FavoritesLibraryError)) return { ok: false, reason: 'storage', error };

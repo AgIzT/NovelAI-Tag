@@ -31,6 +31,7 @@ class LocalEditionBuildTests(unittest.TestCase):
             self.assertIn(f'data-local-title="{builder.PRODUCT_NAME} v{builder.VERSION}"', html)
             self.assertNotIn('rel="manifest"', html)
             self.assertNotIn('<aside class="favorites-migration-banner"', html)
+            self.assertNotIn('favorites-move-section', html)
             self.assertNotIn('favorites-pickup-section', html)
             self.assertNotIn('favoritesPickupCreateBtn', html)
             self.assertIn('.favorites-pickup-section', local_css)

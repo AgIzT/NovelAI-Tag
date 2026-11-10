@@ -27,6 +27,20 @@
 .favorites-migration-dismiss{border:1px solid var(--line);background:var(--card);color:var(--muted)}
 .favorites-migration-dismiss:hover{border-color:var(--accent);color:var(--accent)}
 
+/* 换网址后的空收藏：找回入口放在空状态最上面，配色沿用上面的横幅 */
+.favorites-move{
+  margin:0 auto 26px;max-width:440px;padding:18px 18px 16px;text-align:center;
+  border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:16px;
+  background:linear-gradient(135deg,var(--accent-soft),color-mix(in srgb,var(--card) 90%,transparent));
+  color:var(--text);box-shadow:0 10px 28px color-mix(in srgb,var(--accent) 10%,transparent);
+}
+.favorites-move b{display:block;font-size:15px;line-height:1.45;overflow-wrap:anywhere}
+.empty .favorites-move p{margin:6px auto 0;color:var(--muted);font-size:12.5px;line-height:1.65}
+.favorites-move .panel-action{
+  margin-top:14px;min-height:42px;padding:9px 22px;border-radius:11px;font:800 13px/1.25 var(--font-ui);cursor:pointer;
+}
+.empty .favorites-move .favorites-move-feedback{margin-top:10px;color:var(--accent);font-size:12px}
+
 .favorites-backup-mask{
   position:fixed;inset:0;z-index:140;display:grid;place-items:center;padding:20px;
   background:var(--overlay);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);

@@ -206,6 +206,25 @@ export function normalizeLibrary(value, { codexes = [], now = new Date() } = {})
   return result;
 }
 
+/* 本机存储里的 V2 文档。store 载入和跨网址找回共用同一套判定。 */
+export function parseStoredLibraryDocument(raw, codexes = []) {
+  let value;
+  try { value = JSON.parse(raw); } catch { fail('CORRUPT', '收藏数据无法读取，先导出备份再恢复。'); }
+  if (!value || value.format !== FAVORITES_LIBRARY_FORMAT || value.version !== 2
+      || typeof value.libraryId !== 'string' || !value.libraryId
+      || !Array.isArray(value.items) || !Array.isArray(value.folders) || !Array.isArray(value.memberships)) {
+    fail('CORRUPT', '收藏数据无法读取，先导出备份再恢复。');
+  }
+  // 身份错误不能由 normalize 的容错悄悄删掉后写回。脏字段可修复，收藏本身必须保留。
+  for (const item of value.items) {
+    if (!item || typeof item !== 'object') fail('CORRUPT', '收藏数据无法读取，先导出备份再恢复。');
+    try { canonicalLibraryKey(item.key, codexes); } catch {
+      fail('CORRUPT', '收藏数据无法读取，先导出备份再恢复。');
+    }
+  }
+  return normalizeLibrary(value, { codexes });
+}
+
 export function libraryKeys(library) {
   return (library?.items || []).map(item => item.key);
 }

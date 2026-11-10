@@ -1,5 +1,6 @@
 import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
 import { recordSiteEvent } from './site-analytics.js';
+import { toast } from './feedback.js';
 import {
   closeHistoryLayer,
   forgetHistoryLayer,
@@ -728,6 +729,10 @@ export function setupFavoritesBackup(options = {}) {
       onStatus: setStatus,
       onError: setError,
       onBusy: setBusy,
+      // 从收藏空状态点的找回，结果出来时空状态已经换掉了；对话框开着时状态行已经写了这句
+      onDone: (message, marker) => {
+        if (panel.hidden) toast(message, marker.status === 'empty' ? '!' : '✓');
+      },
     });
   }
   refreshCounts().catch(error => console.error(error));

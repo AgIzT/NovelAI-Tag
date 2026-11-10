@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Real-browser, dual-origin regression for the pages.dev favorites rescue bridge."""
+"""Real-browser, dual-origin regressions for the favorites rescue bridges (pages.dev 202607, naitag 202611)."""
 from __future__ import annotations
 
 import base64
@@ -43,7 +43,7 @@ def make_handler(old_origin: str, new_origin: str):
             return
 
         def end_headers(self) -> None:
-            if urllib.parse.urlparse(self.path).path == RESCUE_PATH:
+            if urllib.parse.urlparse(self.path).path in (RESCUE_PATH, MOVE_PATH):
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Robots-Tag", "noindex, nofollow")
                 self.send_header("Referrer-Policy", "no-referrer")
@@ -51,7 +51,11 @@ def make_handler(old_origin: str, new_origin: str):
             super().end_headers()
 
         def do_GET(self) -> None:
-            if urllib.parse.urlparse(self.path).path != "/__migration-harness.html":
+            route = urllib.parse.urlparse(self.path).path
+            if route == "/__move-harness.html":
+                self.send_html(move_harness_html(old_origin))
+                return
+            if route != "/__migration-harness.html":
                 super().do_GET()
                 return
 
@@ -97,6 +101,9 @@ def make_handler(old_origin: str, new_origin: str):
   </script>
 </body>
 </html>"""
+            self.send_html(html)
+
+        def send_html(self, html: str) -> None:
             payload = html.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -271,7 +278,7 @@ def run() -> None:
         first = wait_for_migration(cdp, 1)
         check(first["error"] == "", f"harness error: {first['error']}")
         check(
-            first["storage"]["atlas"]
+            sorted(first["storage"]["atlas"])
             == [
                 "alpha:alpha-1",
                 "alpha:alpha-existing",
@@ -280,7 +287,7 @@ def run() -> None:
             f"atlas merge mismatch: {first['storage']['atlas']!r}",
         )
         check(
-            first["storage"]["community"]
+            sorted(first["storage"]["community"])
             == ["community-existing", "community-old"],
             f"community merge mismatch: {first['storage']['community']!r}",
         )
@@ -323,7 +330,7 @@ def run() -> None:
         partial = wait_for_migration(cdp, 1)
         check(partial["storage"]["atlas"] == [], "damaged atlas key must be skipped")
         check(
-            partial["storage"]["community"] == ["community-new", "community-salvage"],
+            sorted(partial["storage"]["community"]) == ["community-new", "community-salvage"],
             "valid community key was not salvaged",
         )
         check(partial["storage"]["marker"]["added"] == 1, "partial recovery add count")
@@ -394,6 +401,237 @@ def run() -> None:
         new_thread.join(timeout=2)
 
 
+# ---------- 2026-11 新网址找回：V2 收藏库经 202611 页面合并 ----------
+MOVE_PATH = "/_favorites-migration-202611.html"
+MOVE_MARKER_KEY = "novelai-tag-favorites-origin-migration-202611"
+LIBRARY_KEY = "fadian-favs-v2"
+DEV_BRIDGE_KEY = "novelai-tag-dev-favorites-bridge"
+MOVE_CODEXES = "[{ id: 'alpha', aliases: ['old_alpha'] }, { id: 'beta' }]"
+
+
+def move_harness_html(old_origin: str) -> str:
+    # 本机开发开关让真实的选桥逻辑认出 old_origin；不经 oldOrigin/newOrigin 覆盖参数。
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>favorites move harness</title></head>
+<body>
+  <section id="offer" data-favorites-migration-offer hidden>
+    <button id="moveStart" type="button" data-favorites-migration-start>找回旧收藏</button>
+    <p data-favorites-migration-feedback hidden></p>
+  </section>
+  <script type="module">
+    import {{ setupFavoritesOriginMigration, FAVORITES_DEV_BRIDGE_KEY }} from '/assets/app/favorites-origin-migration.js';
+    window.__migrationReady = false;
+    window.__migrationChanges = 0;
+    window.__moveDone = '';
+    window.__migrationError = '';
+    try {{
+      localStorage.setItem(FAVORITES_DEV_BRIDGE_KEY, {json.dumps(old_origin)});
+      window.__moveController = setupFavoritesOriginMigration({{
+        getCodexes: async () => {MOVE_CODEXES},
+        onChanged: () => {{ window.__migrationChanges += 1; }},
+        onDone: message => {{ window.__moveDone = message; }},
+      }});
+      window.__migrationReady = window.__moveController?.bridge?.id === 'dev';
+    }} catch (error) {{
+      window.__migrationError = String(error && (error.stack || error.message) || error);
+    }}
+  </script>
+</body>
+</html>"""
+
+
+def old_library_raw() -> str:
+    now = "2026-10-01T00:00:00.000Z"
+    return json.dumps({
+        "format": "novelai-tag-favorites-library",
+        "version": 2,
+        "libraryId": "old-library",
+        "updatedAt": now,
+        "folders": [
+            {"id": "fd_preset_character", "name": "角色", "coverItemId": "", "order": 0, "createdAt": now},
+            {"id": "fd_old_mine", "name": "我的画风", "coverItemId": "", "order": 1, "createdAt": now},
+        ],
+        "items": [
+            {"key": "old_alpha:old_alpha-1", "addedAt": now, "note": "旧网址备注"},
+            {"key": "beta:beta-old", "addedAt": now, "note": ""},
+        ],
+        "memberships": [
+            {"itemKey": "old_alpha:old_alpha-1", "folderId": "fd_old_mine", "addedAt": now},
+        ],
+    }, ensure_ascii=False)
+
+
+def set_raw_storage(cdp: CDP, entries: dict) -> None:
+    cdp.eval(
+        f"""(() => {{
+          localStorage.clear();
+          for (const [key, value] of Object.entries({json.dumps(entries, ensure_ascii=False)})) {{
+            localStorage.setItem(key, value);
+          }}
+          return true;
+        }})()"""
+    )
+
+
+def wait_for_move(cdp: CDP, changes: int) -> dict:
+    wait_for(
+        cdp,
+        f"""(() => {{
+          const marker = JSON.parse(localStorage.getItem({json.dumps(MOVE_MARKER_KEY)}) || 'null');
+          return Boolean(marker && marker.status && window.__migrationChanges >= {changes} && window.__moveDone);
+        }})()""",
+        f"library move #{changes}",
+        timeout=12,
+    )
+    return cdp.eval(
+        f"""(() => ({{
+          library: JSON.parse(localStorage.getItem({json.dumps(LIBRARY_KEY)}) || 'null'),
+          community: JSON.parse(localStorage.getItem({json.dumps(COMMUNITY_KEY)}) || '[]'),
+          marker: JSON.parse(localStorage.getItem({json.dumps(MOVE_MARKER_KEY)}) || 'null'),
+          legacyMarker: localStorage.getItem({json.dumps(MARKER_KEY)}),
+          done: window.__moveDone,
+          offerHidden: document.getElementById('offer').hidden,
+          error: window.__migrationError,
+        }}))()"""
+    )
+
+
+def run_library_move() -> None:
+    old_port = find_free_port()
+    new_port = find_free_port()
+    while new_port == old_port:
+        new_port = find_free_port()
+    old_origin = f"http://127.0.0.1:{old_port}"
+    new_origin = f"http://127.0.0.1:{new_port}"
+    handler = make_handler(old_origin, new_origin)
+    old_server, old_thread = start_server(old_port, handler)
+    new_server, new_thread = start_server(new_port, handler)
+    artifact_dir = ROOT / "output" / "playwright" / "favorites-origin-migration"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    chrome = None
+    cdp = None
+    profile_temp = None
+    try:
+        with urllib.request.urlopen(f"{old_origin}{MOVE_PATH}", timeout=5) as response:
+            check(response.status == 200, "local 202611 rescue path must return 200")
+            check(response.headers.get("Cache-Control") == "no-store", "202611 rescue path must be no-store")
+
+        profile_temp = tempfile.TemporaryDirectory(prefix="chrome-profile-", dir=str(artifact_dir))
+        devtools_port = find_free_port()
+        chrome = start_chrome(Path(profile_temp.name), devtools_port)
+        cdp = CDP(page_ws_url(devtools_port))
+        cdp.command("Page.enable")
+        cdp.command("Runtime.enable")
+
+        library_raw = old_library_raw()
+        old_entries = {
+            LIBRARY_KEY: library_raw,
+            ATLAS_KEY: json.dumps(["alpha:alpha-1", "beta:beta-old"]),
+            COMMUNITY_KEY: json.dumps(["community-old", "community-existing"]),
+        }
+        navigate(cdp, f"{old_origin}{MOVE_PATH}")
+        set_raw_storage(cdp, old_entries)
+
+        navigate(cdp, f"{new_origin}/__move-harness.html")
+        wait_for(cdp, "window.__migrationReady === true || Boolean(window.__migrationError)", "move harness")
+        check(cdp.eval("window.__migrationError") == "", f"harness error: {cdp.eval('window.__migrationError')}")
+        check(cdp.eval("document.getElementById('offer').hidden") is False, "offer section must be shown")
+        cdp.eval(
+            f"""(() => {{
+              localStorage.setItem({json.dumps(ATLAS_KEY)}, JSON.stringify(['alpha:alpha-existing']));
+              localStorage.setItem({json.dumps(COMMUNITY_KEY)}, JSON.stringify(['community-existing']));
+              return true;
+            }})()"""
+        )
+        click(cdp, "#moveStart")
+        first = wait_for_move(cdp, 1)
+        check(first["error"] == "", f"harness error: {first['error']}")
+        keys = sorted(item["key"] for item in first["library"]["items"])
+        check(keys == ["alpha:alpha-1", "alpha:alpha-existing", "beta:beta-old"], f"library merge mismatch: {keys!r}")
+        mine = [folder for folder in first["library"]["folders"] if folder["name"] == "我的画风"]
+        check(len(mine) == 1, "custom folder must come along")
+        check(
+            any(m["itemKey"] == "alpha:alpha-1" and m["folderId"] == mine[0]["id"] for m in first["library"]["memberships"]),
+            "folder membership must come along",
+        )
+        note = next(item["note"] for item in first["library"]["items"] if item["key"] == "alpha:alpha-1")
+        check(note == "旧网址备注", f"note lost: {note!r}")
+        check(sorted(first["community"]) == ["community-existing", "community-old"], "community merge mismatch")
+        check(first["marker"]["status"] == "migrated" and first["marker"]["added"] == 3, f"marker: {first['marker']!r}")
+        check(first["legacyMarker"] is None, "pages.dev marker must stay untouched")
+        check(first["done"].startswith("已找回旧收藏：新增 3 条"), f"done message: {first['done']!r}")
+
+        cdp.command("Page.reload")
+        wait_for(cdp, "window.__migrationReady === true", "move harness after reload")
+        cdp.eval("localStorage.removeItem('novelai-tag-favorites-origin-migration-202611'); true")
+        click(cdp, "#moveStart")
+        second = wait_for_move(cdp, 1)
+        check(second["marker"]["added"] == 0, "repeat move must be idempotent")
+        check(
+            sorted(item["key"] for item in second["library"]["items"]) == keys,
+            "repeat move changed library items",
+        )
+
+        navigate(cdp, f"{old_origin}{MOVE_PATH}")
+        old_after = cdp.eval(
+            f"""(() => ({{
+              library: localStorage.getItem({json.dumps(LIBRARY_KEY)}),
+              community: localStorage.getItem({json.dumps(COMMUNITY_KEY)}),
+              status: document.getElementById('status').textContent,
+              atlasCount: document.getElementById('atlasCount').textContent,
+            }}))()"""
+        )
+        check(old_after["library"] == library_raw, "old library storage was modified")
+        check(old_after["community"] == old_entries[COMMUNITY_KEY], "old community storage was modified")
+        # 直接打开（没有 opener）时给取件码兜底。
+        check("取件码" in old_after["status"], f"manual fallback missing: {old_after['status']!r}")
+        check(old_after["atlasCount"] == "2", f"old atlas count: {old_after['atlasCount']!r}")
+
+        # V2 文档损坏：退回 V1 镜像，提示收藏夹和备注没能带过来。
+        set_raw_storage(cdp, {LIBRARY_KEY: "{broken", ATLAS_KEY: json.dumps(["beta:from-mirror"])})
+        navigate(cdp, f"{new_origin}/__move-harness.html")
+        wait_for(cdp, "window.__migrationReady === true", "fresh move harness")
+        set_raw_storage(cdp, {DEV_BRIDGE_KEY: old_origin})
+        click(cdp, "#moveStart")
+        partial = wait_for_move(cdp, 1)
+        check(
+            [item["key"] for item in partial["library"]["items"]] == ["beta:from-mirror"],
+            f"mirror fallback mismatch: {partial['library']['items']!r}",
+        )
+        check("收藏夹和备注无法读取" in partial["done"], f"fallback warning missing: {partial['done']!r}")
+
+        screenshot_data = cdp.command(
+            "Page.captureScreenshot",
+            {"format": "png", "captureBeyondViewport": False},
+            timeout=10,
+        )["data"]
+        (artifact_dir / "library-move.png").write_bytes(base64.b64decode(screenshot_data))
+
+        cdp.eval("true")
+        runtime_errors = [event for event in cdp.events if event.get("method") == "Runtime.exceptionThrown"]
+        check(not runtime_errors, f"browser runtime errors: {runtime_errors!r}")
+    finally:
+        if cdp is not None:
+            cdp.close()
+        if chrome is not None:
+            chrome.terminate()
+            try:
+                chrome.wait(timeout=5)
+            except Exception:
+                chrome.kill()
+        if profile_temp is not None:
+            profile_temp.cleanup()
+        old_server.shutdown()
+        new_server.shutdown()
+        old_server.server_close()
+        new_server.server_close()
+        old_thread.join(timeout=2)
+        new_thread.join(timeout=2)
+
+
 if __name__ == "__main__":
     run()
+    run_library_move()
     print("favorites origin migration browser: all tests passed")
