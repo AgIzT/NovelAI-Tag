@@ -20,7 +20,7 @@
   var TEXT = '功能测试版 · 数据不保留 · 点此前往正式站';
 
   var host = location.hostname;
-  if (host === CANONICAL_HOST) return;                                   // 正式站：永不显示
+  if (host === CANONICAL_HOST || host === 'naitag.com') return;             // 正式站：永不显示
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return;  // 本地开发：别打扰
 
   function style(css) {

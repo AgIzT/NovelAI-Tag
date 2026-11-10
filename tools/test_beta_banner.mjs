@@ -4,7 +4,7 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('../site/assets/beta-banner.js', import.meta.url), 'utf8');
 
-function createPreviewEnvironment(initialTime) {
+function createPreviewEnvironment(initialTime, hostname = 'preview.example.pages.dev') {
   let clock = initialTime;
   const nodes = new Map();
   const listeners = new Map();
@@ -68,7 +68,7 @@ function createPreviewEnvironment(initialTime) {
   const context = {
     Date: FakeDate,
     document,
-    location: { hostname: 'preview.example.pages.dev' },
+    location: { hostname },
     window: {
       setTimeout(callback, delay) {
         timers.push({ callback, delay });
@@ -92,12 +92,22 @@ assert.ok(EXPIRES, '必须能从 beta-banner.js 读出 EXPIRES 常量');
 const cutoff = Date.parse(EXPIRES + 'T00:00:00Z');
 const DAY = 86_400_000;
 
+for (const host of ['novelai.quicktagcloud.com', 'naitag.com']) {
+  for (const time of [cutoff, cutoff + DAY]) {
+    const env = createPreviewEnvironment(time, host);
+    env.run();
+    assert.equal(env.document.getElementById('betaBar'), null, host);
+    assert.equal(env.document.getElementById('betaGate'), null, host);
+  }
+}
+
 // A page opened before the cutoff must upgrade itself after the next UTC day
 // boundary, rather than relying on a manual refresh to install the gate.
 {
   const env = createPreviewEnvironment(cutoff - DAY + (23 * 60 + 59) * 60_000);
   env.run();
   assert.ok(env.document.getElementById('betaBar'));
+  assert.equal(env.document.getElementById('betaBar').href, 'https://novelai.quicktagcloud.com/');
   assert.equal(env.timers.length, 1);
 
   env.setTime(cutoff + DAY + 1_000);
