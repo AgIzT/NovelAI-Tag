@@ -44,7 +44,66 @@ LOG_PATH = btz.REPORT_DIR / "翻译跑批.log"
 REPORT_PATH = btz.REPORT_DIR / "翻译跑批报告.md"
 FAILED_PATH = btz.REPORT_DIR / "跑批失败.csv"
 EMPTY_PATH = btz.SRC_DIR / "无译名.csv"
-SOURCE_LABEL = "gemini-3.8-flash-high"
+SOURCE_LABEL = ""
+
+
+class FatalTranslationError(RuntimeError):
+    """The relay rejected the key, model, route or request; splitting cannot help."""
+
+
+class TransientTranslationError(RuntimeError):
+    """A bounded network/service retry failed; keep the batch for a later run."""
+
+
+class ContentBlockedError(RuntimeError):
+    """The provider blocked this content; isolate and skip blocked single items."""
+
+
+CONTENT_BLOCK_CODES = {
+    "PROHIBITED_CONTENT", "SAFETY", "BLOCKLIST", "IMAGE_SAFETY",
+    "CONTENT_FILTER", "CONTENT_POLICY_VIOLATION", "PROMPT_BLOCKED",
+}
+
+
+def content_block_reason(payload) -> str:
+    """Read explicit provider safety signals, never the user's prompt text."""
+    if not isinstance(payload, dict):
+        return ""
+    error = payload.get("error")
+    if isinstance(error, str):
+        error = {"message": error}
+    if isinstance(error, dict):
+        message = str(error.get("message") or "")
+        lower = message.casefold()
+        if any(marker in lower for marker in (
+            "无权访问", "无权使用", "invalid api key", "invalid_api_key",
+            "model_not_allowed", "model not allowed", "permission denied", "unauthorized",
+        )):
+            return ""
+        for field in (error.get("code"), error.get("type")):
+            code = str(field or "").upper()
+            if code in CONTENT_BLOCK_CODES:
+                return code
+        matched = re.search(r"\b(PROHIBITED_CONTENT|CONTENT_FILTER|CONTENT_POLICY_VIOLATION|PROMPT_BLOCKED|IMAGE_SAFETY|BLOCKLIST)\b", message, re.IGNORECASE)
+        if matched:
+            return matched.group(1).upper()
+        if re.search(r":\s*SAFETY\b", message, re.IGNORECASE):
+            return "SAFETY"
+    feedback = payload.get("promptFeedback") or payload.get("prompt_feedback")
+    if isinstance(feedback, dict):
+        code = str(feedback.get("blockReason") or feedback.get("block_reason") or "").upper()
+        if code in CONTENT_BLOCK_CODES or code == "OTHER":
+            return code
+    for item in [*(payload.get("choices") or []), *(payload.get("candidates") or [])]:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("finish_reason") or item.get("finishReason") or "").upper()
+        if code in CONTENT_BLOCK_CODES:
+            return code
+        message = item.get("message")
+        if isinstance(message, dict) and message.get("refusal"):
+            return "MODEL_REFUSAL"
+    return ""
 
 SYSTEM_PROMPT = (
     "你是 NovelAI / Danbooru 提示词标签的中文译者。把每个标签翻成简短的中文词典释义；"
@@ -156,6 +215,7 @@ def log(message: str) -> None:
     with LOG_LOCK:
         with LOG_PATH.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+        print(line, flush=True)
 
 
 LOG_LOCK = threading.Lock()
@@ -224,8 +284,11 @@ def translate_batch(cfg: dict, batch: list[tuple[str, int]], attempt_budget: int
                 "Authorization": "Bearer " + cfg["api_key"],
                 "Content-Type": "application/json",
             })
-            with urllib.request.urlopen(request, timeout=300) as response:
+            with urllib.request.urlopen(request, timeout=float(cfg.get("request_timeout") or 300)) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+            blocked = content_block_reason(payload)
+            if blocked:
+                raise ContentBlockedError(blocked)
             choices = payload.get("choices") or []
             if not choices:
                 # 渠道偶尔 200 但不给 choices（上游过载 / 错误对象），把它的说法记下来再退避重试
@@ -239,21 +302,52 @@ def translate_batch(cfg: dict, batch: list[tuple[str, int]], attempt_budget: int
             usage = payload.get("usage") or {}
             return {keys[int(i) - 1]: value for i, value in data.items()
                     if str(i).isdigit() and 1 <= int(i) <= len(keys)}, usage
-        except Exception as ex:  # 网络、限流、返回不是 JSON 都走这里
-            reason = f"{type(ex).__name__}: {str(ex)[:120]}"
+        except ContentBlockedError:
+            raise
+        except Exception as ex:
+            secret = str(cfg.get("api_key") or "")
+            message = str(ex).replace(secret, "[redacted]") if secret else str(ex)
+            reason = f"{type(ex).__name__}: {message[:120]}"
             if isinstance(ex, urllib.error.HTTPError):
-                reason = f"HTTP {ex.code}"
+                error_payload = None
+                try:
+                    detail = ex.read(8192).decode("utf-8", errors="replace")
+                    if secret:
+                        detail = detail.replace(secret, "[redacted]")
+                    try:
+                        payload = json.loads(detail)
+                        error_payload = payload
+                        error = payload.get("error")
+                        detail = str(error.get("message") or error) if isinstance(error, dict) else str(error or detail)
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+                    detail = re.sub(r"\s+", " ", detail).strip()[:240]
+                except Exception:
+                    detail = ""
+                finally:
+                    ex.close()
+                reason = f"HTTP {ex.code}" + (f"：{detail}" if detail else "")
+                if ex.code in (400, 403, 422):
+                    blocked = content_block_reason(error_payload)
+                    if blocked:
+                        raise ContentBlockedError(blocked) from None
+                if 400 <= ex.code < 500 and ex.code != 429:
+                    raise FatalTranslationError(reason) from None
             # 空 choices 是上游把整批挡了（单独问同一个键往往就能过），重试没用，早点交给拆分
             budget = 2 if "空 choices" in str(ex) else attempt_budget
             if attempt >= budget:
                 log(f"批次失败（{len(keys)} 个，{reason}）")
-                return None, {}
+                if isinstance(ex, (ValueError, KeyError, IndexError, TypeError)):
+                    return None, {}
+                raise TransientTranslationError(reason) from None
+            log(f"请求失败（{len(keys)} 个，第 {attempt}/{budget} 次，{reason}）；{delay:g} 秒后重试")
             time.sleep(delay)
             delay = min(delay * 2, 60)
     return None, {}
 
 
 def main(argv=None) -> int:
+    global SOURCE_LABEL
     parser = argparse.ArgumentParser(description="AI 补译 tag 中文对照的长尾")
     parser.add_argument("--limit", type=int, default=0, help="只翻出现条数最多的前 N 个（0 = 全部）")
     parser.add_argument("--dry-run", action="store_true", help="只统计，不调接口")
@@ -265,6 +359,7 @@ def main(argv=None) -> int:
 
     btz.REPORT_DIR.mkdir(parents=True, exist_ok=True)
     cfg = load_config()
+    SOURCE_LABEL = str(cfg["model"]).strip()
     batch_size = args.batch_size or int(cfg.get("batch_size") or 50)
     concurrency = args.concurrency or int(cfg.get("concurrency") or 4)
 
@@ -272,30 +367,54 @@ def main(argv=None) -> int:
     if args.limit:
         pending = pending[:args.limit]
     log(f"待翻译 {len(pending)}；跳过已知无译名 {stats['本轮跳过无译名']}；过滤跳过 {held}；"
-        f"批大小 {batch_size}，并发 {concurrency}")
+        f"模型 {SOURCE_LABEL}；批大小 {batch_size}，并发 {concurrency}")
     if args.dry_run or not pending:
         print(json.dumps({**stats, "本次待翻译": len(pending)}, ensure_ascii=False))
         return 0
 
     batches = [pending[i:i + batch_size] for i in range(0, len(pending), batch_size)]
     started = time.time()
-    counters = {"done": 0, "written": 0, "empty": 0, "failed": 0,
+    counters = {"done": 0, "written": 0, "empty": 0, "failed": 0, "blocked": 0, "service_failed": 0,
                 "prompt_tokens": 0, "completion_tokens": 0}
-    failures: list[tuple[str, int]] = []
+    failures: list[tuple[str, int, str]] = []
+    stopped = threading.Event()
+    fatal_reason = ""
+
+    def failed(batch, reason="响应不可用", kind="response"):
+        with LOG_LOCK:
+            counters["failed"] += len(batch)
+            counters["blocked"] += len(batch) if kind == "content" else 0
+            counters["service_failed"] += len(batch) if kind == "service" else 0
+            failures.extend((key, count, reason) for key, count in batch)
 
     def run(batch, depth=0):
-        result, usage = translate_batch(cfg, batch)
+        if stopped.is_set():
+            return
+        blocked_reason = ""
+        try:
+            result, usage = translate_batch(cfg, batch)
+        except ContentBlockedError as error:
+            result, usage = None, {}
+            blocked_reason = str(error)
+        except FatalTranslationError as error:
+            failed(batch, str(error), "fatal")
+            stopped.set()
+            raise
+        except TransientTranslationError as error:
+            failed(batch, str(error), "service")
+            log(f"本批保留待重试，不继续拆分：{error}")
+            return
         rows, empty_keys = [], []
-        if result is None and len(batch) > 1 and depth < 6:
+        if result is None and len(batch) > 1:
             # 上游按整批挡内容：对半拆到单条，把真被挡的那几个隔离出来，别连累同批其它 tag
             half = len(batch) // 2
+            log(f"{'内容拦截 ' + blocked_reason if blocked_reason else '响应不可用'}；二分 {len(batch)} → {half}+{len(batch)-half}")
             run(batch[:half], depth + 1)
             run(batch[half:], depth + 1)
             return
         if result is None:
-            with LOG_LOCK:
-                counters["failed"] += len(batch)
-            failures.extend(batch)
+            failed(batch, blocked_reason or "响应不可用", "content" if blocked_reason else "response")
+            log(f"单条{'内容拦截 ' + blocked_reason if blocked_reason else '响应不可用'}；已记录，继续后续翻译")
         else:
             for key, count in batch:
                 zh = clean(result.get(key), key)
@@ -314,34 +433,50 @@ def main(argv=None) -> int:
 
     def run_top(batch):
         """一个顶层批次（含拆分重试）跑完才记一次进度，拆分不会把进度算重。"""
-        run(batch)
-        with LOG_LOCK:
-            counters["done"] += 1
-            done = counters["done"]
-        if done % 10 == 0 or done == len(batches):
+        if stopped.is_set():
+            return
+        try:
+            run(batch)
+        finally:
+            with LOG_LOCK:
+                counters["done"] += 1
+                done = counters["done"]
             elapsed = time.time() - started
             speed = done / elapsed if elapsed else 0
             remain = (len(batches) - done) / speed if speed else 0
             log(f"{done}/{len(batches)} 批 · 已写 {counters['written']} 条 · 空 {counters['empty']} · "
-                f"失败 {counters['failed']} · 用时 {elapsed / 60:.1f} 分 · 预计还要 {remain / 60:.1f} 分")
+                f"跳过/失败 {counters['failed']}（内容拦截 {counters['blocked']}） · 用时 {elapsed / 60:.1f} 分 · 预计还要 {remain / 60:.1f} 分")
 
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        list(pool.map(run_top, batches))
+    try:
+        log(f"先检查首批请求（{len(batches[0])} 个）；通过后再启动并发")
+        run_top(batches[0])
+        if counters["service_failed"] and not (counters["written"] or counters["empty"]):
+            fatal_reason = "首批没有取得可用应答，本轮停止；检查渠道后可断点重跑"
+            stopped.set()
+        elif len(batches) > 1:
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                list(pool.map(run_top, batches[1:]))
+    except FatalTranslationError as error:
+        stopped.set()
+        fatal_reason = str(error)
+    if fatal_reason:
+        log("已停止：" + fatal_reason)
 
-    if failures:
-        with FAILED_PATH.open("w", encoding="utf-8-sig", newline="") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["tag", "出现条数"])
-            writer.writerows(sorted(failures, key=lambda item: -item[1]))
+    with FAILED_PATH.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["tag", "出现条数", "原因"])
+        writer.writerows(sorted(failures, key=lambda item: -item[1]))
 
     elapsed = time.time() - started
+    unprocessed = len(pending) - counters["written"] - counters["empty"] - counters["failed"]
     lines = [
         "# tag 中文对照 · AI 跑批报告",
         "",
         f"- 时间：{datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M')}，用时 {elapsed / 60:.1f} 分钟",
         f"- 模型：{cfg['model']}（批大小 {batch_size}，并发 {concurrency}）",
         f"- 本次待翻译 {len(pending)} 个，写入 {counters['written']} 条，模型给不出译名 {counters['empty']} 个，"
-        f"失败 {counters['failed']} 个（清单见 跑批失败.csv，重跑本脚本会自动补）",
+        f"跳过/失败 {counters['failed']} 个（内容拦截 {counters['blocked']} 个），未处理 {unprocessed} 个（清单见 跑批失败.csv）",
+        f"- 状态：{'已停止：' + fatal_reason if fatal_reason else ('已完成，有跳过/失败项' if counters['failed'] else '完成')}",
         f"- token：输入 {counters['prompt_tokens']:,}，输出 {counters['completion_tokens']:,}",
         f"- 本轮按负缓存跳过 {stats['本轮跳过无译名']} 个键，新记入 {counters['empty']} 个"
         f"（表：{EMPTY_PATH.name}，共 {stats['已知无译名'] + counters['empty']} 条；"
@@ -352,8 +487,9 @@ def main(argv=None) -> int:
     ]
     REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(json.dumps({"written": counters["written"], "empty": counters["empty"],
-                      "failed": counters["failed"], "minutes": round(elapsed / 60, 1)}, ensure_ascii=False))
-    return 0
+                      "failed": counters["failed"], "blocked": counters["blocked"],
+                      "minutes": round(elapsed / 60, 1)}, ensure_ascii=False))
+    return 1 if fatal_reason or counters["service_failed"] else 0
 
 
 if __name__ == "__main__":
