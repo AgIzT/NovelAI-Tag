@@ -149,6 +149,7 @@
 - Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Node · 详情权重上色：`test_prompt_weights.mjs`（NAI `N::…::`、`{}` / `[]` 与 SD `(…:N)` 的标记位置和加权 / 减权方向；tag 名里的圆括号、转义括号与 tag 内数字不当权重）。
 - Python · 画师样张索引：`test_build_artist_index.py`（画师名夹具、去重顺序、书名推版本）；Node 侧对应 `test_artist_core.mjs`（倍率、索引归一、拆解兜底与跳过自身），两边共用 `fixtures/artist_keys.json`。
+- Node · 画风分类（原型，分支 `feature/artist-style-view`）：`test_artist_style.mjs`（挂数据到 v5 画师词典、虚拟目录排序与计数、层级解析、筛选排序、卡片底行、接近名单分片；替身 fetch，不读真实数据）。
 - Python · 更新样图索引：`test_build_updates_index.py`（更新批次与书内样张共用抽样、成人书自动抽图与解锁标记、公开书排除成人词条、指定样图及失效回退、可见计数门控）。
 - R2 联合验证：`test_publish_data_r2_v2.py`、`test_r2_connection_pool.py`、`test_data_release.mjs`、`test_r2_data_compat.mjs` 验现役 v2/dual、条件写/ABA/部分激活、连接复用/代理/不完整响应、跨语言协议、旧 URL/Range/CORS 与精确版本读取；`--profile r2_integration` 集中运行相关旧回归和新检查，不联网生产。`workers/r2-data-compat/worker.js` 为只读薄兼容 Worker，仅路由 `/data/*`；`config.example.jsonc` 为占位示例，生产部署配置以 `workers/r2-data-compat/wrangler.jsonc` 为准；独立测试包装器不进入生产 bundle。
 - R2 验证工具边界：`test_verify_r2_cas_integration.py`、`test_verify_r2_reading_browser.py` 仅用合成目录验证 fresh output、拒绝复用、外部路径与重解析点，保留旧报告/日志；不启动浏览器、不接生产。

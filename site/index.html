@@ -67,6 +67,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/favorites-backup.css">
 <link rel="stylesheet" href="assets/favorites-library.css">
 <link rel="stylesheet" href="assets/tag-relay.css">
+<link rel="stylesheet" href="assets/artist-style.css">
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/data-release.js">
 <link rel="modulepreload" href="assets/app/state.js">
@@ -114,6 +115,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="modulepreload" fetchpriority="low" href="assets/site-metrics-contract.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/artist-core.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/artist-strip.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/artist-style.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/artist-style-ui.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/birthday.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/birthday-fx.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/birthday-wall.js">
@@ -428,6 +431,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span>备份与恢复</span>
       </button>
     </div>
+    <section id="styleIntro" class="style-intro" aria-label="画风分类" hidden></section>
     <section id="searchStatus" class="search-status" hidden>
       <p id="searchStatusLive" role="status" aria-live="polite"></p>
       <div id="searchStatusActions" class="search-status-actions"></div>
@@ -1249,6 +1253,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <div id="artistStrip" class="artist-strip"></div>
             <div id="artistStripMissing" class="artist-strip-missing" hidden></div>
           </div>
+          <div id="styleBlock" class="lightbox-section style-block" hidden></div>
         </div>
         <div class="lightbox-column lightbox-column-side">
           <div id="characterPromptsBlock" class="lightbox-section" hidden>

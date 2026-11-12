@@ -141,6 +141,8 @@ assert.equal(accessHiddenCount(), entries.length);
       matchSearchPlan: () => true, codexUpdateFilters: () => [], entryMatchesUpdateFilter: () => true,
       filterFavoritesScope: list => list, isContentBlocked: () => false, filterFavoritesEntries: list => list,
       sortCategoryEntries, rankSearchResults, pinFeatured: list => list, findRelatedDirectories: () => [],
+      // 画风分类（原型）：普通法典视图不进画风分支
+      inStyleView: () => false, filterStyleEntries: list => list, sortStyleEntries: list => list, renderStyleIntro() {},
       renderSearchExperience() {}, updateResultBar() {}, syncFavoritesView() {}, renderFavoritesRail() {},
       renderFavoritesHeader() {}, refreshFavoriteBadges() {}, updateBlockingSummary() {},
       renderList() { rendered = model.list.map(entry => entry.id); },

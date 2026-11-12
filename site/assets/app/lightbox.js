@@ -48,6 +48,7 @@ import {
   toggleTagZhDetail,
 } from './tag-zh.js';
 import { bindArtistStripControls, closeArtistPeek, renderArtistStrip, resetArtistStrip } from './artist-strip.js';
+import { renderStyleSection, resetStyleSection } from './artist-style-ui.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -640,14 +641,15 @@ function clearLightboxContent() {
   dockSelection = null;
   syncLightboxFollowUp();
   resetArtistStrip();
+  resetStyleSection();
   clearTagZhDetails($('#lightboxInfo'));
   for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');
   for (const id of ['lightboxTitle', 'lightboxMeta', 'lightboxCharacterPrompts', 'lightboxThumbs',
-    'artistStrip', 'artistStripMissing', 'artistStripCount', 'artistPeekName', 'artistPeekSource']) {
+    'artistStrip', 'artistStripMissing', 'artistStripCount', 'artistPeekName', 'artistPeekSource', 'styleBlock']) {
     const element = $(`#${id}`);
     if (element) element.replaceChildren();
   }
-  for (const id of ['lightboxThumbs', 'artistStripBlock', 'characterPromptsBlock']) {
+  for (const id of ['lightboxThumbs', 'artistStripBlock', 'characterPromptsBlock', 'styleBlock']) {
     const element = $(`#${id}`);
     if (element) element.hidden = true;
   }
@@ -1780,6 +1782,7 @@ export function renderLightbox() {
   bindPromptSelection($('#lightboxNegative'), negative, { entry: e, channel: 'negative', label: labelFor(prompts.ownNegative) });
   syncTagZhForEntry(e, seq);
   renderArtistStrip(e, positive, lightboxEntrySourceId(e));
+  renderStyleSection(e);
 
   $('#copyPositive').hidden = !hasPositive;
   $('#copyPositive').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';

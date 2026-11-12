@@ -9,6 +9,7 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
+import { styleTreeSkeleton, inStyleView } from './artist-style.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
 import { watchWishVisibility, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
@@ -1224,7 +1225,7 @@ export function updateReadingSpy() {
   if (below(P[i])) { while (i > 0 && below(P[i - 1])) i--; }
   else { while (i < P.length - 1 && !below(P[i])) i++; }
   spyLastIndex = i;
-  const path = P[i].entry.path || [];
+  const path = (inStyleView() && P[i].entry.stylePath) || P[i].entry.path || [];
   const pathKey = path.join('\u0001');
   if (pathKey === spyLastPathKey && spy && !spy.hidden) return;
   spyLastPathKey = pathKey;
@@ -1289,7 +1290,10 @@ function accessViewSnapshot() {
   const locked = isCodexLocked(state.codex);
   const allowNsfw = state.allowNsfw;
   const allowR18g = state.allowR18g;
+  // 画风数据是进书后才挂上的，entries 引用不变，记忆键要带上挂载戳
+  const styleStamp = state.codex?.styleStamp || 0;
   if (
+    accessViewMemo?.styleStamp === styleStamp &&
     accessViewMemo?.entries === entries &&
     accessViewMemo.emptyPaths === emptyPaths &&
     accessViewMemo.categoryOrder === categoryOrder &&
@@ -1299,6 +1303,7 @@ function accessViewSnapshot() {
   ) return accessViewMemo;
 
   accessViewMemo = {
+    styleStamp,
     entries,
     emptyPaths,
     categoryOrder,
@@ -1313,21 +1318,35 @@ function accessViewSnapshot() {
 function buildAccessView(entries, emptyPaths, categoryOrder) {
   const root = new Map();
   let hiddenCount = 0;
+  const treeNode = (map, name) => {
+    if (!map.has(name)) map.set(name, { name, count: 0, nsfwCount: 0, explicitNsfw: false, children: new Map() });
+    return map.get(name);
+  };
+  // 画风分类（原型）的虚拟目录排在最前，大类、小组按数据顺序先占位，计数随代表词条累加
+  const skeleton = styleTreeSkeleton(state.codex);
+  if (skeleton) {
+    const top = treeNode(root, skeleton.name);
+    for (const parent of skeleton.children) {
+      const branch = treeNode(top.children, parent.name);
+      for (const group of parent.children) treeNode(branch.children, group);
+    }
+  }
   for (const entry of entries) {
     if (isEntryAccessBlocked(entry)) hiddenCount += 1;
     if (!state.allowR18g && isR18gEntry(entry)) continue;
-    const path = Array.isArray(entry.path) ? entry.path : [];
     const entryNsfw = isEntryNsfw(entry);
-    const explicitNsfwFrom = path.findIndex(isNsfwPathSegment);
-    let node = root;
-    path.forEach((name, index) => {
-      if (!node.has(name)) node.set(name, { name, count: 0, nsfwCount: 0, explicitNsfw: false, children: new Map() });
-      const cur = node.get(name);
-      cur.count += 1;
-      if (entryNsfw) cur.nsfwCount += 1;
-      if (explicitNsfwFrom >= 0 && index >= explicitNsfwFrom) cur.explicitNsfw = true;
-      node = cur.children;
-    });
+    for (const path of [entry.stylePath, entry.path]) {
+      if (!Array.isArray(path)) continue;
+      const explicitNsfwFrom = path.findIndex(isNsfwPathSegment);
+      let level = root;
+      path.forEach((name, index) => {
+        const cur = treeNode(level, name);
+        cur.count += 1;
+        if (entryNsfw) cur.nsfwCount += 1;
+        if (explicitNsfwFrom >= 0 && index >= explicitNsfwFrom) cur.explicitNsfw = true;
+        level = cur.children;
+      });
+    }
   }
   // 本地编辑器登记的空分类（还没有词条）：只保证节点存在，不计数。
   // 普通法典没有这个字段，行为完全不变。

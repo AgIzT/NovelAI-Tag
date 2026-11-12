@@ -10,6 +10,7 @@ import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { isFeaturedEntry } from './featured.js';
+import { styleCardLine } from './artist-style.js';
 
 const masonryActions = {
   openLightbox: () => {},
@@ -569,7 +570,7 @@ export function makeCard(placement) {
   const highlightTerms = currentHighlightTerms();
   renderHighlightedText(node.querySelector('.card-title'), e.title, highlightTerms);
   renderHighlightedText(node.querySelector('.card-tags'), entryPromptText(e), currentPromptHighlightTerms());
-  node.querySelector('.card-path').textContent = e.path.join(' › ');
+  node.querySelector('.card-path').textContent = styleCardLine(e) || e.path.join(' › ');
   const hiddenMatch = hiddenSearchMatch(e, highlightTerms);
   const hiddenMatchChip = node.querySelector('.search-match-chip');
   if (hiddenMatchChip && hiddenMatch) {

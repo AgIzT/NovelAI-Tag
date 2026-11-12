@@ -147,6 +147,7 @@ function artistTile(tile) {
   button.type = 'button';
   button.className = 'artist-tile ui-press';
   button.title = `artist:${tile.name}`;
+  button.dataset.peekKey = tileKey(tile);
   button.setAttribute('aria-pressed', peekKey === tileKey(tile) ? 'true' : 'false');
   const frame = document.createElement('span');
   frame.className = 'artist-tile-img';
@@ -182,35 +183,41 @@ function artistTile(tile) {
   return button;
 }
 
+/* 灯箱里所有样张缩略图（画师一栏、画风一栏）按 data-peek-key 同步按下态 */
 function syncPressedTiles() {
-  const grid = $('#artistStrip');
-  if (!grid) return;
-  for (const button of grid.querySelectorAll('.artist-tile:not(.artist-tile-more)')) {
-    button.setAttribute('aria-pressed', 'false');
+  for (const button of document.querySelectorAll('#lightbox .artist-tile[data-peek-key]')) {
+    button.setAttribute('aria-pressed', peekKey && button.dataset.peekKey === peekKey ? 'true' : 'false');
   }
 }
 
-function openArtistPeek(tile) {
+/* 在大图位置盖一张样张；「打开词条」交给调用方。画风一栏也用它。 */
+export function openSamplePeek({ key, src, name, source, onOpen }) {
   const peek = $('#artistPeek');
   if (!peek) return;
-  peekKey = tileKey(tile);
-  const book = artistIndex.books[tile.sample.version];
-  const img = $('#artistPeekImg');
-  img.src = sampleUrl(tile.sample);
-  $('#artistPeekName').textContent = `artist:${tile.name}`;
-  const title = findCodexMeta(book)?.title || ARTIST_VERSION_LABELS[tile.sample.version];
-  $('#artistPeekSource').textContent = tile.sample.count > 1 ? `${title} · 共 ${tile.sample.count} 张` : title;
+  peekKey = key;
+  $('#artistPeekImg').src = src;
+  $('#artistPeekName').textContent = name;
+  $('#artistPeekSource').textContent = source;
   $('#artistPeekOpen').onclick = ev => {
     ev.stopPropagation();
     closeArtistPeek();
-    openRecentEntry({ codexId: book, entryId: tile.sample.entryId, path: tile.sample.path }, { historyMode: 'push' });
+    onOpen();
   };
   peek.hidden = false;
   $('#lightbox')?.classList.add('artist-peeking');
   syncPressedTiles();
-  for (const button of $('#artistStrip').querySelectorAll('.artist-tile:not(.artist-tile-more)')) {
-    if (button.title === `artist:${tile.name}`) button.setAttribute('aria-pressed', 'true');
-  }
+}
+
+function openArtistPeek(tile) {
+  const book = artistIndex.books[tile.sample.version];
+  const title = findCodexMeta(book)?.title || ARTIST_VERSION_LABELS[tile.sample.version];
+  openSamplePeek({
+    key: tileKey(tile),
+    src: sampleUrl(tile.sample),
+    name: `artist:${tile.name}`,
+    source: tile.sample.count > 1 ? `${title} · 共 ${tile.sample.count} 张` : title,
+    onOpen: () => openRecentEntry({ codexId: book, entryId: tile.sample.entryId, path: tile.sample.path }, { historyMode: 'push' }),
+  });
 }
 
 /* 收起样张、换回原图；本来就没开返回 false（Esc 据此决定是否继续关灯箱）。 */

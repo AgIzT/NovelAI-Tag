@@ -1,0 +1,100 @@
+/* 画风分类（原型）：结果栏下方的分类导读、排序筛选，词条详情里的「画风」一栏。
+   沿用站内卡片语言：浅底圆角面板 + 细边框，选中用强调色浅底；缩略图沿用画师一栏的 .artist-tile。 */
+
+/* position / z-index 与往期下拉同理：排序筛选的浮层要盖住下面的瀑布流卡片 */
+.style-intro{
+  position:relative;z-index:20;
+  margin:-2px 0 14px;border:1px solid var(--line);border-radius:16px;padding:12px;background:var(--panel);
+}
+.style-desc{margin:0 0 10px;color:var(--text);font-size:13px;line-height:1.6}
+
+.style-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.style-tiles.is-parents{grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
+.style-tile{
+  display:grid;grid-template-columns:56px minmax(0,1fr);align-items:start;gap:10px;min-width:0;
+  padding:8px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--text);
+  text-align:left;cursor:pointer;transition:border-color .12s,background .12s;
+}
+.style-tile:hover{border-color:var(--accent)}
+.style-tile.is-current{border-color:var(--accent);background:var(--accent-soft);cursor:default}
+.style-mini{
+  display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;width:56px;height:56px;
+  overflow:hidden;border-radius:9px;background:var(--line);
+}
+.style-mini img,.style-mini span{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 18%;background:var(--tagbg)}
+.style-tile-text{display:grid;gap:2px;min-width:0}
+.style-tile-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:800;line-height:1.35}
+.style-tile-name small{margin-left:6px;color:var(--muted);font-size:10.5px;font-weight:600}
+.style-tile-tags{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--accent);font-size:10.5px;font-weight:700}
+.style-tile-desc{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;
+  color:var(--muted);font-size:11px;line-height:1.45;
+}
+.style-tile.is-current .style-tile-desc{color:var(--text)}
+
+/* 小组页：同类小组收成一行紧凑胶囊，不写说明 */
+.style-tiles.is-siblings{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.style-tiles.is-siblings .style-tile{grid-template-columns:28px auto;align-items:center;gap:7px;padding:4px 10px 4px 4px;border-radius:999px}
+.style-tiles.is-siblings .style-mini{width:28px;height:28px;border-radius:50%}
+.style-tiles.is-siblings .style-tile-tags,.style-tiles.is-siblings .style-tile-desc{display:none}
+.style-tiles.is-siblings .style-tile-name{font-size:12px}
+
+.style-facts{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.style-tags{display:inline-flex;flex-wrap:wrap;gap:5px}
+.style-tags>span{padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700}
+.style-famous-list{display:inline-flex;flex-wrap:wrap;align-items:center;gap:5px}
+.style-famous-label{margin-right:2px;color:var(--muted);font-size:11.5px}
+.style-famous{
+  padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);
+  font:600 12px/1.35 var(--font-prompt);cursor:pointer;
+}
+.style-famous:hover{border-color:var(--accent);color:var(--accent)}
+
+.style-controls{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);
+}
+.style-select{flex:none;width:auto}
+.style-select .ui-select-list{max-width:min(240px,calc(100vw - 28px))}
+.style-select.is-active .ui-select-button{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700}
+.style-clear{flex:none}
+
+/* ---------- 词条详情：画风一栏 ---------- */
+.style-block .section-head{justify-content:flex-start}
+.style-path{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0;color:var(--muted);font-size:12px}
+.style-block .section-head .style-path-link{
+  padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--accent);
+  font-size:12px;font-weight:700;
+}
+.style-block .section-head .style-path-link:hover{border-color:var(--accent)}
+.style-stats{display:grid;grid-template-columns:64px minmax(0,1fr);gap:4px 10px;margin:2px 0 4px;font-size:12px;line-height:1.5}
+.style-stats dt{color:var(--lb-muted,var(--muted))}
+.style-stats dt[title]{cursor:help;text-decoration:underline dotted color-mix(in srgb,var(--muted) 60%,transparent);text-underline-offset:3px}
+.style-stats dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+.style-rec{font-weight:800}
+.style-rec.is-high{color:#1f9d63}
+.style-rec.is-mid{color:#c08217}
+.style-rec.is-low{color:var(--new,#d64545)}
+.style-rec.is-unknown{color:var(--muted)}
+.style-sub{margin-top:10px}
+.style-sub-label{margin-bottom:6px;color:var(--lb-muted,var(--muted));font-size:11.5px;font-weight:700}
+
+@media (max-width:600px){
+  .style-intro{margin:0 0 12px;padding:10px;border-radius:14px}
+  .style-desc{font-size:12.5px}
+  /* 手机上大类、小组排成一行横滑，免得把卡片压到第二屏以下 */
+  .style-tiles,.style-tiles.is-parents{
+    display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;margin:0 -10px;padding:0 10px 2px;
+    scrollbar-width:none;
+  }
+  .style-tiles::-webkit-scrollbar{display:none}
+  .style-tiles .style-tile{flex:none;width:224px;scroll-snap-align:start}
+  .style-tiles.is-siblings{flex-wrap:nowrap}
+  .style-tiles.is-siblings .style-tile{width:auto}
+  /* 小组页的实测标签与代表画师并成一行横滑 */
+  .style-facts{flex-wrap:nowrap;gap:10px;overflow-x:auto;margin:0 -10px;padding:0 10px;scrollbar-width:none}
+  .style-facts::-webkit-scrollbar{display:none}
+  .style-tags,.style-famous-list{flex-wrap:nowrap;flex:none}
+  .style-famous{white-space:nowrap}
+  /* 排序筛选允许折成两行：横滑容器会把下拉浮层裁掉 */
+  .style-controls{gap:6px 5px}
+}

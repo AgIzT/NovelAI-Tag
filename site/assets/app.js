@@ -24,7 +24,9 @@ import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { encodePathCode, pathFromCode } from './app/path-code.js';
-import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, codexCoverUrl, codexCoverStyle } from './app/codex-ui.js';
+import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, codexCoverUrl, codexCoverStyle, selectPathByPath, renderCategoryRail, invalidateAccessViewMemo } from './app/codex-ui.js';
+import { supportsArtistStyles, ensureArtistStyles, isStylePath, inStyleView, filterStyleEntries, sortStyleEntries } from './app/artist-style.js';
+import { renderStyleIntro, bindStyleIntro, bindStyleSection, setStyleUiActions } from './app/artist-style-ui.js';
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
@@ -283,6 +285,8 @@ export async function init() {
     setupAbout();
     setupTreeSpy();
     bindUI();
+    bindStyleIntro();
+    bindStyleSection();
     setupContentBlocking();
     setupFavoritesView();
     bindFavoritesBackup();
@@ -417,6 +421,25 @@ function showCodexIdentity(c) {
   if (codexBtnText) codexBtnText.textContent = codexPickerTitle(findCodexMeta(c.id)) || c.title;
 }
 
+/* 画风分类（原型）：v5 画师词典要挂画风数据。地址里带目录时等它挂上再渲染，否则短码解不出画风分类下的目录；
+   普通进书不等，挂上后补画目录与分类轨。 */
+async function fetchCodexForView(meta, options = {}) {
+  const codex = await fetchCodex(meta);
+  if (!supportsArtistStyles(codex) || codex.styleStamp) return codex;
+  const attaching = ensureArtistStyles(codex);
+  if (options.urlState?.pathCode || isStylePath(options.urlState?.path)) {
+    await attaching;
+  } else {
+    attaching.then(attached => {
+      if (!attached || state.codex !== codex || state.favoritesView || state.siteSearchView) return;
+      invalidateAccessViewMemo();
+      renderTree();
+      renderCategoryRail({ animate: false });
+    });
+  }
+  return codex;
+}
+
 export async function loadCodex(id, options = {}) {
   if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
@@ -445,7 +468,7 @@ export async function loadCodex(id, options = {}) {
     clearMasonry();
   }
   try {
-    const codex = await fetchCodex(meta);
+    const codex = await fetchCodexForView(meta, options);
     if (seq !== codexLoadSeq || options.isCurrent?.() === false || isCodexLocked(meta) || isCodexLocked(codex)) return;
     const wasSwitching = Boolean(state.codex);
     const render = () => renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), closeOldLightbox: Boolean(options.isCurrent) });
@@ -466,7 +489,7 @@ export async function loadCodex(id, options = {}) {
 async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   const isCurrent = () => seq === codexLoadSeq && options.isCurrent?.() !== false && !isCodexLocked(meta);
   setLoading('');
-  const loading = fetchCodex(meta);
+  const loading = fetchCodexForView(meta, options);
   const sw = beginCodexSwitch({
     origin: options.origin,
     isCurrent,
@@ -895,9 +918,13 @@ export function applyFilter(options = {}) {
     });
   }
   let list = visibleEntries;
+  // 画风分类是虚拟目录：按代表词条的 stylePath 收窄，列表按画风视图的排序与筛选来
+  const styleView = inStyleView();
   const byActivePath = l => {
     const p = state.activePath;
-    return p.length ? l.filter(e => p.every((seg, i) => e.path[i] === seg)) : l;
+    if (!p.length) return l;
+    if (styleView) return l.filter(e => e.stylePath && p.every((seg, i) => e.stylePath[i] === seg));
+    return l.filter(e => p.every((seg, i) => e.path[i] === seg));
   };
   if (plan.hasActiveSearch) {
     list = list.filter(e => matchSearchPlan(e, plan));
@@ -907,12 +934,14 @@ export function applyFilter(options = {}) {
   if (!state.favoritesView && state.activePath.length && (state.siteSearchView || !plan.hasActiveSearch)) list = byActivePath(list);
   const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
+  const styleBrowse = styleView && !plan.hasActiveSearch;
+  if (styleBrowse) list = filterStyleEntries(list);
   // 先定当前夹/来源候选，再求屏蔽差量；其它夹子的隐藏项不能污染这里的空态。
   if (state.favoritesView) list = filterFavoritesScope(list);
   const unblocked = list.filter(entry => !isContentBlocked(entry));
   const blockedCount = list.length - unblocked.length;
   const ordered = !state.favoritesView && !state.siteSearchView
-    ? sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder)
+    ? (styleBrowse ? sortStyleEntries(unblocked) : sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder))
     : unblocked;
   state.list = state.favoritesView ? filterFavoritesEntries(ordered) : rankSearchResults(ordered, plan);
   // 今日画师只在那本书的「全部」视图置顶：有目录、搜索 / 筛选、更新筛选、收藏或全站搜索时保持原顺序
@@ -932,6 +961,7 @@ export function applyFilter(options = {}) {
   state.relatedDirectoryCount = Number(relatedDirectories.totalCount) || relatedDirectories.length;
   renderSearchExperience(plan, directoryOptions, searchZh);
   updateResultBar();
+  renderStyleIntro();
   if (state.favoritesView) {
     syncFavoritesView();
     renderFavoritesRail();
@@ -1141,6 +1171,14 @@ setCodexUiActions({
   syncUrlState,
   openLightbox,
   updateVirtualCards,
+});
+
+setStyleUiActions({
+  applyFilter,
+  selectPath: path => selectPathByPath(path),
+  openEntry: entryId => openEntryDeepLink(entryId, { historyMode: 'push' }),
+  // 换目录前先关详情：用 replace，不走后退，免得异步后退把紧接着记下的目录又退掉
+  closeLightbox: () => closeLightbox({ historyMode: 'replace' }),
 });
 
 setHistoryActions({
