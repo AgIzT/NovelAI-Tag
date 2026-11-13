@@ -48,7 +48,7 @@ import {
   toggleTagZhDetail,
 } from './tag-zh.js';
 import { bindArtistStripControls, closeArtistPeek, renderArtistStrip, resetArtistStrip } from './artist-strip.js';
-import { renderStyleSection, resetStyleSection } from './artist-style-ui.js';
+import { renderArtistProfile, resetArtistProfile, lightboxPathText } from './artist-style-ui.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -596,7 +596,7 @@ export function refreshLightboxNavigation(navigation = null) {
     lb.images.length > 1 ? `第 ${lb.index + 1} / ${lb.images.length} 张` : '',
     nav.index >= 0 && nav.total > 1 ? `第 ${nav.position} / ${nav.total} 条` : '',
   ].filter(Boolean).join(' · ');
-  $('#lightboxMeta').textContent = [entry.path.join(' › '), position].filter(Boolean).join('\n');
+  $('#lightboxMeta').textContent = [lightboxPathText(entry), position].filter(Boolean).join('\n');
   const configureNavButton = (button, target, direction) => {
     button.hidden = !target;
     if (!target) {
@@ -641,15 +641,15 @@ function clearLightboxContent() {
   dockSelection = null;
   syncLightboxFollowUp();
   resetArtistStrip();
-  resetStyleSection();
+  resetArtistProfile();
   clearTagZhDetails($('#lightboxInfo'));
   for (const pre of document.querySelectorAll('#lightboxInfo pre')) forgetPromptBlock(pre, '');
   for (const id of ['lightboxTitle', 'lightboxMeta', 'lightboxCharacterPrompts', 'lightboxThumbs',
-    'artistStrip', 'artistStripMissing', 'artistStripCount', 'artistPeekName', 'artistPeekSource', 'styleBlock']) {
+    'artistStrip', 'artistStripMissing', 'artistStripCount', 'artistPeekName', 'artistPeekSource', 'artistProfile']) {
     const element = $(`#${id}`);
     if (element) element.replaceChildren();
   }
-  for (const id of ['lightboxThumbs', 'artistStripBlock', 'characterPromptsBlock', 'styleBlock']) {
+  for (const id of ['lightboxThumbs', 'artistStripBlock', 'characterPromptsBlock', 'artistProfile']) {
     const element = $(`#${id}`);
     if (element) element.hidden = true;
   }
@@ -1782,7 +1782,8 @@ export function renderLightbox() {
   bindPromptSelection($('#lightboxNegative'), negative, { entry: e, channel: 'negative', label: labelFor(prompts.ownNegative) });
   syncTagZhForEntry(e, seq);
   renderArtistStrip(e, positive, lightboxEntrySourceId(e));
-  renderStyleSection(e);
+  // v5 画师词典的单画师词条改用画师版式（画风、post、辨识度、例图、画风接近、出现在画风串），提示词区块由 CSS 收起
+  renderArtistProfile(e);
 
   $('#copyPositive').hidden = !hasPositive;
   $('#copyPositive').title = state.sdMode ? '将以 Stable Diffusion 格式复制' : '复制 NovelAI 原文';

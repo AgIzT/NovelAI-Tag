@@ -3,6 +3,7 @@ import { $ } from './utils.js';
 import { findCodexMeta } from './data.js';
 import { assetUrl } from './media.js';
 import { openRecentEntry } from './history.js';
+import { landingPathOf, styleBookEntry } from './artist-style.js';
 import {
   ARTIST_VERSION_LABELS,
   formatArtistWeight,
@@ -216,7 +217,11 @@ function openArtistPeek(tile) {
     src: sampleUrl(tile.sample),
     name: `artist:${tile.name}`,
     source: tile.sample.count > 1 ? `${title} · 共 ${tile.sample.count} 张` : title,
-    onOpen: () => openRecentEntry({ codexId: book, entryId: tile.sample.entryId, path: tile.sample.path }, { historyMode: 'push' }),
+    // v5 画师词典按画风重排时，样张落到画师所在的画风小组，不落到已不在目录里的来源路径
+    onOpen: () => openRecentEntry({
+      codexId: book, entryId: tile.sample.entryId,
+      path: landingPathOf(styleBookEntry(tile.sample.entryId) || { id: tile.sample.entryId, path: tile.sample.path }),
+    }, { historyMode: 'push' }),
   });
 }
 

@@ -430,8 +430,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
         <span>备份与恢复</span>
       </button>
+      <div id="artistHead" class="artist-head" hidden></div>
     </div>
-    <section id="styleIntro" class="style-intro" aria-label="画风分类" hidden></section>
     <section id="searchStatus" class="search-status" hidden>
       <p id="searchStatusLive" role="status" aria-live="polite"></p>
       <div id="searchStatusActions" class="search-status-actions"></div>
@@ -445,6 +445,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       </header>
       <ul id="searchRelatedList"></ul>
     </section>
+    <div id="artistOverview" class="artist-overview" aria-label="画风总览" hidden></div>
     <div id="loading" class="loading" hidden></div>
     <div id="skeletonGrid" class="skeleton-grid" aria-hidden="true" hidden>
       <div class="skeleton-card"><i class="skeleton-thumb"></i><i class="skeleton-line title"></i><i class="skeleton-line"></i><i class="skeleton-line short"></i></div>
@@ -1233,6 +1234,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         </div>
       </div>
       <div class="lightbox-columns">
+        <div id="artistProfile" class="artist-profile" hidden></div>
         <div class="lightbox-column lightbox-column-main">
           <div class="lightbox-section">
             <div class="section-head">
@@ -1253,7 +1255,6 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
             <div id="artistStrip" class="artist-strip"></div>
             <div id="artistStripMissing" class="artist-strip-missing" hidden></div>
           </div>
-          <div id="styleBlock" class="lightbox-section style-block" hidden></div>
         </div>
         <div class="lightbox-column lightbox-column-side">
           <div id="characterPromptsBlock" class="lightbox-section" hidden>

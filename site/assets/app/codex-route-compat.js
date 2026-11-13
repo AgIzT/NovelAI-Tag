@@ -58,9 +58,12 @@ export function normalizeRoutePath(tree, path) {
 
 export function normalizeCodexRoutePath(codex, path, sourceCodexId = codex?.id) {
   if (!Array.isArray(path)) return [];
-  const current = normalizeRoutePath(codex?.tree, path);
+  // displayTree：v5 画师词典按画风重排时的展示目录（artist-style.js 挂上），其它书就是 tree
+  const current = normalizeRoutePath(codex?.displayTree || codex?.tree, path);
   if (current.length) return current; // 新路径原样保留，反复刷新不重复加前缀。
   if (!path.length && sourceCodexId === codex?.id) return []; // 当前合并册的“全部”。
+  const styleFallback = codex?.styleRouteFallback?.(path);
+  if (styleFallback) return styleFallback;
   const moved = MOVED_PATHS.find(item => (
     item.codex === codex?.id
     && item.legacyRoots.includes(path[0])

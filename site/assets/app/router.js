@@ -4,6 +4,7 @@ import { encodePathCode } from './path-code.js';
 import { serializeSearchFilters } from './search.js';
 import { resolveAtlasEntryId } from './favorites-backup-core.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
+import { landingPathOf } from './artist-style.js';
 import {
   beginLayeredSearch,
   commitHistoryRoute,
@@ -310,7 +311,7 @@ export function openEntryDeepLink(entryId, { imageIndex = 0, historyMode = 'none
   if (!hasActiveSearchRoute({ q: state.query, searchFilters: state.searchFilterValues })
       && entry.path?.length
       && (!state.activePath.length || (landing && !state.list.some(item => item.id === entry.id)))) {
-    state.activePath = entry.path;
+    state.activePath = landingPathOf(entry, state.codex);
     routerActions.renderTree();
     routerActions.applyFilter({ resetScroll: true });
     if (landing) syncUrlState({ historyMode: 'replace', entry: '', saveBrowse: false });

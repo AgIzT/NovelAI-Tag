@@ -177,8 +177,9 @@ for (const [hasErrors, entries] of [[false, [{}]], [false, []], [true, []]]) {
     filterFavoritesScope: value => value, isContentBlocked: () => false, filterFavoritesEntries: value => value,
     sortCategoryEntries: value => value,
     rankSearchResults: value => value, pinFeatured: value => value, findRelatedDirectories: () => [],
-    // 画风分类（原型）：普通法典视图不进画风分支
-    inStyleView: () => false, filterStyleEntries: list => list, sortStyleEntries: list => list, renderStyleIntro() {},
+    // 单画师按画风重排（原型）：普通法典视图不进单画师分支
+    inSingleSection: () => false, selectStyleEntries: list => list, styleLocation: () => null,
+    filterStyleEntries: list => list, sortStyleEntries: list => list, renderArtistOverview() {},
     renderSearchExperience() {}, updateResultBar() {}, syncFavoritesView() {}, renderFavoritesRail() {},
     renderFavoritesHeader() {}, refreshFavoriteBadges() {}, renderList() { trace.push('render'); }, updateBlockingSummary() {},
   });

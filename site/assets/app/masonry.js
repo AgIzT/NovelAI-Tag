@@ -10,7 +10,7 @@ import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { isFeaturedEntry } from './featured.js';
-import { styleCardLine } from './artist-style.js';
+import { styleCardLine, styleCardTitle, stylePathText } from './artist-style.js';
 
 const masonryActions = {
   openLightbox: () => {},
@@ -365,14 +365,16 @@ export function invalidateBodyMetrics(e) {
 export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cfg = densityConfig();
+  // 画师卡（单画师各层，原型）不出提示词框、标题是画师名，估高要跟着变；缓存身份带上这一项
+  const artistTitle = styleCardTitle(e);
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.sdMode === state.sdMode) return cached.value;
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.sdMode === state.sdMode && cached.artistTitle === artistTitle) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleWidth = cfg.mobile ? Math.max(1, width - 2 - cfg.bodyPadX * 2 - (cfg.titleActionWidth || 26)) : contentWidth;
-  const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
+  const titleLines = clamp(Math.ceil(textUnits(artistTitle || e.title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
   const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
   const titleHeight = Math.max(cfg.mobile ? (cfg.titleMinHeight || 20) : 0, titleLines * cfg.titleLineHeight);
-  const tagsHeight = cfg.hideImageTags && hasEntryImage(e) ? 0
+  const tagsHeight = (artistTitle || cfg.hideImageTags) && hasEntryImage(e) ? 0
     : clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const titleGap = tagsHeight ? cfg.titleGap : 0;
   const footGap = cfg.footGap;
@@ -381,7 +383,7 @@ export function estimateBodyMetrics(e, width) {
     height: Math.ceil(cfg.bodyPadTop + titleHeight + titleGap + tagsHeight + footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, sdMode: state.sdMode, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, sdMode: state.sdMode, artistTitle, value });
   return value;
 }
 
@@ -568,9 +570,12 @@ export function makeCard(placement) {
   updateCardPosition(node, placement);
 
   const highlightTerms = currentHighlightTerms();
-  renderHighlightedText(node.querySelector('.card-title'), e.title, highlightTerms);
+  // 单画师各层（原型）的画师卡：标题写画师名，不出提示词框（复制的就是 artist:画师名），底行写 post 与辨识度
+  const artistTitle = styleCardTitle(e);
+  node.classList.toggle('card-artist', Boolean(artistTitle));
+  renderHighlightedText(node.querySelector('.card-title'), artistTitle || e.title, highlightTerms);
   renderHighlightedText(node.querySelector('.card-tags'), entryPromptText(e), currentPromptHighlightTerms());
-  node.querySelector('.card-path').textContent = styleCardLine(e) || e.path.join(' › ');
+  node.querySelector('.card-path').textContent = styleCardLine(e) || stylePathText(e) || e.path.join(' › ');
   const hiddenMatch = hiddenSearchMatch(e, highlightTerms);
   const hiddenMatchChip = node.querySelector('.search-match-chip');
   if (hiddenMatchChip && hiddenMatch) {
@@ -971,7 +976,10 @@ function measureCardHeights(cards) {
   return prepared.map(card => {
     const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
     const naturalTagsBoxHeight = card.tags ? layoutHeight(card.tags) : 0;
-    const tagsHeight = cfg.hideImageTags && hasEntryImage(card.placement.entry) ? 0 : card.tags
+    // 画师卡（原型）的提示词框由 CSS 收起，和紧凑密度一样按 0 算，不能被最小高度撑回去；
+    // 判定与估高 estimateBodyMetrics 同一来源（styleCardTitle），不读 DOM 类名
+    const tagsHidden = cfg.hideImageTags || Boolean(styleCardTitle(card.placement.entry));
+    const tagsHeight = tagsHidden && hasEntryImage(card.placement.entry) ? 0 : card.tags
       ? clamp(naturalTagsHeight, cfg.minTagHeight, cfg.maxTagHeight)
       : card.placement.tagsHeight;
     const imageHeight = card.wrap && !card.wrap.hidden && getComputedStyle(card.wrap).display !== 'none'

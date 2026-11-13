@@ -1,100 +1,136 @@
-/* 画风分类（原型）：结果栏下方的分类导读、排序筛选，词条详情里的「画风」一栏。
-   沿用站内卡片语言：浅底圆角面板 + 细边框，选中用强调色浅底；缩略图沿用画师一栏的 .artist-tile。 */
+/* 单画师按画风重排（原型）。只用站内现有变量与组件形制：
+   - 页头：单画师各层把结果栏做成卡片（同全站搜索页头的面板形制），本层名称、说明、标签、代表画师、小组胶囊、排序筛选都在这张卡里；
+   - 首页总览：10 块大类面板，等高，形制同横幅；
+   - 画师卡：沿用瀑布流卡片，收起提示词框；
+   - 画师详情：词条详情的信息栏改按画师排，缩略图沿用「画师」一栏的 .artist-tile。 */
 
-/* position / z-index 与往期下拉同理：排序筛选的浮层要盖住下面的瀑布流卡片 */
-.style-intro{
-  position:relative;z-index:20;
-  margin:-2px 0 14px;border:1px solid var(--line);border-radius:16px;padding:12px;background:var(--panel);
+/* ---------- 页头 ---------- */
+.artist-style-head .result-bar{
+  background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
+  padding:10px 16px 14px;gap:8px 12px;
 }
-.style-desc{margin:0 0 10px;color:var(--text);font-size:13px;line-height:1.6}
+.artist-style-head .crumb{border:0;background:transparent;padding:2px 3px;font-size:13px}
+.artist-style-head button.crumb:hover{background:transparent;color:var(--accent)}
+/* 当前这一层就是下面的大标题，面包屑只留上层 */
+.artist-style-head .crumb.current,
+.artist-style-head .crumb-sep:has(+ .crumb.current){display:none}
+.artist-style-head #updateFilterControls{margin-left:auto}
 
-.style-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
-.style-tiles.is-parents{grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
-.style-tile{
-  display:grid;grid-template-columns:56px minmax(0,1fr);align-items:start;gap:10px;min-width:0;
-  padding:8px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--text);
-  text-align:left;cursor:pointer;transition:border-color .12s,background .12s;
-}
-.style-tile:hover{border-color:var(--accent)}
-.style-tile.is-current{border-color:var(--accent);background:var(--accent-soft);cursor:default}
-.style-mini{
-  display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;width:56px;height:56px;
-  overflow:hidden;border-radius:9px;background:var(--line);
-}
-.style-mini img,.style-mini span{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 18%;background:var(--tagbg)}
-.style-tile-text{display:grid;gap:2px;min-width:0}
-.style-tile-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:800;line-height:1.35}
-.style-tile-name small{margin-left:6px;color:var(--muted);font-size:10.5px;font-weight:600}
-.style-tile-tags{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--accent);font-size:10.5px;font-weight:700}
-.style-tile-desc{
-  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;
-  color:var(--muted);font-size:11px;line-height:1.45;
-}
-.style-tile.is-current .style-tile-desc{color:var(--text)}
-
-/* 小组页：同类小组收成一行紧凑胶囊，不写说明 */
-.style-tiles.is-siblings{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.style-tiles.is-siblings .style-tile{grid-template-columns:28px auto;align-items:center;gap:7px;padding:4px 10px 4px 4px;border-radius:999px}
-.style-tiles.is-siblings .style-mini{width:28px;height:28px;border-radius:50%}
-.style-tiles.is-siblings .style-tile-tags,.style-tiles.is-siblings .style-tile-desc{display:none}
-.style-tiles.is-siblings .style-tile-name{font-size:12px}
-
-.style-facts{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
-.style-tags{display:inline-flex;flex-wrap:wrap;gap:5px}
-.style-tags>span{padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700}
-.style-famous-list{display:inline-flex;flex-wrap:wrap;align-items:center;gap:5px}
-.style-famous-label{margin-right:2px;color:var(--muted);font-size:11.5px}
-.style-famous{
+.artist-head{flex:1 0 100%;display:grid;gap:9px;min-width:0}
+.artist-head[hidden]{display:none}
+.ah-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;min-width:0}
+.ah-title h2{margin:0;font:800 22px/1.25 var(--font-ui);color:var(--text)}
+.ah-count{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ah-tags,.ap-tags{display:inline-flex;flex-wrap:wrap;gap:5px}
+.ah-tags>span,.ap-tags>span{padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;line-height:1.5}
+.ah-desc{margin:0;max-width:72ch;color:var(--text);font-size:13px;line-height:1.6}
+.ah-famous{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.ah-label{margin-right:2px;color:var(--muted);font-size:12px}
+.ah-artist{
   padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);
-  font:600 12px/1.35 var(--font-prompt);cursor:pointer;
+  font:600 12px/1.4 var(--font-prompt);cursor:pointer;transition:border-color .12s,color .12s;
 }
-.style-famous:hover{border-color:var(--accent);color:var(--accent)}
-
-.style-controls{
-  display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);
+.ah-artist:hover{border-color:var(--accent);color:var(--accent)}
+.ah-chips{display:flex;flex-wrap:wrap;gap:6px}
+.artist-chip.rail-chip{padding:5px 12px;font-size:12.5px;gap:6px}
+.artist-controls{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  margin-top:2px;padding-top:11px;border-top:1px dashed var(--line);
 }
-.style-select{flex:none;width:auto}
-.style-select .ui-select-list{max-width:min(240px,calc(100vw - 28px))}
-.style-select.is-active .ui-select-button{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700}
-.style-clear{flex:none}
+.artist-select{flex:none;width:auto}
+.artist-select .ui-select-list{max-width:min(240px,calc(100vw - 28px))}
+.artist-select.is-active .ui-select-button{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700}
+.artist-clear{flex:none}
 
-/* ---------- 词条详情：画风一栏 ---------- */
-.style-block .section-head{justify-content:flex-start}
-.style-path{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0;color:var(--muted);font-size:12px}
-.style-block .section-head .style-path-link{
-  padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--accent);
-  font-size:12px;font-weight:700;
+/* ---------- 首页总览 ---------- */
+.artist-overview{display:grid;gap:12px;margin-bottom:28px}
+.artist-overview[hidden]{display:none}
+.artist-cat{
+  display:grid;gap:9px;min-width:0;padding:14px 16px 16px;
+  background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
 }
-.style-block .section-head .style-path-link:hover{border-color:var(--accent)}
-.style-stats{display:grid;grid-template-columns:64px minmax(0,1fr);gap:4px 10px;margin:2px 0 4px;font-size:12px;line-height:1.5}
-.style-stats dt{color:var(--lb-muted,var(--muted))}
-.style-stats dt[title]{cursor:help;text-decoration:underline dotted color-mix(in srgb,var(--muted) 60%,transparent);text-underline-offset:3px}
-.style-stats dd{margin:0;color:var(--text);overflow-wrap:anywhere}
-.style-rec{font-weight:800}
-.style-rec.is-high{color:#1f9d63}
-.style-rec.is-mid{color:#c08217}
-.style-rec.is-low{color:var(--new,#d64545)}
-.style-rec.is-unknown{color:var(--muted)}
-.style-sub{margin-top:10px}
-.style-sub-label{margin-bottom:6px;color:var(--lb-muted,var(--muted));font-size:11.5px;font-weight:700}
+.artist-cat-head{display:flex;align-items:baseline;gap:10px;min-width:0}
+.artist-cat-head h3{margin:0;min-width:0;font:800 18px/1.3 var(--font-ui)}
+.artist-cat-name{padding:0;border:0;background:none;color:var(--text);font:inherit;cursor:pointer;text-align:left}
+.artist-cat-name:hover{color:var(--accent)}
+.artist-cat-count{flex:none;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.artist-cat-all{flex:none;margin-left:auto}
+/* 说明一行截断、小组一行横滑、图一行：十块面板等高，人数只用数字表达 */
+.artist-cat-desc{margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font-size:12.5px;line-height:1.55}
+.artist-cat-groups{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;scrollbar-width:none}
+.artist-cat-groups::-webkit-scrollbar{display:none}
+.artist-cat-groups .rail-chip{flex:none}
+.artist-cat-strip{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;margin-top:2px}
+.artist-cat-tile{display:grid;gap:4px;min-width:0;padding:0;border:0;background:none;color:var(--text);text-align:left;cursor:pointer}
+.artist-cat-img{
+  display:block;aspect-ratio:1;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:var(--tagbg);
+  transition:border-color .12s,box-shadow .12s;
+}
+.artist-cat-img img{display:block;width:100%;height:100%;object-fit:cover}
+.artist-cat-tile:hover .artist-cat-img,.artist-cat-tile:focus-visible .artist-cat-img{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.artist-cat-artist{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font:11px/1.3 var(--font-prompt)}
+.artist-cat-tile:hover .artist-cat-artist{color:var(--accent)}
 
+/* ---------- 画师卡 ---------- */
+/* 复制的就是 artist:画师名，和标题重复，不出提示词框；标题行下边距归零，和 masonry.js 的估高一致 */
+.masonry .card.card-artist .card-tags{display:none}
+body .masonry .card.card-artist .card-title-row{margin-bottom:0}
+
+/* ---------- 画师详情 ---------- */
+#lightbox.is-artist .lightbox-columns>.lightbox-column{display:none}
+#lightbox.is-artist #tagZhToggle{display:none}
+.artist-profile{display:grid;gap:14px;grid-column:1/-1;min-width:0}
+.artist-profile[hidden]{display:none}
+.artist-profile .lightbox-section{margin-top:0}
+.ap-tag{
+  display:flex;align-items:center;gap:8px;min-width:0;padding:7px 7px 7px 12px;
+  border:1px solid var(--line);border-radius:12px;background:var(--tagbg);
+}
+.ap-tag code{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text);font:13px/1.4 var(--font-prompt)}
+.ap-copy{
+  flex:none;padding:6px 12px;border:0;border-radius:999px;background:var(--accent);color:var(--on-accent);
+  font-size:12px;font-weight:800;line-height:1.35;white-space:nowrap;cursor:pointer;
+}
+.ap-copy:hover{filter:brightness(1.06)}
+.ap-style .section-head{justify-content:flex-start;gap:6px}
+.ap-style .section-label{margin-right:4px}
+.ap-path{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+.ap-sep{color:var(--lb-muted,var(--muted));font-size:11px}
+.section-head .ap-link{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--accent);font-weight:700}
+.section-head .ap-link:hover{border-color:var(--accent)}
+.ap-desc{margin:6px 0 0;color:var(--text);font-size:12.5px;line-height:1.6}
+.ap-tags{margin-top:2px}
+.ap-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
+.ap-stat{display:grid;align-content:start;gap:2px;min-width:0;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.ap-stat dt{color:var(--lb-muted,var(--muted));font-size:11px;font-weight:700}
+.ap-stat dd{margin:0;color:var(--text);font:800 20px/1.25 var(--font-ui);font-variant-numeric:tabular-nums}
+.ap-stat small{color:var(--lb-muted,var(--muted));font-size:10.5px;line-height:1.4;overflow-wrap:anywhere}
+.ap-rec.is-high{color:#1f9d63}
+.ap-rec.is-mid{color:#c08217}
+.ap-rec.is-low{color:var(--new,#d64545)}
+.ap-rec.is-unknown{color:var(--lb-muted,var(--muted))}
+.ap-section[hidden]{display:none}
+.ap-note{margin:0;color:var(--lb-muted,var(--muted));font-size:11.5px;line-height:1.6}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width:1100px){
+  /* 主栏变窄后八张图挤不下：改一行横滑 */
+  .artist-cat-strip{display:flex;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;margin:0 -16px;padding:0 16px 2px}
+  .artist-cat-strip::-webkit-scrollbar{display:none}
+  .artist-cat-tile{flex:none;width:112px;scroll-snap-align:start}
+}
 @media (max-width:600px){
-  .style-intro{margin:0 0 12px;padding:10px;border-radius:14px}
-  .style-desc{font-size:12.5px}
-  /* 手机上大类、小组排成一行横滑，免得把卡片压到第二屏以下 */
-  .style-tiles,.style-tiles.is-parents{
-    display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;margin:0 -10px;padding:0 10px 2px;
-    scrollbar-width:none;
-  }
-  .style-tiles::-webkit-scrollbar{display:none}
-  .style-tiles .style-tile{flex:none;width:224px;scroll-snap-align:start}
-  .style-tiles.is-siblings{flex-wrap:nowrap}
-  .style-tiles.is-siblings .style-tile{width:auto}
-  /* 小组页的实测标签与代表画师并成一行横滑 */
-  .style-facts{flex-wrap:nowrap;gap:10px;overflow-x:auto;margin:0 -10px;padding:0 10px;scrollbar-width:none}
-  .style-facts::-webkit-scrollbar{display:none}
-  .style-tags,.style-famous-list{flex-wrap:nowrap;flex:none}
-  .style-famous{white-space:nowrap}
-  /* 排序筛选允许折成两行：横滑容器会把下拉浮层裁掉 */
-  .style-controls{gap:6px 5px}
+  .artist-style-head .result-bar{padding:8px 12px 12px;border-radius:14px}
+  .ah-title h2{font-size:19px}
+  .ah-desc{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:12.5px}
+  /* 代表画师、小组胶囊各自一行横滑 */
+  .ah-famous,.ah-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -12px;padding:0 12px}
+  .ah-famous::-webkit-scrollbar,.ah-chips::-webkit-scrollbar{display:none}
+  .ah-famous>*,.ah-chips>*{flex:none}
+  .artist-controls{gap:6px 5px}
+  .artist-cat{padding:12px 12px 14px;border-radius:14px}
+  .artist-cat-head h3{font-size:16px}
+  .artist-cat-desc{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal}
+  .artist-cat-strip{margin:0 -12px;padding:0 12px 2px}
+  .artist-cat-tile{width:96px}
 }
