@@ -179,7 +179,7 @@ for (const [hasErrors, entries] of [[false, [{}]], [false, []], [true, []]]) {
     rankSearchResults: value => value, pinFeatured: value => value, findRelatedDirectories: () => [],
     // 单画师按画风重排（原型）：普通法典视图不进单画师分支
     inSingleSection: () => false, selectStyleEntries: list => list, styleLocation: () => null,
-    filterStyleEntries: list => list, sortStyleEntries: list => list, renderArtistOverview() {},
+    sortStyleEntries: list => list,
     renderSearchExperience() {}, updateResultBar() {}, syncFavoritesView() {}, renderFavoritesRail() {},
     renderFavoritesHeader() {}, refreshFavoriteBadges() {}, renderList() { trace.push('render'); }, updateBlockingSummary() {},
   });

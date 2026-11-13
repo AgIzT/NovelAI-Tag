@@ -1,82 +1,9 @@
-/* 单画师按画风重排（原型）。只用站内现有变量与组件形制：
-   - 页头：单画师各层把结果栏做成卡片（同全站搜索页头的面板形制），本层名称、说明、标签、代表画师、小组胶囊、排序筛选都在这张卡里；
-   - 首页总览：10 块大类面板，等高，形制同横幅；
-   - 画师卡：沿用瀑布流卡片，收起提示词框；
-   - 画师详情：词条详情的信息栏改按画师排，缩略图沿用「画师」一栏的 .artist-tile。 */
-
-/* ---------- 页头 ---------- */
-.artist-style-head .result-bar{
-  background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
-  padding:10px 16px 14px;gap:8px 12px;
-}
-.artist-style-head .crumb{border:0;background:transparent;padding:2px 3px;font-size:13px}
-.artist-style-head button.crumb:hover{background:transparent;color:var(--accent)}
-/* 当前这一层就是下面的大标题，面包屑只留上层 */
-.artist-style-head .crumb.current,
-.artist-style-head .crumb-sep:has(+ .crumb.current){display:none}
-.artist-style-head #updateFilterControls{margin-left:auto}
-
-.artist-head{flex:1 0 100%;display:grid;gap:9px;min-width:0}
-.artist-head[hidden]{display:none}
-.ah-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;min-width:0}
-.ah-title h2{margin:0;font:800 22px/1.25 var(--font-ui);color:var(--text)}
-.ah-count{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.ah-tags,.ap-tags{display:inline-flex;flex-wrap:wrap;gap:5px}
-.ah-tags>span,.ap-tags>span{padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;line-height:1.5}
-.ah-desc{margin:0;max-width:72ch;color:var(--text);font-size:13px;line-height:1.6}
-.ah-famous{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-.ah-label{margin-right:2px;color:var(--muted);font-size:12px}
-.ah-artist{
-  padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);
-  font:600 12px/1.4 var(--font-prompt);cursor:pointer;transition:border-color .12s,color .12s;
-}
-.ah-artist:hover{border-color:var(--accent);color:var(--accent)}
-.ah-chips{display:flex;flex-wrap:wrap;gap:6px}
-.artist-chip.rail-chip{padding:5px 12px;font-size:12.5px;gap:6px}
-.artist-controls{
-  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
-  margin-top:2px;padding-top:11px;border-top:1px dashed var(--line);
-}
-.artist-select{flex:none;width:auto}
-.artist-select .ui-select-list{max-width:min(240px,calc(100vw - 28px))}
-.artist-select.is-active .ui-select-button{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700}
-.artist-clear{flex:none}
-
-/* ---------- 首页总览 ---------- */
-.artist-overview{display:grid;gap:12px;margin-bottom:28px}
-.artist-overview[hidden]{display:none}
-.artist-cat{
-  display:grid;gap:9px;min-width:0;padding:14px 16px 16px;
-  background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
-}
-.artist-cat-head{display:flex;align-items:baseline;gap:10px;min-width:0}
-.artist-cat-head h3{margin:0;min-width:0;font:800 18px/1.3 var(--font-ui)}
-.artist-cat-name{padding:0;border:0;background:none;color:var(--text);font:inherit;cursor:pointer;text-align:left}
-.artist-cat-name:hover{color:var(--accent)}
-.artist-cat-count{flex:none;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
-.artist-cat-all{flex:none;margin-left:auto}
-/* 说明一行截断、小组一行横滑、图一行：十块面板等高，人数只用数字表达 */
-.artist-cat-desc{margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font-size:12.5px;line-height:1.55}
-.artist-cat-groups{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;scrollbar-width:none}
-.artist-cat-groups::-webkit-scrollbar{display:none}
-.artist-cat-groups .rail-chip{flex:none}
-.artist-cat-strip{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;margin-top:2px}
-.artist-cat-tile{display:grid;gap:4px;min-width:0;padding:0;border:0;background:none;color:var(--text);text-align:left;cursor:pointer}
-.artist-cat-img{
-  display:block;aspect-ratio:1;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:var(--tagbg);
-  transition:border-color .12s,box-shadow .12s;
-}
-.artist-cat-img img{display:block;width:100%;height:100%;object-fit:cover}
-.artist-cat-tile:hover .artist-cat-img,.artist-cat-tile:focus-visible .artist-cat-img{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.artist-cat-artist{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font:11px/1.3 var(--font-prompt)}
-.artist-cat-tile:hover .artist-cat-artist{color:var(--accent)}
-
-/* ---------- 画师卡 ---------- */
-/* 复制的就是 artist:画师名，和标题重复，不出提示词框；标题行下边距归零，和 masonry.js 的估高一致 */
-.masonry .card.card-artist .card-tags{display:none}
-body .masonry .card.card-artist .card-title-row{margin-bottom:0}
+/* 单画师按画风重排（原型）：浏览页不另加样式（目录、结果栏、卡片都是站里原有的），
+   这里只有画师详情——词条详情的信息栏改按画师排，缩略图沿用「画师」一栏的 .artist-tile。只用站内现有变量。 */
 
 /* ---------- 画师详情 ---------- */
+.ap-tags{display:inline-flex;flex-wrap:wrap;gap:5px}
+.ap-tags>span{padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;line-height:1.5}
 #lightbox.is-artist .lightbox-columns>.lightbox-column{display:none}
 #lightbox.is-artist #tagZhToggle{display:none}
 .artist-profile{display:grid;gap:14px;grid-column:1/-1;min-width:0}
@@ -111,26 +38,3 @@ body .masonry .card.card-artist .card-title-row{margin-bottom:0}
 .ap-rec.is-unknown{color:var(--lb-muted,var(--muted))}
 .ap-section[hidden]{display:none}
 .ap-note{margin:0;color:var(--lb-muted,var(--muted));font-size:11.5px;line-height:1.6}
-
-/* ---------- 窄屏 ---------- */
-@media (max-width:1100px){
-  /* 主栏变窄后八张图挤不下：改一行横滑 */
-  .artist-cat-strip{display:flex;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;margin:0 -16px;padding:0 16px 2px}
-  .artist-cat-strip::-webkit-scrollbar{display:none}
-  .artist-cat-tile{flex:none;width:112px;scroll-snap-align:start}
-}
-@media (max-width:600px){
-  .artist-style-head .result-bar{padding:8px 12px 12px;border-radius:14px}
-  .ah-title h2{font-size:19px}
-  .ah-desc{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:12.5px}
-  /* 代表画师、小组胶囊各自一行横滑 */
-  .ah-famous,.ah-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -12px;padding:0 12px}
-  .ah-famous::-webkit-scrollbar,.ah-chips::-webkit-scrollbar{display:none}
-  .ah-famous>*,.ah-chips>*{flex:none}
-  .artist-controls{gap:6px 5px}
-  .artist-cat{padding:12px 12px 14px;border-radius:14px}
-  .artist-cat-head h3{font-size:16px}
-  .artist-cat-desc{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal}
-  .artist-cat-strip{margin:0 -12px;padding:0 12px 2px}
-  .artist-cat-tile{width:96px}
-}

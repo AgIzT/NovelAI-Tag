@@ -1,7 +1,5 @@
-/* 单画师按画风重排（原型）的界面：
-   - 页头：单画师各层把结果栏扩成页头（body.artist-style-head），写本层名称、说明、实测标签、代表画师、小组胶囊和排序筛选；
-   - 首页总览：单画师词典根目录不出瀑布流，在瀑布流位置画 10 块大类面板；
-   - 画师详情：单画师词条打开时，词条详情的信息栏改按画师排（#lightbox.is-artist）。
+/* 单画师按画风重排（原型）的画师详情：单画师词条打开时，词条详情的信息栏改按画师排（#lightbox.is-artist）。
+   浏览页不另加界面：目录、结果栏、卡片都是站里原有的，分类只体现在侧栏目录和卡片顺序上。
    数据与列表逻辑在 artist-style.js；切目录、打开词条、关详情经 setStyleUiActions 注入（app.js 提供），不反向静态依赖 codex-ui / lightbox。 */
 
 import { state } from './state.js';
@@ -9,23 +7,20 @@ import { $, esc } from './utils.js';
 import { thumbUrl, assetUrl } from './media.js';
 import { fetchCodex, findCodexMeta } from './data.js';
 import { fetchDataJson } from '../data-source.js';
-import { createSelectMenu } from './select-menu.js';
 import { openRecentEntry } from './history.js';
 import { isContentBlocked } from './content-blocking.js';
 import { isEntryAccessBlocked } from './access.js';
 import { artistKey, formatArtistWeight } from './artist-core.js';
 import {
-  STYLE_CODEX_ID, SINGLE_ROOT, UNSORTED, STYLE_SORTS, STYLE_FILTERS, styleView,
-  artistStyles, artistOf, artistByIndex, groupOf, parentOf, groupPath, styleLocation, artistNameOf,
-  styleFiltersActive, formatCount, recOf, recText, loadNearArtists, specimensOf, specimenSource,
+  STYLE_CODEX_ID, SINGLE_ROOT,
+  artistOf, artistByIndex, groupOf, parentOf, groupPath, artistNameOf,
+  formatCount, recOf, recText, loadNearArtists, specimensOf, specimenSource,
   attachArtistStyles, mayHaveStyle, styleActive, styleBookCodex, styleBookEntry, stylePathText,
 } from './artist-style.js';
 
 const STRIP_COLLAPSED = 10;
-const OVERVIEW_TILES = 8;
 const PATH_SEP = '\u0001';
 const styleUiActions = {
-  applyFilter: () => {},
   selectPath: () => {},
   openLightbox: () => {},
   closeLightbox: () => {},
@@ -50,17 +45,6 @@ function showable(entry) {
   return Boolean(entry) && !isEntryAccessBlocked(entry) && !isContentBlocked(entry);
 }
 
-function treeCount(path) {
-  let nodes = styleBookCodex()?.styleTree || [];
-  let node = null;
-  for (const name of path) {
-    node = nodes.find(item => item.name === name);
-    if (!node) return 0;
-    nodes = node.children || [];
-  }
-  return node?.count || 0;
-}
-
 let bookLoad = null;
 /* 从收藏、全站搜索或别的书打开 v5 画师词条时，画风数据可能还没挂上：先挂上那本书 */
 function ensureStyleBook() {
@@ -74,187 +58,7 @@ function ensureStyleBook() {
   return bookLoad;
 }
 
-/* ---------------- 页头（单画师各层的结果栏） ---------------- */
-
-let sortMenu = null;
-const filterMenus = new Map();
-let sourceMenu = null;
-let sourceKey = '';
-
-function selectMenu(label, options, value, onChange) {
-  const menu = createSelectMenu({ label, className: 'artist-select is-pill', options, value, onChange });
-  return menu;
-}
-
-function controlsNode(where) {
-  const apply = () => styleUiActions.applyFilter({ resetScroll: true });
-  sortMenu ??= selectMenu('排序', [], styleView.sort, value => { styleView.sort = value; apply(); });
-  sortMenu.setOptions(STYLE_SORTS.map(option => ({ ...option, disabled: option.value === 'near' && where.level === 'root' })));
-  if (styleView.sort === 'near' && where.level === 'root') styleView.sort = 'post';
-  sortMenu.setValue(styleView.sort);
-  const row = document.createElement('div');
-  row.className = 'artist-controls';
-  row.append(sortMenu.element);
-  for (const filter of STYLE_FILTERS) {
-    let menu = filterMenus.get(filter.key);
-    if (!menu) {
-      menu = selectMenu(filter.label,
-        [{ value: '', label: filter.label }, ...filter.options.map(([value, label]) => ({ value, label }))],
-        styleView[filter.key], value => { styleView[filter.key] = value; apply(); });
-      filterMenus.set(filter.key, menu);
-    }
-    menu.setValue(styleView[filter.key]);
-    menu.element.classList.toggle('is-active', styleView[filter.key] !== '');
-    row.append(menu.element);
-  }
-  const sources = styleBookCodex()?.styleSources || [];
-  if (sources.length > 1) {
-    sourceMenu ??= selectMenu('例图来源', [], styleView.source, value => { styleView.source = value; apply(); });
-    const key = sources.join(PATH_SEP);
-    if (key !== sourceKey) {
-      sourceKey = key;
-      sourceMenu.setOptions([{ value: '', label: '例图来源' }, ...sources.map(name => ({ value: name, label: `${name} 例图` }))]);
-    }
-    sourceMenu.setValue(styleView.source);
-    sourceMenu.element.classList.toggle('is-active', Boolean(styleView.source));
-    row.append(sourceMenu.element);
-  }
-  if (styleFiltersActive()) {
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.className = 'bar-btn artist-clear';
-    clear.textContent = '清除筛选';
-    clear.onclick = () => {
-      for (const filter of STYLE_FILTERS) styleView[filter.key] = '';
-      styleView.source = '';
-      apply();
-    };
-    row.append(clear);
-  }
-  return row;
-}
-
-function chipHtml(path, name, count, current) {
-  return `<button type="button" class="rail-chip artist-chip${current ? ' active' : ''}" data-style-path="${esc(path.join(PATH_SEP))}"${current ? ' aria-current="true"' : ''}>${esc(name)}<span class="rc-n">${formatCount(count)}</span></button>`;
-}
-
-/* 没筛选时写本层画师总数，和侧栏、小组胶囊同一口径（全站目录计数都含受限内容）；
-   筛选或看更新批次时写「n 位符合 · 共 total 位」，n 是实际列出的卡数 */
-function headCountText(n, total) {
-  if ((styleFiltersActive() || state.updateFilter) && total) return `${formatCount(n)} 位符合 · 共 ${formatCount(total)} 位`;
-  return `${formatCount(total || n)} 位`;
-}
-
-/* active：updateResultBar 判定当前是单画师各层（且不在搜索）；count：当前列表条数 */
-export function renderArtistHead({ active = false, count = 0 } = {}) {
-  const head = $('#artistHead');
-  document.body.classList.toggle('artist-style-head', Boolean(active));
-  if (!head) return;
-  const data = artistStyles();
-  const where = active && data ? styleLocation() : null;
-  if (!where) {
-    head.hidden = true;
-    head.replaceChildren();
-    return;
-  }
-  let html = '';
-  let controls = false;
-  if (where.level === 'root') {
-    const total = treeCount([SINGLE_ROOT]) - treeCount([SINGLE_ROOT, UNSORTED]);
-    html = `<div class="ah-title"><h2>${esc(SINGLE_ROOT)}</h2><span class="ah-count">${state.styleOverview
-      ? `${formatCount(total)} 位画师 · ${data.parents.length} 类`
-      : headCountText(count, total)}</span></div>`;
-    controls = !state.styleOverview;
-  } else if (where.level === 'unsorted') {
-    html = `<div class="ah-title"><h2>${esc(UNSORTED)}</h2><span class="ah-count">${formatCount(count)} 条</span></div>
-      <p class="ah-desc">解析出多位画师或没有画师名的单画师词条。</p>`;
-  } else if (where.level === 'parent') {
-    const parent = where.parent;
-    const parentPath = [SINGLE_ROOT, parent.name];
-    html = `<div class="ah-title"><h2>${esc(parent.name)}</h2><span class="ah-count">${headCountText(count, treeCount(parentPath))}</span></div>
-      <p class="ah-desc">${esc(parent.desc)}</p>
-      <div class="ah-chips">${chipHtml(parentPath, '全部', treeCount(parentPath), true)}${parent.groups.map(g => {
-        const path = groupPath(g);
-        return chipHtml(path, data.groups[g].name, treeCount(path), false);
-      }).join('')}</div>`;
-    controls = true;
-  } else {
-    const { group, parent } = where;
-    const famous = (group.famous || []).map(artistByIndex).map(repEntry).filter(showable);
-    html = `<div class="ah-title"><h2>${esc(group.name)}</h2><span class="ah-count">${headCountText(count, treeCount(groupPath(group.index)))}</span>
-        ${group.tags.length ? `<span class="ah-tags" title="和全部画师相比明显偏离的实测项">${group.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</span>` : ''}</div>
-      <p class="ah-desc">${esc(group.desc)}</p>
-      ${famous.length ? `<div class="ah-famous"><span class="ah-label">代表画师</span>${famous.map(entry => `<button type="button" class="ah-artist" data-style-entry="${esc(entry.id)}">${esc(artistNameOf(entry))}</button>`).join('')}</div>` : ''}
-      <div class="ah-chips">${chipHtml([SINGLE_ROOT, parent.name], '全部', treeCount([SINGLE_ROOT, parent.name]), false)}${parent.groups.map(g => {
-        const path = groupPath(g);
-        return chipHtml(path, data.groups[g].name, treeCount(path), g === group.index);
-      }).join('')}</div>`;
-    controls = true;
-  }
-  head.innerHTML = html;
-  if (controls) head.append(controlsNode(where));
-  head.hidden = false;
-}
-
-/* ---------------- 首页总览（单画师词典根目录） ---------------- */
-
-let overviewKey = '';
-
-export function renderArtistOverview(show) {
-  const box = $('#artistOverview');
-  if (!box) return;
-  const data = artistStyles();
-  if (!show || !data) {
-    box.hidden = true;
-    if (box.firstChild) box.replaceChildren();
-    overviewKey = '';
-    return;
-  }
-  const key = `${styleBookCodex()?.styleTree ? 1 : 0}|${state.allowNsfw}|${state.allowR18g}`;
-  box.hidden = false;
-  if (key === overviewKey && box.firstChild) return;
-  overviewKey = key;
-  box.innerHTML = data.parents.map(parent => {
-    const path = [SINGLE_ROOT, parent.name];
-    const tiles = parent.showcase.map(artistByIndex).map(repEntry).filter(showable).slice(0, OVERVIEW_TILES);
-    return `<section class="artist-cat" aria-label="${esc(parent.name)}">
-      <header class="artist-cat-head">
-        <h3><button type="button" class="artist-cat-name" data-style-path="${esc(path.join(PATH_SEP))}">${esc(parent.name)}</button></h3>
-        <span class="artist-cat-count">${formatCount(treeCount(path))} 位</span>
-        <button type="button" class="bar-btn artist-cat-all" data-style-path="${esc(path.join(PATH_SEP))}">查看全部</button>
-      </header>
-      <p class="artist-cat-desc">${esc(parent.desc)}</p>
-      <div class="artist-cat-groups">${parent.groups.map(g => chipHtml(groupPath(g), data.groups[g].name, treeCount(groupPath(g)), false)).join('')}</div>
-      <div class="artist-cat-strip">${tiles.map(entry => `<button type="button" class="artist-cat-tile ui-press" data-style-entry="${esc(entry.id)}" title="artist:${esc(artistNameOf(entry))}">
-          <span class="artist-cat-img"><img loading="lazy" decoding="async" src="${esc(entryThumb(entry))}" alt=""></span>
-          <span class="artist-cat-artist">${esc(artistNameOf(entry))}</span>
-        </button>`).join('')}</div>
-    </section>`;
-  }).join('');
-}
-
-/* ---------------- 页头与总览的点击 ---------------- */
-
-function openArtistEntry(entryId, sourceEl = null) {
-  const entry = styleBookEntry(entryId);
-  if (!entry) return;
-  const img = sourceEl?.querySelector?.('img') || null;
-  styleUiActions.openLightbox(entry, 0, img, { historyMode: 'push' });
-}
-
 export function bindArtistStyleUi() {
-  const onClick = event => {
-    const target = event.target instanceof Element ? event.target : null;
-    const pathButton = target?.closest('[data-style-path]');
-    if (pathButton && !pathButton.classList.contains('active')) {
-      styleUiActions.selectPath(pathButton.dataset.stylePath.split(PATH_SEP));
-      return;
-    }
-    const entryButton = target?.closest('[data-style-entry]');
-    if (entryButton) openArtistEntry(entryButton.dataset.styleEntry, entryButton);
-  };
-  $('#artistHead')?.addEventListener('click', onClick);
-  $('#artistOverview')?.addEventListener('click', onClick);
   $('#artistProfile')?.addEventListener('click', onProfileClick);
 }
 

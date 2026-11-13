@@ -25,8 +25,8 @@ import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initial
 import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { encodePathCode, pathFromCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, codexCoverUrl, codexCoverStyle, selectPathByPath } from './app/codex-ui.js';
-import { STYLE_CODEX_ID, SINGLE_ROOT, supportsArtistStyles, loadArtistStyles, attachArtistStyles, inSingleSection, styleLocation, selectStyleEntries, filterStyleEntries, sortStyleEntries } from './app/artist-style.js';
-import { renderArtistOverview, bindArtistStyleUi, setStyleUiActions } from './app/artist-style-ui.js';
+import { STYLE_CODEX_ID, SINGLE_ROOT, supportsArtistStyles, loadArtistStyles, attachArtistStyles, inSingleSection, styleLocation, selectStyleEntries, sortStyleEntries } from './app/artist-style.js';
+import { bindArtistStyleUi, setStyleUiActions } from './app/artist-style-ui.js';
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
@@ -928,7 +928,7 @@ export function applyFilter(options = {}) {
     });
   }
   let list = visibleEntries;
-  // v5 画师词典的单画师各层（原型）按画风出卡：一位画师一张，按例图来源挑词条（artist-style.js）。
+  // v5 画师词典的单画师各层（原型）按画风出卡：一位画师一张，按 post 排（artist-style.js）。
   // 本书搜索照旧搜整本，不走这条。
   const singleSection = inSingleSection() && !plan.hasActiveSearch;
   const byActivePath = l => {
@@ -945,9 +945,7 @@ export function applyFilter(options = {}) {
   if (!state.favoritesView && state.activePath.length && (state.siteSearchView || !plan.hasActiveSearch)) list = byActivePath(list);
   const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
-  const styleLevel = singleSection ? styleLocation()?.level : '';
-  const styleBrowse = Boolean(styleLevel && styleLevel !== 'unsorted');
-  if (styleBrowse) list = filterStyleEntries(list);
+  const styleBrowse = singleSection && styleLocation()?.level !== 'unsorted';
   // 先定当前夹/来源候选，再求屏蔽差量；其它夹子的隐藏项不能污染这里的空态。
   if (state.favoritesView) list = filterFavoritesScope(list);
   const unblocked = list.filter(entry => !isContentBlocked(entry));
@@ -956,9 +954,6 @@ export function applyFilter(options = {}) {
     ? (styleBrowse ? sortStyleEntries(unblocked) : sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder))
     : unblocked;
   state.list = state.favoritesView ? filterFavoritesEntries(ordered) : rankSearchResults(ordered, plan);
-  // 单画师词典根目录是画风总览（10 块大类面板），不出瀑布流；开着更新筛选时照常列出这一批画师
-  state.styleOverview = styleLevel === 'root' && !updateFilter;
-  if (state.styleOverview) state.list = [];
   // 今日画师只在那本书的「全部」视图置顶：有目录、搜索 / 筛选、更新筛选、收藏或全站搜索时保持原顺序
   if (!state.favoritesView && !state.siteSearchView && !plan.hasActiveSearch && !state.activePath.length && !updateFilter) {
     state.list = pinFeatured(state.list, state.codex);
@@ -976,7 +971,6 @@ export function applyFilter(options = {}) {
   state.relatedDirectoryCount = Number(relatedDirectories.totalCount) || relatedDirectories.length;
   renderSearchExperience(plan, directoryOptions, searchZh);
   updateResultBar();
-  renderArtistOverview(state.styleOverview);
   if (state.favoritesView) {
     syncFavoritesView();
     renderFavoritesRail();
@@ -1189,7 +1183,6 @@ setCodexUiActions({
 });
 
 setStyleUiActions({
-  applyFilter,
   // 已在 v5 画师词典里就地切目录；在收藏、全站搜索或别的书里，先打开那本书再落到这一组
   selectPath: path => {
     if (state.codex?.id === STYLE_CODEX_ID && !state.favoritesView && !state.siteSearchView) {
@@ -1198,7 +1191,7 @@ setStyleUiActions({
     }
     loadCodex(STYLE_CODEX_ID, { urlState: { codex: STYLE_CODEX_ID, path, q: '', entry: '' }, historyMode: 'push' });
   },
-  // 首页总览、代表画师、画风接近、例图切换：直接打开详情，不像 openEntryDeepLink 那样把目录切到词条的来源路径
+  // 画风接近、例图切换：直接打开详情，不像 openEntryDeepLink 那样把目录切到词条的来源路径
   openLightbox,
   // 换目录前先关详情：用 replace，不走后退，免得异步后退把紧接着记下的目录又退掉
   closeLightbox: () => closeLightbox({ historyMode: 'replace' }),

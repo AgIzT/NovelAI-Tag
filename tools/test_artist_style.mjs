@@ -1,6 +1,6 @@
 // 单画师按画风重排（原型）纯逻辑：node tools/test_artist_style.mjs
 // 覆盖：挂数据不改写 codex.tree、展示目录与计数路径、未归类、本地编辑模式下关闭重排、旧来源链接落点、
-// 每位画师一张卡与例图来源切换、筛选排序、卡片标题与底行、详情落点、拷贝词条按 ID 认画师、接近名单分片。
+// 每位画师一张卡、按 post 排、卡片底行、详情落点、拷贝词条按 ID 认画师、接近名单分片。
 import assert from 'node:assert/strict';
 import { state } from '../site/assets/app/state.js';
 
@@ -104,23 +104,19 @@ assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '甲�
 assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '未归类'])), ['jiuqi_77']);
 assert.deepEqual(ids(style.selectStyleEntries(entries.filter(item => !item.id.endsWith('baolong_1')), ['单画师词典', '甲类', '甲一'])),
   ['huazhiyu_9', 'baolong_2'], '代表那条被分级挡住时改用这位画师别的例图，画师不消失');
-style.styleView.source = '花枝鱼';
-assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '甲类', '甲一'])), ['huazhiyu_9'], '选了来源：只列有该来源例图的画师，卡片换成那张');
-style.styleView.source = '';
 state.siteSearchView = true;
 assert.equal(style.inSingleSection(), false, '全站搜索不进单画师各层');
 state.siteSearchView = false;
 
 // 卡片
 state.activePath = ['单画师词典', '甲类'];
-assert.equal(style.styleCardTitle(entries[0]), 'baolong 1', '画师卡标题取 artist: 写法，不用带年份的标题');
 assert.equal(style.styleCardLine(entries[2]), '甲一 · post 2,000 · 辨识度中', '大类页底行带小组名');
 state.activePath = ['单画师词典', '甲类', '甲一'];
 assert.equal(style.styleCardLine(entries[2]), 'post 2,000 · 辨识度中', '小组页不重复写组名');
 state.activePath = ['单画师词典', '未归类'];
-assert.equal(style.styleCardTitle(entries[5]), '', '未归类用普通卡');
+assert.equal(style.styleCardLine(entries[5]), '', '未归类照旧写路径');
 state.activePath = [];
-assert.equal(style.styleCardTitle(entries[1]), '', '「全部」里用普通卡');
+assert.equal(style.styleCardLine(entries[1]), '', '「全部」里照旧写路径');
 assert.equal(style.stylePathText(entries[0]), '单画师词典 › 甲一 · 花枝鱼', '其它视图的路径行和侧栏一致，带上例图来源');
 assert.equal(style.stylePathText(entries[6]), '', '画风串照原路径');
 
@@ -131,26 +127,9 @@ assert.equal(style.artistOf({ id: 'artist_nai5_personal_baolong_2', path: ['收�
 assert.equal(style.artistOf({ id: 'suozhang_001', path: [] }), null);
 assert.deepEqual(ids(style.specimensOf(style.artistByIndex(0))), ['baolong_1', 'huazhiyu_9'], '代表那条在前');
 
-// 筛选与排序
+// 排序
 const reps = entries.slice(1, 5);
-state.activePath = ['单画师词典', '甲类'];
-assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3'], '默认按 post 多到少，未知垫底');
-style.styleView.sort = 'rec';
-assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_1', 'baolong_2', 'baolong_4', 'baolong_3']);
-style.styleView.sort = 'near';
-assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_2', 'baolong_1', 'baolong_3', 'baolong_4'], '按小组再按离中心名次');
-style.styleView.sort = 'post';
-style.styleView.heat = 'hot';
-assert.deepEqual(ids(style.filterStyleEntries(reps)), ['baolong_2']);
-style.styleView.heat = '';
-style.styleView.rec = 'low';
-assert.deepEqual(ids(style.filterStyleEntries(reps)), ['baolong_4']);
-style.styleView.rec = '';
-assert.equal(style.filterStyleEntries(reps), reps);
-assert.equal(style.styleFiltersActive(), false);
-style.styleView.source = 'MayRain';
-assert.equal(style.styleFiltersActive(), true, '选了例图来源也算筛选');
-style.styleView.source = '';
+assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3'], '按 post 多到少，未知垫底');
 
 assert.equal(style.recText(null), '未知');
 assert.equal(style.formatPost(null), 'post 未知');

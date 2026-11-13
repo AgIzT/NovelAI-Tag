@@ -14,25 +14,12 @@ export const UNSORTED = '未归类';
 const DATA_URL = 'proto-data/artist_styles.json';
 const NEAR_URL = shard => `proto-data/artist_styles_near/${shard}.json`;
 
-export const STYLE_SORTS = [
-  { value: 'post', label: '按 post 数' },
-  { value: 'rec', label: '按辨识度' },
-  { value: 'near', label: '按接近本组' },
-];
-/* 明暗、色彩已经体现在小组的实测标签里，不单独做筛选 */
-export const STYLE_FILTERS = [
-  { key: 'heat', label: '热度', options: [['hot', 'post 1000 以上'], ['mid', 'post 200–1000'], ['cold', 'post 200 以下']] },
-  { key: 'rec', label: '辨识度', options: [['high', '辨识度高'], ['mid', '辨识度中'], ['low', '辨识度低']] },
-];
 const REC_TEXT = { high: '高', mid: '中', low: '低', unknown: '未知' };
 
 let styles;          // undefined = 没加载；null = 不可用；对象 = 已规范化
 let loading = null;
 let styleBook = null;  // 挂上画风数据的那本法典（v5 画师词典的真实对象，不是收藏 / 全站搜索的拷贝）
 const nearShards = new Map();
-
-/* 单画师各层的排序、筛选与例图来源：只存在内存里（原型不进地址栏）。source 为空 = 自动（有 MayRain 用 MayRain） */
-export const styleView = { sort: 'post', heat: '', rec: '', source: '' };
 
 export function supportsArtistStyles(codex) {
   return codex?.id === STYLE_CODEX_ID;
@@ -47,10 +34,6 @@ export function styleActive(codex = state.codex) {
   return Boolean(codex?.styleTree && styles && !editing());
 }
 
-export function artistStyles() {
-  return styles || null;
-}
-
 function normalize(raw) {
   if (!raw || raw.schema !== 1 || !Array.isArray(raw.artists) || !Array.isArray(raw.groups) || !Array.isArray(raw.parents)) return null;
   const prefix = String(raw.idPrefix || '');
@@ -62,7 +45,6 @@ function normalize(raw) {
     rank: Number.isFinite(a.r) ? a.r : null,
     seenAs: a.t || '',
     group: a.g,
-    closeness: Number.isFinite(a.o) ? a.o : 1e9,   // 组内离中心的名次，0 最近
   }));
   const groups = raw.groups.map((g, index) => ({
     index, name: g.name, desc: g.desc || '', tags: g.tags || [], parent: g.parent, size: g.size || 0,
@@ -232,7 +214,6 @@ export function specimensOf(artist) {
   return [artist.entryId, ...artist.otherIds].map(styleBookEntry).filter(Boolean);
 }
 
-export const heatOf = post => (post == null ? '' : post >= 1000 ? 'hot' : post >= 200 ? 'mid' : 'cold');
 export const recOf = rank => (rank == null ? 'unknown' : rank === 1 ? 'high' : rank <= 10 ? 'mid' : 'low');
 export const recText = rank => REC_TEXT[recOf(rank)];
 
@@ -248,29 +229,27 @@ export function specimenSource(entry) {
   return sourceOf(entry);
 }
 
-/* 单画师各层出哪些卡：每位画师一张；选了来源就只列有该来源例图的画师。
-   例图来源为「自动」时用代表那条；代表那条被分级挡住（不在传入的列表里）时改用这位画师别的例图，免得整位画师消失。 */
+/* 单画师各层出哪些卡：每位画师一张，用代表那条（有 MayRain 用 MayRain）；
+   代表那条被分级挡住（不在传入的列表里）时改用这位画师别的例图，免得整位画师消失。 */
 export function selectStyleEntries(entries, path = state.activePath) {
   const where = styleLocation(path);
   if (!where) return entries;
   if (where.level === 'unsorted') return entries.filter(entry => entry.stylePath?.[1] === UNSORTED && entry.path?.[0] === SINGLE_ROOT);
   const inScope = artist => (where.level === 'root'
     || (where.level === 'parent' ? styles.groups[artist.group].parent === where.parent.index : artist.group === where.group.index));
-  const source = styleView.source;
   const picked = new Map();
   for (const entry of entries) {
     if (entry.path?.[0] !== SINGLE_ROOT) continue;
     const artist = Number.isInteger(entry.styleArtist) ? styles.artists[entry.styleArtist] : null;
     if (!artist || !inScope(artist)) continue;
-    if (source && sourceOf(entry) !== source) continue;
     const current = picked.get(artist.index);
-    if (!current || (!source && entry.styleRep && !current.styleRep)) picked.set(artist.index, entry);
+    if (!current || (entry.styleRep && !current.styleRep)) picked.set(artist.index, entry);
   }
   return [...picked.values()];
 }
 
-/* 卡片用画师样式的场合：单画师各层（未归类除外），且不在搜索——本书搜索照旧搜整本、出普通卡 */
-export function artistCardsActive() {
+/* 卡片底行写 post 的场合：单画师各层（未归类除外），且不在搜索——本书搜索照旧搜整本、底行照旧写路径 */
+function artistListActive() {
   if (!inSingleSection()) return false;
   if (state.searchPlan?.hasActiveSearch || String(state.query || '').trim() || state.searchFilterValues?.length) return false;
   const where = styleLocation();
@@ -283,14 +262,9 @@ export function artistNameOf(entry) {
   return (match ? match[1] : entry?.title || '').trim();
 }
 
-/* 画师卡用画师名当标题，不用画师卡时返回空串（调用方用原标题） */
-export function styleCardTitle(entry) {
-  return artistCardsActive() && Number.isInteger(entry?.styleArtist) ? artistNameOf(entry) : '';
-}
-
-/* 画师卡底行：小组页写 post 与辨识度，大类页和首页再带上小组名 */
+/* 卡片底行（原来写路径的那一行）：小组页写 post 与辨识度，大类页和单画师首页再带上小组名 */
 export function styleCardLine(entry) {
-  if (!artistCardsActive()) return '';
+  if (!artistListActive()) return '';
   const artist = artistOf(entry);
   if (!artist) return '';
   const parts = styleLocation()?.level === 'group' ? [] : [groupOf(artist).name];
@@ -308,34 +282,10 @@ export function stylePathText(entry) {
   return `${SINGLE_ROOT} › ${groupOf(artist).name}${source ? ` · ${source}` : ''}`;
 }
 
-export function styleFiltersActive() {
-  return Boolean(styleView.source) || STYLE_FILTERS.some(filter => styleView[filter.key] !== '');
-}
-
-export function filterStyleEntries(list) {
-  if (!styleView.heat && !styleView.rec) return list;
-  return list.filter(entry => {
-    const artist = artistOf(entry);
-    if (!artist) return false;
-    if (styleView.heat && heatOf(artist.post) !== styleView.heat) return false;
-    if (styleView.rec && recOf(artist.rank) !== styleView.rec) return false;
-    return true;
-  });
-}
-
+/* 单画师各层按 post 多到少排，post 未知的垫底 */
 export function sortStyleEntries(list) {
   const post = entry => artistOf(entry)?.post ?? -1;
-  const rank = entry => artistOf(entry)?.rank ?? 1e9;
-  const sorted = [...list];
-  if (styleView.sort === 'rec') {
-    sorted.sort((a, b) => rank(a) - rank(b) || post(b) - post(a));
-  } else if (styleView.sort === 'near' && styleLocation()?.level !== 'root') {
-    const order = entry => artistOf(entry)?.closeness ?? 1e9;
-    sorted.sort((a, b) => (artistOf(a)?.group ?? 99) - (artistOf(b)?.group ?? 99) || order(a) - order(b));
-  } else {
-    sorted.sort((a, b) => post(b) - post(a));
-  }
-  return sorted;
+  return [...list].sort((a, b) => post(b) - post(a));
 }
 
 /* 画风接近的画师（下标），按需取所在分片 */

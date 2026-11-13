@@ -9,8 +9,7 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
-import { styleTreeSkeleton, styleActive, treePathOf, inSingleSection } from './artist-style.js';
-import { renderArtistHead } from './artist-style-ui.js';
+import { styleTreeSkeleton, styleActive, treePathOf } from './artist-style.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
 import { watchWishVisibility, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
@@ -1706,9 +1705,7 @@ export function updateResultBar() {
     count.className = 'result-root-count';
   }
   count.innerHTML = t;
-  // 单画师各层（原型）的结果栏就是页头：条数写在页头标题旁（按画师计），这里不再写一遍
-  const artistHead = inSingleSection() && !searching;
-  if (!artistHead) box.appendChild(count);
+  box.appendChild(count);
   if (searchHead) box.appendChild(crumbs);
 
   const hiddenCount = (!state.siteSearchView && !state.favoritesView) ? accessHiddenCount() : 0;
@@ -1735,7 +1732,6 @@ export function updateResultBar() {
     $('#searchFilterSummary')?.after(lockedHint);
   }
 
-  renderArtistHead({ active: artistHead, count: n });
   updateEmptyState(n);
   updateRailActive();
 }
@@ -1743,8 +1739,7 @@ export function updateResultBar() {
 export function updateEmptyState(n) {
   const empty = $('#empty');
   if (!empty) return;
-  // 单画师词典根目录画的是画风总览，列表本来就是空的
-  if (hasActiveSearch() || state.styleOverview) {
+  if (hasActiveSearch()) {
     empty.hidden = true;
     return;
   }
