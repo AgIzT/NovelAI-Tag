@@ -416,4 +416,3 @@ export function lightboxPathText(entry) {
   }
   return stylePathText(entry) || (entry?.path || []).join(' › ');
 }
-
