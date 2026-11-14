@@ -147,7 +147,7 @@
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
 - Python · UI 测试驱动：`test_verify_ui.py`（CDP 离开确认/刷新新文档等待，以及 PASS/FAIL/SKIP/BLOCKED 汇总、界面状态与结果状态不串用、必需夹具缺失与 CLI 退出码；合成夹具，不启动浏览器）。`verify_ui.py --only "mobile lightbox"` 覆盖手机原生连续阅读：动效开启的用例仍名为 `mobile lightbox interruptible gestures`，以真实触摸验证正文回顶同滑露图、松手惯性跨边界、收图后同滑继续阅读、反向、按钮起滑及滚动中断、多图与触摸生命周期；相邻用例验证收放入口、横滑、无图与桌面归位。不把桌面无头浏览器结果当真机流畅度证据。统计只读回归使用固定时钟，另验 token 到期前后边界；匹配工具测试兼容直接运行与 `python -m unittest`。
 - Node · 换书动效中断：`test_render_ui.mjs` 还会回放 `app.js` 的实际过渡函数，验证隐藏文档导致 ready/finished 拒绝时不产生未处理错误、清理 CSS 状态，且正文渲染失败仍向上传递；仅合成 Promise/DOM，不需要浏览器。
-- Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
+- Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）、`test_translate_tag_zh.py`（假接口验证权限失败即停、内容二分到单条及首批全拦后继续、服务重试不拆批、实时进度与真实模型来源；不读凭据或调用渠道）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Node · 详情权重上色：`test_prompt_weights.mjs`（NAI `N::…::`、`{}` / `[]` 与 SD `(…:N)` 的标记位置和加权 / 减权方向；tag 名里的圆括号、转义括号与 tag 内数字不当权重）。
 - Python · 画师样张索引：`test_build_artist_index.py`（画师名夹具、去重顺序、书名推版本）；Node 侧对应 `test_artist_core.mjs`（倍率、索引归一、拆解兜底与跳过自身），两边共用 `fixtures/artist_keys.json`。
 - Python · 画风数据：`test_build_artist_styles.py`（来源指纹、原 ID 唯一性、评分样图归属、目录/旧名/邻居引用、只读计划、schema 2 迁入、根文件最后替换、不可变分片及并发保护；合成临时数据，不读私密缓存）；对应生成器 `build_artist_styles.py` 与命名覆盖库 `artist_style_labels.py`。
