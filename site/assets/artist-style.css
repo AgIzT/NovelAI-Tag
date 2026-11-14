@@ -4,11 +4,18 @@
 /* ---------- 画师详情 ---------- */
 .ap-tags{display:inline-flex;flex-wrap:wrap;gap:5px}
 .ap-tags>span{padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;line-height:1.5}
-#lightbox.is-artist .lightbox-columns>.lightbox-column{display:none}
-#lightbox.is-artist #tagZhToggle{display:none}
-.artist-profile{display:grid;gap:14px;grid-column:1/-1;min-width:0}
+#lightbox.is-artist:not(.artist-prompts-open) .lightbox-columns>.lightbox-column{display:none}
+#lightbox.is-artist:not(.artist-prompts-open) #tagZhToggle{display:none}
+#lightbox.is-artist #artistStripBlock{display:none}
+#lightbox.is-artist.artist-prompts-open :is(.ap-tag,.ap-details){display:none}
+#lightbox.is-artist.artist-prompts-open.lb-two-columns .lightbox-columns{grid-template-rows:auto minmax(0,1fr)}
+#lightbox.is-artist:not(.artist-prompts-open).lb-two-columns .artist-profile{overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.artist-profile{display:grid;gap:14px;grid-column:1/-1;min-width:0;min-height:0}
 .artist-profile[hidden]{display:none}
 .artist-profile .lightbox-section{margin-top:0}
+.ap-details{display:grid;gap:14px;min-width:0}
+.ap-prompt-toggle{justify-self:start;padding:7px 11px;border:1px solid var(--line);border-radius:10px;background:var(--tagbg);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer}
+.ap-prompt-toggle:hover{border-color:var(--accent);background:var(--tagbg-hover)}
 .ap-tag{
   display:flex;align-items:center;gap:8px;min-width:0;padding:7px 7px 7px 12px;
   border:1px solid var(--line);border-radius:12px;background:var(--tagbg);
@@ -27,14 +34,13 @@
 .section-head .ap-link:hover{border-color:var(--accent)}
 .ap-desc{margin:6px 0 0;color:var(--text);font-size:12.5px;line-height:1.6}
 .ap-tags{margin-top:2px}
-.ap-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
+.ap-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0}
 .ap-stat{display:grid;align-content:start;gap:2px;min-width:0;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.ap-rank-stat{grid-column:1/-1}
 .ap-stat dt{color:var(--lb-muted,var(--muted));font-size:11px;font-weight:700}
 .ap-stat dd{margin:0;color:var(--text);font:800 20px/1.25 var(--font-ui);font-variant-numeric:tabular-nums}
 .ap-stat small{color:var(--lb-muted,var(--muted));font-size:10.5px;line-height:1.4;overflow-wrap:anywhere}
-.ap-rec.is-high{color:#1f9d63}
-.ap-rec.is-mid{color:#c08217}
-.ap-rec.is-low{color:var(--new,#d64545)}
-.ap-rec.is-unknown{color:var(--lb-muted,var(--muted))}
+.ap-rank-sample{justify-self:start;padding:0;border:0;background:none;color:var(--accent);font-size:11px;text-align:left;cursor:pointer}
+.ap-rank-sample:hover{text-decoration:underline}
 .ap-section[hidden]{display:none}
 .ap-note{margin:0;color:var(--lb-muted,var(--muted));font-size:11.5px;line-height:1.6}

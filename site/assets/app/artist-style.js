@@ -1,20 +1,22 @@
-/* 单画师按画风重排（原型）：v5 画师词典的「单画师词典」不再按来源分目录，改成 画风大类 › 小组，一位画师一张卡。
-   数据 artist_styles.json 由 output/artist-style-view-20261113/build_style_data.py 从画师表生成；
-   原型期放在 site/proto-data/，不在 site/data/，不随数据发布。画风接近名单按画师下标分片，打开词条详情时才取。
+/* 单画师按画风重排：v5 画师词典的「单画师词典」改成 画风大类 › 小组，一位画师一张卡。
+   tools/build_artist_styles.py 生成 artist_styles.json，根与接近名单随同一数据 release 读取。
+   接近名单按画师下标和 nearRevision 分片，打开词条详情时才取。
 
    不改写 codex.tree：展示用目录另存 codex.styleTree，经 codex.displayTree 取用（目录、地址栏短码、路径兼容）；
    codex.tree 原样留给本地编辑器、全站搜索和收藏。本地编辑模式（body.edit-mode）时整套重排关闭，编辑器看到真实来源目录。
    本模块不碰 DOM。 */
 
 import { state } from './state.js';
+import { normalizeRoutePath } from './codex-route-compat.js';
+import { encodePathCode } from './path-code.js';
+import { fetchDataJson } from '../data-source.js';
 
 export const STYLE_CODEX_ID = 'artist_nai5_personal';
 export const SINGLE_ROOT = '单画师词典';
 export const UNSORTED = '未归类';
-const DATA_URL = 'proto-data/artist_styles.json';
-const NEAR_URL = shard => `proto-data/artist_styles_near/${shard}.json`;
-
-const REC_TEXT = { high: '高', mid: '中', low: '低', unknown: '未知' };
+const DATA_PATH = 'artist_styles.json';
+const NEAR_BASE = 'artist_styles_near';
+const REQUEST_TIMEOUT_MS = 6000;
 
 let styles;          // undefined = 没加载；null = 不可用；对象 = 已规范化
 let loading = null;
@@ -35,17 +37,49 @@ export function styleActive(codex = state.codex) {
 }
 
 function normalize(raw) {
-  if (!raw || raw.schema !== 1 || !Array.isArray(raw.artists) || !Array.isArray(raw.groups) || !Array.isArray(raw.parents)) return null;
+  if (!raw || raw.schema !== 3 || !Array.isArray(raw.artists) || !Array.isArray(raw.groups) || !Array.isArray(raw.parents)) return null;
+  const revision = /^[0-9a-f]{16}$/.test(raw.nearRevision) ? raw.nearRevision : '';
+  if (!revision || raw.codexId !== STYLE_CODEX_ID || raw.idPrefix !== STYLE_CODEX_ID + '_'
+    || !/^[0-9a-f]{64}$/.test(raw.sourceFingerprint) || !Number.isInteger(raw.nearShard) || raw.nearShard < 1 || raw.nearShard > 4096) return null;
+  const within = (i, list) => Number.isInteger(i) && i >= 0 && i < list.length;
+  const label = value => typeof value === 'string' && value.trim() === value && value.length > 0;
+  const refs = (value, list) => value === undefined || (Array.isArray(value) && value.every(i => within(i, list)));
+  const description = value => value === undefined || typeof value === 'string';
+  if (!raw.parents.length || !raw.groups.length
+    || !raw.groups.every(g => g && label(g.name) && within(g.parent, raw.parents)
+      && description(g.desc) && (g.tags === undefined || (Array.isArray(g.tags) && g.tags.every(tag => typeof tag === 'string')))
+      && refs(g.reps, raw.artists) && refs(g.famous, raw.artists))
+    || !raw.parents.every(p => p && label(p.name) && Array.isArray(p.groups) && p.groups.length
+      && description(p.desc)
+      && p.groups.every(g => within(g, raw.groups)) && refs(p.showcase, raw.artists))) return null;
+  const grouped = raw.parents.flatMap((p, parent) => p.groups.map(group => [group, parent]));
+  if (grouped.length !== raw.groups.length || new Set(grouped.map(([g]) => g)).size !== raw.groups.length
+    || grouped.some(([g, p]) => raw.groups[g].parent !== p)
+    || new Set(raw.parents.map(p => p.name)).size !== raw.parents.length
+    || new Set(raw.groups.map(g => g.name)).size !== raw.groups.length) return null;
+  const ids = new Set();
+  for (const a of raw.artists) {
+    if (!a || !within(a.g, raw.groups) || !label(a.e) || (a.x !== undefined && !Array.isArray(a.x))) return null;
+    for (const id of [a.e, ...(a.x || [])]) {
+      if (!label(id) || ids.has(id)) return null;
+      ids.add(id);
+    }
+  }
   const prefix = String(raw.idPrefix || '');
-  const artists = raw.artists.map((a, index) => ({
-    index,
-    entryId: prefix + a.e,
-    otherIds: (a.x || []).map(id => prefix + id),
-    post: Number.isFinite(a.p) ? a.p : null,
-    rank: Number.isFinite(a.r) ? a.r : null,
-    seenAs: a.t || '',
-    group: a.g,
-  }));
+  const artists = raw.artists.map((a, index) => {
+    const otherIds = a.x || [];
+    const hasRank = Number.isInteger(a.r) && a.r > 0 && (a.s === a.e || otherIds.includes(a.s));
+    return {
+      index,
+      entryId: prefix + a.e,
+      otherIds: otherIds.map(id => prefix + id),
+      post: Number.isFinite(a.p) ? a.p : null,
+      rank: hasRank ? a.r : null,
+      rankSampleId: hasRank ? prefix + a.s : '',
+      seenAs: hasRank ? a.t || '' : '',
+      group: a.g,
+    };
+  });
   const groups = raw.groups.map((g, index) => ({
     index, name: g.name, desc: g.desc || '', tags: g.tags || [], parent: g.parent, size: g.size || 0,
     reps: g.reps || [], famous: g.famous || [],
@@ -59,23 +93,41 @@ function normalize(raw) {
     byEntry.set(artist.entryId, artist.index);
     for (const id of artist.otherIds) byEntry.set(id, artist.index);
   }
-  return { nearShard: raw.nearShard || 512, artists, groups, parents, byEntry };
+  const pathAliases = Array.isArray(raw.pathAliases) ? raw.pathAliases : [];
+  return { nearShard: raw.nearShard, revision, sourceFingerprint: raw.sourceFingerprint, artists, groups, parents, byEntry, pathAliases };
+}
+
+async function fetchStyleData(path) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetchDataJson(path, { cache: 'no-cache', signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function loadArtistStyles() {
-  if (styles !== undefined) return Promise.resolve(styles);
-  loading ??= fetch(DATA_URL, { cache: 'no-cache' })
-    .then(response => (response.ok ? response.json() : null))
+  if (styles) return Promise.resolve(styles);
+  loading ??= fetchStyleData(DATA_PATH)
     .then(normalize)
     .catch(error => {
       console.warn('画风数据不可用，单画师词典按来源显示。', error);
       return null;
     })
     .then(result => {
-      styles = result;
+      if (result) styles = result;
       return result;
-    });
+    }).finally(() => { loading = null; });
   return loading;
+}
+
+async function sourceFingerprint(codex) {
+  const rows = codex.entries.filter(entry => entry.path?.[0] === SINGLE_ROOT)
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    .map(entry => [entry.id, entry.path, entry.image || '', entry.rating || 'safe', entry.tags || '']);
+  const hash = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(rows)));
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export function groupPath(groupIndex) {
@@ -87,11 +139,24 @@ function sourceOf(entry) {
   return entry?.path?.[0] === SINGLE_ROOT ? String(entry.path[1] || '') : '';
 }
 
+function validStyleAliasPath(path) {
+  return Array.isArray(path) && (path.length === 2 || path.length === 3)
+    && path[0] === SINGLE_ROOT && path.every(seg => typeof seg === 'string' && seg.trim() === seg && seg);
+}
+
 /* 把画风数据挂到法典上；同一本书只挂一次。返回是否挂上。 */
 export async function attachArtistStyles(codex) {
   if (!supportsArtistStyles(codex)) return false;
   const data = await loadArtistStyles();
   if (!data) return false;
+  try {
+    const sourceIds = new Set(codex.entries.filter(entry => entry.path?.[0] === SINGLE_ROOT).map(entry => entry.id));
+    if (await sourceFingerprint(codex) !== data.sourceFingerprint
+      || [...data.byEntry.keys()].some(id => !sourceIds.has(id))) return false;
+  } catch (error) {
+    console.warn('画风数据与当前词典无法核对，按来源显示。', error);
+    return false;
+  }
   styleBook = codex;
   if (codex.styleTree) return true;
   const byId = new Map();
@@ -129,10 +194,27 @@ export async function attachArtistStyles(codex) {
     configurable: true,
     get() { return styleActive(this) ? this.styleTree : this.tree; },
   });
-  /* 旧链接里的来源目录（单画师词典 › MayRain …）在画风目录里不存在：落到单画师首页，不退回「全部」 */
+  const pathsByName = new Map();
+  const pathsByCode = new Map();
+  for (const alias of data.pathAliases) {
+    const { from, to } = alias || {};
+    if (!validStyleAliasPath(from) || !validStyleAliasPath(to) || from.length !== to.length) continue;
+    const target = normalizeRoutePath(codex.styleTree, to);
+    if (!target.length) continue;
+    pathsByName.set(JSON.stringify(from), target);
+    pathsByCode.set(encodePathCode(from), from);
+  }
+  /* 改名走精确别名；旧来源目录（MayRain 等）仍落到单画师首页。 */
   Object.defineProperty(codex, 'styleRouteFallback', {
     configurable: true,
-    value: path => (styleActive(codex) && Array.isArray(path) && path[0] === SINGLE_ROOT ? [SINGLE_ROOT] : null),
+    value: path => {
+      if (!styleActive(codex) || path?.[0] !== SINGLE_ROOT) return null;
+      return pathsByName.get(JSON.stringify(path))?.slice() || [SINGLE_ROOT];
+    },
+  });
+  Object.defineProperty(codex, 'stylePathFromCode', {
+    configurable: true,
+    value: code => styleActive(codex) ? pathsByCode.get(String(code || '').trim())?.slice() : null,
   });
   return true;
 }
@@ -214,9 +296,6 @@ export function specimensOf(artist) {
   return [artist.entryId, ...artist.otherIds].map(styleBookEntry).filter(Boolean);
 }
 
-export const recOf = rank => (rank == null ? 'unknown' : rank === 1 ? 'high' : rank <= 10 ? 'mid' : 'low');
-export const recText = rank => REC_TEXT[recOf(rank)];
-
 export function formatCount(value) {
   return Number(value || 0).toLocaleString('en-US');
 }
@@ -229,19 +308,23 @@ export function specimenSource(entry) {
   return sourceOf(entry);
 }
 
-/* 单画师各层出哪些卡：每位画师一张，用代表那条（有 MayRain 用 MayRain）；
-   代表那条被分级挡住（不在传入的列表里）时改用这位画师别的例图，免得整位画师消失。 */
-export function selectStyleEntries(entries, path = state.activePath) {
+/* 单画师各层先圈定例图范围，筛完分级、批次和屏蔽后再每人选一张。
+   代表图不合格时用该画师其它合格例图。 */
+export function selectStyleEntries(entries, path = state.activePath, { deduplicate = true } = {}) {
   const where = styleLocation(path);
   if (!where) return entries;
   if (where.level === 'unsorted') return entries.filter(entry => entry.stylePath?.[1] === UNSORTED && entry.path?.[0] === SINGLE_ROOT);
   const inScope = artist => (where.level === 'root'
     || (where.level === 'parent' ? styles.groups[artist.group].parent === where.parent.index : artist.group === where.group.index));
-  const picked = new Map();
-  for (const entry of entries) {
-    if (entry.path?.[0] !== SINGLE_ROOT) continue;
+  const candidates = entries.filter(entry => {
+    if (entry.path?.[0] !== SINGLE_ROOT) return false;
     const artist = Number.isInteger(entry.styleArtist) ? styles.artists[entry.styleArtist] : null;
-    if (!artist || !inScope(artist)) continue;
+    return artist && inScope(artist);
+  });
+  if (!deduplicate) return candidates;
+  const picked = new Map();
+  for (const entry of candidates) {
+    const artist = styles.artists[entry.styleArtist];
     const current = picked.get(artist.index);
     if (!current || (entry.styleRep && !current.styleRep)) picked.set(artist.index, entry);
   }
@@ -262,13 +345,13 @@ export function artistNameOf(entry) {
   return (match ? match[1] : entry?.title || '').trim();
 }
 
-/* 卡片底行（原来写路径的那一行）：小组页写 post 与辨识度，大类页和单画师首页再带上小组名 */
+/* 小组页底行只写 post，大类页和单画师首页再带上小组名。 */
 export function styleCardLine(entry) {
   if (!artistListActive()) return '';
   const artist = artistOf(entry);
   if (!artist) return '';
   const parts = styleLocation()?.level === 'group' ? [] : [groupOf(artist).name];
-  parts.push(formatPost(artist.post), `辨识度${recText(artist.rank)}`);
+  parts.push(formatPost(artist.post));
   return parts.join(' · ');
 }
 
@@ -290,12 +373,20 @@ export function sortStyleEntries(list) {
 
 /* 画风接近的画师（下标），按需取所在分片 */
 export function loadNearArtists(index) {
-  if (!styles) return Promise.resolve([]);
+  if (!styles || !Number.isInteger(index) || index < 0 || index >= styles.artists.length) return Promise.resolve([]);
   const shard = Math.floor(index / styles.nearShard);
   if (!nearShards.has(shard)) {
-    nearShards.set(shard, fetch(NEAR_URL(shard), { cache: 'no-cache' })
-      .then(response => (response.ok ? response.json() : []))
-      .catch(() => []));
+    const dir = styles.revision ? `${NEAR_BASE}/${styles.revision}` : NEAR_BASE;
+    nearShards.set(shard, fetchStyleData(`${dir}/${shard}.json`)
+      .then(rows => {
+        const start = shard * styles.nearShard;
+        if (!Array.isArray(rows) || rows.length !== Math.min(styles.nearShard, styles.artists.length - start)
+          || rows.some((row, offset) => !Array.isArray(row) || new Set(row).size !== row.length
+            || row.some(i => !Number.isInteger(i) || i < 0 || i >= styles.artists.length || i === start + offset))) {
+          throw new Error('Invalid artist neighbor shard');
+        }
+        return rows;
+      }).catch(() => { nearShards.delete(shard); return []; }));
   }
   return nearShards.get(shard).then(rows => rows[index - shard * styles.nearShard] || []);
 }

@@ -2,10 +2,23 @@
 // 覆盖：挂数据不改写 codex.tree、展示目录与计数路径、未归类、本地编辑模式下关闭重排、旧来源链接落点、
 // 每位画师一张卡、按 post 排、卡片底行、详情落点、拷贝词条按 ID 认画师、接近名单分片。
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { codexUpdateFilters, entryMatchesUpdateFilter } from '../site/assets/app/data.js';
+import { decodeCodexPathCode, normalizeCodexRoutePath } from '../site/assets/app/codex-route-compat.js';
+import { encodePathCode } from '../site/assets/app/path-code.js';
+import { parseSearchQuery, rankSearchResults } from '../site/assets/app/search.js';
 import { state } from '../site/assets/app/state.js';
 
 const data = {
-  schema: 1, codexId: 'artist_nai5_personal', idPrefix: 'artist_nai5_personal_', nearShard: 2,
+  schema: 3, codexId: 'artist_nai5_personal', idPrefix: 'artist_nai5_personal_', nearShard: 2,
+  nearRevision: '0123456789abcdef',
+  pathAliases: [
+    { from: ['单画师词典', '旧甲类'], to: ['单画师词典', '甲类'] },
+    { from: ['单画师词典', '旧甲类', '旧甲一'], to: ['单画师词典', '甲类', '甲一'] },
+    { from: ['单画师词典', '旧甲类', '不存在'], to: ['单画师词典', '甲类', '不存在'] },
+    { from: ['画风组词典', '旧甲类'], to: ['单画师词典', '甲类'] },
+  ],
   parents: [
     { name: '甲类', desc: '甲', groups: [0, 1], size: 3, showcase: [1, 0] },
     { name: '乙类', desc: '乙', groups: [2], size: 1, showcase: [3] },
@@ -16,15 +29,17 @@ const data = {
     { name: '乙一', desc: '', tags: [], parent: 1, size: 1, reps: [3], famous: [] },
   ],
   artists: [
-    { e: 'baolong_1', p: 500, r: 1, g: 0, o: 1, x: ['huazhiyu_9'] },
+    { e: 'baolong_1', p: 500, r: 1, s: 'baolong_1', g: 0, o: 1, x: ['huazhiyu_9'] },
     { e: 'baolong_2', p: 2000, r: 7, t: 'someone', g: 0, o: 0 },
     { e: 'baolong_3', p: null, r: null, g: 1, o: 0 },
     { e: 'baolong_4', p: 90, r: 40, g: 2, o: 0 },
   ],
 };
 const nearShards = { 0: [[1, 2], [0]], 1: [[0], [2, 1, 0]] };
+const requestedUrls = [];
 globalThis.fetch = async url => {
-  const shard = String(url).match(/artist_styles_near\/(\d+)\.json$/);
+  requestedUrls.push(String(url));
+  const shard = String(url).match(/artist_styles_near\/0123456789abcdef\/(\d+)\.json$/);
   const body = shard ? nearShards[shard[1]] : data;
   return { ok: Boolean(body), json: async () => body };
 };
@@ -48,6 +63,10 @@ const tree = [
 ];
 const treeSnapshot = JSON.stringify(tree);
 const codex = { id: 'artist_nai5_personal', entries, tree };
+data.sourceFingerprint = createHash('sha256').update(JSON.stringify(entries
+  .filter(entry => entry.path[0] === '单画师词典')
+  .sort((a, b) => a.id < b.id ? -1 : 1)
+  .map(entry => [entry.id, entry.path, entry.image || '', entry.rating || 'safe', entry.tags || '']))).digest('hex');
 
 // 挂数据
 assert.equal(await style.attachArtistStyles({ id: 'suozhang', entries: [] }), false, '别的书不挂');
@@ -85,6 +104,28 @@ editMode = false;
 assert.deepEqual(codex.styleRouteFallback(['单画师词典', 'MayRain', '例图']), ['单画师词典']);
 assert.equal(codex.styleRouteFallback(['画风组词典', '不存在']), null);
 
+// 改名之前保存的完整路径（path=、历史与最近浏览）仍在同一画风目录。
+const oldParent = ['单画师词典', '旧甲类'];
+const newParent = ['单画师词典', '甲类'];
+const oldGroup = [...oldParent, '旧甲一'];
+const newGroup = [...newParent, '甲一'];
+assert.deepEqual(normalizeCodexRoutePath(codex, oldParent), newParent, '旧大类链接进入同一类');
+assert.deepEqual(normalizeCodexRoutePath(codex, oldGroup), newGroup, '旧小组链接进入同一组');
+assert.deepEqual(normalizeCodexRoutePath(codex, newGroup), newGroup, '当前分类名优先');
+assert.deepEqual(normalizeCodexRoutePath(codex, [...oldParent, '不存在']), ['单画师词典'], '不恢复已经不存在的目的地');
+assert.deepEqual(normalizeCodexRoutePath(codex, ['画风组词典', '旧甲类']), [], '兼容路径只能在单画师目录内');
+const fromCode = path => normalizeCodexRoutePath(codex, decodeCodexPathCode(codex, encodePathCode(path)));
+assert.deepEqual(fromCode(oldParent), newParent, '旧大类短码');
+assert.deepEqual(fromCode(oldGroup), newGroup, '旧小组短码');
+assert.deepEqual(fromCode(newGroup), newGroup, '现有小组短码');
+assert.deepEqual(fromCode(['单画师词典', 'MayRain']), ['单画师词典'], '原来源目录短码保持旧行为');
+assert.deepEqual(fromCode(['单画师词典', '旧甲类', '未知']), [], '随机短码回到全部');
+editMode = true;
+assert.deepEqual(normalizeCodexRoutePath(codex, oldGroup), [], '编辑模式不使用画风别名');
+assert.deepEqual(fromCode(oldGroup), [], '编辑模式不使用画风短码');
+assert.deepEqual(fromCode(['单画师词典', 'MayRain']), ['单画师词典', 'MayRain'], '编辑模式仍还原真实来源目录');
+editMode = false;
+
 // 层级与列表
 state.codex = codex;
 state.favoritesView = false;
@@ -110,9 +151,9 @@ state.siteSearchView = false;
 
 // 卡片
 state.activePath = ['单画师词典', '甲类'];
-assert.equal(style.styleCardLine(entries[2]), '甲一 · post 2,000 · 辨识度中', '大类页底行带小组名');
+assert.equal(style.styleCardLine(entries[2]), '甲一 · post 2,000', '大类页底行带小组名');
 state.activePath = ['单画师词典', '甲类', '甲一'];
-assert.equal(style.styleCardLine(entries[2]), 'post 2,000 · 辨识度中', '小组页不重复写组名');
+assert.equal(style.styleCardLine(entries[2]), 'post 2,000', '小组页不重复写组名');
 state.activePath = ['单画师词典', '未归类'];
 assert.equal(style.styleCardLine(entries[5]), '', '未归类照旧写路径');
 state.activePath = [];
@@ -131,9 +172,72 @@ assert.deepEqual(ids(style.specimensOf(style.artistByIndex(0))), ['baolong_1', '
 const reps = entries.slice(1, 5);
 assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3'], '按 post 多到少，未知垫底');
 
-assert.equal(style.recText(null), '未知');
+assert.equal(style.artistOf(entries[0]), style.artistOf(entries[1]), '旧名例图和代表图属于同一位画师');
+assert.deepEqual([style.artistOf(entries[0]).rank, style.artistOf(entries[0]).rankSampleId], [1, entries[1].id], '标明用于评估的 v5 封面');
+assert.equal(style.artistOf(entries[2]).rank, null, '旧原型数据缺少样图来源，不能当作 v5 结果');
 assert.equal(style.formatPost(null), 'post 未知');
 assert.deepEqual(await style.loadNearArtists(1), [0], '第 0 片第 2 行');
 assert.deepEqual(await style.loadNearArtists(3), [2, 1, 0], '第 1 片第 2 行');
+assert.ok(requestedUrls.some(url => url.endsWith('/data/artist_styles_near/0123456789abcdef/0.json')), '邻居下标绑定同一数据发布版本');
+
+// 回放主站筛选入口：往期链接进单画师各层会清掉，NEW 与其它目录的往期链接仍能筛选。
+codex.updateFilters = [
+  { id: '2026.10.7', label: '10.7更新' },
+  { id: '2026.10.24', label: '10.24更新', latest: true },
+];
+entries[2].isNew = true;
+entries[3].updateBatches = ['2026.10.7'];
+entries[6].updateBatches = ['2026.10.7'];
+const source = await readFile(new URL('../site/assets/app.js', import.meta.url), 'utf8');
+const start = source.indexOf('export function applyFilter(');
+const end = source.indexOf('\n/* 取消、撤销', start);
+assert.ok(start >= 0 && end > start);
+const body = source.slice(start, end).replace('export function', 'function');
+const blockedIds = new Set();
+const deps = {
+  state, compileSearchState: () => parseSearchQuery(state.query),
+  cancelSiteSearchObservation() {}, isCodexLocked: () => false, isEntryAccessBlocked: () => false,
+  listSearchDirectories: () => [], searchDirectoryOptions: () => [], prepareSearchZh: () => null,
+  virtualView: () => false,
+  matchSearchPlan: () => true, codexUpdateFilters, entryMatchesUpdateFilter,
+  ...style, isContentBlocked: entry => blockedIds.has(entry.id), sortCategoryEntries: list => list,
+  rankSearchResults, pinFeatured: list => list, findRelatedDirectories: () => [],
+  renderSearchExperience() {}, updateResultBar() {}, renderList() {}, updateBlockingSummary() {},
+};
+const applyFilter = new Function(...Object.keys(deps), body + '\nreturn applyFilter;')(...Object.values(deps));
+function runUpdateFilter(path, updateFilter, query = '') {
+  state.activePath = path;
+  state.updateFilter = updateFilter;
+  state.query = query;
+  applyFilter();
+  return [state.updateFilter, ids(state.list)];
+}
+
+assert.deepEqual(runUpdateFilter(['单画师词典'], '2026.10.7'), ['', ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3']]);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类'], '2026.10.7'), ['', ['baolong_2', 'baolong_1', 'baolong_3']]);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], '2026.10.7'), ['', ['baolong_2', 'baolong_1']]);
+assert.deepEqual(runUpdateFilter(['单画师词典', '未归类'], '2026.10.7'), ['', ['jiuqi_77']]);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类'], '2026.10.24'), ['2026.10.24', ['baolong_2']]);
+assert.deepEqual(runUpdateFilter([], '2026.10.7'), ['2026.10.7', ['baolong_3', 'wof_1']]);
+assert.deepEqual(runUpdateFilter(['画风组词典'], '2026.10.7'), ['2026.10.7', ['wof_1']]);
+assert.deepEqual(runUpdateFilter(['单画师词典'], '2026.10.7', 'baolong_3'), ['2026.10.7', ['baolong_3', 'wof_1']]);
+editMode = true;
+assert.deepEqual(runUpdateFilter(['单画师词典', 'MayRain'], '2026.10.7'), ['2026.10.7', ['baolong_3']]);
+editMode = false;
+
+// 隐藏其中一张来源图后，同一画师仍用合格的其它来源出卡。
+blockedIds.add(entries[1].id);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], ''), ['', ['baolong_2', 'huazhiyu_9']]);
+blockedIds.clear();
+entries[0].isNew = true;
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], '2026.10.24'), ['2026.10.24', ['baolong_2', 'huazhiyu_9']]);
+
+// 无词典绑定的旧原型不能作为正式数据；缺少分片版本也拒绝使用。
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ ...data, schema: 1 }) });
+const legacyStyle = await import('../site/assets/app/artist-style.js?legacy-rank');
+assert.equal(await legacyStyle.loadArtistStyles(), null);
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ ...data, nearRevision: '' }) });
+const invalidStyle = await import('../site/assets/app/artist-style.js?invalid-revision');
+assert.equal(await invalidStyle.loadArtistStyles(), null);
 
 console.log('artist style: PASS');

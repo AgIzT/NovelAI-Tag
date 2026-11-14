@@ -45,6 +45,10 @@ if not exist r2_config.json (
   exit /b 1
 )
 
+echo == Checking artist style release data ==
+call %PY% "tools\build_artist_styles.py" --check
+if errorlevel 1 exit /b 1
+
 echo == Syncing images and JSON metadata to Cloudflare R2 ==
 call %PY% "tools\sync_r2.py"
 set "RC=%ERRORLEVEL%"

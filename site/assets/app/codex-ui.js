@@ -9,7 +9,7 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
-import { styleTreeSkeleton, styleActive, treePathOf } from './artist-style.js';
+import { inSingleSection, styleTreeSkeleton, styleActive, treePathOf } from './artist-style.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
 import { watchWishVisibility, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
@@ -1594,7 +1594,10 @@ function updateFilterControls() {
   const focusedFilterId = root.contains(document.activeElement)
     ? String(document.activeElement?.dataset?.updateFilter || '')
     : '';
-  const filters = (!state.favoritesView && !state.siteSearchView) ? codexUpdateFilters(state.codex) : [];
+  const latestOnly = inSingleSection() && !hasActiveSearch();
+  const filters = (!state.favoritesView && !state.siteSearchView)
+    ? codexUpdateFilters(state.codex).filter(filter => !latestOnly || filter.latest)
+    : [];
   root.hidden = filters.length === 0;
   /* 常驻胶囊＝带 latest 的那期；万一它因为 count 为 0 被滤掉，退到按日期排第一的那期，
      保证任何有批次的书都至少有一枚一键入口。 */

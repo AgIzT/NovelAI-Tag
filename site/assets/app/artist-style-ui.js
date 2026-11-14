@@ -14,8 +14,8 @@ import { artistKey, formatArtistWeight } from './artist-core.js';
 import {
   STYLE_CODEX_ID, SINGLE_ROOT,
   artistOf, artistByIndex, groupOf, parentOf, groupPath, artistNameOf,
-  formatCount, recOf, recText, loadNearArtists, specimensOf, specimenSource,
-  attachArtistStyles, mayHaveStyle, styleActive, styleBookCodex, styleBookEntry, stylePathText,
+  formatCount, loadNearArtists, specimensOf, specimenSource,
+  attachArtistStyles, mayHaveStyle, styleActive, styleBookCodex, styleBookEntry, stylePathText, landingPathOf,
 } from './artist-style.js';
 
 const STRIP_COLLAPSED = 10;
@@ -42,7 +42,10 @@ function repEntry(artist) {
 }
 
 function showable(entry) {
-  return Boolean(entry) && !isEntryAccessBlocked(entry) && !isContentBlocked(entry);
+  if (!entry) return false;
+  // 这些例图来自 v5 原书，收藏和全站搜索的虚拟法典不能充当屏蔽键的来源。
+  const sourceEntry = { ...entry, _srcCodexId: STYLE_CODEX_ID };
+  return !isEntryAccessBlocked(sourceEntry) && !isContentBlocked(sourceEntry);
 }
 
 let bookLoad = null;
@@ -121,14 +124,19 @@ function stringThumb(rep) {
 
 let profileSeq = 0;
 let profileArtist = -1;
-const expanded = { near: false, strings: false };
-let profileTiles = new Map();   // data-key → 点击动作
+const expanded = { near: false, strings: false, prompts: false };
+let profileEntryId = '';
 
-function recSentence(artist) {
-  if (artist.rank == null) return '识别模型的名单里没有这位';
-  if (artist.rank === 1) return '识别模型认得出是这位';
-  return `识别模型认作 ${artist.seenAs || '其他画师'}，这位排第 ${artist.rank}`;
+function syncPromptPanel() {
+  const open = expanded.prompts;
+  $('#lightbox')?.classList.toggle('artist-prompts-open', open);
+  const toggle = $('#artistProfile')?.querySelector('[data-ap-prompts]');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.textContent = `${open ? '收起' : '展开'}完整提示词与中文对照`;
+  }
 }
+let profileTiles = new Map();   // data-key → 点击动作
 
 function tile({ key, src, caption, badge = '', pressed = false, onOpen }) {
   profileTiles.set(key, onOpen);
@@ -147,19 +155,26 @@ function stripHtml(key, items) {
   return `<div class="artist-strip">${shown.join('')}${more}</div>`;
 }
 
-function openInPlace(entry, historyMode) {
-  styleUiActions.openLightbox(entry, 0, null, { historyMode });
+function openStyleExample(entry, historyMode) {
+  if (!showable(entry)) return;
+  if (state.codex?.id === STYLE_CODEX_ID && !state.favoritesView && !state.siteSearchView) {
+    styleUiActions.openLightbox(entry, 0, null, { historyMode });
+    return;
+  }
+  // 跳到真实词典，保证目标不在当前收藏或搜索结果里时也能刷新；后退回到来时的详情。
+  openRecentEntry({ codexId: STYLE_CODEX_ID, entryId: entry.id, path: landingPathOf(entry) }, { historyMode: 'push' });
 }
 
 function specimensHtml(entry, artist) {
   const specimens = specimensOf(artist).filter(showable);
   if (specimens.length < 2) return '';
+  const names = new Set(specimens.map(artistNameOf));
   const items = specimens.map(item => tile({
     key: `specimen:${item.id}`,
     src: entryThumb(item),
-    caption: specimenSource(item) || item.title,
+    caption: names.size > 1 ? `${specimenSource(item)} · ${artistNameOf(item)}` : specimenSource(item) || item.title,
     pressed: item.id === entry.id,
-    onOpen: () => { if (item.id !== entry.id) openInPlace(item, 'replace'); },
+    onOpen: () => { if (item.id !== entry.id) openStyleExample(item, 'replace'); },
   }));
   return `<div class="lightbox-section ap-section"><div class="section-head"><div class="section-label">例图 <span class="artist-strip-count">${items.length}</span></div></div>${stripHtml('specimens', items)}</div>`;
 }
@@ -179,13 +194,37 @@ function weightStatHtml(weight) {
   return `<div class="ap-stat" data-ap-weight><dt>常用权重</dt><dd>${esc(value)}</dd><small>${esc(note)}</small></div>`;
 }
 
+function rankStatHtml(artist) {
+  const sample = styleBookEntry(artist.rankSampleId);
+  if (!showable(sample)) {
+    return '<div class="ap-stat ap-rank-stat"><dt>v5 样图识别</dt><dd>—</dd><small>暂无可展示的评估样图</small></div>';
+  }
+  const key = `rank:${sample.id}`;
+  const name = artistNameOf(sample);
+  const label = `看评估图：${specimenSource(sample) || 'v5'} · 首图`;
+  profileTiles.set(key, () => openStyleExample(sample, 'replace'));
+  return `<div class="ap-stat ap-rank-stat"><dt>v5 样图识别</dt><dd>第 ${formatCount(artist.rank)} 名</dd>
+    <small>评估 ${esc(name)}，Kaloscope 首选 ${esc(artist.seenAs || (artist.rank === 1 ? name : '其他画师'))}</small>
+    <button type="button" class="ap-rank-sample ui-press" data-ap-key="${esc(key)}">${esc(label)}</button></div>`;
+}
+
 function statsHtml(artist, weight) {
-  const rec = recOf(artist.rank);
   return `<dl class="ap-stats">
     <div class="ap-stat"><dt>post 数</dt><dd>${artist.post == null ? '—' : formatCount(artist.post)}</dd><small>Danbooru 作品数</small></div>
-    <div class="ap-stat"><dt>辨识度</dt><dd class="ap-rec is-${rec}">${esc(recText(artist.rank))}</dd><small>${esc(recSentence(artist))}</small></div>
     ${weightStatHtml(weight)}
+    ${rankStatHtml(artist)}
   </dl>`;
+}
+
+function stringsOf(artist, index) {
+  const keys = new Set(specimensOf(artist).map(entry => nameKey(artistNameOf(entry))));
+  const rows = new Map();
+  for (const key of keys) {
+    for (const item of index?.get(key) || []) {
+      if (!rows.has(item.index)) rows.set(item.index, item);
+    }
+  }
+  return [...rows.values()];
 }
 
 function weightOf(list) {
@@ -199,7 +238,7 @@ function paintNear(box, indexes) {
     const name = artistNameOf(rep);
     return tile({
       key: `near:${near.index}`, src: entryThumb(rep), caption: name,
-      onOpen: () => openInPlace(rep, 'push'),
+      onOpen: () => openStyleExample(rep, 'push'),
     });
   }).filter(Boolean);
   box.innerHTML = items.length
@@ -217,8 +256,11 @@ function paintStrings(box, list) {
     return tile({
       key: `string:${item.index}`, src: stringThumb(item.rep), caption, badge: formatArtistWeight(item.weight) || '',
       onOpen: () => {
-        if (own && state.codex?.id === STYLE_CODEX_ID && !state.favoritesView && !state.siteSearchView) openInPlace(own, 'push');
-        else openRecentEntry({ codexId: item.rep.codexId, entryId: item.rep.entryId }, { historyMode: 'push' });
+        if (own && state.codex?.id === STYLE_CODEX_ID && !state.favoritesView && !state.siteSearchView) {
+          styleUiActions.openLightbox(own, 0, null, { historyMode: 'push' });
+          return;
+        }
+        openRecentEntry({ codexId: item.rep.codexId, entryId: item.rep.entryId }, { historyMode: 'push' });
       },
     });
   });
@@ -235,12 +277,14 @@ export function renderArtistProfile(entry) {
   const seq = ++profileSeq;
   profileTiles = new Map();
   const off = () => {
-    lb?.classList.remove('is-artist');
+    lb?.classList.remove('is-artist', 'artist-prompts-open');
     if (box) {
       box.hidden = true;
       box.replaceChildren();
     }
     profileArtist = -1;
+    profileEntryId = '';
+    expanded.prompts = false;
     return false;
   };
   if (!box || !lb) return off();
@@ -252,6 +296,8 @@ export function renderArtistProfile(entry) {
   }
   if (!profileApplies(entry)) return off();
   const artist = artistOf(entry);
+  if (entry.id !== profileEntryId) expanded.prompts = false;
+  profileEntryId = entry.id;
   if (artist.index !== profileArtist) {
     expanded.near = false;
     expanded.strings = false;
@@ -260,24 +306,28 @@ export function renderArtistProfile(entry) {
   const group = groupOf(artist);
   const parent = parentOf(group);
   const name = artistNameOf(entry);
-  $('#lightboxTitle').textContent = name;
+  $('#lightboxTitle').textContent = artistNameOf(repEntry(artist)) || name;
   lb.classList.add('is-artist');
-  const key = nameKey(name);
-  const strings = stringsIndex === undefined ? undefined : (stringsIndex?.get(key) || []);
+  const strings = stringsIndex === undefined ? undefined : stringsOf(artist, stringsIndex);
   const weight = strings === undefined ? undefined : weightOf(strings);
+  const tags = group.tags.filter(tag => tag !== '辨识度高' && tag !== '辨识度低');
   box.innerHTML = `
-    <div class="ap-tag"><code>artist:${esc(name)}</code><button type="button" class="ui-press ap-copy">复制正向</button></div>
+    <div class="ap-tag"><code title="${esc(entry.tags || '')}">${esc(entry.tags || '')}</code><button type="button" class="ui-press ap-copy">复制正向</button></div>
+    <button type="button" class="ui-press ap-prompt-toggle" data-ap-prompts aria-expanded="${expanded.prompts}" aria-controls="lightboxTags lightboxNegative lightboxCharacterPrompts lightboxNote">展开完整提示词与中文对照</button>
+    <div class="ap-details">
     <div class="lightbox-section ap-section ap-style">
       <div class="section-head"><div class="section-label">画风</div>${stylePathHtml(group, parent)}</div>
-      ${group.tags.length ? `<div class="ap-tags">${group.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}
+      ${tags.length ? `<div class="ap-tags">${tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}
       <p class="ap-desc">${esc(group.desc)}</p>
     </div>
     ${statsHtml(artist, weight)}
     ${specimensHtml(entry, artist)}
     <div class="lightbox-section ap-section" data-ap-near hidden></div>
     <div class="lightbox-section ap-section" data-ap-strings hidden></div>
-    ${entry.note ? `<p class="ap-note">${esc(entry.note)}</p>` : ''}`;
+    ${entry.note ? `<p class="ap-note">${esc(entry.note)}</p>` : ''}
+    </div>`;
   box.hidden = false;
+  syncPromptPanel();
   loadNearArtists(artist.index).then(indexes => {
     if (seq !== profileSeq) return;
     const near = box.querySelector('[data-ap-near]');
@@ -290,7 +340,7 @@ export function renderArtistProfile(entry) {
   if (strings === undefined) {
     loadStringsIndex().then(index => {
       if (seq !== profileSeq) return;
-      const list = index?.get(key) || [];
+      const list = stringsOf(artist, index);
       const stat = box.querySelector('[data-ap-weight]');
       if (stat) stat.outerHTML = weightStatHtml(weightOf(list));
       paintStringPart(list);
@@ -304,13 +354,21 @@ export function renderArtistProfile(entry) {
 export function resetArtistProfile() {
   profileSeq += 1;
   profileArtist = -1;
+  profileEntryId = '';
+  expanded.prompts = false;
   profileTiles = new Map();
-  $('#lightbox')?.classList.remove('is-artist');
+  $('#lightbox')?.classList.remove('is-artist', 'artist-prompts-open');
 }
 
 function onProfileClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  if (target.closest('[data-ap-prompts]')) {
+    event.stopPropagation();
+    expanded.prompts = !expanded.prompts;
+    syncPromptPanel();
+    return;
+  }
   if (target.closest('.ap-copy')) {
     event.stopPropagation();
     $('#copyPositive')?.click();

@@ -113,7 +113,64 @@ def make_data(root):
     write_json(root / "share" / "demo.json", {"id": "demo"})
 
 
+def make_artist_styles(root):
+    from tools.build_artist_styles import BOOK_ID, chunks_and_revision, fingerprint_book
+    book = {"id": BOOK_ID, "entries": [{"id": BOOK_ID + "_one", "path": ["单画师词典", "MayRain"], "image": "one.webp"}]}
+    data = {"schema": 3, "codexId": BOOK_ID, "idPrefix": BOOK_ID + "_", "nearShard": 512,
+            "sourceFingerprint": fingerprint_book(book),
+            "parents": [{"name": "平涂", "groups": [0], "size": 1}],
+            "groups": [{"name": "细线平涂", "parent": 0, "size": 1}],
+            "artists": [{"e": "one", "g": 0, "r": None, "p": 1}]}
+    chunks, data["nearRevision"] = chunks_and_revision(data, [[]])
+    write_json(root / "codexes.json", [{"id": "demo"}, {"id": BOOK_ID}])
+    write_json(root / (BOOK_ID + ".json"), book)
+    write_json(root / "artist_styles.json", data)
+    shard = root / "artist_styles_near" / data["nearRevision"] / "0.json"
+    shard.parent.mkdir(parents=True)
+    shard.write_bytes(chunks[0])
+    return data, shard
+
+
 class PublishDataR2Tests(unittest.TestCase):
+    def test_artist_styles_and_neighbors_share_the_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            _, shard = make_artist_styles(root)
+            plan = build_release_plan(root)
+            paths = {item.relative_path for item in plan.files}
+            self.assertIn("artist_styles.json", paths)
+            self.assertIn(shard.relative_to(root).as_posix(), paths)
+
+    def test_artist_style_source_mismatch_stops_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            data, _ = make_artist_styles(root)
+            data["sourceFingerprint"] = "0" * 64
+            write_json(root / "artist_styles.json", data)
+            with self.assertRaisesRegex(ValueError, "different source book"):
+                build_release_plan(root)
+
+    def test_artist_style_missing_neighbor_stops_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            _, shard = make_artist_styles(root)
+            shard.unlink()
+            with self.assertRaisesRegex(ValueError, "neighbor shard"):
+                build_release_plan(root)
+
+    def test_artist_style_bad_tags_stop_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_data(root)
+            data, _ = make_artist_styles(root)
+            data['groups'][0]['tags'] = '平涂'
+            write_json(root / 'artist_styles.json', data)
+            with self.assertRaisesRegex(ValueError, 'tags'):
+                build_release_plan(root)
+
     def test_public_release_check_uses_explicit_user_agent_and_origin(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

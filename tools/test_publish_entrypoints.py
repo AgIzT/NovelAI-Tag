@@ -34,6 +34,7 @@ class PublishBatchTests(unittest.TestCase):
             '@echo off\necho python %*>>"%CALL_LOG%"\n'
             'if "%~1"=="tools\\sync_r2.py" if defined SYNC_EXIT exit /b %SYNC_EXIT%\n'
             'if "%~1"=="tools\\build_share_index.py" if defined BUILD_EXIT exit /b %BUILD_EXIT%\n'
+            'if "%~1"=="tools\\build_artist_styles.py" if defined STYLE_EXIT exit /b %STYLE_EXIT%\n'
             'exit /b 0\n', encoding="ascii")
 
     def run_batch(self, name):
@@ -55,10 +56,17 @@ class PublishBatchTests(unittest.TestCase):
         code, calls = self.run_batch("发布数据.bat")
         self.assertEqual(code, 0)
         positions = [calls.index(action) for action in
-                     ("sync_r2.py", "build_updates_index.py", "build_share_index.py",
+                     ("build_artist_styles.py", "sync_r2.py", "build_updates_index.py", "build_share_index.py",
                       "build_tag_zh.py", "build_artist_index.py", "--publish")]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("git", calls)
+
+    def test_invalid_artist_styles_stop_before_any_upload(self):
+        self.env["STYLE_EXIT"] = "1"
+        code, calls = self.run_batch("发布数据.bat")
+        self.assertEqual(code, 1)
+        self.assertNotIn("sync_r2.py", calls)
+        self.assertNotIn("--publish", calls)
 
     def test_missing_remote_media_exit_stops_all_publish_steps(self):
         self.env["SYNC_EXIT"] = "1"

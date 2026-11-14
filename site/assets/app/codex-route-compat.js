@@ -1,3 +1,5 @@
+import { pathFromCode } from './path-code.js';
+
 // 并册只增加目录层级，不改原分类名。旧书 id 必须保留到路径归一完成，
 // 否则同名分类无法判断来自哪本书；只有目标树真实存在时才应用迁移。
 const MERGED_PATHS = [
@@ -54,6 +56,16 @@ export function normalizeRoutePath(tree, path) {
     nodes = Array.isArray(node.children) ? node.children : [];
   }
   return normalized;
+}
+
+// 当前展示目录的短码优先。画风改名前的短码和原来源目录随后依次尝试。
+export function decodeCodexPathCode(codex, code) {
+  const displayTree = codex?.displayTree || codex?.tree;
+  const current = pathFromCode(displayTree, code);
+  if (current.length) return current;
+  const legacyStyle = codex?.stylePathFromCode?.(code);
+  if (legacyStyle) return legacyStyle;
+  return displayTree === codex?.tree ? [] : pathFromCode(codex?.tree, code);
 }
 
 export function normalizeCodexRoutePath(codex, path, sourceCodexId = codex?.id) {

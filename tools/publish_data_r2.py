@@ -19,9 +19,11 @@ from pathlib import Path
 try:
     from . import r2_data_protocol as cas
     from .r2_data_snapshot import frozen_data_directory
+    from .build_artist_styles import validate_style_data
 except ImportError:
     import r2_data_protocol as cas
     from r2_data_snapshot import frozen_data_directory
+    from build_artist_styles import validate_style_data
 
 try:
     from .sync_r2 import (
@@ -174,6 +176,19 @@ def collect_release_files(data_dir=DATA_DIR):
         body = parsed[filename]
         if not isinstance(body, dict) or body.get("id") != cid:
             raise ValueError(f"codex file id mismatch: {filename}")
+
+    styles = parsed.get("artist_styles.json")
+    if "artist_styles.json" in parsed:
+        book_id = "artist_nai5_personal"
+        book = parsed.get(book_id + ".json")
+        if book_id not in seen or not isinstance(book, dict):
+            raise ValueError("artist styles require the source book in the same release")
+        validate_style_data(styles, book)
+        count = (len(styles["artists"]) + styles["nearShard"] - 1) // styles["nearShard"]
+        shard_names = [f"artist_styles_near/{styles['nearRevision']}/{i}.json" for i in range(count)]
+        if any(name not in relative for name in shard_names):
+            raise ValueError("artist style neighbor shard is missing")
+        validate_style_data(styles, book, [relative[name].read_bytes() for name in shard_names])
 
     share_index = parsed.get("share-index.json")
     share_codexes = share_index.get("codexes") if isinstance(share_index, dict) else None

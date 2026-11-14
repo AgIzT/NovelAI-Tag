@@ -22,11 +22,11 @@ import { openLightbox, closeLightbox } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
-import { normalizeRoutePath, normalizeCodexRoutePath } from './app/codex-route-compat.js';
-import { encodePathCode, pathFromCode } from './app/path-code.js';
+import { decodeCodexPathCode, normalizeCodexRoutePath } from './app/codex-route-compat.js';
+import { encodePathCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, codexCoverUrl, codexCoverStyle, selectPathByPath } from './app/codex-ui.js';
 import { STYLE_CODEX_ID, SINGLE_ROOT, supportsArtistStyles, loadArtistStyles, attachArtistStyles, inSingleSection, styleLocation, selectStyleEntries, sortStyleEntries } from './app/artist-style.js';
-import { bindArtistStyleUi, setStyleUiActions } from './app/artist-style-ui.js';
+import { bindArtistStyleUi, renderArtistProfile, setStyleUiActions } from './app/artist-style-ui.js';
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
 import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './app/ui.js';
@@ -169,12 +169,7 @@ function renderCodexView(codex, seq, {
   applyViewUrlState(urlState, c);
   favoritesFolderHistoryActive = false;
   // 短码要等法典树到手才能反解；旧的 path= 参数还在的话优先用它，免得老链接改语义。
-  // 按画风展示时先在画风目录里找；找不到再查原来源目录，旧链接（单画师词典 › MayRain）才能落到单画师首页。
-  const pathCode = urlState?.pathCode || '';
-  const codedPath = pathFromCode(c.displayTree || c.tree, pathCode);
-  const requestedPath = urlState?.path?.length
-    ? urlState.path
-    : (codedPath.length || !c.displayTree || c.displayTree === c.tree ? codedPath : pathFromCode(c.tree, pathCode));
+  const requestedPath = urlState?.path?.length ? urlState.path : decodeCodexPathCode(c, urlState?.pathCode);
   const nextPath = normalizeCodexRoutePath(c, requestedPath, urlState?.codex || c.id);
   state.activePath = state.favoritesView || (!state.allowR18g && isR18gPath(nextPath)) ? [] : nextPath;
   state.query = resolveQuery(urlState);
@@ -199,7 +194,12 @@ function renderCodexView(codex, seq, {
     saveBrowse: options.saveBrowse !== false,
   });
   if (urlState?.entry && options.autoOpenEntry !== false) {
-    window.setTimeout(() => openEntryDeepLink(urlState.entry), 180);
+    const entryId = urlState.entry;
+    window.setTimeout(() => {
+      // 页面到齐后的等待期间，用户可能已经换书、开另一张图或关闭详情。
+      if (seq !== codexLoadSeq || state.codex !== c || readUrlState().entry !== entryId) return;
+      openEntryDeepLink(entryId);
+    }, 180);
   }
   setLoading('');
   notifyCodexDataStatus(c);
@@ -543,6 +543,9 @@ function refreshAccessView({ revoked = false } = {}) {
     setLoading('');
   }
   if (!state.codex) return;
+  if (state.lightbox?.entry && $('#lightbox')?.classList.contains('is-artist')) {
+    renderArtistProfile(state.lightbox.entry);
+  }
   // 异步收藏/搜索重建之前也必须同步撤掉失权词条，不能等待新数据落地。
   renderTree();
   if (!state.favoritesView) renderCodexHeader();
@@ -727,7 +730,7 @@ export function exitSiteSearchView(options = {}) {
   const codexBtnText = $('#codexBtnText');
   if (codexBtnText) codexBtnText.textContent = codexPickerTitle(findCodexMeta(c.id)) || c.title;
   updateCodexPickerState();
-  state.activePath = normalizeRoutePath(c.tree, state.searchReturnPath);
+  state.activePath = normalizeCodexRoutePath(c, state.searchReturnPath);
   state.searchReturnPath = [];
   state.seenAnimated.clear();
   state.recentRandomIds = [];
@@ -748,12 +751,10 @@ export async function openRelatedDirectory(item, options = {}) {
   const path = Array.isArray(item?.path) ? item.path.map(part => String(part || '').trim()).filter(Boolean) : [];
   if (!codexId || !path.length) return;
   if (!writePreference(SEARCH_SCOPE_STORAGE_KEY, 'codex')) return;
-  state.query = '';
-  state.searchDraft = '';
-  state.searchFilters = [];
-  state.searchFilterValues = [];
-  state.searchIssues = [];
-  state.searchPlan = parseSearchQuery('');
+  // 来源目录不在画风展示树中；主动点选建议时，用现有精确目录筛选保留来源范围。
+  const sourceDirectory = codexId === STYLE_CODEX_ID && path[0] === SINGLE_ROOT && path.length > 1;
+  const filters = sourceDirectory ? [`dir:${codexId}:${encodePathCode(path)}`] : [];
+  compileSearchState('', filters);
   state.relatedDirectories = [];
   state.relatedDirectoryCount = 0;
   state.searchScope = 'codex';
@@ -761,7 +762,7 @@ export async function openRelatedDirectory(item, options = {}) {
   setOnlyFavControl(false);
   updateSearchScopeControl();
   await loadCodex(codexId, {
-    urlState: { codex: codexId, path, q: '', searchFilters: [], scope: 'codex' },
+    urlState: { codex: codexId, path: sourceDirectory ? [SINGLE_ROOT] : path, q: '', searchFilters: filters, scope: 'codex' },
     historyMode: options.historyMode || 'push',
     transition: 'route',
     consumeLayer: options.consumeLayer !== false,
@@ -934,7 +935,7 @@ export function applyFilter(options = {}) {
   const byActivePath = l => {
     const p = state.activePath;
     if (!p.length) return l;
-    if (singleSection) return selectStyleEntries(l, p);
+    if (singleSection) return selectStyleEntries(l, p, { deduplicate: false });
     return l.filter(e => p.every((seg, i) => e.path[i] === seg));
   };
   if (plan.hasActiveSearch) {
@@ -943,13 +944,20 @@ export function applyFilter(options = {}) {
   // 普通本书/收藏搜索沿用既有语义：搜索整本，而不是被搜索前浏览过的目录暗中收窄。
   // 只有全站搜索允许搜索词与当前来源目录并存；严格目录交集由 dir: 筛选承担。
   if (!state.favoritesView && state.activePath.length && (state.siteSearchView || !plan.hasActiveSearch)) list = byActivePath(list);
-  const updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
+  let updateFilter = codexUpdateFilters(state.codex).find(filter => filter.id === state.updateFilter);
+  // 往期筛选只在单画师浏览里关闭，进入目录或恢复旧链接时一并清掉。
+  if (singleSection && state.updateFilter && !updateFilter?.latest) {
+    state.updateFilter = '';
+    updateFilter = undefined;
+  }
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
   const styleBrowse = singleSection && styleLocation()?.level !== 'unsorted';
   // 先定当前夹/来源候选，再求屏蔽差量；其它夹子的隐藏项不能污染这里的空态。
   if (state.favoritesView) list = filterFavoritesScope(list);
-  const unblocked = list.filter(entry => !isContentBlocked(entry));
-  const blockedCount = list.length - unblocked.length;
+  const unblockedExamples = list.filter(entry => !isContentBlocked(entry));
+  const unblocked = singleSection ? selectStyleEntries(unblockedExamples) : unblockedExamples;
+  const countBeforeBlocking = singleSection ? selectStyleEntries(list).length : list.length;
+  const blockedCount = countBeforeBlocking - unblocked.length;
   const ordered = !state.favoritesView && !state.siteSearchView
     ? (styleBrowse ? sortStyleEntries(unblocked) : sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder))
     : unblocked;
@@ -1268,6 +1276,12 @@ async function openUpdateBatch({ codexId, batchId, consumeLayer = false }) {
     });
     return;
   }
+  // 从全站更新时间线点开往期批次时，和换书一样看全书的那批更新。
+  if (inSingleSection() && !hasActiveSearchState()
+    && codexUpdateFilters(state.codex).some(filter => filter.id === batchId && !filter.latest)) {
+    state.activePath = [];
+    renderTree();
+  }
   state.updateFilter = batchId;
   applyFilter({ resetScroll: true, transition: 'filter' });
   syncUrlState({ historyMode: 'push', transition: 'route', consumeLayer });
@@ -1285,8 +1299,11 @@ setCodexUiActions({
 });
 
 setBlockingUiActions({ refresh: () => {
-  if (state.lightbox?.entry && isContentBlocked(state.lightbox.entry)) {
+  const entry = state.lightbox?.entry;
+  if (entry && isContentBlocked(entry)) {
     closeLightbox({ historyMode: 'replace', immediate: true });
+  } else if (entry && $('#lightbox')?.classList.contains('is-artist')) {
+    renderArtistProfile(entry);
   }
   applyFilter({ transition: 'blocking' });
   if ($('#historyPanel') && !$('#historyPanel').hidden) renderHistoryPanel();
