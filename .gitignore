@@ -35,6 +35,9 @@ site/data/
 # tag 中文对照的来源表（人工 / AI 译名与社区词库缓存；本地维护，不进公开仓库）
 /tools/data/tag_zh/
 
+# 本地画师名单、作品预览缓存与人工挑选记录
+/tools/data/danbooru_picker/
+
 # Cloudflare R2 本地密钥配置
 r2_config.json
 .r2_sync_manifest.json

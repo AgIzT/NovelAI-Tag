@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D 站画师挑选</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="mast-inner">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">D</span><span>画师挑选</span></div>
+      <div class="export"><span id="pick-count">已选 0 位</span><button class="primary" id="export" disabled>导出名单</button></div>
+    </div>
+  </header>
+  <main>
+    <div class="intro">
+      <div><h1>看作品，挑画师</h1><p id="catalog-line">正在读取 Danbooru 画师名单…</p></div>
+    </div>
+    <div class="controls">
+      <nav aria-label="挑选状态" class="tabs">
+        <button type="button" data-view="browse" aria-pressed="true">浏览画师</button>
+        <button type="button" data-view="selected" aria-pressed="false">已选 <span id="selected-count">0</span></button>
+        <button type="button" data-view="skipped" aria-pressed="false">略过 <span id="skipped-count">0</span></button>
+      </nav>
+      <form id="filters">
+        <label class="search">画师标签<input type="search" id="search" placeholder="例如 mignon" autocomplete="off" spellcheck="false"></label>
+        <div class="range" role="group" aria-label="Post 数范围">
+          <label>最低 post<input type="number" id="min" min="0" value="30" inputmode="numeric" aria-label="最低 post"></label>
+          <span aria-hidden="true">–</span>
+          <label>最高 post<input type="number" id="max" min="0" value="499" inputmode="numeric" aria-label="最高 post"></label>
+        </div>
+        <label>画师排序<select id="sort"><option value="new">标签较新</option><option value="high">Post 从高到低</option><option value="low">Post 从低到高</option><option value="name">画师名 A–Z</option></select></label>
+        <label class="checkbox"><input type="checkbox" id="hide-generated" checked>隐藏 AgIzT 已跑</label>
+        <button type="button" class="quiet" id="reset">重置</button>
+      </form>
+    </div>
+    <div class="results-head">
+      <p id="results-count" aria-live="polite"></p>
+      <div class="pagination" aria-label="画师分页">
+        <button type="button" data-page="prev" aria-label="上一页">←</button>
+        <form class="jump" id="jump"><input id="page" type="number" min="1" value="1" inputmode="numeric" aria-label="当前页"><span id="total-pages">/ 1</span></form>
+        <button type="button" data-page="next" aria-label="下一页">→</button>
+      </div>
+    </div>
+    <section id="cards" class="cards" aria-label="画师作品"></section>
+    <div class="page-bottom" id="bottom-pages" hidden>
+      <button type="button" data-page="prev">← 上一页</button>
+      <span id="bottom-count"></span>
+      <button type="button" data-page="next">下一页 →</button>
+    </div>
+  </main>
+  <dialog id="gallery" aria-labelledby="gallery-title">
+    <header class="gallery-head">
+      <div><h2 id="gallery-title"></h2><p id="gallery-meta"></p></div>
+      <button type="button" id="gallery-close" aria-label="关闭作品详情">×</button>
+      <div class="gallery-actions">
+        <div class="tabs" aria-label="作品排序">
+          <button type="button" data-works="recent" aria-pressed="true">近期</button>
+          <button type="button" data-works="score" aria-pressed="false">高分</button>
+        </div>
+        <a id="gallery-link" target="_blank" rel="noreferrer">D 站全部作品 ↗</a>
+        <button type="button" id="gallery-select" class="pick"></button>
+      </div>
+    </header>
+    <div id="gallery-works" class="gallery-works"></div>
+    <div class="page-bottom" id="gallery-pages">
+      <button type="button" id="gallery-prev">← 上一页</button>
+      <span id="gallery-page"></span>
+      <button type="button" id="gallery-next">下一页 →</button>
+    </div>
+  </dialog>
+  <dialog id="viewer" aria-label="大图预览">
+    <div class="viewer-toolbar"><a id="viewer-link" target="_blank" rel="noreferrer">D 站原帖 ↗</a><button id="viewer-close" aria-label="关闭大图">×</button></div>
+    <img id="viewer-image" alt="">
+  </dialog>
+  <div id="notice" role="status" hidden></div>
+</body>
+</html>

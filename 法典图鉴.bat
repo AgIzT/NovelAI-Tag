@@ -28,6 +28,7 @@ goto input
 echo   更多工具
 echo      9. 投稿本地测试     10. 画风串编辑
 echo     11. 回归验证         17. 工程自检
+echo     18. 画师挑选
 echo.
 echo   数据维护
 echo     14. 生成中文对照     15. 补译中文对照 ^(付费^)
@@ -59,6 +60,7 @@ if "%c%"=="14" goto act_tagzh
 if "%c%"=="15" goto act_tagzh_ai
 if "%c%"=="16" goto act_default_tags
 if "%c%"=="17" goto act_project_checks
+if "%c%"=="18" goto act_artist_picker
 if "%c%"=="0" goto end
 goto menu
 
@@ -124,6 +126,10 @@ goto menu
 
 :act_project_checks
 call :run "工程自检.bat"
+goto menu
+
+:act_artist_picker
+call :window "danbooru-artist-picker" "画师挑选.bat"
 goto menu
 
 :act_migrate
