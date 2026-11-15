@@ -143,7 +143,7 @@ assert.equal(accessHiddenCount(), entries.length);
       sortCategoryEntries, rankSearchResults, pinFeatured: list => list, findRelatedDirectories: () => [],
       // 单画师按画风重排（原型）：普通法典视图不进单画师分支
       inSingleSection: () => false, selectStyleEntries: list => list, styleLocation: () => null,
-      sortStyleEntries: list => list,
+      sortStyleEntries: list => list, deduplicateStyleEntries: list => list, styleActive: () => false,
       renderSearchExperience() {}, updateResultBar() {}, syncFavoritesView() {}, renderFavoritesRail() {},
       renderFavoritesHeader() {}, refreshFavoriteBadges() {}, updateBlockingSummary() {},
       renderList() { rendered = model.list.map(entry => entry.id); },

@@ -97,6 +97,7 @@ class StyleContract(unittest.TestCase):
         mutations = [
             lambda d: d['artists'][1].update(e='one'),
             lambda d: d['artists'][0].update(s='two'),
+            lambda d: d['artists'][0].update(c='two'),
             lambda d: d['artists'][0].update(g=99),
             lambda d: d['parents'][0]['groups'].append(1),
             lambda d: d['groups'][0].update(size=4),
@@ -217,6 +218,94 @@ class SafePublication(unittest.TestCase):
             source.write_bytes(builder.json_bytes(book))
             with self.assertRaisesRegex(ValueError, 'different source book'):
                 builder.main(['--check', '--out', str(out), '--book', str(source)])
+
+
+class SpecimenOrder(unittest.TestCase):
+    def test_shared_source_priority_and_suffixes(self):
+        shared = json.loads((Path(__file__).resolve().parent / 'fixtures' / 'artist_specimen_order.json').read_text(encoding='utf-8'))
+        self.assertEqual(shared['canonicalOrder'], ['花枝鱼', 'AgIzT', '九七', '雨燕', 'MayRain', 'wwuumm'])
+        for source, rank in shared['sourceCases']:
+            with self.subTest(source=source):
+                self.assertEqual(builder.specimen_source_rank({'path': ['单画师词典', source]}), rank)
+
+    def test_reorder_changes_only_specimen_order_and_keeps_scored_sample(self):
+        book, data, near, _ = fixture()
+        data['artists'][0]['s'] = 'one'
+        original = copy.deepcopy(data)
+        updated = builder.reorder_specimens(data, book)
+        self.assertEqual(data, original, 'Reordering must not mutate its input')
+        self.assertEqual(updated['artists'][0]['e'], 'alias', 'Rain source precedes MayRain even when owner had MayRain')
+        self.assertEqual(updated['artists'][0]['x'], ['one'])
+        self.assertEqual(updated['artists'][0]['c'], 'one', 'The original canonical entry keeps the displayed name')
+        self.assertEqual(updated['artists'][0]['s'], 'one', 'Changing the cover must not change the evaluated image')
+        for old, new in zip(original['artists'], updated['artists']):
+            self.assertEqual({old['e'], *old.get('x', [])}, {new['e'], *new.get('x', [])})
+            self.assertEqual({k: v for k, v in old.items() if k not in ('e', 'x', 'c')},
+                             {k: v for k, v in new.items() if k not in ('e', 'x', 'c')})
+            canonical = old.get('c', old['e'])
+            if 'c' in old or new['e'] != canonical:
+                self.assertEqual(new['c'], canonical)
+            else:
+                self.assertNotIn('c', new)
+        for key in data:
+            if key != 'artists':
+                self.assertEqual(updated[key], data[key])
+        chunks, updated['nearRevision'] = builder.chunks_and_revision(updated, near)
+        self.assertNotEqual(updated['nearRevision'], original['nearRevision'])
+        builder.validate_style_data(updated, book, chunks)
+        self.assertEqual(builder.reorder_specimens(updated, book), updated, 'Reordering is idempotent')
+
+    def test_existing_canonical_entry_is_retained_and_must_belong_to_artist(self):
+        book, data, _, chunks = fixture()
+        data['artists'][0]['c'] = 'alias'
+        updated = builder.reorder_specimens(data, book)
+        self.assertEqual(updated['artists'][0]['c'], 'alias', 'Existing canonical entry is kept even if it becomes the cover')
+        self.assertEqual(builder.reorder_specimens(updated, book), updated)
+        for invalid in ('two', '', None):
+            data['artists'][0]['c'] = invalid
+            with self.subTest(c=invalid):
+                with self.assertRaisesRegex(ValueError, 'canonical'):
+                    builder.validate_style_data(data, book, chunks)
+
+    def test_same_source_order_is_stable_and_unknown_sources_follow_known(self):
+        book, data, _, _ = fixture()
+        for name, source in [('second', 'MayRain'), ('unknown', '未登记来源')]:
+            book['entries'].append({'id': builder.ID_PREFIX + name, 'path': ['单画师词典', source],
+                                    'image': name + '.jpg', 'rating': 'safe'})
+        data['artists'][0]['e'] = 'unknown'
+        data['artists'][0]['x'] = ['second', 'one', 'alias']
+        data['sourceFingerprint'] = builder.fingerprint_book(book)
+        updated = builder.reorder_specimens(data, book)
+        self.assertEqual([updated['artists'][0]['e'], *updated['artists'][0]['x']],
+                         ['alias', 'second', 'one', 'unknown'])
+
+    def test_cli_reorder_defaults_to_plan_and_reuses_neighbor_rows(self):
+        book, data, near, _ = fixture()
+        data['artists'][0]['s'] = 'one'
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / 'artist_styles.json'
+            builder.write_data(root, data, near)
+            source = base / 'book.json'
+            source.write_bytes(builder.json_bytes(book))
+            original_root = root.read_bytes()
+            original_shards = {p.relative_to(base): p.read_bytes() for p in base.rglob('*.json')}
+            args = ['--reorder-specimens', '--out', str(root), '--book', str(source)]
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(builder.main(args), 0)
+            self.assertEqual(root.read_bytes(), original_root)
+            self.assertEqual({p.relative_to(base): p.read_bytes() for p in base.rglob('*.json')}, original_shards)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(builder.main([*args, '--apply']), 0)
+            updated, after_near = builder.read_snapshot(root)
+            self.assertEqual(after_near, near)
+            self.assertEqual(updated['artists'][0]['e'], 'alias')
+            self.assertEqual(updated['artists'][0]['s'], data['artists'][0]['s'])
+            self.assertNotEqual(updated['nearRevision'], data['nearRevision'])
+            for path, contents in original_shards.items():
+                if path != root.relative_to(base):
+                    self.assertEqual((base / path).read_bytes(), contents, 'Existing immutable shards remain untouched')
+            builder.validate_style_data(updated, book, builder.chunks_and_revision(updated, near)[0])
 
 
 if __name__ == '__main__':

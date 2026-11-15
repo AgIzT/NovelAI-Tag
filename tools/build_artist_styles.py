@@ -4,9 +4,11 @@
 The default run only validates and prints a plan. Add --apply to write site/data.
 --snapshot accepts an existing reviewed root plus its versioned neighbor shards;
 --config rebuilds from local research/recognition caches, with no API requests.
+--reorder-specimens changes only the existing root's example/cover order.
 
 Examples:
   python tools/build_artist_styles.py --check
+  python tools/build_artist_styles.py --reorder-specimens --apply
   python tools/build_artist_styles.py --snapshot <reviewed-root.json>
   python tools/build_artist_styles.py --config <local-config.json> --apply
 
@@ -47,6 +49,7 @@ NEAR = 20
 NEAR_SHARD = 512
 SHOWCASE = 8
 REPS = 4
+SPECIMEN_SOURCE_ORDER = ('花枝鱼', 'AgIzT', '九七', '雨燕', 'MayRain', 'wwuumm')
 
 
 def norm_name(text):
@@ -226,7 +229,7 @@ def build_data(inputs):
     for i in chosen:
         components[renamed_to.get(i, i)].append(i)
 
-    # 同一人原规范名的行优先，避免移动既有大类／小组或更换已有的代表条目。
+    # 同一人原规范名的行优先，避免移动既有大类／小组。评分仍复用原选图顺序，展示首图稍后统一重排。
     owner_of = {}
     for target, group in components.items():
         owner = target if target in chosen else group[0]
@@ -313,7 +316,7 @@ def build_data(inputs):
     data = {'schema': 2, 'codexId': BOOK_ID, 'idPrefix': ID_PREFIX, 'nearShard': NEAR_SHARD,
             'rankModel': 'Kaloscope 3.0 Preview (web ONNX)',
             'parents': out_parents, 'groups': out_groups, 'artists': out_artists}
-    return data, near
+    return reorder_specimens(data, book), near
 
 
 def require(condition, message):
@@ -362,6 +365,7 @@ def validate_data(data, near, book):
         suffixes = [row.get('e'), *row.get('x', [])]
         require(all(isinstance(value, str) and value for value in suffixes), 'Invalid artist entry ID')
         require(len(set(suffixes)) == len(suffixes), 'Repeated specimen in artist')
+        require('c' not in row or row['c'] in suffixes, 'Invalid canonical artist entry')
         for suffix in suffixes:
             entry_id = ID_PREFIX + suffix
             require(entry_id not in used, 'A specimen belongs to multiple artists')
@@ -437,6 +441,40 @@ def fingerprint_book(book):
             for entry in book['entries'] if entry.get('path', [])[:1] == [SECTION]]
     rows.sort(key=lambda row: row[0])
     return hashlib.sha256(json_bytes(rows)).hexdigest()
+
+
+def specimen_source_rank(entry):
+    path = entry.get('path', [])
+    source = path[1] if isinstance(path, list) and len(path) > 1 else ''
+    if not isinstance(source, str):
+        return len(SPECIMEN_SOURCE_ORDER)
+    source = re.sub(r'\s*[（(]无原图[）)]\s*$', '', source.strip()).strip()
+    return SPECIMEN_SOURCE_ORDER.index(source) if source in SPECIMEN_SOURCE_ORDER else len(SPECIMEN_SOURCE_ORDER)
+
+
+def reorder_specimens(data, book):
+    """Return e/x in source order; keep canonical names, tied sources and scores.
+
+    The caller recomputes nearRevision with the unchanged neighbor rows before
+    writing, because the revision also binds the ordered representative IDs.
+    """
+    if data.get('schema') == 3:
+        validate_style_data(data, book)
+    else:
+        validate_data(data, None, book)
+    entries = {entry['id']: entry for entry in book['entries']}
+    updated = copy.deepcopy(data)
+    prefix = data['idPrefix']
+    for row in updated['artists']:
+        canonical = row.get('c', row['e'])
+        specimens = [row['e'], *row.get('x', [])]
+        specimens.sort(key=lambda suffix: specimen_source_rank(entries[prefix + suffix]))
+        row['e'] = specimens[0]
+        if len(specimens) > 1 or 'x' in row:
+            row['x'] = specimens[1:]
+        if 'c' in row or row['e'] != canonical:
+            row['c'] = canonical
+    return updated
 
 
 def validate_style_data(data, book, near_shards=None):
@@ -553,7 +591,8 @@ def main(argv=None):
     mode.add_argument('--config', type=Path, help='Local input-path JSON, relative paths resolve beside the config')
     mode.add_argument('--snapshot', type=Path, help='Previously reviewed root plus versioned neighbor directory')
     mode.add_argument('--check', action='store_true', help='Check existing release data; missing root is optional')
-    parser.add_argument('--book', type=Path, help='v5 source book for snapshot validation')
+    mode.add_argument('--reorder-specimens', action='store_true', help='Reorder examples/covers in the existing --out root')
+    parser.add_argument('--book', type=Path, help='v5 source book for snapshot/check/reorder validation')
     parser.add_argument('--names', type=Path, help='Reviewed naming overlay, overrides config names')
     parser.add_argument('--out', type=Path, default=DEFAULT_OUT)
     parser.add_argument('--apply', action='store_true', help='Write local data (default: validate/plan only)')
@@ -571,7 +610,19 @@ def main(argv=None):
         print(json.dumps({'result': 'PASS', 'artists': len(data['artists']), 'entries': len(used),
                           'nearShards': len(chunks), 'sourceFingerprint': data['sourceFingerprint']}))
         return 0
-    if args.snapshot:
+    original_root = None
+    before_artists = None
+    if args.reorder_specimens:
+        require(args.names is None, '--reorder-specimens cannot also rename categories')
+        book_path = args.book or DEFAULT_BOOK
+        original_book = book_path.read_bytes()
+        original_root = args.out.read_bytes()
+        data, near = read_snapshot(args.out)
+        validate_style_data(data, json.loads(original_book), chunks_and_revision(data, near)[0])
+        before_artists = data['artists']
+        data = reorder_specimens(data, json.loads(original_book))
+        names_path = None
+    elif args.snapshot:
         book_path = args.book or DEFAULT_BOOK
         original_book = book_path.read_bytes()
         data, near = read_snapshot(args.snapshot)
@@ -597,15 +648,21 @@ def main(argv=None):
     used = validate_style_data(data, book, chunks)
     def check_book():
         require(book_path.read_bytes() == original_book, 'Source book changed while building')
+        if original_root is not None:
+            require(args.out.read_bytes() == original_root, 'Artist-style root changed while reordering')
     check_book()
     if args.apply:
         data = write_data(args.out, data, near, check_inputs=check_book)
     else:
         data['nearRevision'] = revision
-    print(json.dumps({'applied': args.apply, 'artists': len(data['artists']), 'entries': len(used),
+    summary = {'applied': args.apply, 'artists': len(data['artists']), 'entries': len(used),
         'parents': len(data['parents']), 'groups': len(data['groups']), 'aliases': len(data.get('pathAliases', [])),
         'nearShards': len(chunks), 'nearRevision': revision, 'sha256': hashlib.sha256(json_bytes(data)).hexdigest(),
-        'out': str(args.out)}, ensure_ascii=True))
+        'out': str(args.out)}
+    if before_artists is not None:
+        summary['representativesChanged'] = sum(old['e'] != new['e'] for old, new in zip(before_artists, data['artists']))
+        summary['specimensReordered'] = sum(old != new for old, new in zip(before_artists, data['artists']))
+    print(json.dumps(summary, ensure_ascii=True))
     return 0
 
 

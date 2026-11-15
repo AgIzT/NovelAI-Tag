@@ -38,7 +38,11 @@ function entryThumb(entry) {
 }
 
 function repEntry(artist) {
-  return artist ? styleBookEntry(artist.entryId) : null;
+  return artist ? styleBookEntry(artist.canonicalEntryId) : null;
+}
+
+function previewEntry(artist) {
+  return specimensOf(artist).find(showable) || null;
 }
 
 function showable(entry) {
@@ -233,9 +237,9 @@ function weightOf(list) {
 
 function paintNear(box, indexes) {
   const items = indexes.map(artistByIndex).map(near => {
-    const rep = repEntry(near);
-    if (!showable(rep)) return '';
-    const name = artistNameOf(rep);
+    const rep = previewEntry(near);
+    if (!rep) return '';
+    const name = artistNameOf(repEntry(near)) || artistNameOf(rep);
     return tile({
       key: `near:${near.index}`, src: entryThumb(rep), caption: name,
       onOpen: () => openStyleExample(rep, 'push'),

@@ -14,6 +14,7 @@ import { fetchDataJson } from '../data-source.js';
 export const STYLE_CODEX_ID = 'artist_nai5_personal';
 export const SINGLE_ROOT = '单画师词典';
 export const UNSORTED = '未归类';
+export const SPECIMEN_SOURCE_ORDER = Object.freeze(['花枝鱼', 'AgIzT', '九七', '雨燕', 'MayRain', 'wwuumm']);
 const DATA_PATH = 'artist_styles.json';
 const NEAR_BASE = 'artist_styles_near';
 const REQUEST_TIMEOUT_MS = 6000;
@@ -60,6 +61,7 @@ function normalize(raw) {
   const ids = new Set();
   for (const a of raw.artists) {
     if (!a || !within(a.g, raw.groups) || !label(a.e) || (a.x !== undefined && !Array.isArray(a.x))) return null;
+    if (a.c !== undefined && ![a.e, ...(a.x || [])].includes(a.c)) return null;
     for (const id of [a.e, ...(a.x || [])]) {
       if (!label(id) || ids.has(id)) return null;
       ids.add(id);
@@ -72,6 +74,7 @@ function normalize(raw) {
     return {
       index,
       entryId: prefix + a.e,
+      canonicalEntryId: prefix + (a.c || a.e),
       otherIds: otherIds.map(id => prefix + id),
       post: Number.isFinite(a.p) ? a.p : null,
       rank: hasRank ? a.r : null,
@@ -159,11 +162,10 @@ export async function attachArtistStyles(codex) {
   }
   styleBook = codex;
   if (codex.styleTree) return true;
-  const byId = new Map();
+  const byId = new Map(codex.entries.map(entry => [entry.id, entry]));
   const counts = data.groups.map(() => 0);
   let unsorted = 0;
   for (const entry of codex.entries) {
-    byId.set(entry.id, entry);
     if (entry.path?.[0] !== SINGLE_ROOT) continue;
     const index = data.byEntry.get(entry.id);
     if (index == null) {
@@ -174,6 +176,7 @@ export async function attachArtistStyles(codex) {
     const artist = data.artists[index];
     entry.styleArtist = index;
     entry.styleRep = artist.entryId === entry.id;
+    entry.styleArtistTitle = byId.get(artist.canonicalEntryId)?.title || entry.title;
     entry.stylePath = groupPath(artist.group);
     if (entry.styleRep) counts[artist.group] += 1;
   }
@@ -290,10 +293,29 @@ export function parentOf(group) {
   return group ? styles.parents[group.parent] : null;
 }
 
-/* 这位画师在各来源的例图词条（代表那条在前） */
+/* 比较时忽略来源名末尾的无原图标记，展示仍保留原来源文字。 */
+export function specimenSourceRank(entry) {
+  const source = sourceOf(entry).trim().replace(/\s*[（(]无原图[)）]\s*$/, '').trim();
+  const index = SPECIMEN_SOURCE_ORDER.indexOf(source);
+  return index < 0 ? SPECIMEN_SOURCE_ORDER.length : index;
+}
+
+function specimenPosition(entry, artist) {
+  if (entry.id === artist.entryId) return 0;
+  const index = artist.otherIds.indexOf(entry.id);
+  return index < 0 ? artist.otherIds.length + 1 : index + 1;
+}
+
+function compareSpecimens(left, right, artist) {
+  return specimenSourceRank(left) - specimenSourceRank(right)
+    || specimenPosition(left, artist) - specimenPosition(right, artist);
+}
+
+/* 各来源例图按维护者指定顺序排列，同来源保持原 e/x 次序。 */
 export function specimensOf(artist) {
   if (!artist) return [];
-  return [artist.entryId, ...artist.otherIds].map(styleBookEntry).filter(Boolean);
+  return [artist.entryId, ...artist.otherIds].map(styleBookEntry).filter(Boolean)
+    .sort((left, right) => compareSpecimens(left, right, artist));
 }
 
 export function formatCount(value) {
@@ -308,8 +330,32 @@ export function specimenSource(entry) {
   return sourceOf(entry);
 }
 
-/* 单画师各层先圈定例图范围，筛完分级、批次和屏蔽后再每人选一张。
-   代表图不合格时用该画师其它合格例图。 */
+/* 在过滤后的真实词典结果中每位画师选一张；其它内容和未知身份保留原位置。
+   不删原词条，详情、收藏与具体图深链仍使用各自的原 ID。 */
+export function deduplicateStyleEntries(entries, codex = state.codex) {
+  if (!supportsArtistStyles(codex) || !styleActive(codex)) return entries;
+  const identity = entry => entry.path?.[0] === SINGLE_ROOT ? artistOf(entry) : null;
+  const picked = new Map();
+  for (const entry of entries) {
+    const artist = identity(entry);
+    if (!artist) continue;
+    const current = picked.get(artist.index);
+    if (!current || compareSpecimens(entry, current, artist) < 0) picked.set(artist.index, entry);
+  }
+  const seen = new Set();
+  const result = [];
+  for (const entry of entries) {
+    const artist = identity(entry);
+    if (!artist) result.push(entry);
+    else if (!seen.has(artist.index)) {
+      seen.add(artist.index);
+      result.push(picked.get(artist.index));
+    }
+  }
+  return result;
+}
+
+/* 单画师各层先筛分级、批次和屏蔽，再按来源优先级每人选一张；同来源按 e/x 稳定取图。 */
 export function selectStyleEntries(entries, path = state.activePath, { deduplicate = true } = {}) {
   const where = styleLocation(path);
   if (!where) return entries;
@@ -319,16 +365,10 @@ export function selectStyleEntries(entries, path = state.activePath, { deduplica
   const candidates = entries.filter(entry => {
     if (entry.path?.[0] !== SINGLE_ROOT) return false;
     const artist = Number.isInteger(entry.styleArtist) ? styles.artists[entry.styleArtist] : null;
-    return artist && inScope(artist);
+    return artist ? inScope(artist) : where.level === 'root' && entry.stylePath?.[1] === UNSORTED;
   });
   if (!deduplicate) return candidates;
-  const picked = new Map();
-  for (const entry of candidates) {
-    const artist = styles.artists[entry.styleArtist];
-    const current = picked.get(artist.index);
-    if (!current || (entry.styleRep && !current.styleRep)) picked.set(artist.index, entry);
-  }
-  return [...picked.values()];
+  return deduplicateStyleEntries(candidates);
 }
 
 /* 卡片底行写 post 的场合：单画师各层（未归类除外），且不在搜索——本书搜索照旧搜整本、底行照旧写路径 */
@@ -365,10 +405,25 @@ export function stylePathText(entry) {
   return `${SINGLE_ROOT} › ${groupOf(artist).name}${source ? ` · ${source}` : ''}`;
 }
 
-/* 单画师各层按 post 多到少排，post 未知的垫底 */
-export function sortStyleEntries(list) {
-  const post = entry => artistOf(entry)?.post ?? -1;
-  return [...list].sort((a, b) => post(b) - post(a));
+/* 跟随展示目录连续排列；只有同一画风小组内按 post 排，未知 post 垫底。
+   排序使用所有例图的展示路径，不能用只给代表图计数的 treePathOf。 */
+export function sortStyleEntries(list, codex = state.codex) {
+  if (!styleActive(codex)) return list;
+  const ranks = new Map();
+  const walk = (nodes, prefix = []) => {
+    for (const node of nodes || []) {
+      const path = [...prefix, node.name];
+      ranks.set(JSON.stringify(path), ranks.size);
+      walk(node.children, path);
+    }
+  };
+  walk(codex.displayTree || codex.styleTree);
+  return list.map((entry, index) => {
+    const path = entry.path?.[0] === SINGLE_ROOT && entry.stylePath ? entry.stylePath : entry.path || [];
+    return { entry, index, rank: ranks.get(JSON.stringify(path)) ?? Infinity, artist: artistOf(entry) };
+  }).sort((a, b) => (a.rank - b.rank)
+    || (a.artist && b.artist ? (b.artist.post ?? -1) - (a.artist.post ?? -1) : 0)
+    || a.index - b.index).map(item => item.entry);
 }
 
 /* 画风接近的画师（下标），按需取所在分片 */

@@ -10,7 +10,7 @@ import { isFav } from './favorites.js';
 import { updateReadingSpy } from './codex-ui.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { isFeaturedEntry } from './featured.js';
-import { styleCardLine, stylePathText } from './artist-style.js';
+import { styleActive, styleCardLine, stylePathText, supportsArtistStyles } from './artist-style.js';
 
 const masonryActions = {
   openLightbox: () => {},
@@ -358,6 +358,12 @@ export function estimateImageHeight(e, width) {
    ⚠ 返回的是共享对象，调用方只读不改；本地编辑改词条后要调 invalidateBodyMetrics。 */
 const bodyMetricsCache = new WeakMap();
 
+function cardTitleOf(entry) {
+  const artistTitle = !state.favoritesView && !state.siteSearchView
+    && supportsArtistStyles(state.codex) && styleActive(state.codex) && entry.styleArtistTitle;
+  return artistTitle || entry.title;
+}
+
 export function invalidateBodyMetrics(e) {
   return e && typeof e === 'object' ? bodyMetricsCache.delete(e) : false;
 }
@@ -365,11 +371,12 @@ export function invalidateBodyMetrics(e) {
 export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cfg = densityConfig();
+  const title = cardTitleOf(e);
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.sdMode === state.sdMode) return cached.value;
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.sdMode === state.sdMode && cached.title === title) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleWidth = cfg.mobile ? Math.max(1, width - 2 - cfg.bodyPadX * 2 - (cfg.titleActionWidth || 26)) : contentWidth;
-  const titleLines = clamp(Math.ceil(textUnits(e.title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
+  const titleLines = clamp(Math.ceil(textUnits(title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
   const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
   const titleHeight = Math.max(cfg.mobile ? (cfg.titleMinHeight || 20) : 0, titleLines * cfg.titleLineHeight);
   const tagsHeight = cfg.hideImageTags && hasEntryImage(e) ? 0
@@ -381,7 +388,7 @@ export function estimateBodyMetrics(e, width) {
     height: Math.ceil(cfg.bodyPadTop + titleHeight + titleGap + tagsHeight + footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, sdMode: state.sdMode, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, sdMode: state.sdMode, title, value });
   return value;
 }
 
@@ -563,12 +570,13 @@ export function updateVirtualCards(force = false) {
 
 export function makeCard(placement) {
   const e = placement.entry;
+  const title = cardTitleOf(e);
   const node = $('#cardTpl').content.firstElementChild.cloneNode(true);
   node.dataset.index = String(placement.index);
   updateCardPosition(node, placement);
 
   const highlightTerms = currentHighlightTerms();
-  renderHighlightedText(node.querySelector('.card-title'), e.title, highlightTerms);
+  renderHighlightedText(node.querySelector('.card-title'), title, highlightTerms);
   renderHighlightedText(node.querySelector('.card-tags'), entryPromptText(e), currentPromptHighlightTerms());
   // 单画师各层（原型）的底行写 post 与辨识度；其它视图里单画师卡的路径改成和侧栏一致的画风路径
   node.querySelector('.card-path').textContent = styleCardLine(e) || stylePathText(e) || e.path.join(' › ');
@@ -671,7 +679,7 @@ export function makeCard(placement) {
   };
   const detailBtn = node.querySelector('.card-detail-btn');
   if (detailBtn) {
-    detailBtn.setAttribute('aria-label', `查看详情：${e.title}`);
+    detailBtn.setAttribute('aria-label', `查看详情：${title}`);
     detailBtn.onclick = ev => {
       ev.stopPropagation();
       openDetail();
@@ -1079,7 +1087,7 @@ export function setupImage(node, placement) {
 
   wrap.hidden = false;
   wrap.style.height = `${placement.imageHeight}px`;
-  img.alt = e.title;
+  img.alt = cardTitleOf(e);
 
   const markLoading = () => {
     wrap.classList.add('is-loading');

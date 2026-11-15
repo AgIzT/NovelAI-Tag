@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { todayFeatured, isFeaturedEntry, pinFeatured, featuredArtistName } from '../site/assets/app/featured.js';
 import { codexUpdateFilters, entryMatchesUpdateFilter } from '../site/assets/app/data.js';
 import { decodeCodexPathCode, normalizeCodexRoutePath } from '../site/assets/app/codex-route-compat.js';
 import { encodePathCode } from '../site/assets/app/path-code.js';
@@ -29,7 +30,7 @@ const data = {
     { name: '乙一', desc: '', tags: [], parent: 1, size: 1, reps: [3], famous: [] },
   ],
   artists: [
-    { e: 'baolong_1', p: 500, r: 1, s: 'baolong_1', g: 0, o: 1, x: ['huazhiyu_9'] },
+    { e: 'baolong_1', p: 500, r: 1, s: 'baolong_1', g: 0, o: 1, x: ['huazhiyu_9', 'huazhiyu_10'] },
     { e: 'baolong_2', p: 2000, r: 7, t: 'someone', g: 0, o: 0 },
     { e: 'baolong_3', p: null, r: null, g: 1, o: 0 },
     { e: 'baolong_4', p: 90, r: 40, g: 2, o: 0 },
@@ -56,6 +57,7 @@ const entries = [
   entry('baolong_4', ['单画师词典', 'MayRain', '例图']),
   entry('jiuqi_77', ['单画师词典', '九七', '参考'], 'artist:a, artist:b'),
   entry('wof_1', ['画风组词典', 'W.O.F'], '0.6::artist:baolong_1::, artist:baolong_2'),
+  entry('huazhiyu_10', ['单画师词典', '花枝鱼（无原图）', '其它图'], 'artist:baolong 1'),
 ];
 const tree = [
   { name: '单画师词典', count: 6, children: [{ name: '花枝鱼', count: 1, children: [] }, { name: 'MayRain', count: 4, children: [] }, { name: '九七', count: 1, children: [] }] },
@@ -139,12 +141,37 @@ assert.equal(style.styleLocation(['单画师词典', '未归类']).level, 'unsor
 assert.equal(style.styleLocation(['单画师词典', '甲类', '甲一']).group.name, '甲一');
 assert.equal(style.styleLocation(['单画师词典', '甲类']).level, 'parent');
 const ids = list => list.map(item => item.id.replace('artist_nai5_personal_', ''));
-assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典'])), ['baolong_1', 'baolong_2', 'baolong_3', 'baolong_4'], '首页范围：每位画师一张代表卡');
-assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '甲类'])), ['baolong_1', 'baolong_2', 'baolong_3']);
-assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '甲类', '甲一'])), ['baolong_1', 'baolong_2']);
+assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典'])), ['huazhiyu_9', 'baolong_2', 'baolong_3', 'baolong_4', 'jiuqi_77'], '首页每位画师一张，并保留尚未归类的原条目');
+assert.deepEqual(ids(style.deduplicateStyleEntries(entries)),
+  ['huazhiyu_9', 'baolong_2', 'baolong_3', 'baolong_4', 'jiuqi_77', 'wof_1'],
+  '整本选卡只合并已知单画师，画风串与未归类原样保留');
+assert.deepEqual(ids(style.deduplicateStyleEntries([entries[2], entries[1], entries[5], entries[6]])),
+  ['baolong_2', 'baolong_1', 'jiuqi_77', 'wof_1'], '只从本次筛选保留的候选里选择，不能补回未命中的首选图');
+assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '甲类'])), ['huazhiyu_9', 'baolong_2', 'baolong_3']);
+assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '甲类', '甲一'])), ['huazhiyu_9', 'baolong_2']);
 assert.deepEqual(ids(style.selectStyleEntries(entries, ['单画师词典', '未归类'])), ['jiuqi_77']);
 assert.deepEqual(ids(style.selectStyleEntries(entries.filter(item => !item.id.endsWith('baolong_1')), ['单画师词典', '甲类', '甲一'])),
   ['huazhiyu_9', 'baolong_2'], '代表那条被分级挡住时改用这位画师别的例图，画师不消失');
+const sourceOrder = JSON.parse(await readFile(new URL('./fixtures/artist_specimen_order.json', import.meta.url), 'utf8'));
+assert.deepEqual([...style.SPECIMEN_SOURCE_ORDER], sourceOrder.canonicalOrder, '前端与生成器共用同一来源顺序夹具');
+for (const [source, rank] of sourceOrder.sourceCases) {
+  assert.equal(style.specimenSourceRank({ path: ['单画师词典', source] }), rank, `来源归一：${source}`);
+}
+const priorityCandidates = [...sourceOrder.canonicalOrder, '未知来源'].map((source, index) => ({
+  ...entries[1], id: `artist_nai5_personal_priority_${index}`, path: ['单画师词典', source], styleRep: source === 'MayRain',
+}));
+for (let first = 0; first < priorityCandidates.length; first += 1) {
+  const eligible = priorityCandidates.slice(first).reverse();
+  assert.equal(style.selectStyleEntries(eligible, ['单画师词典'])[0].id, priorityCandidates[first].id,
+    '优先来源受限后，只在调用者保留的合格例图中依次回退');
+}
+assert.deepEqual(ids(style.selectStyleEntries([entries[7], entries[0]], ['单画师词典'])), ['huazhiyu_9'],
+  '同来源平局按原 e/x 次序，不跟随候选输入次序');
+assert.deepEqual(ids(style.selectStyleEntries([{ ...entries[0], path: entries[1].path }, entries[1]], ['单画师词典'])), ['baolong_1'],
+  '仅在同来源平局时，原代表图排在其它例图前');
+assert.deepEqual(style.selectStyleEntries(priorityCandidates, ['单画师词典'], { deduplicate: false }), priorityCandidates,
+  '去重之前不丢例图，访问与屏蔽筛选仍可先执行');
+assert.equal(entries[0].styleArtistTitle, entries[1].title, '高优先级来源出卡也沿用规范身份的标题');
 state.siteSearchView = true;
 assert.equal(style.inSingleSection(), false, '全站搜索不进单画师各层');
 state.siteSearchView = false;
@@ -166,11 +193,52 @@ assert.deepEqual(style.landingPathOf(entries[0], codex), ['单画师词典', '�
 assert.deepEqual(style.landingPathOf(entries[6], codex), entries[6].path);
 assert.equal(style.artistOf({ id: 'artist_nai5_personal_baolong_2', path: ['收藏'] })?.index, 1, '拷贝按 ID 认画师');
 assert.equal(style.artistOf({ id: 'suozhang_001', path: [] }), null);
-assert.deepEqual(ids(style.specimensOf(style.artistByIndex(0))), ['baolong_1', 'huazhiyu_9'], '代表那条在前');
+assert.deepEqual(ids(style.specimensOf(style.artistByIndex(0))), ['huazhiyu_9', 'huazhiyu_10', 'baolong_1'], '例图列表按来源优先级，同来源保持原 e/x 顺序');
 
-// 排序
+// 浏览列表先跟随展示目录，只有同一个画风小组内部按 post 排。
 const reps = entries.slice(1, 5);
-assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3'], '按 post 多到少，未知垫底');
+assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_2', 'baolong_1', 'baolong_3', 'baolong_4'],
+  '跨组不拿 post 比较：甲二的未知 post 仍在乙一前面');
+const savedPost = style.artistByIndex(2).post;
+style.artistByIndex(2).post = 3000;
+assert.deepEqual(ids(style.sortStyleEntries(reps.slice(0, 3))), ['baolong_2', 'baolong_1', 'baolong_3'],
+  '大类内也先按小组顺序，不能把后一小组的高 post 插到前面');
+style.artistByIndex(2).post = savedPost;
+assert.deepEqual(ids(style.sortStyleEntries([entries[1], entries[2]])), ['baolong_2', 'baolong_1'],
+  '单小组仍按 post 降序');
+const allInput = [...entries].reverse();
+assert.deepEqual(ids(style.sortStyleEntries(allInput)),
+  ['baolong_2', 'huazhiyu_10', 'baolong_1', 'huazhiyu_9', 'baolong_3', 'baolong_4', 'jiuqi_77', 'wof_1'],
+  '整书全部按展示路径连续排列，保留同人多来源卡片及未归类/画风串');
+assert.deepEqual(allInput, [...entries].reverse(), '排序不能改输入数组');
+const reverseParents = { ...codex, displayTree: [{ ...codex.styleTree[0], children: [
+  codex.styleTree[0].children[1], codex.styleTree[0].children[0], codex.styleTree[0].children[2],
+] }, codex.styleTree[1]] };
+assert.deepEqual(ids(style.sortStyleEntries(reps, reverseParents)), ['baolong_4', 'baolong_2', 'baolong_1', 'baolong_3'],
+  '使用实际展示树的目录次序，不写死画师数据的组下标');
+editMode = true;
+assert.deepEqual(style.sortStyleEntries(allInput), allInput, '编辑模式不套展示目录排序');
+editMode = false;
+
+// 今日画师抽到的原来源可能不是本次一人一卡选中的来源，仍只置顶这个人已选的卡。
+const featuredBook = { ...codex, entries: entries.map((entry, index) => index === 1
+  ? { ...entry, rating: 'safe', image: 'featured.jpg', imageWidth: 100, imageHeight: 200 }
+  : { ...entry }) };
+const rawFeatured = todayFeatured(featuredBook);
+assert.equal(rawFeatured.id, entries[1].id, '夹具只给原 MayRain 来源一个合格候选');
+const chosenFeatured = featuredBook.entries[0];
+const otherArtist = featuredBook.entries[2];
+const featureInput = [otherArtist, chosenFeatured, featuredBook.entries[6]];
+assert.equal(isFeaturedEntry(chosenFeatured, featuredBook), true, '今日标记跟同一画师，而非只认原图 ID');
+assert.equal(isFeaturedEntry(otherArtist, featuredBook), false);
+assert.deepEqual(pinFeatured(featureInput, featuredBook), [chosenFeatured, otherArtist, featuredBook.entries[6]],
+  '只移动已存在已选的卡，不把原来源补成第二张卡');
+assert.equal(featuredArtistName(chosenFeatured), 'baolong_1', '开场使用 c 对应的规范画师名');
+assert.deepEqual(featureInput, [otherArtist, chosenFeatured, featuredBook.entries[6]], '置顶不改原列表');
+assert.deepEqual(pinFeatured([otherArtist], featuredBook), [otherArtist], '该人没有可见卡时不换人、不补卡');
+editMode = true;
+assert.equal(isFeaturedEntry(chosenFeatured, featuredBook), false, '编辑模式仍按真实来源词条识别今日卡');
+editMode = false;
 
 assert.equal(style.artistOf(entries[0]), style.artistOf(entries[1]), '旧名例图和代表图属于同一位画师');
 assert.deepEqual([style.artistOf(entries[0]).rank, style.artistOf(entries[0]).rankSampleId], [1, entries[1].id], '标明用于评估的 v5 封面');
@@ -194,6 +262,7 @@ const end = source.indexOf('\n/* 取消、撤销', start);
 assert.ok(start >= 0 && end > start);
 const body = source.slice(start, end).replace('export function', 'function');
 const blockedIds = new Set();
+let featuredPinCalls = 0;
 const deps = {
   state, compileSearchState: () => parseSearchQuery(state.query),
   cancelSiteSearchObservation() {}, isCodexLocked: () => false, isEntryAccessBlocked: () => false,
@@ -201,7 +270,10 @@ const deps = {
   virtualView: () => false,
   matchSearchPlan: () => true, codexUpdateFilters, entryMatchesUpdateFilter,
   ...style, isContentBlocked: entry => blockedIds.has(entry.id), sortCategoryEntries: list => list,
-  rankSearchResults, pinFeatured: list => list, findRelatedDirectories: () => [],
+  rankSearchResults, pinFeatured: list => {
+    featuredPinCalls += 1;
+    return [entries[4], ...list.filter(entry => entry !== entries[4])];
+  }, findRelatedDirectories: () => [],
   renderSearchExperience() {}, updateResultBar() {}, renderList() {}, updateBlockingSummary() {},
 };
 const applyFilter = new Function(...Object.keys(deps), body + '\nreturn applyFilter;')(...Object.values(deps));
@@ -213,9 +285,16 @@ function runUpdateFilter(path, updateFilter, query = '') {
   return [state.updateFilter, ids(state.list)];
 }
 
-assert.deepEqual(runUpdateFilter(['单画师词典'], '2026.10.7'), ['', ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3']]);
-assert.deepEqual(runUpdateFilter(['单画师词典', '甲类'], '2026.10.7'), ['', ['baolong_2', 'baolong_1', 'baolong_3']]);
-assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], '2026.10.7'), ['', ['baolong_2', 'baolong_1']]);
+assert.deepEqual(runUpdateFilter([], ''), ['',
+  ['baolong_4', 'baolong_2', 'huazhiyu_9', 'baolong_3', 'jiuqi_77', 'wof_1']],
+  '全部页每位画师一张，独立今日首卡不重复，画风串和未知条目保留');
+assert.equal(featuredPinCalls, 1, '保留原今日画师置顶入口，不将它作为普通目录分组的一部分');
+assert.deepEqual(runUpdateFilter(['单画师词典'], '', 'needle'), ['',
+  ['huazhiyu_9', 'baolong_2', 'baolong_3', 'baolong_4', 'jiuqi_77', 'wof_1']],
+  '本书搜索也一人一卡，但保留搜索排序和匹配到的非单画师内容');
+assert.deepEqual(runUpdateFilter(['单画师词典'], '2026.10.7'), ['', ['baolong_2', 'huazhiyu_9', 'baolong_3', 'baolong_4', 'jiuqi_77']]);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类'], '2026.10.7'), ['', ['baolong_2', 'huazhiyu_9', 'baolong_3']]);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], '2026.10.7'), ['', ['baolong_2', 'huazhiyu_9']]);
 assert.deepEqual(runUpdateFilter(['单画师词典', '未归类'], '2026.10.7'), ['', ['jiuqi_77']]);
 assert.deepEqual(runUpdateFilter(['单画师词典', '甲类'], '2026.10.24'), ['2026.10.24', ['baolong_2']]);
 assert.deepEqual(runUpdateFilter([], '2026.10.7'), ['2026.10.7', ['baolong_3', 'wof_1']]);
@@ -231,6 +310,27 @@ assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], ''), [
 blockedIds.clear();
 entries[0].isNew = true;
 assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], '2026.10.24'), ['2026.10.24', ['baolong_2', 'huazhiyu_9']]);
+blockedIds.add(entries[0].id);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], ''), ['', ['baolong_2', 'huazhiyu_10']], '首选来源被屏蔽时，同来源下一条可用图优先');
+blockedIds.add(entries[7].id);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], ''), ['', ['baolong_2', 'baolong_1']], '同来源全部屏蔽后再用后续来源');
+blockedIds.add(entries[1].id);
+assert.deepEqual(runUpdateFilter(['单画师词典', '甲类', '甲一'], ''), ['', ['baolong_2']], '全部来源屏蔽后才移除画师');
+blockedIds.clear();
+
+// 正式根更换代表图后，可选 c 仍指向原规范身份；评分样图不随首图改变。
+const reordered = structuredClone(data);
+Object.assign(reordered.artists[0], { e: 'huazhiyu_9', c: 'baolong_1', x: ['huazhiyu_10', 'baolong_1'] });
+globalThis.fetch = async () => ({ ok: true, json: async () => reordered });
+const reorderedStyle = await import('../site/assets/app/artist-style.js?reordered-canonical');
+const reorderedBook = { id: codex.id, tree, entries: entries.map(item => ({ ...item })) };
+assert.equal(await reorderedStyle.attachArtistStyles(reorderedBook), true);
+const reorderedArtist = reorderedStyle.artistByIndex(0);
+assert.equal(reorderedArtist.entryId, entries[0].id);
+assert.equal(reorderedArtist.canonicalEntryId, entries[1].id, '规范标题来源独立于首选例图');
+assert.deepEqual([reorderedArtist.rank, reorderedArtist.rankSampleId], [1, entries[1].id], '评估图和名次保持原 MayRain 口径');
+assert.equal(reorderedBook.entries[0].styleArtistTitle, entries[1].title);
+assert.equal(reorderedBook.entries[0].title, entries[0].title, '不修改原来源词条的标题');
 
 // 无词典绑定的旧原型不能作为正式数据；缺少分片版本也拒绝使用。
 globalThis.fetch = async () => ({ ok: true, json: async () => ({ ...data, schema: 1 }) });
@@ -239,5 +339,43 @@ assert.equal(await legacyStyle.loadArtistStyles(), null);
 globalThis.fetch = async () => ({ ok: true, json: async () => ({ ...data, nearRevision: '' }) });
 const invalidStyle = await import('../site/assets/app/artist-style.js?invalid-revision');
 assert.equal(await invalidStyle.loadArtistStyles(), null);
+
+// 独立置顶的今日画师不应把目录提前滚到它原来的画风组。
+const codexUiSource = await readFile(new URL('../site/assets/app/codex-ui.js', import.meta.url), 'utf8');
+const spyStart = codexUiSource.indexOf('export function updateReadingSpy()');
+const spyEnd = codexUiSource.indexOf('\n/* 法典选择器的收起入口', spyStart);
+assert.ok(spyStart >= 0 && spyEnd > spyStart);
+const readingSpyBody = codexUiSource.slice(spyStart, spyEnd).replace('export function', 'function');
+const spy = { hidden: false };
+let spyResets = 0;
+const spyDeps = {
+  state: { codex, placements: [{ entry: entries[4], top: 0, height: 500 }], activePath: [],
+    updateFilter: '', favoritesView: false, siteSearchView: false, searchPlan: { hasActiveSearch: false } },
+  $: selector => selector === '#tree' ? {
+    querySelector(selector) {
+      assert.equal(selector, '.tree-spy', '独立今日卡不能先定位到它原来所属的目录行');
+      return spy;
+    },
+  } : { getBoundingClientRect: () => ({ top: 0 }) },
+  window: { scrollY: 0, innerHeight: 900 }, treeBranchAnimations: { size: 0 },
+  spyLastIndex: 0, spyLastPathKey: '', spyLastRowKey: '', spyPointerIn: false,
+  styleActive: () => true, isFeaturedEntry: entry => entry === entries[4], hasActiveSearch: () => false,
+  resetTreeSpy: () => { spyResets += 1; }, CSS: { escape: text => text },
+};
+new Function(...Object.keys(spyDeps), readingSpyBody + '\nupdateReadingSpy();')(...Object.values(spyDeps));
+assert.equal(spy.hidden, true);
+assert.equal(spyResets, 1, '离开独立今日卡后，从普通目录重新定位');
+let searchRowQueries = 0;
+spyDeps.hasActiveSearch = () => true;
+spyDeps.$ = selector => selector === '#tree' ? {
+  querySelector(selector) {
+    if (selector === '.tree-spy') return spy;
+    searchRowQueries += 1;
+    return null;
+  },
+} : { getBoundingClientRect: () => ({ top: 0 }) };
+new Function(...Object.keys(spyDeps), readingSpyBody + '\nupdateReadingSpy();')(...Object.values(spyDeps));
+assert.equal(spyResets, 1, '有搜索词或筛选时不套独立今日卡的阅读例外');
+assert.ok(searchRowQueries > 0, '搜索仍按结果的实际目录定位');
 
 console.log('artist style: PASS');

@@ -5,6 +5,7 @@
    决策见本地私有文档 docs/decisions/今日画师.md。 */
 
 import { BIRTHDAY_PREVIEW_PARAM, isBirthday } from './birthday.js';
+import { artistOf, artistNameOf, styleActive, styleBookEntry } from './artist-style.js';
 
 export const FEATURED_CODEX_ID = 'artist_nai5_personal';
 
@@ -40,22 +41,30 @@ export function todayFeatured(codex) {
 }
 
 export function isFeaturedEntry(entry, codex) {
-  return Boolean(entry) && entry === todayFeatured(codex);
+  const featured = todayFeatured(codex);
+  if (!entry || !featured) return false;
+  if (entry === featured) return true;
+  const artist = styleActive(codex) ? artistOf(featured) : null;
+  return Boolean(artist && artistOf(entry) === artist);
 }
 
 /** 把今日画师挪到第 0 位的新数组；不在列表里（被屏蔽、被筛掉）就原样返回。 */
 export function pinFeatured(list, codex) {
   const entry = todayFeatured(codex);
-  const index = entry ? list.indexOf(entry) : -1;
+  const artist = entry && styleActive(codex) ? artistOf(entry) : null;
+  const index = entry ? list.findIndex(item => item === entry || (artist && artistOf(item) === artist)) : -1;
   if (index <= 0) return list;
   const pinned = list.slice();
-  pinned.splice(index, 1);
-  pinned.unshift(entry);
+  const [selected] = pinned.splice(index, 1);
+  pinned.unshift(selected);
   return pinned;
 }
 
 /** 「artist:xxx」里的名字部分，开场名字行用 */
 export function featuredArtistName(entry) {
+  const artist = styleActive() ? artistOf(entry) : null;
+  const canonical = artist && styleBookEntry(artist.canonicalEntryId);
+  if (canonical) return artistNameOf(canonical);
   return String(entry?.tags || '').split(',')[0].trim().replace(/^artist:/, '');
 }
 

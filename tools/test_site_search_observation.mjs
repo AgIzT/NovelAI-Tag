@@ -124,7 +124,7 @@ function filterDependencies(state, plan, analytics) {
     rankSearchResults: value => value, pinFeatured: value => value, findRelatedDirectories: () => [],
     // 单画师按画风重排（原型）：普通法典视图不进单画师分支
     inSingleSection: () => false, selectStyleEntries: list => list, styleLocation: () => null,
-    sortStyleEntries: list => list,
+    sortStyleEntries: list => list, deduplicateStyleEntries: list => list, styleActive: () => false,
     renderSearchExperience() {}, updateResultBar() {}, syncFavoritesView() {}, renderFavoritesRail() {},
     renderFavoritesHeader() {}, refreshFavoriteBadges() {}, renderList() {}, updateBlockingSummary() {},
   };

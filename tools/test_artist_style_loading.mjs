@@ -39,6 +39,7 @@ try {
     ['bad parent', data => { data.groups[0].parent = 99; }],
     ['bad artist group', data => { data.artists[0].g = 99; }],
     ['duplicate identity', data => { data.artists.push({ ...data.artists[0] }); }],
+    ['unrelated canonical identity', data => { data.artists[0].c = 'not-owned'; }],
     ['bad tags', data => { data.groups[0].tags = '平涂'; }],
     ['bad description', data => { data.parents[0].desc = {}; }],
     ['wrong source', data => { data.sourceFingerprint = '0'.repeat(64); }],
@@ -85,4 +86,4 @@ try {
 } finally {
   console.warn = originalWarn;
 }
-console.log('artist style loading: PASS (10 cases)');
+console.log('artist style loading: PASS (11 cases)');

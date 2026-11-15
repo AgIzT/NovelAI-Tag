@@ -9,7 +9,8 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
-import { inSingleSection, styleTreeSkeleton, styleActive, treePathOf } from './artist-style.js';
+import { artistOf, deduplicateStyleEntries, inSingleSection, styleTreeSkeleton, styleActive, supportsArtistStyles, treePathOf } from './artist-style.js';
+import { isFeaturedEntry } from './featured.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
 import { watchWishVisibility, sendWish, wishTotal, wishPageFull, formatWishes } from './birthday-wishes.js';
@@ -1057,7 +1058,8 @@ export function syncCodexPickerCounts(codex = state.codex) {
 }
 
 export function visibleEntryCount() {
-  return Math.max(0, Number(state.codex?.entryCount || 0) - accessHiddenCount());
+  const snapshot = accessViewSnapshot();
+  return snapshot.visibleCount ?? Math.max(0, Number(state.codex?.entryCount || 0) - snapshot.hiddenCount);
 }
 
 /* ---------------- ??? ---------------- */
@@ -1225,6 +1227,15 @@ export function updateReadingSpy() {
   if (below(P[i])) { while (i > 0 && below(P[i - 1])) i--; }
   else { while (i < P.length - 1 && !below(P[i])) i++; }
   spyLastIndex = i;
+  // 今日画师是「全部」页的独立首卡，不代表已读到它原来所属的小组。
+  // 过了这张卡再按正常目录跟随，避免开头先把侧栏拉到远处再拉回来。
+  if (i === 0 && styleActive() && !state.activePath.length && !state.updateFilter
+    && !state.favoritesView && !state.siteSearchView && !hasActiveSearch()
+    && isFeaturedEntry(P[i].entry, state.codex)) {
+    if (spy) spy.hidden = true;
+    resetTreeSpy();
+    return;
+  }
   // 按画风展示时，卡片对到画风目录行（来源目录已不在侧栏里）
   const path = (styleActive() && P[i].entry.stylePath) || P[i].entry.path || [];
   const pathKey = path.join('\u0001');
@@ -1292,7 +1303,8 @@ function accessViewSnapshot() {
   const allowNsfw = state.allowNsfw;
   const allowR18g = state.allowR18g;
   // 按画风展示与否会随数据挂上、本地编辑模式开关而变，entries 引用不变，记忆键要带上它
-  const styleStamp = styleActive(state.codex);
+  const styleStamp = !state.favoritesView && !state.siteSearchView
+    && supportsArtistStyles(state.codex) && styleActive(state.codex);
   if (
     accessViewMemo?.styleStamp === styleStamp &&
     accessViewMemo?.entries === entries &&
@@ -1303,6 +1315,7 @@ function accessViewSnapshot() {
     accessViewMemo.allowR18g === allowR18g
   ) return accessViewMemo;
 
+  const displayCount = styleStamp ? deduplicateStyleEntries(entries, state.codex).length : null;
   accessViewMemo = {
     styleStamp,
     entries,
@@ -1311,20 +1324,23 @@ function accessViewSnapshot() {
     locked,
     allowNsfw,
     allowR18g,
-    ...(locked ? { tree: [], hiddenCount: entries.length } : buildAccessView(entries, emptyPaths, categoryOrder)),
+    ...(locked
+      ? { tree: [], hiddenCount: displayCount ?? entries.length, ...(styleStamp ? { visibleCount: 0 } : {}) }
+      : buildAccessView(entries, emptyPaths, categoryOrder, displayCount)),
   };
   return accessViewMemo;
 }
 
-function buildAccessView(entries, emptyPaths, categoryOrder) {
+function buildAccessView(entries, emptyPaths, categoryOrder, displayCount = null) {
   const root = new Map();
   let hiddenCount = 0;
+  const accessibleEntries = displayCount === null ? null : [];
   const treeNode = (map, name) => {
     if (!map.has(name)) map.set(name, { name, count: 0, nsfwCount: 0, explicitNsfw: false, children: new Map() });
     return map.get(name);
   };
   // v5 画师词典按画风重排（原型）：单画师词典下的大类、小组按数据顺序先占位，「未归类」垫底；
-  // 单画师词条按画风路径计数，一位画师只算代表那条（treePathOf 返回 null 的不计）
+  // 每位画师只计一次，有常规级备用图时不因首选来源受限而锁住整个小组。
   const skeleton = styleTreeSkeleton(state.codex);
   if (skeleton) {
     const top = treeNode(root, skeleton.name);
@@ -1335,9 +1351,21 @@ function buildAccessView(entries, emptyPaths, categoryOrder) {
   }
   for (const entry of entries) {
     if (isEntryAccessBlocked(entry)) hiddenCount += 1;
+    else accessibleEntries?.push(entry);
+  }
+  const counted = new Set();
+  const treeEntries = accessibleEntries
+    ? [...accessibleEntries.filter(entry => !isEntryNsfw(entry) && !entry.path?.some(isNsfwPathSegment)), ...entries]
+    : entries;
+  for (const entry of treeEntries) {
     if (!state.allowR18g && isR18gEntry(entry)) continue;
+    if (accessibleEntries) {
+      const key = artistOf(entry)?.canonicalEntryId || entry.id;
+      if (counted.has(key)) continue;
+      counted.add(key);
+    }
     const entryNsfw = isEntryNsfw(entry);
-    const path = skeleton ? treePathOf(entry, state.codex) : entry.path;
+    const path = accessibleEntries ? entry.stylePath || entry.path : skeleton ? treePathOf(entry, state.codex) : entry.path;
     if (!Array.isArray(path)) continue;
     const explicitNsfwFrom = path.findIndex(isNsfwPathSegment);
     let level = root;
@@ -1366,7 +1394,12 @@ function buildAccessView(entries, emptyPaths, categoryOrder) {
     locked: Boolean(n.explicitNsfw || (n.count > 0 && n.nsfwCount === n.count)),
     children: toList(n.children),
   }));
-  return { tree: sortCategoryTree(toList(root), categoryOrder), hiddenCount };
+  const view = { tree: sortCategoryTree(toList(root), categoryOrder), hiddenCount };
+  if (accessibleEntries) {
+    view.visibleCount = deduplicateStyleEntries(accessibleEntries, state.codex).length;
+    view.hiddenCount = displayCount - view.visibleCount;
+  }
+  return view;
 }
 
 /* 整本无原图、但书目声明了 originalSections 的一级目录，在目录行上标「含原图」。 */
@@ -1867,7 +1900,8 @@ export function randomExplore() {
 }
 
 export function randomKey(entry) {
-  return `${state.codex?.id || ''}:${entry.id}`;
+  const artist = styleActive() && !state.favoritesView && !state.siteSearchView ? artistOf(entry) : null;
+  return `${state.codex?.id || ''}:${artist?.canonicalEntryId || entry.id}`;
 }
 
 export function rememberRandomEntry(entry) {

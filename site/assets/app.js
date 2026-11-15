@@ -25,7 +25,7 @@ import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initial
 import { decodeCodexPathCode, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { encodePathCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, codexCoverUrl, codexCoverStyle, selectPathByPath } from './app/codex-ui.js';
-import { STYLE_CODEX_ID, SINGLE_ROOT, supportsArtistStyles, loadArtistStyles, attachArtistStyles, inSingleSection, styleLocation, selectStyleEntries, sortStyleEntries } from './app/artist-style.js';
+import { STYLE_CODEX_ID, SINGLE_ROOT, supportsArtistStyles, loadArtistStyles, attachArtistStyles, inSingleSection, selectStyleEntries, deduplicateStyleEntries, sortStyleEntries, styleActive } from './app/artist-style.js';
 import { bindArtistStyleUi, renderArtistProfile, setStyleUiActions } from './app/artist-style-ui.js';
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
@@ -929,8 +929,7 @@ export function applyFilter(options = {}) {
     });
   }
   let list = visibleEntries;
-  // v5 画师词典的单画师各层（原型）按画风出卡：一位画师一张，按 post 排（artist-style.js）。
-  // 本书搜索照旧搜整本，不走这条。
+  // 范围和搜索先匹配原词条，所有过滤完成后再每人选一张；详情保留全部来源。
   const singleSection = inSingleSection() && !plan.hasActiveSearch;
   const byActivePath = l => {
     const p = state.activePath;
@@ -951,12 +950,13 @@ export function applyFilter(options = {}) {
     updateFilter = undefined;
   }
   if (updateFilter) list = list.filter(entry => entryMatchesUpdateFilter(entry, updateFilter));
-  const styleBrowse = singleSection && styleLocation()?.level !== 'unsorted';
+  const mergeArtists = styleActive() && !state.favoritesView && !state.siteSearchView;
+  const styleBrowse = mergeArtists && !plan.hasActiveSearch;
   // 先定当前夹/来源候选，再求屏蔽差量；其它夹子的隐藏项不能污染这里的空态。
   if (state.favoritesView) list = filterFavoritesScope(list);
   const unblockedExamples = list.filter(entry => !isContentBlocked(entry));
-  const unblocked = singleSection ? selectStyleEntries(unblockedExamples) : unblockedExamples;
-  const countBeforeBlocking = singleSection ? selectStyleEntries(list).length : list.length;
+  const unblocked = mergeArtists ? deduplicateStyleEntries(unblockedExamples) : unblockedExamples;
+  const countBeforeBlocking = mergeArtists ? deduplicateStyleEntries(list).length : list.length;
   const blockedCount = countBeforeBlocking - unblocked.length;
   const ordered = !state.favoritesView && !state.siteSearchView
     ? (styleBrowse ? sortStyleEntries(unblocked) : sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder))
