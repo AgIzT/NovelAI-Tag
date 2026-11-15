@@ -46,9 +46,9 @@
 | `birthday_moderation.py` | 所长生日祝福墙审核命令行，给审核 agent 用：`pending` 列出待审留言（JSON，访客原文只当数据）、`decide <id> approve\|reject\|hold` 给待审留言下结论、`store-token` 从标准输入把审核令牌存进 Windows 凭据管理器 | 默认请求正式域 `/api/birthday-messages/moderate`，会改动生产的待审留言状态；令牌只能碰待审、碰不到已处理的、墙开关和其它后台；`--base` 可指向本地 pages dev；从不打印令牌 |
 | `build_share_index.py` | 重建分享卡索引 `site/data/share*`（数据/配图变更后；发布数据链自动跑，程序链不碰数据）。校验分书与书目 `entryAliases` 一致并为合并词条保留旧分享键（对象 ID 保留规范目标、别名不计数）；安全本里的门控词条默认不入索引（开关 `TITLE_ONLY_GATED_IN_SAFE_BOOKS`，默认关，开了只入词条名）；整本 NSFW 的书连词条名都不出（开关 `TITLE_ONLY_NSFW_BOOKS`，默认关） | 会改 share 索引 |
 | `build_tag_zh.py` | **现役（2026-09-18 上线）**：生成灯箱「中文对照」的译名分片 `site/data/tag_zh/`（core + 分书），译名优先级「人工译名 > 社区词库 > AI 译名」，来源表在 Git 忽略的 `tools/data/tag_zh/`；社区词库缺失时从钉死提交的 URL 下载并校验 SHA-256。查表键与前端 `tag-zh-core.js` 共用夹具 `fixtures/tag_zh_keys.json`，改一侧必须同步另一侧。双击入口 `单项工具/生成中文对照.bat`（总控台第 14 项）；发布数据链在分享索引之后自动跑一次 | 重写 `site/data/tag_zh/*.json`（并删除该目录下不再产出的旧分片）；覆盖写 `output/tag-zh/构建报告.md` 与 `待翻译.csv`；词库缺失时写 `tools/data/tag_zh/` 缓存；`--dry-run` 不写 `site/data` |
-| `translate_tag_zh.py` | 给中文对照跑 AI 长尾补译，只翻「人工表和词库都没有」的键，断点续跑；渠道配置在 Git 忽略的 `tools/data/tag_zh/ai_config.json`（含密钥，不写日志、不写报告）；命中敏感词组合的键本地先过滤、不送外部接口（渠道对这类组合会整批拒答，送了既白花调用又连累同批）；词表在 Git 忽略的 `tools/data/tag_zh/过滤词.json`，脚本不带内置词表，**文件缺失直接退出**。**跑批节奏与译名取舍由维护者安排，脚本按需调用即可，不需要代为判断收录范围。**模型应答了却给不出译名的键记进负缓存 `tools/data/tag_zh/无译名.csv`，下轮自动跳过、不重复花钱重问（`--retry-empty` 可强制重问，换模型时才用）。跑完必须再跑 `build_tag_zh.py` 才会进分片；双击入口 `单项工具/补译中文对照.bat`（总控台第 15 项）先 dry-run、要输 YES 才发请求、跑完自动重建分片 | **会调用外部 AI 接口并产生费用**；追加写 `tools/data/tag_zh/AI译名.csv` 与负缓存 `无译名.csv`，覆盖写 `output/tag-zh/` 的跑批日志 / 报告 / 失败清单；`--dry-run` 只统计 |
+| `translate_tag_zh.py` | 给中文对照跑 AI 长尾补译，只翻「人工表和词库都没有」的键，断点续跑；现行付费渠道为 Google 官方 `gemini-4-argon`，配置在 Git 忽略的 `tools/data/tag_zh/ai_config.json`，`api_key_credential` 从 Windows 凭据管理器读取密钥，旧 `api_key` 格式仍兼容；双击 `单项工具/设置翻译密钥.bat` 或 `--set-api-key` 打开遮罩输入弹窗，只保存密钥及官方配置，不请求接口。命中敏感词组合的键本地先过滤、不送外部接口；词表在 Git 忽略的 `tools/data/tag_zh/过滤词.json`，脚本不带内置词表，**文件缺失直接退出**。**跑批节奏与译名取舍由维护者安排。**模型应答了却给不出译名的键记进负缓存 `tools/data/tag_zh/无译名.csv`（`--retry-empty` 可强制重问）；单条明确拦截立即去重追加到 `tools/data/tag_zh/拦截记录.csv`，后续每轮跳过且不受 `--retry-empty` 影响，网络/配额/服务及普通响应错误不进拦截名单。跑完必须再跑 `build_tag_zh.py` 才会进分片；双击入口 `单项工具/补译中文对照.bat`（总控台第 15 项）先 dry-run、要输 YES 才发请求、跑完自动重建分片 | 实跑**会调用外部 AI 接口并产生费用**；追加写 `tools/data/tag_zh/AI译名.csv`、负缓存 `无译名.csv` 和持久 `拦截记录.csv`，写 `output/tag-zh/` 的日志 / 报告 / 本轮失败清单；`--dry-run` 只统计，不追加拦截记录，密钥不写日志或报告 |
 | `build_artist_index.py` | **现役（2026-10-02 上线）**：生成灯箱「画师」一栏的样张索引 `site/data/artist_index.json`，并生成画风实验台用的画风串表 `site/data/artist_strings.json`（实验台页面仍在分支 `feature/style-lab`，未上线；同一组画师只记一次，倍率算法与前端 `artist-core.js` 全站对拍一致）。样张索引取 v4.5 / v5 两本画师词典里「整条 tags 只有一个 artist:」的常规词条，按画师名对到样张图，另按书名推出各书默认版本。画师名归一与前端 `artist-core.js` 共用夹具 `fixtures/artist_keys.json`，改一侧必须同步另一侧；发布数据链在中文对照之后自动跑一次，没有单独的双击入口 | 只写 `site/data/artist_index.json`、`site/data/artist_strings.json`（内容不变时字节不变）与 `output/artist-index/构建报告.md`（覆盖率与「还没有单画师样张」名单） |
-| `build_artist_styles.py`、`artist_style_labels.py` | v5 单画师目录生成与命名覆盖；`--snapshot` 迁入已审核产物，`--config` 从私密本地缓存重建，参数格式见 `--help`；配置与输入缓存不进入发布目录。schema 3 绑定来源词典指纹，邻居按不可变版本分片 | 默认仅验证/计划；`--apply` 才先写分片、原子替换 `site/data/artist_styles.json`；保留旧分片，不调用模型、不联网、不发布。`--check` 只读检查正式数据与原词典，根文件不存在时兼容旧 release，存在但错配时失败 |
+| `build_artist_styles.py`、`artist_style_labels.py` | v5 单画师目录生成与命名覆盖；`--snapshot` 迁入已审核产物，`--config` 从私密本地缓存重建，`--reorder-specimens` 按花枝鱼 → AgIzT → 九七 → 雨燕 → MayRain → wwuumm 重排已有首图与例图（默认计划，加 `--apply` 才写），保留规范姓名与评估样图；参数格式见 `--help`；配置与输入缓存不进入发布目录。schema 3 绑定来源词典指纹，邻居按不可变版本分片 | 默认仅验证/计划；`--apply` 才先写分片、原子替换 `site/data/artist_styles.json`；保留旧分片，不调用模型、不联网、不发布。`--check` 只读检查正式数据与原词典，根文件不存在时兼容旧 release，存在但错配时失败 |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
 | `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；WebP 在站内与原图路由显式使用 `image/webp`；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
 | `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |
@@ -67,6 +67,7 @@
 
 | 文件 | 用途 | 默认副作用 |
 | --- | --- | --- |
+| `danbooru_picker/server.py`、`danbooru_picker/catalog.py` | 双击 `单项工具/画师挑选.bat` 或总控台「更多工具」18。按 post 区间扫 D 站常规作品，详情可切近期/高分，支持选中、略过和导出每行一个原始画师标签的 TXT | 绑定本机回环，读 v5 词典标记 AgIzT 已跑。按可见卡片查询公开作品，图片取 D 站 CDN 的缩略图；名单、已选/略过和作品接口缓存保存到 Git 忽略的 `tools/data/danbooru_picker/`。需要更新名单时运行 `画师挑选.bat --refresh-catalog` |
 | `edit_server.py` | `法典编辑器.bat` 背后的本地编辑服务器：主站“编辑模式”的写后端，词条/分类/图片编辑及同级目录上移/下移，顺序独立保存，写前自动备份到 `output/edit-backups/`。⚠ 别和配图工具同时开 | 页面操作才写；每次写盘先备份。删除词条前在同一事务保存本书发号高水位和分隔符，删除全部后仍不复用已发出的本书编号，不重新编号历史词条 |
 | `imgserver.py` + `pei.html` | `配图工具.bat` 背后的配图编辑器。⚠ 别和法典编辑器同时开 | 页面保存先完整编码，再备份将修改的原图、缩略图、分书和总索引；单文件原子替换，异常补偿旧字节。返回 `backupDir`，备份不自动清理；强杀或补偿失败需按清单恢复，不保证断电时多文件原子提交 |
 | `strings_server.py` + `strings_editor.html` | `画师串编辑.bat` 背后的画师串编辑器；已载入文件身份和请求代次约束异步回写 | 保存/上传核对载入版本，冲突拒写并保留草稿；写前备份、异常补偿，图片使用内容摘要文件名防覆盖。旧版页面缺版本会拒绝覆盖已有合集，重开编辑器后再操作 |
@@ -91,6 +92,8 @@
 完整的多画风批量生成、审核、舍弃重跑、入库和复验套件已迁至仓库外
 `D:\program\NOVEL\工具箱\NAI法典批量配图\`；先读其 `AGENTS.md` / `README.md`，再按需读 `使用说明和事项.md`。
 项目内只保留同时服务其它维护流程的基础工具。密钥不落盘，发往第三方前必须用户明确授权。
+
+官方密钥可按维护者已授权的保存式流程存入 Windows 凭据管理器：双击 `单项工具/设置官方生图密钥.bat`。设置和生成须使用维护者的同一 Windows 账户，隔离账户不能读取；完整说明见工具箱 README。密钥不写明文文件，第三方服务不会读取官方凭据，逐批请求授权保持不变。
 
 | 文件 | 用途 | 默认副作用 |
 | --- | --- | --- |
@@ -147,11 +150,13 @@
 - Python · 本地版：`test_build_local_edition.py`（在临时目录核对生成站点边界，不运行 PyInstaller）。
 - Python · UI 测试驱动：`test_verify_ui.py`（CDP 离开确认/刷新新文档等待，以及 PASS/FAIL/SKIP/BLOCKED 汇总、界面状态与结果状态不串用、必需夹具缺失与 CLI 退出码；合成夹具，不启动浏览器）。`verify_ui.py --only "mobile lightbox"` 覆盖手机原生连续阅读：动效开启的用例仍名为 `mobile lightbox interruptible gestures`，以真实触摸验证正文回顶同滑露图、松手惯性跨边界、收图后同滑继续阅读、反向、按钮起滑及滚动中断、多图与触摸生命周期；相邻用例验证收放入口、横滑、无图与桌面归位。不把桌面无头浏览器结果当真机流畅度证据。统计只读回归使用固定时钟，另验 token 到期前后边界；匹配工具测试兼容直接运行与 `python -m unittest`。
 - Node · 换书动效中断：`test_render_ui.mjs` 还会回放 `app.js` 的实际过渡函数，验证隐藏文档导致 ready/finished 拒绝时不产生未处理错误、清理 CSS 状态，且正文渲染失败仍向上传递；仅合成 Promise/DOM，不需要浏览器。
-- Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）、`test_translate_tag_zh.py`（假接口验证权限失败即停、内容二分到单条及首批全拦后继续、服务重试不拆批、实时进度与真实模型来源；不读凭据或调用渠道）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
+- Python · tag 中文对照：`test_build_tag_zh.py`（查表键夹具、别名不串义、译名优先级、分片确定性与旧分片清理）、`test_translate_tag_zh.py`（假接口验证权限失败即停、内容二分到单条及首批全拦后继续、持久拦截记录去重及下轮排除、中断保留记录、服务失败不进入拦截名单、Google 官方地址及 Argon 参数、凭据按需读取且配置不落密钥；不读真实凭据或调用渠道）；Node 侧对应 `test_tag_zh.mjs`，两边共用 `fixtures/tag_zh_keys.json`。
 - Node · 详情权重上色：`test_prompt_weights.mjs`（NAI `N::…::`、`{}` / `[]` 与 SD `(…:N)` 的标记位置和加权 / 减权方向；tag 名里的圆括号、转义括号与 tag 内数字不当权重）。
 - Python · 画师样张索引：`test_build_artist_index.py`（画师名夹具、去重顺序、书名推版本）；Node 侧对应 `test_artist_core.mjs`（倍率、索引归一、拆解兜底与跳过自身），两边共用 `fixtures/artist_keys.json`。
 - Python · 画风数据：`test_build_artist_styles.py`（来源指纹、原 ID 唯一性、评分样图归属、目录/旧名/邻居引用、只读计划、schema 2 迁入、根文件最后替换、不可变分片及并发保护；合成临时数据，不读私密缓存）；对应生成器 `build_artist_styles.py` 与命名覆盖库 `artist_style_labels.py`。
-- Node · 画风分类：`test_artist_style.mjs`（v5 词典展示目录、每人选卡、评分样图和版本分片）；`test_artist_style_loading.mjs`（正式数据源、错配回退、超时和失败重试）；`test_related_directory_route.mjs`（来源建议保留精确筛选）。均使用合成输入，不读真实词典。集中自检用 `python tools/run_project_checks.py --profile artist_styles`；上述回归及延迟详情已纳入 ci。
+- Node · 画风分类：`test_artist_style.mjs`（v5 展示目录连续排序、组内 post、全部页今日首卡阅读定位、先筛后每人选卡、评分样图和版本分片）；`test_artist_style_counts.mjs`（全部页去重计数、访问受限差额、安全备用图与目录锁、规范标题与测高缓存、随机浏览同人记录及编辑/虚拟视图边界）；`test_artist_style_loading.mjs`（正式数据源、错配回退、超时和失败重试）；`test_related_directory_route.mjs`（来源建议保留精确筛选）。均使用合成输入，不读真实词典。集中自检用 `python tools/run_project_checks.py --profile artist_styles`；上述回归及延迟详情已纳入 ci。
+
+  v5 真实画师书的全部页、单画师各层和本书搜索先按访问权限、关键词 / 精确目录、NEW 与个人屏蔽筛选，再为每位已识别单画师保留一张合格来源卡；画风串和未知身份条目原样保留。展示计数与受限差额按去重卡数，原 JSON / 书目条数不改；规范标题不随例图来源改变，随机浏览近期记录按同人合并。收藏、全站搜索与本地编辑仍保留具体来源条目；详情、收藏键和深链继续使用原 ID，侧栏个人屏蔽计数沿用原口径。
 - Node · 延迟详情：`test_codex_view_restore.mjs` 回放主站视图入口和受控计时器，检查换书、切图和关闭后旧深链回调失效；可传冻结的 `app.js` 路径复现旧版本，只读代码与合成状态。
 - Python · 更新样图索引：`test_build_updates_index.py`（更新批次与书内样张共用抽样、成人书自动抽图与解锁标记、公开书排除成人词条、指定样图及失效回退、可见计数门控）。
 - R2 联合验证：`test_publish_data_r2_v2.py`、`test_r2_connection_pool.py`、`test_data_release.mjs`、`test_r2_data_compat.mjs` 验现役 v2/dual、条件写/ABA/部分激活、连接复用/代理/不完整响应、跨语言协议、旧 URL/Range/CORS 与精确版本读取；`--profile r2_integration` 集中运行相关旧回归和新检查，不联网生产。`workers/r2-data-compat/worker.js` 为只读薄兼容 Worker，仅路由 `/data/*`；`config.example.jsonc` 为占位示例，生产部署配置以 `workers/r2-data-compat/wrangler.jsonc` 为准；独立测试包装器不进入生产 bundle。
