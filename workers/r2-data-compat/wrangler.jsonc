@@ -15,6 +15,6 @@
   ],
   "vars": {
     "ATLAS_DATA_PREFIX": "data",
-    "ATLAS_DATA_CORS_ORIGINS": "https://novelai.quicktagcloud.com,https://touhounai.xyz"
+    "ATLAS_DATA_CORS_ORIGINS": "https://novelai.quicktagcloud.com,https://naitag.com,https://touhounai.xyz"
   }
 }
