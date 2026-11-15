@@ -2,11 +2,18 @@
 setlocal
 chcp 65001 >nul
 cd /d "%~dp0.."
+call :main %*
+set "RC=%ERRORLEVEL%"
+chcp 936 >nul
+exit /b %RC%
+
+:main
 
 REM --- find Python: prefer the 'py' launcher, then 'python' ---
 set "PY="
-where py >nul 2>nul && set "PY=py"
-if not defined PY ( where python >nul 2>nul && set "PY=python" )
+py -3 -c "import sys" >nul 2>nul && set "PY=py -3"
+if not defined PY ( python -c "import sys" >nul 2>nul && set "PY=python" )
+if not defined PY if exist "%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" set PY="%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 if not defined PY (
   echo [ERROR] Python not found.
   echo Install Python 3 from https://www.python.org/downloads/
@@ -15,9 +22,14 @@ if not defined PY (
   exit /b 1
 )
 
+if /i "%~1"=="--set-api-key" (
+  call %PY% tools\translate_tag_zh.py --set-api-key
+  exit /b
+)
+
 if not exist "tools\data\tag_zh\ai_config.json" (
   echo [ERROR] Missing tools\data\tag_zh\ai_config.json
-  echo That file holds the AI relay settings ^(base_url / api_key / model^).
+  echo Run: %PY% tools\translate_tag_zh.py --set-api-key
   echo It stays private and never enters the repository.
   pause
   exit /b 1

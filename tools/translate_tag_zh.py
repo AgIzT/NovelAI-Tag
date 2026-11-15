@@ -5,15 +5,17 @@
 
 负缓存：模型应答了但给不出译名的键（画师名、碎片、纯符号占大头）记进 无译名.csv，
 下轮直接跳过，不再重复花钱问同一批；换模型后想重问用 --retry-empty。
+单条明确被接口拦截时立即记进 拦截记录.csv，后续跑批始终跳过；网络或服务错误不记入。
 
-渠道配置放在 Git 忽略的 tools/data/tag_zh/ai_config.json（base_url / api_key / model /
-batch_size / concurrency）。密钥只在内存和该文件里，不写日志、不写报告。
+渠道配置放在 Git 忽略的 tools/data/tag_zh/ai_config.json。Google 官方渠道用
+api_key_credential 指向 Windows 凭据管理器；旧渠道仍兼容 api_key，不写日志或报告。
 
 内容过滤：命中敏感词组合的键一律不送外部接口。渠道对这类组合会整批拒答、把同批正常的 tag
 一起连累掉，本地先挡掉更省调用也更稳；报告里只留计数。
 
 用法：
     python tools/translate_tag_zh.py --dry-run     只统计要翻多少、跳过多少
+    python tools/translate_tag_zh.py --set-api-key 弹窗设置 Google 官方密钥和 Argon 模型
     python tools/translate_tag_zh.py --limit 300   先跑一小批看质量
     python tools/translate_tag_zh.py               跑完全部待翻译
 跑完再跑 python tools/build_tag_zh.py 重新生成 site/data/tag_zh/ 分片。
@@ -44,7 +46,11 @@ LOG_PATH = btz.REPORT_DIR / "翻译跑批.log"
 REPORT_PATH = btz.REPORT_DIR / "翻译跑批报告.md"
 FAILED_PATH = btz.REPORT_DIR / "跑批失败.csv"
 EMPTY_PATH = btz.SRC_DIR / "无译名.csv"
+BLOCKED_PATH = btz.SRC_DIR / "拦截记录.csv"
 SOURCE_LABEL = ""
+GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+GOOGLE_MODEL = "gemini-4-argon"
+GOOGLE_CREDENTIAL = "NovelAI-Tag/tag-zh-gemini-official"
 
 
 class FatalTranslationError(RuntimeError):
@@ -97,7 +103,13 @@ def content_block_reason(payload) -> str:
     for item in [*(payload.get("choices") or []), *(payload.get("candidates") or [])]:
         if not isinstance(item, dict):
             continue
-        code = str(item.get("finish_reason") or item.get("finishReason") or "").upper()
+        code = str(item.get("finish_reason") or item.get("finishReason") or "").strip().upper()
+        # Google 兼容接口可能只返回 finish_reason="content_filter: OTHER"，不带 message。
+        # 只匹配明确的 content_filter 前缀，普通 OTHER 仍作为不可用响应处理。
+        kind, separator, detail = code.partition(":")
+        if separator and kind.strip() == "CONTENT_FILTER":
+            detail = detail.strip()
+            return "CONTENT_FILTER" + (":" + detail if re.fullmatch(r"[A-Z_]{1,64}", detail) else "")
         if code in CONTENT_BLOCK_CODES:
             return code
         message = item.get("message")
@@ -151,13 +163,115 @@ def load_filter() -> tuple:
 QUOTES = "\"'“”‘’「」『』"
 
 
-def load_config() -> dict:
+def credential_store():
+    """Windows generic credential API; keys never go through a shell or a file."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Credential(ctypes.Structure):
+        _fields_ = [
+            ("Flags", wintypes.DWORD), ("Type", wintypes.DWORD),
+            ("TargetName", wintypes.LPWSTR), ("Comment", wintypes.LPWSTR),
+            ("LastWritten", wintypes.FILETIME), ("CredentialBlobSize", wintypes.DWORD),
+            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)), ("Persist", wintypes.DWORD),
+            ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
+            ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR),
+        ]
+
+    api = ctypes.WinDLL("advapi32", use_last_error=True)
+    api.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                             ctypes.POINTER(ctypes.POINTER(Credential))]
+    api.CredReadW.restype = wintypes.BOOL
+    api.CredWriteW.argtypes = [ctypes.POINTER(Credential), wintypes.DWORD]
+    api.CredWriteW.restype = wintypes.BOOL
+    api.CredFree.argtypes = [ctypes.c_void_p]
+    api.CredFree.restype = None
+    return ctypes, Credential, api
+
+
+def read_api_key(target: str) -> str:
+    ctypes, Credential, api = credential_store()
+    pointer = ctypes.POINTER(Credential)()
+    if not api.CredReadW(target, 1, 0, ctypes.byref(pointer)):
+        error = ctypes.get_last_error()
+        if error == 1168:  # ERROR_NOT_FOUND
+            return ""
+        raise OSError(error, "读取 Windows 凭据失败")
+    try:
+        credential = pointer.contents
+        return bytes(credential.CredentialBlob[:credential.CredentialBlobSize]).decode("utf-8")
+    finally:
+        api.CredFree(pointer)
+
+
+def write_api_key(key: str) -> None:
+    ctypes, Credential, api = credential_store()
+    blob = key.encode("utf-8")
+    buffer = (ctypes.c_ubyte * len(blob)).from_buffer_copy(blob)
+    credential = Credential(Type=1, TargetName=GOOGLE_CREDENTIAL,
+                            CredentialBlobSize=len(blob), CredentialBlob=buffer,
+                            Persist=2, UserName="gemini")
+    if not api.CredWriteW(ctypes.byref(credential), 0):
+        raise OSError(ctypes.get_last_error(), "保存 Windows 凭据失败")
+
+
+def google_config(cfg: dict) -> dict:
+    cfg = dict(cfg)
+    cfg.pop("api_key", None)
+    cfg.update(base_url=GOOGLE_BASE_URL, model=GOOGLE_MODEL,
+               api_key_credential=GOOGLE_CREDENTIAL, reasoning_effort="high")
+    cfg.setdefault("batch_size", 30)
+    cfg.setdefault("concurrency", 4)
+    return cfg
+
+
+def set_api_key() -> int:
+    import tkinter as tk
+    from tkinter import messagebox, simpledialog
+
+    window = tk.Tk()
+    window.withdraw()
+    window.attributes("-topmost", True)
+    try:
+        key = simpledialog.askstring(
+            "中文对照 · Google Gemini 4 Argon",
+            "粘贴 Google AI Studio 的 API 密钥：\n\n"
+            "密钥保存到 Windows 凭据管理器。\n保存后即可关闭窗口，再从菜单运行付费补译。",
+            show="*", parent=window,
+        )
+        if not key or not key.strip():
+            return 0
+        key = key.strip()
+        try:
+            cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) if CONFIG_PATH.exists() else {}
+            write_api_key(key)
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            temporary = CONFIG_PATH.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(google_config(cfg), ensure_ascii=False, indent=2) + "\n",
+                                 encoding="utf-8")
+            temporary.replace(CONFIG_PATH)
+        except Exception as error:
+            messagebox.showerror("保存失败", str(error).replace(key, "[redacted]"), parent=window)
+            return 1
+        messagebox.showinfo("已保存", "密钥已保存。\n中文对照付费补译已使用 Google 官方 Gemini 4 Argon。", parent=window)
+        return 0
+    finally:
+        window.destroy()
+
+
+def load_config(resolve_key: bool = True) -> dict:
     if not CONFIG_PATH.exists():
-        raise SystemExit(f"缺少渠道配置 {CONFIG_PATH}（base_url / api_key / model）")
+        raise SystemExit(f"缺少渠道配置 {CONFIG_PATH}；可用 --set-api-key 弹窗设置 Google 官方渠道")
     cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    for field in ("base_url", "api_key", "model"):
+    for field in ("base_url", "model"):
         if not str(cfg.get(field) or "").strip():
             raise SystemExit(f"渠道配置缺少 {field}")
+    target = str(cfg.get("api_key_credential") or "").strip()
+    if resolve_key:
+        if target:
+            cfg["api_key"] = read_api_key(target)
+        if not str(cfg.get("api_key") or "").strip():
+            raise SystemExit("缺少 API 密钥；运行 python tools/translate_tag_zh.py --set-api-key 填写")
     return cfg
 
 
@@ -181,6 +295,20 @@ def load_empty_keys() -> set[str]:
     return keys
 
 
+def load_blocked_keys() -> set[str]:
+    """持久保存的单条内容拦截；不受 --retry-empty 影响。"""
+    if not BLOCKED_PATH.exists():
+        return set()
+    keys = set()
+    for index, row in enumerate(btz.read_csv_rows(BLOCKED_PATH)):
+        if index == 0 and row and row[0].strip().lower() in ("tag", "﻿tag"):
+            continue
+        key = btz.tag_key(row[0]) if row else ""
+        if key:
+            keys.add(key)
+    return keys
+
+
 def pending_keys(skip_empty: bool = True) -> tuple[list[tuple[str, int]], int, dict]:
     """返回（待翻译键+出现条数，被过滤掉的键数，统计）。口径与 build_tag_zh 一致。"""
     index = btz.read_json(btz.INDEX_PATH)
@@ -190,7 +318,8 @@ def pending_keys(skip_empty: bool = True) -> tuple[list[tuple[str, int]], int, d
     entry_count, _codex_sets, _example, _per_codex, artist_names = btz.collect_usage(index)
     skip_artist = artist_names | dictionary_artists
     known_empty = load_empty_keys()
-    pending, held, skipped_empty = [], 0, 0
+    known_blocked = load_blocked_keys()
+    pending, held, skipped_empty, skipped_blocked = [], 0, 0, 0
     for key, count in entry_count.items():
         if key in skip_artist or not btz.ai_eligible(key):
             continue
@@ -198,6 +327,8 @@ def pending_keys(skip_empty: bool = True) -> tuple[list[tuple[str, int]], int, d
             continue
         if filtered(key):
             held += 1
+        elif key in known_blocked:
+            skipped_blocked += 1
         elif skip_empty and key in known_empty:
             skipped_empty += 1
         else:
@@ -206,7 +337,8 @@ def pending_keys(skip_empty: bool = True) -> tuple[list[tuple[str, int]], int, d
     stats = {"总 tag": len(entry_count), "已有译名": sum(1 for k in entry_count
                                                     if btz.resolve(k, manual, dictionary, ai)[0]),
              "AI 表现有": len(ai), "已知无译名": len(known_empty),
-             "本轮跳过无译名": skipped_empty, "过滤跳过": held}
+             "本轮跳过无译名": skipped_empty, "过滤跳过": held,
+             "已知拦截": len(known_blocked), "本轮跳过拦截": skipped_blocked}
     return pending, held, stats
 
 
@@ -251,6 +383,30 @@ def append_empty(keys: list[str]) -> None:
                 writer.writerow([key, SOURCE_LABEL, today])
 
 
+def append_blocked(rows: list[tuple[str, int, str]]) -> None:
+    """单条明确被拦即落盘；去重追加，避免下轮再次送出。"""
+    if not rows:
+        return
+    with CSV_LOCK:
+        known = load_blocked_keys()
+        additions = []
+        for raw_key, count, reason in rows:
+            key = btz.tag_key(raw_key)
+            if key and key not in known:
+                additions.append((key, count, reason))
+                known.add(key)
+        if not additions:
+            return
+        new_file = not BLOCKED_PATH.exists() or BLOCKED_PATH.stat().st_size == 0
+        with BLOCKED_PATH.open("a", encoding="utf-8-sig" if new_file else "utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            if new_file:
+                writer.writerow(["tag", "出现条数", "原因", "模型", "日期"])
+            today = datetime.now().strftime("%Y-%m-%d")
+            for key, count, reason in additions:
+                writer.writerow([key, count, reason, SOURCE_LABEL, today])
+
+
 def clean(value, key: str) -> str:
     """模型返回值 → 可用译名；不合格返回空串（这个键留给下次跑批或人工）。"""
     text = str(value or "").strip().strip(QUOTES).strip()
@@ -267,7 +423,7 @@ def clean(value, key: str) -> str:
 def translate_batch(cfg: dict, batch: list[tuple[str, int]], attempt_budget: int = 4):
     """一批 tag → {键: 译名}；失败返回 None。429 / 5xx / 超时按退避重试。"""
     keys = [key for key, _ in batch]
-    body = json.dumps({
+    body = {
         "model": cfg["model"],
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -275,8 +431,13 @@ def translate_batch(cfg: dict, batch: list[tuple[str, int]], attempt_budget: int
         ],
         "temperature": 0,
         "response_format": {"type": "json_object"},
-    }).encode("utf-8")
-    url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
+    }
+    if cfg.get("reasoning_effort"):
+        body["reasoning_effort"] = cfg["reasoning_effort"]
+    body = json.dumps(body).encode("utf-8")
+    url = cfg["base_url"].rstrip("/")
+    if not url.endswith("/chat/completions"):
+        url += "/chat/completions" if url.endswith(("/openai", "/v1")) else "/v1/chat/completions"
     delay = 4.0
     for attempt in range(1, attempt_budget + 1):
         try:
@@ -294,7 +455,17 @@ def translate_batch(cfg: dict, batch: list[tuple[str, int]], attempt_budget: int
                 # 渠道偶尔 200 但不给 choices（上游过载 / 错误对象），把它的说法记下来再退避重试
                 detail = payload.get("error") or {k: v for k, v in payload.items() if k != "usage"}
                 raise ValueError("空 choices：" + json.dumps(detail, ensure_ascii=False)[:160])
-            text = choices[0]["message"]["content"]
+            choice = choices[0]
+            if not isinstance(choice, dict):
+                raise ValueError("choices[0] 不是对象")
+            finish = str(choice.get("finish_reason") or choice.get("finishReason") or "UNKNOWN").strip().upper()
+            finish = finish if re.fullmatch(r"[A-Z_]{1,64}", finish) else "UNKNOWN"
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                raise ValueError(f"响应缺少 message（finish_reason={finish}）")
+            text = message.get("content")
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError(f"响应没有可用文本（finish_reason={finish}）")
             start, end = text.find("{"), text.rfind("}")
             if start < 0 or end < 0:
                 raise ValueError("返回里没有 JSON 对象")
@@ -351,14 +522,17 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="AI 补译 tag 中文对照的长尾")
     parser.add_argument("--limit", type=int, default=0, help="只翻出现条数最多的前 N 个（0 = 全部）")
     parser.add_argument("--dry-run", action="store_true", help="只统计，不调接口")
+    parser.add_argument("--set-api-key", action="store_true", help="弹窗设置 Google 官方 Gemini 4 Argon 密钥")
     parser.add_argument("--batch-size", type=int, default=0, help="每次请求几个 tag（默认读配置）")
     parser.add_argument("--concurrency", type=int, default=0, help="并发请求数（默认读配置）")
     parser.add_argument("--retry-empty", action="store_true",
                         help="连「已知无译名」的键也重新问一遍（换模型后才需要）")
     args = parser.parse_args(argv)
+    if args.set_api_key:
+        return set_api_key()
 
     btz.REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    cfg = load_config()
+    cfg = load_config(resolve_key=not args.dry_run)
     SOURCE_LABEL = str(cfg["model"]).strip()
     batch_size = args.batch_size or int(cfg.get("batch_size") or 50)
     concurrency = args.concurrency or int(cfg.get("concurrency") or 4)
@@ -366,7 +540,8 @@ def main(argv=None) -> int:
     pending, held, stats = pending_keys(skip_empty=not args.retry_empty)
     if args.limit:
         pending = pending[:args.limit]
-    log(f"待翻译 {len(pending)}；跳过已知无译名 {stats['本轮跳过无译名']}；过滤跳过 {held}；"
+    log(f"待翻译 {len(pending)}；跳过已知无译名 {stats['本轮跳过无译名']}；"
+        f"跳过已知拦截 {stats.get('本轮跳过拦截', 0)}；过滤跳过 {held}；"
         f"模型 {SOURCE_LABEL}；批大小 {batch_size}，并发 {concurrency}")
     if args.dry_run or not pending:
         print(json.dumps({**stats, "本次待翻译": len(pending)}, ensure_ascii=False))
@@ -381,6 +556,8 @@ def main(argv=None) -> int:
     fatal_reason = ""
 
     def failed(batch, reason="响应不可用", kind="response"):
+        if kind == "content":
+            append_blocked([(key, count, reason) for key, count in batch])
         with LOG_LOCK:
             counters["failed"] += len(batch)
             counters["blocked"] += len(batch) if kind == "content" else 0
@@ -414,7 +591,8 @@ def main(argv=None) -> int:
             return
         if result is None:
             failed(batch, blocked_reason or "响应不可用", "content" if blocked_reason else "response")
-            log(f"单条{'内容拦截 ' + blocked_reason if blocked_reason else '响应不可用'}；已记录，继续后续翻译")
+            log(f"单条内容拦截 {blocked_reason}；已存入拦截记录，下轮跳过" if blocked_reason
+                else "单条响应不可用；已记录，继续后续翻译")
         else:
             for key, count in batch:
                 zh = clean(result.get(key), key)
@@ -481,6 +659,8 @@ def main(argv=None) -> int:
         f"- 本轮按负缓存跳过 {stats['本轮跳过无译名']} 个键，新记入 {counters['empty']} 个"
         f"（表：{EMPTY_PATH.name}，共 {stats['已知无译名'] + counters['empty']} 条；"
         f"换模型后想重问用 --retry-empty）",
+        f"- 本轮跳过已知拦截 {stats.get('本轮跳过拦截', 0)} 个，新记录 {counters['blocked']} 个"
+        f"（表：{BLOCKED_PATH.name}；记录后不再进入后续翻译，--retry-empty 不会重试拦截项）",
         f"- 内容过滤跳过 {held} 个键，没有送出外部接口",
         "",
         "跑完记得执行 `python tools/build_tag_zh.py` 重新生成 site/data/tag_zh/ 分片。",
