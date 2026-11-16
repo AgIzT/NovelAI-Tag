@@ -198,18 +198,26 @@ function weightStatHtml(weight) {
   return `<div class="ap-stat" data-ap-weight><dt>常用权重</dt><dd>${esc(value)}</dd><small>${esc(note)}</small></div>`;
 }
 
+/* 「NAI v5 画得像吗」：画师识别模型（Kaloscope）看这位画师的一张 v5 例图，在它认识的画师里把这位排到第几名。
+   第 1 名 = 模型第一个想到的就是这位，说明 v5 画出了这位的画风；名次靠后时原因有两种，分不开，所以写「不确定」而不写「不像」。 */
 function rankStatHtml(artist) {
+  const title = 'NAI v5 画得像吗';
   const sample = styleBookEntry(artist.rankSampleId);
-  if (!showable(sample)) {
-    return '<div class="ap-stat ap-rank-stat"><dt>v5 样图识别</dt><dd>—</dd><small>暂无可展示的评估样图</small></div>';
+  if (!showable(sample) || !artist.rank) {
+    return `<div class="ap-stat ap-rank-stat"><dt>${title}</dt><dd>未评估</dd><small>这位画师还没有可展示的评估例图</small></div>`;
   }
   const key = `rank:${sample.id}`;
-  const name = artistNameOf(sample);
-  const label = `看评估图：${specimenSource(sample) || 'v5'} · 首图`;
+  const source = specimenSource(sample);
+  const guess = artist.seenAs || '另一位画师';
+  const verdict = artist.rank === 1 ? '像' : artist.rank <= 10 ? '接近' : '不确定';
+  const basis = artist.rank === 1
+    ? '画师识别模型看这张 v5 例图，第一个想到的就是这位画师。'
+    : `画师识别模型看这张 v5 例图，把这位画师排在第 ${formatCount(artist.rank)} 名，最先想到的是 ${guess}。`;
+  const caveat = artist.rank > 10 ? '可能是 v5 没学会这位的画风，也可能是识别模型不认识这位。' : '';
   profileTiles.set(key, () => openStyleExample(sample, 'replace'));
-  return `<div class="ap-stat ap-rank-stat"><dt>v5 样图识别</dt><dd>第 ${formatCount(artist.rank)} 名</dd>
-    <small>评估 ${esc(name)}，Kaloscope 首选 ${esc(artist.seenAs || (artist.rank === 1 ? name : '其他画师'))}</small>
-    <button type="button" class="ap-rank-sample ui-press" data-ap-key="${esc(key)}">${esc(label)}</button></div>`;
+  return `<div class="ap-stat ap-rank-stat"><dt>${title}</dt><dd>${verdict}</dd>
+    <small>${esc(basis)}${esc(caveat)}</small>
+    <button type="button" class="ap-rank-sample ui-press" data-ap-key="${esc(key)}">${esc(source ? `看评估用的例图（${source}）` : '看评估用的例图')}</button></div>`;
 }
 
 function statsHtml(artist, weight) {
