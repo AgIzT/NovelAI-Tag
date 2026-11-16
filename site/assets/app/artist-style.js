@@ -163,36 +163,22 @@ export async function attachArtistStyles(codex) {
   styleBook = codex;
   if (codex.styleTree) return true;
   const byId = new Map(codex.entries.map(entry => [entry.id, entry]));
-  const counts = data.groups.map(() => 0);
-  let unsorted = 0;
   for (const entry of codex.entries) {
     if (entry.path?.[0] !== SINGLE_ROOT) continue;
     const index = data.byEntry.get(entry.id);
     if (index == null) {
       entry.stylePath = [SINGLE_ROOT, UNSORTED];
-      unsorted += 1;
       continue;
     }
     const artist = data.artists[index];
     entry.styleArtist = index;
     entry.styleRep = artist.entryId === entry.id;
     entry.styleArtistTitle = byId.get(artist.canonicalEntryId)?.title || entry.title;
-    entry.stylePath = groupPath(artist.group);
-    if (entry.styleRep) counts[artist.group] += 1;
   }
   const singleNode = (codex.tree || []).find(node => node.name === SINGLE_ROOT);
-  const sources = (singleNode?.children || []).map(node => node.name);
-  const styleChildren = data.parents.map(parent => ({
-    name: parent.name,
-    count: parent.groups.reduce((sum, g) => sum + counts[g], 0),
-    children: parent.groups.map(g => ({ name: data.groups[g].name, count: counts[g], children: [] })),
-  }));
-  if (unsorted) styleChildren.push({ name: UNSORTED, count: unsorted, children: [] });
   codex.styleEntryById = byId;
-  codex.styleSources = sources;
-  codex.styleTree = (codex.tree || []).map(node => (node.name === SINGLE_ROOT
-    ? { ...node, count: counts.reduce((a, b) => a + b, 0) + unsorted, children: styleChildren }
-    : node));
+  codex.styleSources = (singleNode?.children || []).map(node => node.name);
+  applyDivision(codex, 'style');
   Object.defineProperty(codex, 'displayTree', {
     configurable: true,
     get() { return styleActive(this) ? this.styleTree : this.tree; },
@@ -207,19 +193,179 @@ export async function attachArtistStyles(codex) {
     pathsByName.set(JSON.stringify(from), target);
     pathsByCode.set(encodePathCode(from), from);
   }
-  /* 改名走精确别名；旧来源目录（MayRain 等）仍落到单画师首页。 */
+  /* 改名走精确别名；旧来源目录（MayRain 等）仍落到单画师首页。
+     路径属于另一种分法（别人分享的档位链接，或本机记着按 post 却打开了画风小组链接）时，本次先切到那种分法。 */
   Object.defineProperty(codex, 'styleRouteFallback', {
     configurable: true,
     value: path => {
       if (!styleActive(codex) || path?.[0] !== SINGLE_ROOT) return null;
-      return pathsByName.get(JSON.stringify(path))?.slice() || [SINGLE_ROOT];
+      const other = divisionOfPath(codex, path);
+      if (other) {
+        applyDivision(codex, other);
+        return path.slice();
+      }
+      const alias = pathsByName.get(JSON.stringify(path));
+      if (alias && artistDivision(codex) !== 'style') applyDivision(codex, 'style');
+      return alias?.slice() || [SINGLE_ROOT];
     },
   });
   Object.defineProperty(codex, 'stylePathFromCode', {
     configurable: true,
-    value: code => styleActive(codex) ? pathsByCode.get(String(code || '').trim())?.slice() : null,
+    value: code => {
+      if (!styleActive(codex)) return null;
+      const key = String(code || '').trim();
+      return pathsByCode.get(key)?.slice() || divisionPathFromCode(codex, key);
+    },
   });
+  const remembered = storedDivision();
+  if (remembered !== 'style') applyDivision(codex, remembered);
   return true;
+}
+
+/* ---------- 挑画师（原型）：分法 ----------
+   「单画师词典」下面的目录可以换一种分法：画风（大类 › 小组）、post 档位、上新批次。
+   分法只决定两件事：目录有哪些节点、每位画师算到哪个节点。排序、目录计数、阅读位置和地址栏短码
+   都照 entry.stylePath 与 codex.displayTree 走，所以换分法只重写这两样。 */
+
+export const ARTIST_DIVISIONS = Object.freeze(['style', 'post', 'new']);
+const DIVISION_KEY = 'fadian-artist-division-proto';
+const POST_BANDS = Object.freeze([
+  [2000, '2000 以上'], [1000, '1000–1999'], [500, '500–999'], [300, '300–499'],
+  [200, '200–299'], [100, '100–199'], [0, '100 以下'],
+]);
+const POST_UNKNOWN = 'post 未知';
+const BATCH_UNKNOWN = '未标批次';
+
+function storedDivision() {
+  try {
+    const value = globalThis.localStorage?.getItem(DIVISION_KEY);
+    return ARTIST_DIVISIONS.includes(value) ? value : 'style';
+  } catch {
+    return 'style';
+  }
+}
+
+export function artistDivision(codex = styleBook) {
+  return ARTIST_DIVISIONS.includes(codex?.styleDivision) ? codex.styleDivision : 'style';
+}
+
+/* 批次编号形如 2026.11.15，按日期比较；认不出的批次不参与。 */
+function batchRank(id) {
+  const parts = String(id || '').split('.').map(Number);
+  return parts.length === 3 && parts.every(Number.isFinite) ? parts[0] * 10000 + parts[1] * 100 + parts[2] : null;
+}
+
+/* 这位画师所有例图里最新的一期更新。 */
+export function latestBatchOf(artist, codex = styleBook) {
+  if (!artist) return null;
+  let best = null;
+  for (const id of [artist.entryId, ...artist.otherIds]) {
+    for (const batch of codex?.styleEntryById?.get(id)?.updateBatches || []) {
+      const rank = batchRank(batch);
+      if (rank != null && (!best || rank > best.rank)) best = { rank, id: String(batch) };
+    }
+  }
+  if (best) best.label = (codex?.updateFilters || []).find(item => String(item.id) === best.id)?.label || best.id;
+  return best;
+}
+
+function postBand(artist) {
+  return artist.post == null ? POST_UNKNOWN : POST_BANDS.find(([min]) => artist.post >= min)?.[1] || POST_UNKNOWN;
+}
+
+/* 某种分法下：每位画师的目录路径，以及单画师词典下面的节点（带人数，空节点不建）。不改任何东西。 */
+function divisionLayout(codex, mode) {
+  const data = styles;
+  const paths = data.artists.map(artist => (mode === 'post' ? [SINGLE_ROOT, postBand(artist)]
+    : mode === 'new' ? [SINGLE_ROOT, latestBatchOf(artist, codex)?.label || BATCH_UNKNOWN]
+      : groupPath(artist.group)));
+  const present = new Set();
+  let unsorted = 0;
+  for (const entry of codex.entries) {
+    if (entry.path?.[0] !== SINGLE_ROOT) continue;
+    if (Number.isInteger(entry.styleArtist)) present.add(entry.styleArtist);
+    else unsorted += 1;
+  }
+  const tally = new Map();
+  for (const index of present) {
+    const leaf = paths[index][paths[index].length - 1];
+    tally.set(leaf, (tally.get(leaf) || 0) + 1);
+  }
+  const leafNode = name => ({ name, count: tally.get(name) || 0, children: [] });
+  let children;
+  if (mode === 'post') {
+    children = [...POST_BANDS.map(([, name]) => name), POST_UNKNOWN].map(leafNode);
+  } else if (mode === 'new') {
+    const ranks = new Map();
+    for (const index of present) {
+      const batch = latestBatchOf(data.artists[index], codex);
+      ranks.set(batch?.label || BATCH_UNKNOWN, batch?.rank ?? -1);
+    }
+    children = [...ranks].sort((a, b) => b[1] - a[1]).map(([name]) => leafNode(name));
+  } else {
+    children = data.parents.map(parent => {
+      const groups = parent.groups.map(g => leafNode(data.groups[g].name));
+      return { name: parent.name, count: groups.reduce((sum, node) => sum + node.count, 0), children: groups };
+    });
+  }
+  if (mode !== 'style') children = children.filter(node => node.count > 0);
+  if (unsorted) children.push({ name: UNSORTED, count: unsorted, children: [] });
+  return { paths, children, total: present.size + unsorted };
+}
+
+function applyDivision(codex, mode) {
+  const layout = divisionLayout(codex, mode);
+  for (const entry of codex.entries) {
+    if (entry.path?.[0] === SINGLE_ROOT && Number.isInteger(entry.styleArtist)) entry.stylePath = layout.paths[entry.styleArtist];
+  }
+  codex.styleTree = (codex.tree || []).map(node => (node.name === SINGLE_ROOT
+    ? { ...node, count: layout.total, children: layout.children }
+    : node));
+  codex.styleDivision = mode;
+}
+
+/* 换分法：目录和每位画师的归属一起换。persist 为假时只在本次打开有效（比如跟着分享链接切过去）。 */
+export function setArtistDivision(codex, mode, { persist = true } = {}) {
+  if (!codex?.styleTree || !styles || !ARTIST_DIVISIONS.includes(mode)) return false;
+  if (artistDivision(codex) !== mode) applyDivision(codex, mode);
+  if (persist) {
+    try { globalThis.localStorage?.setItem(DIVISION_KEY, mode); } catch { /* 记不住就只管本次 */ }
+  }
+  return true;
+}
+
+function nodePaths(children) {
+  const list = [];
+  const walk = (nodes, prefix) => {
+    for (const node of nodes) {
+      const path = [...prefix, node.name];
+      list.push(path);
+      walk(node.children || [], path);
+    }
+  };
+  walk(children, [SINGLE_ROOT]);
+  return list;
+}
+
+/* 这条单画师路径属于哪一种「别的分法」；当前分法里就有、或哪种都没有时返回空。 */
+function divisionOfPath(codex, path) {
+  if (!Array.isArray(path) || path.length < 2 || path[1] === UNSORTED) return '';
+  const key = JSON.stringify(path);
+  const has = mode => nodePaths(divisionLayout(codex, mode).children).some(item => JSON.stringify(item) === key);
+  const current = artistDivision(codex);
+  if (has(current)) return '';
+  return ARTIST_DIVISIONS.find(mode => mode !== current && has(mode)) || '';
+}
+
+function divisionPathFromCode(codex, code) {
+  if (!code) return null;
+  const current = artistDivision(codex);
+  for (const mode of ARTIST_DIVISIONS) {
+    if (mode === current) continue;
+    const found = nodePaths(divisionLayout(codex, mode).children).find(path => encodePathCode(path) === code);
+    if (found) return found;
+  }
+  return null;
 }
 
 /* 目录计数用：这条词条在侧栏里算到哪条路径下；null = 不计（同一画师的其它来源例图，由代表那条算）。
@@ -251,10 +397,11 @@ export function inSingleSection(path = state.activePath) {
   return Boolean(isSinglePath(path) && !state.siteSearchView && !state.favoritesView && styleActive());
 }
 
-/* 当前路径落在哪一层：root / parent / group / unsorted；不在单画师各层时为 null */
+/* 当前路径落在哪一层：root / parent / group / unsorted，非画风分法下第二段是 band；不在单画师各层时为 null */
 export function styleLocation(path = state.activePath) {
   if (!styles || !isSinglePath(path)) return null;
   if (path[1] === UNSORTED) return { level: 'unsorted' };
+  if (path[1] && artistDivision() !== 'style') return { level: 'band', name: path[1] };
   const parent = path[1] ? styles.parents.find(p => p.name === path[1]) : null;
   const group = parent && path[2] ? styles.groups.find(g => g.parent === parent.index && g.name === path[2]) : null;
   if (group) return { level: 'group', parent, group };
@@ -360,6 +507,10 @@ export function selectStyleEntries(entries, path = state.activePath, { deduplica
   const where = styleLocation(path);
   if (!where) return entries;
   if (where.level === 'unsorted') return entries.filter(entry => entry.stylePath?.[1] === UNSORTED && entry.path?.[0] === SINGLE_ROOT);
+  if (where.level === 'band') {
+    const inBand = entries.filter(entry => entry.path?.[0] === SINGLE_ROOT && Number.isInteger(entry.styleArtist) && entry.stylePath?.[1] === where.name);
+    return deduplicate ? deduplicateStyleEntries(inBand) : inBand;
+  }
   const inScope = artist => (where.level === 'root'
     || (where.level === 'parent' ? styles.groups[artist.group].parent === where.parent.index : artist.group === where.group.index));
   const candidates = entries.filter(entry => {
@@ -385,89 +536,11 @@ export function artistNameOf(entry) {
   return (match ? match[1] : entry?.title || '').trim();
 }
 
-/* ---------- 挑画师（原型）：打平排序 ---------- */
-
-export const ARTIST_SORTS = Object.freeze(['style', 'post', 'usage', 'new']);
-const USAGE_PATH = 'proto-data/artist_usage.json';
-let usage;            // undefined = 没取过；null = 没有这份数据；Map = 归一画师名 → 例图张数
-let usageLoading = null;
-const batchInfo = new WeakMap();   // 画师对象 → { rank, id, label }；画风数据重载后画师对象是新的
-
-const usageKey = name => String(name || '').toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/\s*\(/g, ' (').trim();
-
-/* 站内例图的画师使用量（原型数据，离线统计的快照）。没有这份文件时排序选项不出现。 */
-export function loadArtistUsage() {
-  if (usage !== undefined) return Promise.resolve(usage);
-  if (!usageLoading) {
-    usageLoading = fetch(USAGE_PATH, { cache: 'no-store' })
-      .then(response => response.ok ? response.json() : null)
-      .then(data => {
-        const counts = data && typeof data.counts === 'object' ? Object.entries(data.counts) : [];
-        usage = counts.length ? new Map(counts.map(([name, count]) => [usageKey(name), Number(count) || 0])) : null;
-        return usage;
-      })
-      .catch(() => { usage = null; return null; });
-  }
-  return usageLoading;
-}
-
-export function artistUsageReady() {
-  return usage instanceof Map;
-}
-
-export function usageOf(artist) {
-  if (!artist || !(usage instanceof Map)) return null;
-  const entry = styleBookEntry(artist.canonicalEntryId) || styleBookEntry(artist.entryId);
-  return usage.get(usageKey(artistNameOf(entry))) ?? 0;
-}
-
-/* 批次编号形如 2026.11.15，按日期比较；认不出的批次不参与。 */
-function batchRank(id) {
-  const parts = String(id || '').split('.').map(Number);
-  return parts.length === 3 && parts.every(Number.isFinite) ? parts[0] * 10000 + parts[1] * 100 + parts[2] : null;
-}
-
-/* 这位画师所有例图里最新的一期更新。 */
-export function latestBatchOf(artist) {
-  if (!artist) return null;
-  if (batchInfo.has(artist)) return batchInfo.get(artist);
-  let best = null;
-  for (const entry of specimensOf(artist)) {
-    for (const id of entry.updateBatches || []) {
-      const rank = batchRank(id);
-      if (rank != null && (!best || rank > best.rank)) best = { rank, id: String(id) };
-    }
-  }
-  if (best) {
-    const filter = (styleBookCodex()?.updateFilters || []).find(item => String(item.id) === best.id);
-    best.label = filter?.label || best.id;
-  }
-  batchInfo.set(artist, best);
-  return best;
-}
-
-/* 当前是否把单画师打平成一条榜（或只看所选）；侧栏阅读位置在这两种情况下不跟随。 */
-export function artistFlatMode() {
-  if (!artistListActive()) return '';
-  if (state.artistPickOnly && state.artistPicked?.size) return 'picked';
-  return ARTIST_SORTS.includes(state.artistSort) && state.artistSort !== 'style' ? state.artistSort : '';
-}
-
-function sortKey(artist, mode) {
-  if (!artist) return null;
-  if (mode === 'post') return artist.post ?? null;
-  if (mode === 'usage') return usageOf(artist);
-  if (mode === 'new') return latestBatchOf(artist)?.rank ?? null;
-  return null;
-}
-
-/* 打平排序：按所选的数从多到少，缺值垫底；同值先比 post，再保持原相对顺序。 */
-export function sortArtistEntries(list, mode) {
-  return list.map((entry, index) => {
-    const artist = artistOf(entry);
-    return { entry, index, key: sortKey(artist, mode), post: artist?.post ?? -1 };
-  }).sort((a, b) => ((b.key ?? -Infinity) - (a.key ?? -Infinity)) || (b.post - a.post) || (a.index - b.index))
-    .map(item => item.entry);
+/* 只看所选：这本书的普通浏览里把勾中的画师单独摆出来；这时卡片顺序和目录无关。 */
+export function artistPickedView() {
+  return Boolean(state.artistPickOnly && state.artistPicked?.size && styleActive()
+    && !state.favoritesView && !state.siteSearchView
+    && !(state.searchPlan?.hasActiveSearch || String(state.query || '').trim() || state.searchFilterValues?.length));
 }
 
 /* 只看所选：按勾选顺序排，没被勾选的不出现。 */
@@ -477,18 +550,13 @@ export function pickedArtistEntries(list, picked = state.artistPicked) {
     .sort((a, b) => order.get(artistOf(a).index) - order.get(artistOf(b).index));
 }
 
-/* 小组页底行只写 post，大类页和单画师首页再带上小组名；打平排序时写当前排序用的那个数。 */
+/* 画风小组页底行只写 post；其余各层（大类、单画师首页、post 档位、上新批次、只看所选）再带上画风小组名。 */
 export function styleCardLine(entry) {
   if (!artistListActive()) return '';
   const artist = artistOf(entry);
   if (!artist) return '';
-  const mode = artistFlatMode();
-  const parts = styleLocation()?.level === 'group' && mode !== 'picked' ? [] : [groupOf(artist).name];
-  const count = mode === 'usage' ? usageOf(artist) : null;
-  const batch = mode === 'new' ? latestBatchOf(artist) : null;
-  if (count != null) parts.push(`${formatCount(count)} 张例图用到`);
-  else if (batch) parts.push(batch.label);
-  else parts.push(formatPost(artist.post));
+  const parts = styleLocation()?.level === 'group' && !artistPickedView() ? [] : [groupOf(artist).name];
+  parts.push(formatPost(artist.post));
   return parts.join(' · ');
 }
 
@@ -499,6 +567,10 @@ export function stylePathText(entry) {
   const artist = artistOf(entry);
   const source = sourceOf(entry);
   if (!artist) return [SINGLE_ROOT, UNSORTED].join(' › ') + (source ? ` · ${source}` : '');
+  // 目录按 post 或上新分时，侧栏里没有画风小组这一行，不写成路径，只写小组名和 post
+  if (!state.favoritesView && !state.siteSearchView && artistDivision(book) !== 'style') {
+    return `${groupOf(artist).name} · ${formatPost(artist.post)}`;
+  }
   return `${SINGLE_ROOT} › ${groupOf(artist).name}${source ? ` · ${source}` : ''}`;
 }
 

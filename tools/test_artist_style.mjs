@@ -37,12 +37,10 @@ const data = {
   ],
 };
 const nearShards = { 0: [[1, 2], [0]], 1: [[0], [2, 1, 0]] };
-const usageData = { counts: { 'baolong 3': 40, 'baolong 1': 7 } };
 const requestedUrls = [];
 globalThis.fetch = async url => {
   requestedUrls.push(String(url));
   const shard = String(url).match(/artist_styles_near\/0123456789abcdef\/(\d+)\.json$/);
-  if (String(url).endsWith('proto-data/artist_usage.json')) return { ok: true, json: async () => usageData };
   const body = shard ? nearShards[shard[1]] : data;
   return { ok: Boolean(body), json: async () => body };
 };
@@ -222,48 +220,50 @@ editMode = true;
 assert.deepEqual(style.sortStyleEntries(allInput), allInput, '编辑模式不套展示目录排序');
 editMode = false;
 
-// 挑画师（原型）：打平排序、只看所选与底行
-assert.deepEqual(ids(style.sortArtistEntries(reps, 'post')), ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3'],
-  '按 post 打平：跨组比较，未知 post 垫底');
-assert.deepEqual(reps.map(item => item.id), entries.slice(1, 5).map(item => item.id), '打平排序不能改输入数组');
-assert.equal(style.artistUsageReady(), false, '使用量没取到之前不算可用');
-assert.equal(style.usageOf(style.artistByIndex(0)), null);
-assert.ok(await style.loadArtistUsage() instanceof Map);
-assert.equal(style.artistUsageReady(), true);
-assert.equal(style.usageOf(style.artistByIndex(0)), 7, '使用量按规范姓名对：下划线、空格写法互认');
-assert.equal(style.usageOf(style.artistByIndex(1)), 0, '统计里没有的画师记 0');
-assert.deepEqual(ids(style.sortArtistEntries(reps, 'usage')), ['baolong_3', 'baolong_1', 'baolong_2', 'baolong_4'],
-  '按站内使用量打平，同为 0 的再按 post');
+// 挑画师（原型）：换分法时，单画师词典下面的目录和每位画师的归属一起换
+const singleNodes = () => codex.styleTree.find(node => node.name === '单画师词典').children.map(node => `${node.name}:${node.count}`);
+const styleTreeBefore = JSON.stringify(codex.styleTree);
+assert.equal(style.artistDivision(codex), 'style');
+assert.equal(style.setArtistDivision(codex, 'nope', { persist: false }), false, '不认识的分法不动');
+assert.equal(style.setArtistDivision(codex, 'post', { persist: false }), true);
+assert.equal(style.artistDivision(codex), 'post');
+assert.deepEqual(singleNodes(), ['2000 以上:1', '500–999:1', '100 以下:1', 'post 未知:1', '未归类:1'],
+  '按 post：档位从高到低，空档不建，未知和未归类垫底');
+assert.deepEqual(entries[0].stylePath, ['单画师词典', '500–999'], '同一位画师的各来源例图一起换到档位下');
+assert.deepEqual(entries[5].stylePath, ['单画师词典', '未归类'], '未归类不动');
+assert.deepEqual(ids(style.sortStyleEntries(reps)), ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3'],
+  '按 post 分时，原有的目录排序自然成了从多到少');
+state.activePath = ['单画师词典', '500–999'];
+assert.equal(style.styleLocation().level, 'band');
+assert.deepEqual(ids(style.selectStyleEntries(entries)), ['huazhiyu_9'], '点档位只看这一档，仍是一人一卡');
+assert.equal(style.styleCardLine(entries[1]), '甲一 · post 500', '档位页底行带上画风小组名');
+state.activePath = [];
+assert.equal(style.stylePathText(entries[0]), '甲一 · post 500', '按 post 分时「全部」里不把画风小组写成路径');
 codex.updateFilters = [{ id: '2026.9.5', label: '9.5更新' }, { id: '2026.11.15', label: '11.15更新', latest: true }];
 entries[4].updateBatches = ['2026.9.5'];
 entries[7].updateBatches = ['2026.9.5', '2026.11.15'];
-assert.equal(style.latestBatchOf(style.artistByIndex(0)).label, '11.15更新', '最近批次看这位画师的全部例图，不只看当前那张卡');
-assert.deepEqual(ids(style.sortArtistEntries(reps, 'new')), ['baolong_1', 'baolong_4', 'baolong_2', 'baolong_3'],
-  '按最近新增打平，没有批次的垫底并按 post');
-state.artistPicked = new Map([[3, 'artist_nai5_personal_baolong_4'], [0, 'artist_nai5_personal_baolong_1']]);
-assert.deepEqual(ids(style.pickedArtistEntries(reps)), ['baolong_4', 'baolong_1'], '只看所选按勾选顺序，没勾的不出现');
-state.activePath = ['单画师词典', '甲类', '甲一'];
-state.artistSort = 'style';
-state.artistPickOnly = false;
-assert.equal(style.artistFlatMode(), '');
-state.artistSort = 'usage';
-assert.equal(style.artistFlatMode(), 'usage');
-assert.equal(style.styleCardLine(entries[1]), '7 张例图用到', '按使用量排时底行写使用量');
-state.artistSort = 'new';
-assert.equal(style.styleCardLine(entries[1]), '11.15更新', '按最近新增排时底行写批次');
-assert.equal(style.styleCardLine(entries[2]), 'post 2,000', '没有批次的仍写 post');
-state.artistPickOnly = true;
-assert.equal(style.artistFlatMode(), 'picked');
-assert.equal(style.styleCardLine(entries[1]), '甲一 · post 500', '只看所选跨目录，底行带上小组名');
-state.activePath = ['单画师词典', '未归类'];
-assert.equal(style.artistFlatMode(), '', '未归类不参与打平');
-state.activePath = [];
-state.artistSort = 'style';
-state.artistPickOnly = false;
-state.artistPicked = new Map();
+assert.equal(style.setArtistDivision(codex, 'new', { persist: false }), true);
+assert.deepEqual(singleNodes(), ['11.15更新:1', '9.5更新:1', '未标批次:2', '未归类:1'],
+  '按上新：批次新的在前，看这位画师全部例图里最新的一期');
+assert.equal(style.setArtistDivision(codex, 'style', { persist: false }), true);
+assert.equal(JSON.stringify(codex.styleTree), styleTreeBefore, '换回按画风后目录与初始一致');
+assert.deepEqual(entries[0].stylePath, ['单画师词典', '甲类', '甲一']);
+assert.equal(style.stylePathText(entries[0]), '单画师词典 › 甲一 · 花枝鱼');
 delete codex.updateFilters;
 delete entries[4].updateBatches;
 delete entries[7].updateBatches;
+
+// 只看所选
+state.artistPicked = new Map([[3, 'artist_nai5_personal_baolong_4'], [0, 'artist_nai5_personal_baolong_1']]);
+assert.deepEqual(ids(style.pickedArtistEntries(reps)), ['baolong_4', 'baolong_1'], '只看所选按勾选顺序，没勾的不出现');
+assert.equal(style.artistPickedView(), false);
+state.artistPickOnly = true;
+assert.equal(style.artistPickedView(), true);
+state.activePath = ['单画师词典', '甲类', '甲一'];
+assert.equal(style.styleCardLine(entries[1]), '甲一 · post 500', '只看所选跨目录，底行带上小组名');
+state.activePath = [];
+state.artistPickOnly = false;
+state.artistPicked = new Map();
 
 // 今日画师抽到的原来源可能不是本次一人一卡选中的来源，仍只置顶这个人已选的卡。
 const featuredBook = { ...codex, entries: entries.map((entry, index) => index === 1
@@ -405,7 +405,7 @@ const spyDeps = {
   window: { scrollY: 0, innerHeight: 900 }, treeBranchAnimations: { size: 0 },
   spyLastIndex: 0, spyLastPathKey: '', spyLastRowKey: '', spyPointerIn: false,
   styleActive: () => true, isFeaturedEntry: entry => entry === entries[4], hasActiveSearch: () => false,
-  artistFlatMode: () => '',
+  artistPickedView: () => false,
   resetTreeSpy: () => { spyResets += 1; }, CSS: { escape: text => text },
 };
 new Function(...Object.keys(spyDeps), readingSpyBody + '\nupdateReadingSpy();')(...Object.values(spyDeps));

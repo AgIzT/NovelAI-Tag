@@ -140,8 +140,7 @@ export const state = {
   favSort: 'recent',
   favSelecting: false,
   favSelected: new Set(),
-  // 挑画师（原型）：排序、多选和只看所选都只存在本页，不进地址栏
-  artistSort: 'style',        // style 按画风分组；post / usage / new 打平成一条榜
+  // 挑画师（原型）：多选和只看所选只存在本页，不进地址栏；目录分法记在 codex.styleDivision
   artistPicking: false,
   artistPicked: new Map(),    // 画师下标 → 勾选时那张卡的词条 ID，按勾选顺序
   artistPickOnly: false,

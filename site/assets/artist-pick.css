@@ -1,11 +1,24 @@
-/* 挑画师（原型）：结果栏里的排序 / 多选 / 只看所选，卡片角标勾，底部操作条。
-   通用件复用站内已有的：.bar-btn、.ui-select.is-pill、.panel-action、.favorites-batch-bar；这里只挂定位和选中态。 */
+/* 挑画师（原型）：侧栏分法开关，结果栏里的多选 / 只看所选，卡片角标勾，底部操作条。
+   通用件复用站内已有的：.bar-btn、.panel-action、.favorites-batch-bar；这里只挂定位和选中态。 */
+
+/* ---------- 侧栏：单画师词典下面的分法开关 ----------
+   和子目录行同一缩进、同一字号；选中的是「分类的选中」，浅底加强调色，不用实色。 */
+.tree-division{display:flex;align-items:center;gap:4px;margin:2px 0 4px;padding:2px 8px 2px 29px;color:var(--muted);font-size:12px;line-height:1.4}
+.tree-division-label{flex:none;margin-right:2px}
+.tree-division-btn{
+  flex:none;padding:3px 10px;border:1px solid transparent;border-radius:999px;background:transparent;
+  color:var(--muted);font:inherit;font-weight:600;cursor:pointer;transition:background .12s,color .12s,border-color .12s;
+}
+.tree-division-btn:hover{color:var(--accent);background:var(--accent-soft)}
+.tree-division-btn[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 34%,var(--line));background:var(--accent-soft);color:var(--accent)}
+.tree-division-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+@media (hover:none), (pointer:coarse){
+  .tree-division-btn{padding:6px 12px}
+}
 
 /* ---------- 结果栏 ---------- */
 .artist-pick-controls{position:relative;z-index:19;display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
 .artist-pick-controls[hidden],.artist-pick-controls [hidden]{display:none!important}
-.artist-sort{flex:none;width:auto}
-.artist-sort .ui-select-list{max-width:min(240px,calc(100vw - 28px))}
 /* 多选是一种模式：浅底，不用实色 */
 .artist-pick-toggle[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 34%,var(--line));background:var(--accent-soft);color:var(--accent)}
 /* 只看所选改变了结果：实色，一眼能看到并退出 */

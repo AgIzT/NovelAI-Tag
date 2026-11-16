@@ -9,8 +9,8 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
-import { artistOf, artistFlatMode, deduplicateStyleEntries, inSingleSection, styleTreeSkeleton, styleActive, supportsArtistStyles, treePathOf } from './artist-style.js';
-import { renderArtistPickControls } from './artist-pick.js';
+import { artistOf, artistDivision, artistPickedView, deduplicateStyleEntries, inSingleSection, styleTreeSkeleton, styleActive, supportsArtistStyles, treePathOf } from './artist-style.js';
+import { renderArtistPickControls, renderArtistDivisionSwitch } from './artist-pick.js';
 import { isFeaturedEntry } from './featured.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
@@ -1163,6 +1163,7 @@ export function renderTree() {
   bindTreeSelection(all, () => selectPath([], all));
   nav.appendChild(all);
   buildNodes(visibleTree(), nav, [], 0);
+  renderArtistDivisionSwitch(nav);
   if (shouldAnimate) {
     /* 只给可见行编错峰序号——折叠子树里的行不占号，否则可见行延迟带空洞、节奏乱掉 */
     const visibleRows = [...nav.querySelectorAll('.tree-row')].filter(row => row.offsetParent !== null);
@@ -1215,8 +1216,8 @@ export function updateReadingSpy() {
     resetTreeSpy();
     return;
   }
-  // 挑画师打平排序或只看所选时，卡片顺序和目录无关，指示条不跟。
-  if (!state.codex || !state.placements.length || artistFlatMode()) {
+  // 只看所选时，卡片顺序和目录无关，指示条不跟。
+  if (!state.codex || !state.placements.length || artistPickedView()) {
     if (spy) spy.hidden = true;
     resetTreeSpy();
     return;
@@ -1305,8 +1306,9 @@ function accessViewSnapshot() {
   const allowNsfw = state.allowNsfw;
   const allowR18g = state.allowR18g;
   // 按画风展示与否会随数据挂上、本地编辑模式开关而变，entries 引用不变，记忆键要带上它
+  // 换分法（画风 / post / 上新）时目录节点整个换掉，记忆键带上当前分法
   const styleStamp = !state.favoritesView && !state.siteSearchView
-    && supportsArtistStyles(state.codex) && styleActive(state.codex);
+    && supportsArtistStyles(state.codex) && styleActive(state.codex) && artistDivision(state.codex);
   if (
     accessViewMemo?.styleStamp === styleStamp &&
     accessViewMemo?.entries === entries &&

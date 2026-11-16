@@ -1,11 +1,11 @@
-/* 挑画师（原型）：单画师墙上的排序下拉、多选、底部操作条与「只看所选」。
+/* 挑画师（原型）：侧栏「单画师词典」下面的分法开关（画风 / post / 上新），以及画师墙上的多选、底部操作条与「只看所选」。
+   这面墙怎么排一直由侧栏目录决定，所以排序不做成结果栏里的开关，而是目录的另一种分法：换分法时目录和墙一起换。
    不另存一份名单：复制照常进中转站素材，加入方案交给中转站，调权重也在那边。
    多选按画师身份记（同一位换了例图来源仍是同一位），只存在本页内存里。
-   列表怎么排在 artist-style.js，这里只管界面；刷新列表经 setArtistPickActions 注入，不反向依赖 app.js。 */
+   分法和列表逻辑在 artist-style.js，这里只管界面；换分法、刷新列表经 setArtistPickActions 注入，不反向依赖 app.js。 */
 
 import { state } from './state.js';
 import { toast } from './feedback.js';
-import { createSelectMenu } from './select-menu.js';
 import { isGlobalShortcutBlocked } from './modal.js';
 import { topHistoryLayerId } from './browser-history.js';
 import { isEntryAccessBlocked } from './access.js';
@@ -14,28 +14,26 @@ import { prepareCopiedEntry, recordCopiedEntry } from './tag-relay-store.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { openRelayRail } from './tag-relay-rail.js';
 import {
-  SINGLE_ROOT, artistOf, artistNameOf, artistUsageReady, inSingleSection, loadArtistUsage,
-  styleActive, styleBookEntry, styleLocation,
+  ARTIST_DIVISIONS, SINGLE_ROOT, artistDivision, artistOf, artistNameOf, styleActive, styleBookEntry,
 } from './artist-style.js';
 
 const actions = {
   applyFilter: () => {},
+  changeDivision: () => {},
 };
 
 export function setArtistPickActions(next = {}) {
   Object.assign(actions, next);
 }
 
-const SORT_LABELS = { style: '按画风', post: 'post 最多', usage: '站内例图用得最多', new: '最近新增' };
+const DIVISION_LABELS = { style: '画风', post: 'post', new: '上新' };
 
-let controls = null;     // { root, sort, toggle, only }
+let controls = null;     // { root, toggle, only }
 let bar = null;
 let busy = false;
 let unsaved = false;     // 勾选变过、还没复制或加入方案；退出多选时据此给「恢复」
 
-const searching = () => Boolean(state.searchPlan?.hasActiveSearch || String(state.query || '').trim() || state.searchFilterValues?.length);
 const pickScope = () => styleActive() && !state.favoritesView && !state.siteSearchView;
-const artistList = () => pickScope() && inSingleSection() && !searching() && styleLocation()?.level !== 'unsorted';
 const pickable = entry => (pickScope() && entry?.path?.[0] === SINGLE_ROOT ? artistOf(entry) : null);
 
 function pickedEntries() {
@@ -164,29 +162,46 @@ function setPickOnly(on) {
   refreshAll({ list: true });
 }
 
-/* ---------- 结果栏里的控件 ---------- */
+/* ---------- 侧栏：分法开关 ---------- */
 
-function sortOptions() {
-  return ['style', 'post', ...(artistUsageReady() ? ['usage'] : []), 'new'].map(value => ({ value, label: SORT_LABELS[value] }));
+/* renderTree 每次重画目录后调：在「单画师词典」那一项的子目录最前面放一排「按 画风 / post / 上新」。
+   目录是这面墙的目录，所以换分法的开关放在它要换的那段目录上，不放结果栏。 */
+export function renderArtistDivisionSwitch(nav) {
+  if (!nav || !pickScope()) return;
+  const row = [...nav.querySelectorAll(':scope > .tree-item > .tree-row')].find(node => node.dataset.path === SINGLE_ROOT);
+  const kids = row?.parentElement?.querySelector(':scope > .tree-children');
+  if (!kids) return;
+  const current = artistDivision(state.codex);
+  const line = element('div', 'tree-division');
+  line.setAttribute('role', 'group');
+  line.setAttribute('aria-label', '单画师词典的分法');
+  line.append(element('span', 'tree-division-label', '按'));
+  for (const mode of ARTIST_DIVISIONS) {
+    const node = button(DIVISION_LABELS[mode], 'tree-division-btn', event => {
+      event.stopPropagation();
+      if (mode === artistDivision(state.codex)) return;
+      actions.changeDivision(mode);
+      // 目录整个重画了，把焦点还给同一枚按钮
+      document.querySelector(`#tree .tree-division-btn[data-division="${mode}"]`)?.focus({ preventScroll: true });
+    });
+    node.dataset.division = mode;
+    node.setAttribute('aria-pressed', String(mode === current));
+    line.append(node);
+  }
+  kids.prepend(line);
 }
 
+/* ---------- 结果栏里的控件 ---------- */
+
 function buildControls(root) {
-  const sort = createSelectMenu({
-    label: '画师排序', value: state.artistSort, className: 'artist-sort is-pill', options: sortOptions(),
-    onChange: value => {
-      state.artistSort = value;
-      window.scrollTo({ top: 0 });
-      actions.applyFilter();
-    },
-  });
   const toggle = button('多选', 'bar-btn artist-pick-toggle', () => (state.artistPicking ? endPicking() : beginPicking()));
   const only = button('', 'bar-btn update-filter-btn artist-pick-only', () => setPickOnly(false));
   only.setAttribute('aria-pressed', 'true');
-  root.replaceChildren(sort.element, toggle, only);
-  return { root, sort, toggle, only };
+  root.replaceChildren(toggle, only);
+  return { root, toggle, only };
 }
 
-/* updateResultBar 每次都调：按当前视图决定三个控件各自出不出现。 */
+/* updateResultBar 每次都调：这本书的墙上有画师卡（全部、单画师各层、书内搜索），就给「多选」。 */
 export function renderArtistPickControls() {
   const root = document.getElementById('artistPickControls');
   if (!root) return;
@@ -195,15 +210,9 @@ export function renderArtistPickControls() {
     root.hidden = true;
     return;
   }
-  const list = artistList();
-  root.hidden = !list && !state.artistPicking;
-  if (root.hidden) return;
+  root.hidden = false;
   if (!controls || controls.root !== root) controls = buildControls(root);
   const only = state.artistPickOnly && state.artistPicked.size > 0;
-  controls.sort.element.hidden = !list || only;
-  const optionsKey = sortOptions().map(option => option.value).join();
-  if (optionsKey !== controls.optionsKey) { controls.optionsKey = optionsKey; controls.sort.setOptions(sortOptions()); }
-  controls.sort.setValue(state.artistSort);
   controls.toggle.textContent = state.artistPicking ? '完成' : '多选';
   controls.toggle.setAttribute('aria-pressed', String(Boolean(state.artistPicking)));
   controls.only.hidden = !only;
@@ -296,6 +305,4 @@ export function setupArtistPick() {
   });
   lean = new URLSearchParams(location.search).get('lean') === '1';
   document.body.classList.toggle('artist-lean', lean);
-  // 使用量是原型数据：取到了才出现在排序里。
-  void loadArtistUsage().then(() => renderArtistPickControls());
 }
