@@ -14,7 +14,7 @@ import { prepareCopiedEntry, recordCopiedEntry } from './tag-relay-store.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { openRelayRail } from './tag-relay-rail.js';
 import {
-  ARTIST_DIVISIONS, SINGLE_ROOT, artistDivision, artistOf, artistNameOf, styleActive, styleBookEntry,
+  ARTIST_DIVISIONS, SINGLE_ROOT, artistDivision, artistOf, styleActive, styleBookEntry,
 } from './artist-style.js';
 
 const actions = {
@@ -58,21 +58,42 @@ function button(text, className, onClick) {
   return node;
 }
 
-/* ---------- 卡片 ---------- */
+/* ---------- 卡片 ----------
+   卡片上平时什么都不加。选中的卡片描一圈强调色，图片左上角的徽章列里多一枚序号（复制就按这个顺序）。 */
 
-function syncCard(card) {
-  const on = state.artistPicked.has(Number(card.dataset.artistPick));
+const cardSemantics = new WeakMap();   // 多选期间卡片临时当复选框用，退出后还原
+
+function syncCard(card, order) {
+  const position = order.get(Number(card.dataset.artistPick));
+  const on = position != null;
   card.classList.toggle('is-artist-picked', on);
-  const check = card.querySelector('.artist-pick-check');
-  if (check) {
-    check.setAttribute('aria-checked', String(on));
-    check.textContent = on ? '✓' : '';
+  const badge = card.querySelector('.badge-pick');
+  if (badge) {
+    badge.hidden = !on;
+    badge.textContent = on ? String(position + 1) : '';
+  }
+  if (state.artistPicking) {
+    if (!cardSemantics.has(card)) {
+      cardSemantics.set(card, ['role', 'tabindex', 'aria-checked'].map(name => [name, card.getAttribute(name)]));
+    }
+    card.setAttribute('role', 'checkbox');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-checked', String(on));
+  } else if (cardSemantics.has(card)) {
+    for (const [name, value] of cardSemantics.get(card)) {
+      if (value === null) card.removeAttribute(name);
+      else card.setAttribute(name, value);
+    }
+    cardSemantics.delete(card);
   }
 }
 
+const pickOrder = () => new Map([...state.artistPicked.keys()].map((index, position) => [index, position]));
+
 function syncCards() {
   document.body.classList.toggle('artist-picking', Boolean(state.artistPicking));
-  for (const card of document.querySelectorAll('[data-artist-pick]')) syncCard(card);
+  const order = pickOrder();
+  for (const card of document.querySelectorAll('[data-artist-pick]')) syncCard(card, order);
 }
 
 function refreshAll({ list = false } = {}) {
@@ -92,31 +113,37 @@ function togglePick(entry, artist) {
   refreshAll({ list: wasOnly });
 }
 
+/* 多选中点卡片就是勾选；没进多选时按住 Ctrl / ⌘ 点卡片，直接从这一张开始。放大镜和重试照常。 */
 function handleCardClick(event, entry, artist) {
-  if (!state.artistPicking) return;
-  if (event.target.closest?.('.zoom-btn, .img-retry, .artist-pick-check')) return;
+  if (!pickScope()) return;
+  const inner = event.target.closest?.('button, a');
+  if (!state.artistPicking) {
+    if (!(event.ctrlKey || event.metaKey) || inner) return;
+  } else if (inner?.matches('.zoom-btn, .img-retry')) return;
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
   togglePick(entry, artist);
 }
 
-/* makeCard 末尾调用：单画师卡加角标勾；进入多选后点卡片就是勾选。手机上只挂卡片类名，不出勾。 */
+/* makeCard 末尾调用。手机上只挂卡片类名，不接多选。 */
 export function decorateArtistPickCard(card, entry) {
   const artist = artistCard(entry);
   if (!artist) return;
   card.classList.add('artist-pick-card');
   if (onPhone()) return;
   card.dataset.artistPick = String(artist.index);
-  const check = button('', 'artist-pick-check', event => {
-    event.stopPropagation();
+  const badge = element('span', 'badge-pick');
+  badge.hidden = true;
+  card.querySelector('.card-badges')?.prepend(badge);
+  card.addEventListener('click', event => handleCardClick(event, entry, artist), true);
+  card.addEventListener('keydown', event => {
+    if (!state.artistPicking || event.target !== card || event.repeat) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
     togglePick(entry, artist);
   });
-  check.setAttribute('role', 'checkbox');
-  check.setAttribute('aria-label', `选中 ${artistNameOf(entry)}`);
-  (card.querySelector('.card-img-wrap:not([hidden])') || card).append(check);
-  card.addEventListener('click', event => handleCardClick(event, entry, artist), true);
-  syncCard(card);
+  syncCard(card, pickOrder());
 }
 
 /* 单画师卡的标题已经是画师名，提示词行不再重复一遍；瀑布流估高、测高与样式用同一判断。 */
@@ -199,6 +226,7 @@ export function renderArtistDivisionSwitch(nav) {
 
 function buildControls(root) {
   const toggle = button('多选', 'bar-btn artist-pick-toggle', () => (state.artistPicking ? endPicking() : beginPicking()));
+  toggle.title = '按住 Ctrl 或 ⌘ 点卡片，也能从那一张开始多选';
   const only = button('', 'bar-btn update-filter-btn artist-pick-only', () => setPickOnly(false));
   only.setAttribute('aria-pressed', 'true');
   root.replaceChildren(toggle, only);
@@ -281,7 +309,7 @@ function renderBar() {
   }
   const done = button('完成', 'panel-action favorites-action', () => endPicking());
   bar.setAttribute('aria-busy', String(busy));
-  bar.replaceChildren(element('strong', '', `已选 ${count} 位`), copy, add, only, done);
+  bar.replaceChildren(element('strong', '', count ? `已选 ${count} 位` : '点卡片选画师'), copy, add, only, done);
   for (const node of bar.querySelectorAll('button')) node.dataset.pickAction = node.textContent;
   document.body.style.setProperty('--artist-pick-bar-height', bar.offsetHeight + 'px');
   if (focused) [...bar.querySelectorAll('button')].find(node => node.dataset.pickAction === focused)?.focus({ preventScroll: true });
