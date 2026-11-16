@@ -19,6 +19,8 @@ const masonryActions = {
   reportEntry: () => {},
   hideCard: () => {},
   decorateFavoriteCard: () => {},
+  decorateArtistPickCard: () => {},
+  leanCard: () => false,
   favoriteBadgeHeight: () => 0,
 };
 
@@ -379,7 +381,7 @@ export function estimateBodyMetrics(e, width) {
   const titleLines = clamp(Math.ceil(textUnits(title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
   const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
   const titleHeight = Math.max(cfg.mobile ? (cfg.titleMinHeight || 20) : 0, titleLines * cfg.titleLineHeight);
-  const tagsHeight = cfg.hideImageTags && hasEntryImage(e) ? 0
+  const tagsHeight = (cfg.hideImageTags && hasEntryImage(e)) || masonryActions.leanCard(e) ? 0
     : clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const titleGap = tagsHeight ? cfg.titleGap : 0;
   const footGap = cfg.footGap;
@@ -693,6 +695,7 @@ export function makeCard(placement) {
     masonryActions.copyEntry(e, node);
   };
   masonryActions.decorateFavoriteCard(node, e);
+  masonryActions.decorateArtistPickCard(node, e);
   return node;
 }
 
@@ -980,7 +983,7 @@ function measureCardHeights(cards) {
   return prepared.map(card => {
     const naturalTagsHeight = card.tags ? Math.ceil(card.tags.scrollHeight) : 0;
     const naturalTagsBoxHeight = card.tags ? layoutHeight(card.tags) : 0;
-    const tagsHeight = cfg.hideImageTags && hasEntryImage(card.placement.entry) ? 0 : card.tags
+    const tagsHeight = (cfg.hideImageTags && hasEntryImage(card.placement.entry)) || masonryActions.leanCard(card.placement.entry) ? 0 : card.tags
       ? clamp(naturalTagsHeight, cfg.minTagHeight, cfg.maxTagHeight)
       : card.placement.tagsHeight;
     const imageHeight = card.wrap && !card.wrap.hidden && getComputedStyle(card.wrap).display !== 'none'

@@ -68,6 +68,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <link rel="stylesheet" href="assets/favorites-library.css">
 <link rel="stylesheet" href="assets/tag-relay.css">
 <link rel="stylesheet" href="assets/artist-style.css">
+<link rel="stylesheet" href="assets/artist-pick.css">
 <link rel="modulepreload" href="assets/data-source.js">
 <link rel="modulepreload" href="assets/data-release.js">
 <link rel="modulepreload" href="assets/app/state.js">
@@ -114,6 +115,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
      tools/test_module_preload.mjs 会核对整张静态 import 图，新增或删掉模块时照着它的提示同步这里。 -->
 <link rel="modulepreload" fetchpriority="low" href="assets/site-metrics-contract.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/artist-core.js">
+<link rel="modulepreload" fetchpriority="low" href="assets/app/artist-pick.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/artist-strip.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/artist-style.js">
 <link rel="modulepreload" fetchpriority="low" href="assets/app/artist-style-ui.js">
@@ -426,6 +428,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <div id="searchFilterChips" class="search-filter-chips" role="list" aria-label="当前搜索筛选"></div>
       </div>
       <div id="updateFilterControls" class="update-filter-controls" hidden></div>
+      <div id="artistPickControls" class="artist-pick-controls" hidden></div>
       <button id="favoritesViewBackupBtn" class="bar-btn favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
         <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
         <span>备份与恢复</span>

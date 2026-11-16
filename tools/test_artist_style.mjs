@@ -37,10 +37,12 @@ const data = {
   ],
 };
 const nearShards = { 0: [[1, 2], [0]], 1: [[0], [2, 1, 0]] };
+const usageData = { counts: { 'baolong 3': 40, 'baolong 1': 7 } };
 const requestedUrls = [];
 globalThis.fetch = async url => {
   requestedUrls.push(String(url));
   const shard = String(url).match(/artist_styles_near\/0123456789abcdef\/(\d+)\.json$/);
+  if (String(url).endsWith('proto-data/artist_usage.json')) return { ok: true, json: async () => usageData };
   const body = shard ? nearShards[shard[1]] : data;
   return { ok: Boolean(body), json: async () => body };
 };
@@ -220,6 +222,49 @@ editMode = true;
 assert.deepEqual(style.sortStyleEntries(allInput), allInput, '编辑模式不套展示目录排序');
 editMode = false;
 
+// 挑画师（原型）：打平排序、只看所选与底行
+assert.deepEqual(ids(style.sortArtistEntries(reps, 'post')), ['baolong_2', 'baolong_1', 'baolong_4', 'baolong_3'],
+  '按 post 打平：跨组比较，未知 post 垫底');
+assert.deepEqual(reps.map(item => item.id), entries.slice(1, 5).map(item => item.id), '打平排序不能改输入数组');
+assert.equal(style.artistUsageReady(), false, '使用量没取到之前不算可用');
+assert.equal(style.usageOf(style.artistByIndex(0)), null);
+assert.ok(await style.loadArtistUsage() instanceof Map);
+assert.equal(style.artistUsageReady(), true);
+assert.equal(style.usageOf(style.artistByIndex(0)), 7, '使用量按规范姓名对：下划线、空格写法互认');
+assert.equal(style.usageOf(style.artistByIndex(1)), 0, '统计里没有的画师记 0');
+assert.deepEqual(ids(style.sortArtistEntries(reps, 'usage')), ['baolong_3', 'baolong_1', 'baolong_2', 'baolong_4'],
+  '按站内使用量打平，同为 0 的再按 post');
+codex.updateFilters = [{ id: '2026.9.5', label: '9.5更新' }, { id: '2026.11.15', label: '11.15更新', latest: true }];
+entries[4].updateBatches = ['2026.9.5'];
+entries[7].updateBatches = ['2026.9.5', '2026.11.15'];
+assert.equal(style.latestBatchOf(style.artistByIndex(0)).label, '11.15更新', '最近批次看这位画师的全部例图，不只看当前那张卡');
+assert.deepEqual(ids(style.sortArtistEntries(reps, 'new')), ['baolong_1', 'baolong_4', 'baolong_2', 'baolong_3'],
+  '按最近新增打平，没有批次的垫底并按 post');
+state.artistPicked = new Map([[3, 'artist_nai5_personal_baolong_4'], [0, 'artist_nai5_personal_baolong_1']]);
+assert.deepEqual(ids(style.pickedArtistEntries(reps)), ['baolong_4', 'baolong_1'], '只看所选按勾选顺序，没勾的不出现');
+state.activePath = ['单画师词典', '甲类', '甲一'];
+state.artistSort = 'style';
+state.artistPickOnly = false;
+assert.equal(style.artistFlatMode(), '');
+state.artistSort = 'usage';
+assert.equal(style.artistFlatMode(), 'usage');
+assert.equal(style.styleCardLine(entries[1]), '7 张例图用到', '按使用量排时底行写使用量');
+state.artistSort = 'new';
+assert.equal(style.styleCardLine(entries[1]), '11.15更新', '按最近新增排时底行写批次');
+assert.equal(style.styleCardLine(entries[2]), 'post 2,000', '没有批次的仍写 post');
+state.artistPickOnly = true;
+assert.equal(style.artistFlatMode(), 'picked');
+assert.equal(style.styleCardLine(entries[1]), '甲一 · post 500', '只看所选跨目录，底行带上小组名');
+state.activePath = ['单画师词典', '未归类'];
+assert.equal(style.artistFlatMode(), '', '未归类不参与打平');
+state.activePath = [];
+state.artistSort = 'style';
+state.artistPickOnly = false;
+state.artistPicked = new Map();
+delete codex.updateFilters;
+delete entries[4].updateBatches;
+delete entries[7].updateBatches;
+
 // 今日画师抽到的原来源可能不是本次一人一卡选中的来源，仍只置顶这个人已选的卡。
 const featuredBook = { ...codex, entries: entries.map((entry, index) => index === 1
   ? { ...entry, rating: 'safe', image: 'featured.jpg', imageWidth: 100, imageHeight: 200 }
@@ -360,6 +405,7 @@ const spyDeps = {
   window: { scrollY: 0, innerHeight: 900 }, treeBranchAnimations: { size: 0 },
   spyLastIndex: 0, spyLastPathKey: '', spyLastRowKey: '', spyPointerIn: false,
   styleActive: () => true, isFeaturedEntry: entry => entry === entries[4], hasActiveSearch: () => false,
+  artistFlatMode: () => '',
   resetTreeSpy: () => { spyResets += 1; }, CSS: { escape: text => text },
 };
 new Function(...Object.keys(spyDeps), readingSpyBody + '\nupdateReadingSpy();')(...Object.values(spyDeps));

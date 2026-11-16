@@ -9,7 +9,8 @@ import { createSelectMenu } from './select-menu.js';
 import { animateUi, cancelUiMotion } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
-import { artistOf, deduplicateStyleEntries, inSingleSection, styleTreeSkeleton, styleActive, supportsArtistStyles, treePathOf } from './artist-style.js';
+import { artistOf, artistFlatMode, deduplicateStyleEntries, inSingleSection, styleTreeSkeleton, styleActive, supportsArtistStyles, treePathOf } from './artist-style.js';
+import { renderArtistPickControls } from './artist-pick.js';
 import { isFeaturedEntry } from './featured.js';
 import { isBirthdayCodex } from './birthday.js';
 import { burstConfetti, canCelebrate, innerConfettiLayer, viewportConfettiLayer, buntingSVG, PARTY_HAT_HTML, createWishCombo, flipPartyHat } from './birthday-fx.js';
@@ -1214,7 +1215,8 @@ export function updateReadingSpy() {
     resetTreeSpy();
     return;
   }
-  if (!state.codex || !state.placements.length) {
+  // 挑画师打平排序或只看所选时，卡片顺序和目录无关，指示条不跟。
+  if (!state.codex || !state.placements.length || artistFlatMode()) {
     if (spy) spy.hidden = true;
     resetTreeSpy();
     return;
@@ -1689,6 +1691,7 @@ export function updateResultBar() {
   const favoritesBackupButton = $('#favoritesViewBackupBtn');
   if (favoritesBackupButton) favoritesBackupButton.hidden = !state.favoritesView;
   updateFilterControls();
+  renderArtistPickControls();
   box.innerHTML = '';
   const searching = hasActiveSearch();
 

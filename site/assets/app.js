@@ -25,7 +25,7 @@ import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initial
 import { decodeCodexPathCode, normalizeCodexRoutePath } from './app/codex-route-compat.js';
 import { encodePathCode } from './app/path-code.js';
 import { setupCodexPicker, setupAbout, setupTreeSpy, updateCodexPickerState, renderTree, renderCodexHeader, renderBannerIdentity, updateRailActive, updateResultBar, updateEmptyState, setCodexUiActions, codexCoverUrl, codexCoverStyle, selectPathByPath } from './app/codex-ui.js';
-import { STYLE_CODEX_ID, SINGLE_ROOT, supportsArtistStyles, loadArtistStyles, attachArtistStyles, inSingleSection, selectStyleEntries, deduplicateStyleEntries, sortStyleEntries, styleActive } from './app/artist-style.js';
+import { STYLE_CODEX_ID, SINGLE_ROOT, supportsArtistStyles, loadArtistStyles, attachArtistStyles, inSingleSection, selectStyleEntries, deduplicateStyleEntries, sortStyleEntries, styleActive, styleLocation, ARTIST_SORTS, sortArtistEntries, pickedArtistEntries } from './app/artist-style.js';
 import { bindArtistStyleUi, renderArtistProfile, setStyleUiActions } from './app/artist-style-ui.js';
 import { canAnimateSwitch, beginCodexSwitch, cancelCodexSwitch } from './app/codex-switch.js';
 import { normalizeRecentEntries, normalizeLastBrowse, restoreBrowseScroll, scheduleBrowseStateSave, suppressBrowseStateSave, setHistoryActions, renderHistoryPanel } from './app/history.js';
@@ -37,6 +37,7 @@ import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntr
 import { setupPageGlow } from './app/page-glow.js';
 import { setupCardDepth } from './app/card-depth.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
+import { setupArtistPick, setArtistPickActions, decorateArtistPickCard, leanArtistCard } from './app/artist-pick.js';
 import { isBirthday, BIRTHDAY_CODEX_ID } from './app/birthday.js';
 import { pickInitialCodex } from './app/initial-codex.js';
 import { dismissResumePrompt, setupResumePrompt } from './app/resume-prompt.js';
@@ -931,8 +932,15 @@ export function applyFilter(options = {}) {
   let list = visibleEntries;
   // 范围和搜索先匹配原词条，所有过滤完成后再每人选一张；详情保留全部来源。
   const singleSection = inSingleSection() && !plan.hasActiveSearch;
+  // 挑画师（原型）：离开单画师区就回到按画风；只看所选的范围是整个单画师词典，不受当前目录收窄。
+  if (!inSingleSection()) { state.artistSort = 'style'; state.artistPickOnly = false; }
+  const artistList = singleSection && !state.favoritesView && !state.siteSearchView && styleActive()
+    && styleLocation()?.level !== 'unsorted';
+  const pickOnly = artistList && state.artistPickOnly && state.artistPicked.size > 0;
+  const flatSort = artistList && !pickOnly && ARTIST_SORTS.includes(state.artistSort) && state.artistSort !== 'style'
+    ? state.artistSort : '';
   const byActivePath = l => {
-    const p = state.activePath;
+    const p = pickOnly ? [SINGLE_ROOT] : state.activePath;
     if (!p.length) return l;
     if (singleSection) return selectStyleEntries(l, p, { deduplicate: false });
     return l.filter(e => p.every((seg, i) => e.path[i] === seg));
@@ -958,8 +966,10 @@ export function applyFilter(options = {}) {
   const unblocked = mergeArtists ? deduplicateStyleEntries(unblockedExamples) : unblockedExamples;
   const countBeforeBlocking = mergeArtists ? deduplicateStyleEntries(list).length : list.length;
   const blockedCount = countBeforeBlocking - unblocked.length;
+  const styleOrdered = () => pickOnly ? pickedArtistEntries(unblocked)
+    : flatSort ? sortArtistEntries(unblocked, flatSort) : sortStyleEntries(unblocked);
   const ordered = !state.favoritesView && !state.siteSearchView
-    ? (styleBrowse ? sortStyleEntries(unblocked) : sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder))
+    ? (styleBrowse ? styleOrdered() : sortCategoryEntries(unblocked, state.codex?.tree, state.codex?.categoryOrder))
     : unblocked;
   state.list = state.favoritesView ? filterFavoritesEntries(ordered) : rankSearchResults(ordered, plan);
   // 今日画师只在那本书的「全部」视图置顶：有目录、搜索 / 筛选、更新筛选、收藏或全站搜索时保持原顺序
@@ -1256,11 +1266,16 @@ setMasonryActions({
   toggleFav,
   hideCard,
   decorateFavoriteCard,
+  decorateArtistPickCard,
+  leanCard: leanArtistCard,
   favoriteBadgeHeight: entry => state.favoritesView && folderBadges(entry).length ? 24 : 0,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
 
 setIntroActions({ settleCardEntry });
+
+setArtistPickActions({ applyFilter: () => applyFilter() });
+setupArtistPick();
 
 setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch: applyObservedSearch, cancelSearchObservation: cancelSiteSearchObservation, openRelatedDirectory, refreshAccessView });
 

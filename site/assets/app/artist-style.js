@@ -385,13 +385,110 @@ export function artistNameOf(entry) {
   return (match ? match[1] : entry?.title || '').trim();
 }
 
-/* 小组页底行只写 post，大类页和单画师首页再带上小组名。 */
+/* ---------- 挑画师（原型）：打平排序 ---------- */
+
+export const ARTIST_SORTS = Object.freeze(['style', 'post', 'usage', 'new']);
+const USAGE_PATH = 'proto-data/artist_usage.json';
+let usage;            // undefined = 没取过；null = 没有这份数据；Map = 归一画师名 → 例图张数
+let usageLoading = null;
+const batchInfo = new WeakMap();   // 画师对象 → { rank, id, label }；画风数据重载后画师对象是新的
+
+const usageKey = name => String(name || '').toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/\s*\(/g, ' (').trim();
+
+/* 站内例图的画师使用量（原型数据，离线统计的快照）。没有这份文件时排序选项不出现。 */
+export function loadArtistUsage() {
+  if (usage !== undefined) return Promise.resolve(usage);
+  if (!usageLoading) {
+    usageLoading = fetch(USAGE_PATH, { cache: 'no-store' })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        const counts = data && typeof data.counts === 'object' ? Object.entries(data.counts) : [];
+        usage = counts.length ? new Map(counts.map(([name, count]) => [usageKey(name), Number(count) || 0])) : null;
+        return usage;
+      })
+      .catch(() => { usage = null; return null; });
+  }
+  return usageLoading;
+}
+
+export function artistUsageReady() {
+  return usage instanceof Map;
+}
+
+export function usageOf(artist) {
+  if (!artist || !(usage instanceof Map)) return null;
+  const entry = styleBookEntry(artist.canonicalEntryId) || styleBookEntry(artist.entryId);
+  return usage.get(usageKey(artistNameOf(entry))) ?? 0;
+}
+
+/* 批次编号形如 2026.11.15，按日期比较；认不出的批次不参与。 */
+function batchRank(id) {
+  const parts = String(id || '').split('.').map(Number);
+  return parts.length === 3 && parts.every(Number.isFinite) ? parts[0] * 10000 + parts[1] * 100 + parts[2] : null;
+}
+
+/* 这位画师所有例图里最新的一期更新。 */
+export function latestBatchOf(artist) {
+  if (!artist) return null;
+  if (batchInfo.has(artist)) return batchInfo.get(artist);
+  let best = null;
+  for (const entry of specimensOf(artist)) {
+    for (const id of entry.updateBatches || []) {
+      const rank = batchRank(id);
+      if (rank != null && (!best || rank > best.rank)) best = { rank, id: String(id) };
+    }
+  }
+  if (best) {
+    const filter = (styleBookCodex()?.updateFilters || []).find(item => String(item.id) === best.id);
+    best.label = filter?.label || best.id;
+  }
+  batchInfo.set(artist, best);
+  return best;
+}
+
+/* 当前是否把单画师打平成一条榜（或只看所选）；侧栏阅读位置在这两种情况下不跟随。 */
+export function artistFlatMode() {
+  if (!artistListActive()) return '';
+  if (state.artistPickOnly && state.artistPicked?.size) return 'picked';
+  return ARTIST_SORTS.includes(state.artistSort) && state.artistSort !== 'style' ? state.artistSort : '';
+}
+
+function sortKey(artist, mode) {
+  if (!artist) return null;
+  if (mode === 'post') return artist.post ?? null;
+  if (mode === 'usage') return usageOf(artist);
+  if (mode === 'new') return latestBatchOf(artist)?.rank ?? null;
+  return null;
+}
+
+/* 打平排序：按所选的数从多到少，缺值垫底；同值先比 post，再保持原相对顺序。 */
+export function sortArtistEntries(list, mode) {
+  return list.map((entry, index) => {
+    const artist = artistOf(entry);
+    return { entry, index, key: sortKey(artist, mode), post: artist?.post ?? -1 };
+  }).sort((a, b) => ((b.key ?? -Infinity) - (a.key ?? -Infinity)) || (b.post - a.post) || (a.index - b.index))
+    .map(item => item.entry);
+}
+
+/* 只看所选：按勾选顺序排，没被勾选的不出现。 */
+export function pickedArtistEntries(list, picked = state.artistPicked) {
+  const order = new Map([...picked.keys()].map((index, position) => [index, position]));
+  return list.filter(entry => order.has(artistOf(entry)?.index))
+    .sort((a, b) => order.get(artistOf(a).index) - order.get(artistOf(b).index));
+}
+
+/* 小组页底行只写 post，大类页和单画师首页再带上小组名；打平排序时写当前排序用的那个数。 */
 export function styleCardLine(entry) {
   if (!artistListActive()) return '';
   const artist = artistOf(entry);
   if (!artist) return '';
-  const parts = styleLocation()?.level === 'group' ? [] : [groupOf(artist).name];
-  parts.push(formatPost(artist.post));
+  const mode = artistFlatMode();
+  const parts = styleLocation()?.level === 'group' && mode !== 'picked' ? [] : [groupOf(artist).name];
+  const count = mode === 'usage' ? usageOf(artist) : null;
+  const batch = mode === 'new' ? latestBatchOf(artist) : null;
+  if (count != null) parts.push(`${formatCount(count)} 张例图用到`);
+  else if (batch) parts.push(batch.label);
+  else parts.push(formatPost(artist.post));
   return parts.join(' · ');
 }
 

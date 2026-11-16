@@ -1,0 +1,56 @@
+/* 挑画师（原型）：结果栏里的排序 / 多选 / 只看所选，卡片角标勾，底部操作条。
+   通用件复用站内已有的：.bar-btn、.ui-select.is-pill、.panel-action、.favorites-batch-bar；这里只挂定位和选中态。 */
+
+/* ---------- 结果栏 ---------- */
+.artist-pick-controls{position:relative;z-index:19;display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px}
+.artist-pick-controls[hidden],.artist-pick-controls [hidden]{display:none!important}
+.artist-sort{flex:none;width:auto}
+.artist-sort .ui-select-list{max-width:min(240px,calc(100vw - 28px))}
+/* 多选是一种模式：浅底，不用实色 */
+.artist-pick-toggle[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 34%,var(--line));background:var(--accent-soft);color:var(--accent)}
+/* 只看所选改变了结果：实色，一眼能看到并退出 */
+.artist-pick-only,.artist-pick-only:hover{
+  border-color:var(--accent);background:var(--accent);color:var(--on-accent);
+  box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 18%,transparent);
+}
+
+/* ---------- 卡片 ----------
+   角标勾排在放大镜左边：图片左上角是徽章，竖图的下沿常在屏幕外。 */
+.artist-pick-check{
+  position:absolute;z-index:8;top:11px;right:46px;display:grid;place-items:center;
+  width:24px;height:24px;padding:0;border:1.5px solid #fff;border-radius:8px;
+  background:rgba(0,0,0,.42);color:#fff;font:700 14px/1 var(--font-ui);cursor:pointer;
+  transition:opacity .12s,background .12s,border-color .12s,scale .14s ease;
+}
+.card.no-img>.artist-pick-check{top:auto;right:8px;bottom:8px}
+/* 手机卡片没有放大镜，勾直接靠右上角 */
+.zoom-btn[hidden]~.artist-pick-check{top:8px;right:8px}
+.artist-pick-check[aria-checked="true"]{border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
+.artist-pick-check:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.artist-pick-check:active{scale:.92}
+.artist-pick-card{outline:2px solid transparent;outline-offset:-2px}
+.artist-pick-card.is-artist-picked{outline-color:var(--accent)}
+.artist-picking .artist-pick-card{cursor:pointer}
+/* 多选时点卡片就是勾选：复制提示、收藏和屏蔽先收起，放大镜照常 */
+.artist-picking .artist-pick-card :is(.card-actions,.fav-btn,.hide-card-btn){visibility:hidden}
+@media (hover:hover) and (min-width:601px){
+  .artist-pick-check{opacity:0}
+  .artist-pick-card:hover .artist-pick-check,.artist-pick-check:focus-visible,
+  .artist-picking .artist-pick-check,.is-artist-picked .artist-pick-check{opacity:1}
+  .artist-pick-check:hover{background:rgba(0,0,0,.62)}
+  .artist-pick-check[aria-checked="true"]:hover{background:var(--accent);filter:brightness(1.06)}
+}
+@media (hover:none), (pointer:coarse){
+  .artist-pick-check{top:8px;right:48px;width:30px;height:30px;border-radius:10px}
+}
+
+/* ---------- 底部操作条 ---------- */
+.artist-pick-bar [aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.artist-picking .toast{bottom:calc(var(--artist-pick-bar-height,60px) + max(22px, env(safe-area-inset-bottom)) + 12px)}
+/* 操作条在窄屏贴底通栏，快捷按钮让到它上面 */
+@media (max-width:720px){
+  .artist-picking .float-actions{bottom:calc(var(--artist-pick-bar-height,60px) + max(10px, env(safe-area-inset-bottom)) + 12px)}
+}
+
+/* ---------- ?lean=1：单画师卡不重复写画师名 ---------- */
+.artist-lean .artist-pick-card .card-tags{display:none}
