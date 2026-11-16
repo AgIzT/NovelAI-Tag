@@ -227,7 +227,7 @@ assert.equal(style.artistDivision(codex), 'style');
 assert.equal(style.setArtistDivision(codex, 'nope', { persist: false }), false, '不认识的分法不动');
 assert.equal(style.setArtistDivision(codex, 'post', { persist: false }), true);
 assert.equal(style.artistDivision(codex), 'post');
-assert.deepEqual(singleNodes(), ['2000 以上:1', '500–999:1', '100 以下:1', 'post 未知:1', '未归类:1'],
+assert.deepEqual(singleNodes(), ['2000 以上:1', '500–999:1', '50–99:1', 'post 未知:1', '未归类:1'],
   '按 post：档位从高到低，空档不建，未知和未归类垫底');
 assert.deepEqual(entries[0].stylePath, ['单画师词典', '500–999'], '同一位画师的各来源例图一起换到档位下');
 assert.deepEqual(entries[5].stylePath, ['单画师词典', '未归类'], '未归类不动');
@@ -239,19 +239,19 @@ assert.deepEqual(ids(style.selectStyleEntries(entries)), ['huazhiyu_9'], '点档
 assert.equal(style.styleCardLine(entries[1]), '甲一 · post 500', '档位页底行带上画风小组名');
 state.activePath = [];
 assert.equal(style.stylePathText(entries[0]), '甲一 · post 500', '按 post 分时「全部」里不把画风小组写成路径');
-codex.updateFilters = [{ id: '2026.9.5', label: '9.5更新' }, { id: '2026.11.15', label: '11.15更新', latest: true }];
-entries[4].updateBatches = ['2026.9.5'];
-entries[7].updateBatches = ['2026.9.5', '2026.11.15'];
-assert.equal(style.setArtistDivision(codex, 'new', { persist: false }), true);
-assert.deepEqual(singleNodes(), ['11.15更新:1', '9.5更新:1', '未标批次:2', '未归类:1'],
-  '按上新：批次新的在前，看这位画师全部例图里最新的一期');
+assert.equal(style.setArtistDivision(codex, 'new', { persist: false }), false, '「上新」这一版不提供');
+assert.equal(style.artistDivision(codex), 'post');
+const savedPosts = [0, 3].map(index => style.artistByIndex(index).post);
+style.artistByIndex(0).post = 249;
+style.artistByIndex(3).post = 49;
+style.setArtistDivision(codex, 'style', { persist: false });
+style.setArtistDivision(codex, 'post', { persist: false });
+assert.deepEqual(singleNodes(), ['2000 以上:1', '200–249:1', '50 以下:1', 'post 未知:1', '未归类:1'], '低 post 一侧切得细');
+[0, 3].forEach((index, order) => { style.artistByIndex(index).post = savedPosts[order]; });
 assert.equal(style.setArtistDivision(codex, 'style', { persist: false }), true);
 assert.equal(JSON.stringify(codex.styleTree), styleTreeBefore, '换回按画风后目录与初始一致');
 assert.deepEqual(entries[0].stylePath, ['单画师词典', '甲类', '甲一']);
 assert.equal(style.stylePathText(entries[0]), '单画师词典 › 甲一 · 花枝鱼');
-delete codex.updateFilters;
-delete entries[4].updateBatches;
-delete entries[7].updateBatches;
 
 // 只看所选
 state.artistPicked = new Map([[3, 'artist_nai5_personal_baolong_4'], [0, 'artist_nai5_personal_baolong_1']]);

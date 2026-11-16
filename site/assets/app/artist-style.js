@@ -222,19 +222,19 @@ export async function attachArtistStyles(codex) {
   return true;
 }
 
-/* ---------- 挑画师（原型）：分法 ----------
-   「单画师词典」下面的目录可以换一种分法：画风（大类 › 小组）、post 档位、上新批次。
+/* ---------- 挑画师：分法 ----------
+   「单画师词典」下面的目录可以换一种分法：画风（大类 › 小组）、post 档位。以后的收藏量、热门也照这个做。
    分法只决定两件事：目录有哪些节点、每位画师算到哪个节点。排序、目录计数、阅读位置和地址栏短码
    都照 entry.stylePath 与 codex.displayTree 走，所以换分法只重写这两样。 */
 
-export const ARTIST_DIVISIONS = Object.freeze(['style', 'post', 'new']);
-const DIVISION_KEY = 'fadian-artist-division-proto';
+export const ARTIST_DIVISIONS = Object.freeze(['style', 'post']);
+const DIVISION_KEY = 'fadian-artist-division';
+/* 低 post 一侧人多，切得细；高的一侧人少，切得粗。 */
 const POST_BANDS = Object.freeze([
-  [2000, '2000 以上'], [1000, '1000–1999'], [500, '500–999'], [300, '300–499'],
-  [200, '200–299'], [100, '100–199'], [0, '100 以下'],
+  [2000, '2000 以上'], [1000, '1000–1999'], [500, '500–999'], [400, '400–499'], [300, '300–399'],
+  [250, '250–299'], [200, '200–249'], [150, '150–199'], [100, '100–149'], [50, '50–99'], [0, '50 以下'],
 ]);
 const POST_UNKNOWN = 'post 未知';
-const BATCH_UNKNOWN = '未标批次';
 
 function storedDivision() {
   try {
@@ -249,26 +249,6 @@ export function artistDivision(codex = styleBook) {
   return ARTIST_DIVISIONS.includes(codex?.styleDivision) ? codex.styleDivision : 'style';
 }
 
-/* 批次编号形如 2026.11.15，按日期比较；认不出的批次不参与。 */
-function batchRank(id) {
-  const parts = String(id || '').split('.').map(Number);
-  return parts.length === 3 && parts.every(Number.isFinite) ? parts[0] * 10000 + parts[1] * 100 + parts[2] : null;
-}
-
-/* 这位画师所有例图里最新的一期更新。 */
-export function latestBatchOf(artist, codex = styleBook) {
-  if (!artist) return null;
-  let best = null;
-  for (const id of [artist.entryId, ...artist.otherIds]) {
-    for (const batch of codex?.styleEntryById?.get(id)?.updateBatches || []) {
-      const rank = batchRank(batch);
-      if (rank != null && (!best || rank > best.rank)) best = { rank, id: String(batch) };
-    }
-  }
-  if (best) best.label = (codex?.updateFilters || []).find(item => String(item.id) === best.id)?.label || best.id;
-  return best;
-}
-
 function postBand(artist) {
   return artist.post == null ? POST_UNKNOWN : POST_BANDS.find(([min]) => artist.post >= min)?.[1] || POST_UNKNOWN;
 }
@@ -276,9 +256,7 @@ function postBand(artist) {
 /* 某种分法下：每位画师的目录路径，以及单画师词典下面的节点（带人数，空节点不建）。不改任何东西。 */
 function divisionLayout(codex, mode) {
   const data = styles;
-  const paths = data.artists.map(artist => (mode === 'post' ? [SINGLE_ROOT, postBand(artist)]
-    : mode === 'new' ? [SINGLE_ROOT, latestBatchOf(artist, codex)?.label || BATCH_UNKNOWN]
-      : groupPath(artist.group)));
+  const paths = data.artists.map(artist => (mode === 'post' ? [SINGLE_ROOT, postBand(artist)] : groupPath(artist.group)));
   const present = new Set();
   let unsorted = 0;
   for (const entry of codex.entries) {
@@ -295,13 +273,6 @@ function divisionLayout(codex, mode) {
   let children;
   if (mode === 'post') {
     children = [...POST_BANDS.map(([, name]) => name), POST_UNKNOWN].map(leafNode);
-  } else if (mode === 'new') {
-    const ranks = new Map();
-    for (const index of present) {
-      const batch = latestBatchOf(data.artists[index], codex);
-      ranks.set(batch?.label || BATCH_UNKNOWN, batch?.rank ?? -1);
-    }
-    children = [...ranks].sort((a, b) => b[1] - a[1]).map(([name]) => leafNode(name));
   } else {
     children = data.parents.map(parent => {
       const groups = parent.groups.map(g => leafNode(data.groups[g].name));
@@ -550,7 +521,7 @@ export function pickedArtistEntries(list, picked = state.artistPicked) {
     .sort((a, b) => order.get(artistOf(a).index) - order.get(artistOf(b).index));
 }
 
-/* 画风小组页底行只写 post；其余各层（大类、单画师首页、post 档位、上新批次、只看所选）再带上画风小组名。 */
+/* 画风小组页底行只写 post；其余各层（大类、单画师首页、post 档位、只看所选）再带上画风小组名。 */
 export function styleCardLine(entry) {
   if (!artistListActive()) return '';
   const artist = artistOf(entry);
@@ -567,7 +538,7 @@ export function stylePathText(entry) {
   const artist = artistOf(entry);
   const source = sourceOf(entry);
   if (!artist) return [SINGLE_ROOT, UNSORTED].join(' › ') + (source ? ` · ${source}` : '');
-  // 目录按 post 或上新分时，侧栏里没有画风小组这一行，不写成路径，只写小组名和 post
+  // 目录按 post 分时，侧栏里没有画风小组这一行，不写成路径，只写小组名和 post
   if (!state.favoritesView && !state.siteSearchView && artistDivision(book) !== 'style') {
     return `${groupOf(artist).name} · ${formatPost(artist.post)}`;
   }

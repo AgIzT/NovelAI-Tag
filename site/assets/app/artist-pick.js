@@ -1,4 +1,4 @@
-/* 挑画师（原型）：侧栏「单画师词典」下面的分法开关（画风 / post / 上新），以及画师墙上的多选、底部操作条与「只看所选」。
+/* 挑画师：侧栏「单画师词典」下面的分法开关（画风 / post），以及画师墙上的多选、底部操作条与「只看所选」。
    这面墙怎么排一直由侧栏目录决定，所以排序不做成结果栏里的开关，而是目录的另一种分法：换分法时目录和墙一起换。
    不另存一份名单：复制照常进中转站素材，加入方案交给中转站，调权重也在那边。
    多选按画师身份记（同一位换了例图来源仍是同一位），只存在本页内存里。
@@ -26,15 +26,19 @@ export function setArtistPickActions(next = {}) {
   Object.assign(actions, next);
 }
 
-const DIVISION_LABELS = { style: '画风', post: 'post', new: '上新' };
+const DIVISION_LABELS = { style: '画风', post: 'post' };
 
 let controls = null;     // { root, toggle, only }
 let bar = null;
 let busy = false;
 let unsaved = false;     // 勾选变过、还没复制或加入方案；退出多选时据此给「恢复」
 
-const pickScope = () => styleActive() && !state.favoritesView && !state.siteSearchView;
-const pickable = entry => (pickScope() && entry?.path?.[0] === SINGLE_ROOT ? artistOf(entry) : null);
+/* bookScope：这本书的普通浏览（分法开关、精简卡片都跟它）；pickScope 再去掉手机——手机上暂时不出多选。 */
+const PHONE = '(max-width: 600px)';
+const onPhone = () => Boolean(globalThis.matchMedia?.(PHONE).matches);
+const bookScope = () => styleActive() && !state.favoritesView && !state.siteSearchView;
+const pickScope = () => bookScope() && !onPhone();
+const artistCard = entry => (bookScope() && entry?.path?.[0] === SINGLE_ROOT ? artistOf(entry) : null);
 
 function pickedEntries() {
   return [...state.artistPicked.values()].map(styleBookEntry).filter(entry => entry && !isEntryAccessBlocked(entry));
@@ -97,12 +101,13 @@ function handleCardClick(event, entry, artist) {
   togglePick(entry, artist);
 }
 
-/* makeCard 末尾调用：单画师卡加角标勾；进入多选后点卡片就是勾选。 */
+/* makeCard 末尾调用：单画师卡加角标勾；进入多选后点卡片就是勾选。手机上只挂卡片类名，不出勾。 */
 export function decorateArtistPickCard(card, entry) {
-  const artist = pickable(entry);
+  const artist = artistCard(entry);
   if (!artist) return;
-  card.dataset.artistPick = String(artist.index);
   card.classList.add('artist-pick-card');
+  if (onPhone()) return;
+  card.dataset.artistPick = String(artist.index);
   const check = button('', 'artist-pick-check', event => {
     event.stopPropagation();
     togglePick(entry, artist);
@@ -114,10 +119,9 @@ export function decorateArtistPickCard(card, entry) {
   syncCard(card);
 }
 
-/* ?lean=1 的对照：单画师卡的标题已经是画师名，提示词行不再重复一遍；估高与样式用同一判断。 */
-let lean = false;
+/* 单画师卡的标题已经是画师名，提示词行不再重复一遍；瀑布流估高、测高与样式用同一判断。 */
 export function leanArtistCard(entry) {
-  return lean && Boolean(pickable(entry));
+  return Boolean(artistCard(entry));
 }
 
 /* ---------- 进入与退出 ---------- */
@@ -164,10 +168,10 @@ function setPickOnly(on) {
 
 /* ---------- 侧栏：分法开关 ---------- */
 
-/* renderTree 每次重画目录后调：在「单画师词典」那一项的子目录最前面放一排「按 画风 / post / 上新」。
+/* renderTree 每次重画目录后调：在「单画师词典」那一项的子目录最前面放一排「按 画风 / post」。
    目录是这面墙的目录，所以换分法的开关放在它要换的那段目录上，不放结果栏。 */
 export function renderArtistDivisionSwitch(nav) {
-  if (!nav || !pickScope()) return;
+  if (!nav || !bookScope()) return;
   const row = [...nav.querySelectorAll(':scope > .tree-item > .tree-row')].find(node => node.dataset.path === SINGLE_ROOT);
   const kids = row?.parentElement?.querySelector(':scope > .tree-children');
   if (!kids) return;
@@ -303,6 +307,6 @@ export function setupArtistPick() {
   window.addEventListener('resize', () => {
     if (bar && !bar.hidden) document.body.style.setProperty('--artist-pick-bar-height', bar.offsetHeight + 'px');
   });
-  lean = new URLSearchParams(location.search).get('lean') === '1';
-  document.body.classList.toggle('artist-lean', lean);
+  // 窗口缩到手机宽度时收起多选；放宽后结果栏的入口随下一次刷新回来。
+  globalThis.matchMedia?.(PHONE).addEventListener?.('change', () => renderArtistPickControls());
 }
