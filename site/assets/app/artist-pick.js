@@ -13,6 +13,7 @@ import { copyText, entryPromptText } from './copy.js';
 import { prepareCopiedEntry, recordCopiedEntry } from './tag-relay-store.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { openRelayRail } from './tag-relay-rail.js';
+import { animateUi } from './ui-motion.js';
 import {
   ARTIST_DIVISIONS, SINGLE_ROOT, artistDivision, artistOf, styleActive, styleBookEntry,
 } from './artist-style.js';
@@ -213,7 +214,18 @@ export function renderArtistDivisionSwitch(nav) {
       if (mode === artistDivision(state.codex)) return;
       actions.changeDivision(mode);
       // 目录整个重画了，把焦点还给同一枚按钮
-      document.querySelector(`#tree .tree-division-btn[data-division="${mode}"]`)?.focus({ preventScroll: true });
+      const selected = nav.querySelector(`.tree-division-btn[data-division="${mode}"][aria-pressed="true"]`);
+      if (!selected) return;
+      selected.focus({ preventScroll: true });
+      // 只动换出的分类文字和计数，目录行仍可用于定位与点击。
+      const rows = selected.closest('.tree-children').querySelectorAll(':scope > .tree-item > .tree-row');
+      rows.forEach((row, index) => {
+        const duration = 180 + Math.min(index, 8) * 12;
+        row.querySelectorAll('.tw-name, .tw-count').forEach(label => animateUi(label, [
+          { opacity: .3, translate: '-5px 0' },
+          { opacity: 1, translate: '0 0' },
+        ], { duration }));
+      });
     });
     node.dataset.division = mode;
     node.setAttribute('aria-pressed', String(mode === current));
