@@ -121,6 +121,7 @@ const { assetUrl, entryImages, imageItemHasOriginal, imageItemUrl, localAssetUrl
 const {
   entryImageCanUseOriginal,
   entrySourceAllowsOriginal,
+  imageItemHasReadableParams,
 } = await import('../site/assets/app/original-capability.js');
 const {
   codexUpdateFilters,
@@ -878,6 +879,11 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(lightboxOriginalCopy('failed', true).label, /失败/);
   assert.match(lightboxOriginalCopy('thumbnail', false).label, /仅缩略图/);
   assert.equal(lightboxOriginalCopy('unavailable', false).label, '无原图');
+  assert.equal(imageItemHasReadableParams({ path: 'a.jpg', original: 'a.webp' }), true, '默认原图可读参数');
+  assert.equal(imageItemHasReadableParams({ path: 'a.jpg', original: 'a.webp', _noParams: true }), false,
+    '来源原图不带参数时逐图关掉可读提示');
+  assert.equal(normalizeImageList({ images: [{ path: 'a.jpg', original: 'a.webp', _noParams: true }] })[0]._noParams, true,
+    '归一化保留逐图 _noParams');
   // 能读参数的原图没到手时拦下拖动：加载中等一等，失败指向「查看原图」；其余放行。
   assert.equal(lightboxOriginalDragHint('loading', true), '原图加载中，加载完再拖');
   assert.match(lightboxOriginalDragHint('failed', true), /「查看原图」/);
