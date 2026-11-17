@@ -48,8 +48,9 @@ import {
   setTagZhEnabled,
   toggleTagZhDetail,
 } from './tag-zh.js';
-import { bindArtistStripControls, closeArtistPeek, renderArtistStrip, resetArtistStrip } from './artist-strip.js';
+import { bindArtistStripControls, closeArtistPeek, renderArtistStrip, resetArtistStrip, stepSamplePeek } from './artist-strip.js';
 import { renderArtistProfile, resetArtistProfile, lightboxPathText } from './artist-style-ui.js';
+import { sameStyleArtist } from './artist-style.js';
 
 /* ---------------- 灯箱（沉浸浮影 + 原位展开） ---------------- */
 let lbSeq = 0;
@@ -111,14 +112,17 @@ export function lightboxNavigationContext(entry = state.lightbox.entry, list = s
   const entries = [];
   let exactIndex = -1;
   let equivalentIndex = -1;
+  // v5 画师词典一位画师只出一张卡；看的是这位的另一张例图时，翻页接着那张卡走
+  let artistIndex = -1;
   for (const candidate of list) {
     if (!hasEntryImage(candidate) || isEntryAccessBlocked(candidate) || isContentBlocked(candidate)) continue;
     const index = entries.length;
     entries.push(candidate);
     if (candidate === entry) exactIndex = index;
     else if (equivalentIndex < 0 && sameLightboxEntry(candidate, entry)) equivalentIndex = index;
+    else if (artistIndex < 0 && exactIndex < 0 && equivalentIndex < 0 && sameStyleArtist(candidate, entry)) artistIndex = index;
   }
-  const index = exactIndex >= 0 ? exactIndex : equivalentIndex;
+  const index = exactIndex >= 0 ? exactIndex : equivalentIndex >= 0 ? equivalentIndex : artistIndex;
   if (index < 0) return { entries: [], index: -1, position: 0, total: 0 };
   return { entries, index, position: index + 1, total: entries.length };
 }
@@ -428,6 +432,8 @@ function syncLightboxReaderLayout(lb = $('#lightbox')) {
   const native = compact && !lb.classList.contains('no-image') && !lb.classList.contains('folded');
   lb.classList.toggle('native-reader', native);
   if (wasNative !== native) {
+    // 样张预览在两种排版里挂的位置不同，换排版前先收起
+    closeArtistPeek();
     stopLightboxReaderScroll();
     $('#lightboxScroll').scrollTop = 0;
     $('#lightboxInfo').scrollTop = 0;
@@ -801,6 +807,52 @@ export function stepLightbox(delta) {
   syncUrlState({ entry: current.id, historyMode: 'replace', transition: 'detail' });
   if (target.crossEntry) scheduleRecentEntry(current);
   return true;
+}
+
+/* 画师详情里换同一位画师的另一张例图：像「下一条」那样换词条，不重开灯箱。
+   anchor() 返回被点的那个元素；重画后把它放回点击前的位置，读到哪里还在哪里。 */
+export function switchLightboxEntry(entry, { anchor = null } = {}) {
+  const lb = $('#lightbox');
+  const previous = state.lightbox;
+  const images = entryImages(entry);
+  if (lb.hidden || !previous?.entry || !images.length) return false;
+  const before = anchor?.()?.getBoundingClientRect().top;
+  const previousSource = lbSourceImg;
+  clearTimeout(lbRecentTimer);
+  lbRecentTimer = 0;
+  state.lightbox = { entry, images, index: 0 };
+  lbSourceImg = null;  // 卡片上是另一张例图，关闭时不能飞回去
+  clearFlyClones();
+  lb.classList.remove('flying');
+  try {
+    renderLightbox();
+  } catch (err) {
+    console.error('[lightbox] 切换例图失败，保留当前词条', err);
+    state.lightbox = previous;
+    lbSourceImg = previousSource;
+    try { renderLightbox(); } catch {}
+    return false;
+  }
+  if (Number.isFinite(before)) keepLightboxAnchor(anchor(), before);
+  syncUrlState({ entry: entry.id, historyMode: 'replace', transition: 'detail' });
+  scheduleRecentEntry(entry);
+  return true;
+}
+
+/* 重画会把信息栏 / 手机阅读区滚回顶部；按元素前后位置差把它的滚动容器拨回去 */
+function keepLightboxAnchor(element, top) {
+  if (!element) return;
+  const delta = element.getBoundingClientRect().top - top;
+  if (Math.abs(delta) < 1) return;
+  let scroller = element.parentElement;
+  while (scroller && scroller.id !== 'lightbox') {
+    const overflow = getComputedStyle(scroller).overflowY;
+    if ((overflow === 'auto' || overflow === 'scroll') && scroller.scrollHeight > scroller.clientHeight) break;
+    scroller = scroller.parentElement;
+  }
+  if (!scroller || scroller.id === 'lightbox') return;
+  scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'instant' });
+  if (scroller.id === 'lightboxScroll') syncLightboxReaderPosition();
 }
 
 export function preloadImage(url) {
@@ -2043,7 +2095,8 @@ function bindLightboxReader() {
   const lb = $('#lightbox');
   lb.addEventListener('scroll', ev => {
     if (ev.target.id !== 'lightboxScroll') return;
-    if (lb.classList.contains('artist-peeking')) closeArtistPeek();
+    // 盖在大图上的预览随滚动收起；手机覆盖层盖住了阅读区，残余惯性不算收起
+    if (lb.classList.contains('artist-peeking') && !$('#artistPeek')?.classList.contains('is-sheet')) closeArtistPeek();
     syncLightboxReaderPosition();
   }, { capture: true, passive: true });
   lb.addEventListener('touchstart', ev => {
@@ -2180,7 +2233,9 @@ export function bindLightboxControls({ mobileQuery = window.matchMedia('(max-wid
     if (Date.now() - lastLightboxSwipeAt < 220) return false;
     if (elapsed > 800 || Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.2) return false;
     const direction = dx < 0 ? 1 : -1;
-    if (!stepLightbox(direction)) return false;
+    // 开着样张预览时横滑翻的是同一串样张，不换词条
+    const peeking = $('#lightbox').classList.contains('artist-peeking');
+    if (!(peeking ? stepSamplePeek(direction) : stepLightbox(direction))) return false;
     lastLightboxSwipeAt = Date.now();
     suppressLightboxClick = true;
     window.setTimeout(() => { suppressLightboxClick = false; }, 80);

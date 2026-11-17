@@ -2865,6 +2865,20 @@ a.lightbox-credit:hover{text-decoration:underline}
 @keyframes artist-peek-in{from{opacity:0;scale:.985}}
 @media (prefers-reduced-motion:reduce){.artist-peek{animation:none}}
 .motion-off .artist-peek{animation:none}
+/* 手机有图阅读：大图常已滚出屏幕，预览改挂到灯箱根部、盖住阅读区（与 .lightbox-scroll 同位置），
+   底栏也盖住；两侧 ‹ › 在同一串样张里翻，横滑同理。电脑上旁边的格子点得到，不显示 ‹ ›。 */
+.artist-peek.is-sheet{
+  inset:56px 10px 10px;z-index:7;padding:12px 12px 14px;
+  border:1px solid var(--line);border-radius:20px;background:var(--glass);box-shadow:var(--shadow-hover);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+}
+.artist-peek-nav{top:calc(50% - 29px);translate:0 -50%;width:40px;height:40px;border-radius:50%;padding:0}
+.artist-peek-nav svg{
+  width:18px;height:18px;display:block;stroke:currentColor;stroke-width:2.8;
+  stroke-linecap:round;stroke-linejoin:round;fill:none;
+}
+.artist-peek-prev{left:8px}
+.artist-peek-next{right:8px}
 /* 按图片区（左 18px、右 --lb-right）居中并限宽，张数多时也不压到信息栏；收起信息栏时跟着图片区一起展开。 */
 .lightbox-thumbs{
   position:absolute;left:calc(50% + (18px - var(--lb-right)) / 2);bottom:18px;translate:-50% 0;z-index:3;cursor:default;

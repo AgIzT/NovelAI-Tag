@@ -386,6 +386,13 @@ export function artistOf(entry) {
   return index == null ? null : styles.artists[index] || null;
 }
 
+/* 两条 v5 词条是不是同一位画师（同一张画师卡下的不同例图）；灯箱翻页靠它把例图接回列表里那张卡 */
+export function sameStyleArtist(a, b) {
+  if (!mayHaveStyle(a) || !mayHaveStyle(b)) return false;
+  const artist = artistOf(a);
+  return Boolean(artist && artist === artistOf(b));
+}
+
 /* 可能带画风的词条：按 ID 前缀认 v5 画师词典，数据还没加载时用来决定要不要去加载 */
 export function mayHaveStyle(entry) {
   return String(entry?.id || '').startsWith(STYLE_CODEX_ID + '_');

@@ -18,7 +18,7 @@ import { setupFavoritesView, setFavoritesViewActions, syncFavoritesView, renderF
 import { buildFavoritesCodex, FAVORITES_CODEX_ID } from './app/fav-codex.js';
 import { buildSiteSearchCodex, SITE_SEARCH_CODEX_ID } from './app/site-search.js';
 import { renderList, clearMasonry, updateVirtualCards, setMasonryActions, settleCardEntry, captureMasonryAnchor, restoreMasonryAnchor } from './app/masonry.js';
-import { openLightbox, closeLightbox } from './app/lightbox.js';
+import { openLightbox, closeLightbox, switchLightboxEntry } from './app/lightbox.js';
 import { copyEntry } from './app/copy.js';
 import { openReportDialog } from './app/report.js';
 import { captureAtlasRoute, configureAtlasHistory, hasActiveSearchRoute, initializeAtlasHistory, readUrlState, syncUrlState, openEntryDeepLink, setRouterActions } from './app/router.js';
@@ -1207,8 +1207,10 @@ setStyleUiActions({
     }
     loadCodex(STYLE_CODEX_ID, { urlState: { codex: STYLE_CODEX_ID, path, q: '', entry: '' }, historyMode: 'push' });
   },
-  // 画风接近、例图切换：直接打开详情，不像 openEntryDeepLink 那样把目录切到词条的来源路径
+  // 「打开词条」（画风接近、画风串）：直接打开详情，不像 openEntryDeepLink 那样把目录切到词条的来源路径
   openLightbox,
+  // 同一位画师换例图：灯箱不重开，保留阅读位置与翻页
+  switchLightboxEntry,
   // 换目录前先关详情：用 replace，不走后退，免得异步后退把紧接着记下的目录又退掉
   closeLightbox: () => closeLightbox({ historyMode: 'replace' }),
 });

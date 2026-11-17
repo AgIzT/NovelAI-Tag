@@ -18,7 +18,7 @@ import {
    索引 artist_index.json 第一次遇到带画师的词条才下载；旧数据版本没有这个文件时整栏不显示。 */
 
 const INDEX_PATH = 'artist_index.json';
-const COLLAPSED_LIMIT = 10;
+const COLLAPSED_LIMIT = 20;
 const DEFAULT_VERSION = 'n5';
 
 let artistIndex;          // undefined = 还没加载完；null = 当前数据版本没有索引
@@ -27,7 +27,11 @@ let renderSeq = 0;
 let chosenVersion = '';   // 本次灯箱里手动切过的版本；关灯箱清空
 let expanded = false;
 let current = null;       // { entry, codexId, artists }
+let currentTiles = [];    // 画师一栏解析出的全部样张（含折起的），预览前后翻用
 let peekKey = '';
+let peekList = [];        // 正在预览的那一串；手机覆盖层的 ‹ › 和横滑在里面翻
+let peekIndex = -1;
+let peekSteppedAt = 0;    // 横滑翻过去后，鼠标拖动松手那一下的 click 不算「换回原图」
 
 function loadArtistIndex() {
   if (artistIndex !== undefined) return Promise.resolve(artistIndex);
@@ -91,6 +95,7 @@ function paintArtistStrip() {
   const { tiles, missing, bothVersions } = resolveArtistTiles(artistIndex, current.artists, version, {
     skipEntry: skipEntryFor(current.entry, current.codexId),
   });
+  currentTiles = tiles;
   block.hidden = !tiles.length;
   if (!tiles.length) return;
 
@@ -178,8 +183,7 @@ function artistTile(tile) {
   button.append(frame, name);
   button.onclick = ev => {
     ev.stopPropagation();
-    if (peekKey === tileKey(tile)) closeArtistPeek();
-    else openArtistPeek(tile);
+    toggleSamplePeek(peekItemOf(tile), currentTiles.map(peekItemOf));
   };
   return button;
 }
@@ -191,28 +195,62 @@ function syncPressedTiles() {
   }
 }
 
-/* 在大图位置盖一张样张；「打开词条」交给调用方。画风一栏也用它。 */
-export function openSamplePeek({ key, src, name, source, onOpen }) {
+/* 在大图位置盖一张样张；「打开词条」交给调用方。画风接近一栏也用它。
+   item = { key, src, name, source, onOpen }；list 是同一串的全部 item，可以在里面前后翻。
+   手机有图阅读时大图常已滚出屏幕，这一层改挂到灯箱根部、盖住阅读区，底下的滚动位置不动。 */
+export function openSamplePeek(item, list = [item]) {
   const peek = $('#artistPeek');
-  if (!peek) return;
-  peekKey = key;
-  $('#artistPeekImg').src = src;
-  $('#artistPeekName').textContent = name;
-  $('#artistPeekSource').textContent = source;
+  const lb = $('#lightbox');
+  if (!peek || !lb) return;
+  peekList = list.length ? list : [item];
+  peekIndex = Math.max(0, peekList.findIndex(other => other.key === item.key));
+  peekKey = item.key;
+  const sheet = lb.classList.contains('native-reader');
+  if (sheet && peek.parentElement !== lb) lb.append(peek);
+  peek.classList.toggle('is-sheet', sheet);
+  const many = peekList.length > 1;
+  $('#artistPeekImg').src = item.src;
+  $('#artistPeekName').textContent = item.name;
+  // 位次放最前：窄屏截断时也看得到；写「位」免得和来源里的「共 N 张」混
+  const position = sheet && many ? `第 ${peekIndex + 1} / ${peekList.length} 位` : '';
+  $('#artistPeekSource').textContent = [position, item.source].filter(Boolean).join(' · ');
+  for (const id of ['artistPeekPrev', 'artistPeekNext']) {
+    const button = $('#' + id);
+    if (button) button.hidden = !(sheet && many);
+  }
   $('#artistPeekOpen').onclick = ev => {
     ev.stopPropagation();
     closeArtistPeek();
-    onOpen();
+    item.onOpen();
   };
   peek.hidden = false;
-  $('#lightbox')?.classList.add('artist-peeking');
+  lb.classList.add('artist-peeking');
   syncPressedTiles();
 }
 
-function openArtistPeek(tile) {
+/* 同一张再点就收起，别的就换过去 */
+export function toggleSamplePeek(item, list) {
+  if (peekKey === item.key) closeArtistPeek();
+  else openSamplePeek(item, list);
+}
+
+/* 在正在预览的那一串里前后翻（到头绕回）；没开预览或只有一张返回 false */
+export function stepSamplePeek(delta) {
+  if (!peekKey || peekList.length < 2) return false;
+  const next = peekList[(peekIndex + Math.sign(delta) + peekList.length) % peekList.length];
+  openSamplePeek(next, peekList);
+  peekSteppedAt = Date.now();
+  return true;
+}
+
+export function samplePeekKey() {
+  return peekKey;
+}
+
+function peekItemOf(tile) {
   const book = artistIndex.books[tile.sample.version];
   const title = findCodexMeta(book)?.title || ARTIST_VERSION_LABELS[tile.sample.version];
-  openSamplePeek({
+  return {
     key: tileKey(tile),
     src: sampleUrl(tile.sample),
     name: `artist:${tile.name}`,
@@ -222,7 +260,7 @@ function openArtistPeek(tile) {
       codexId: book, entryId: tile.sample.entryId,
       path: landingPathOf(styleBookEntry(tile.sample.entryId) || { id: tile.sample.entryId, path: tile.sample.path }),
     }, { historyMode: 'push' }),
-  });
+  };
 }
 
 /* 收起样张、换回原图；本来就没开返回 false（Esc 据此决定是否继续关灯箱）。 */
@@ -230,9 +268,14 @@ export function closeArtistPeek() {
   const peek = $('#artistPeek');
   const wasOpen = Boolean(peek && !peek.hidden);
   peekKey = '';
+  peekList = [];
+  peekIndex = -1;
   if (peek) {
     peek.hidden = true;
+    peek.classList.remove('is-sheet');
     $('#artistPeekImg')?.removeAttribute('src');
+    const stage = $('#lightboxStage');
+    if (stage && peek.parentElement !== stage) stage.append(peek);
   }
   $('#lightbox')?.classList.remove('artist-peeking');
   syncPressedTiles();
@@ -243,6 +286,7 @@ export function resetArtistStrip() {
   renderSeq += 1;
   chosenVersion = '';
   current = null;
+  currentTiles = [];
   closeArtistPeek();
 }
 
@@ -259,10 +303,19 @@ export function bindArtistStripControls() {
     ev.stopPropagation();
     closeArtistPeek();
   });
+  $('#artistPeekPrev')?.addEventListener('click', ev => {
+    ev.stopPropagation();
+    stepSamplePeek(-1);
+  });
+  $('#artistPeekNext')?.addEventListener('click', ev => {
+    ev.stopPropagation();
+    stepSamplePeek(1);
+  });
   // 点样张本身或它周围的空白都是换回原图，不冒泡成「点背景关灯箱」
   $('#artistPeek')?.addEventListener('click', ev => {
-    if (ev.target instanceof Element && ev.target.closest('.artist-peek-bar')) return;
+    if (ev.target instanceof Element && ev.target.closest('.artist-peek-bar,.artist-peek-nav')) return;
     ev.stopPropagation();
+    if (Date.now() - peekSteppedAt < 300) return;
     closeArtistPeek();
   });
 }

@@ -11,6 +11,7 @@ import { openRecentEntry } from './history.js';
 import { isContentBlocked } from './content-blocking.js';
 import { isEntryAccessBlocked } from './access.js';
 import { artistKey, formatArtistWeight } from './artist-core.js';
+import { samplePeekKey, toggleSamplePeek } from './artist-strip.js';
 import {
   STYLE_CODEX_ID, SINGLE_ROOT,
   artistOf, artistByIndex, groupOf, parentOf, groupPath, artistNameOf,
@@ -18,11 +19,12 @@ import {
   attachArtistStyles, mayHaveStyle, styleActive, styleBookCodex, styleBookEntry, stylePathText, landingPathOf,
 } from './artist-style.js';
 
-const STRIP_COLLAPSED = 10;
+const STRIP_COLLAPSED = 20;
 const PATH_SEP = '\u0001';
 const styleUiActions = {
   selectPath: () => {},
   openLightbox: () => {},
+  switchLightboxEntry: () => false,
   closeLightbox: () => {},
 };
 
@@ -129,7 +131,8 @@ function stringThumb(rep) {
 let profileSeq = 0;
 let profileArtist = -1;
 const expanded = { near: false, strings: false, prompts: false };
-let profileEntryId = '';
+// 上一位画师的画风接近名单：换同一位画师的例图时同步画出，不先藏起再异步补，免得版面跳
+let nearCache = { artist: -1, indexes: null };
 
 function syncPromptPanel() {
   const open = expanded.prompts;
@@ -142,9 +145,12 @@ function syncPromptPanel() {
 }
 let profileTiles = new Map();   // data-key → 点击动作
 
-function tile({ key, src, caption, badge = '', pressed = false, onOpen }) {
+/* peek：点格子是盖图预览（按下态由 artist-strip.js 按 data-peek-key 同步），不是换词条 */
+function tile({ key, src, caption, badge = '', pressed = false, peek = false, onOpen }) {
   profileTiles.set(key, onOpen);
-  return `<button type="button" class="artist-tile ui-press" data-ap-key="${esc(key)}" aria-pressed="${pressed ? 'true' : 'false'}" title="${esc(caption)}">
+  const peekAttr = peek ? ` data-peek-key="${esc(key)}"` : '';
+  const on = peek ? samplePeekKey() === key : pressed;
+  return `<button type="button" class="artist-tile ui-press" data-ap-key="${esc(key)}"${peekAttr} aria-pressed="${on ? 'true' : 'false'}" title="${esc(caption)}">
     <span class="artist-tile-img">${src ? `<img loading="lazy" decoding="async" src="${esc(src)}" alt="">` : ''}${badge ? `<span class="artist-tile-weight${badge.startsWith('×0') ? ' is-down' : ''}">${esc(badge)}</span>` : ''}</span>
     <span class="artist-tile-name">${esc(caption)}</span>
   </button>`;
@@ -159,9 +165,24 @@ function stripHtml(key, items) {
   return `<div class="artist-strip">${shown.join('')}${more}</div>`;
 }
 
+function inStyleBook() {
+  return state.codex?.id === STYLE_CODEX_ID && !state.favoritesView && !state.siteSearchView;
+}
+
+function tileButton(key) {
+  return [...($('#artistProfile')?.querySelectorAll('[data-ap-key]') || [])].find(el => el.dataset.apKey === key) || null;
+}
+
+/* 同一位画师的另一张例图：在书里原地换词条，读到的位置和「第 N 条」翻页都不变 */
+function switchStyleExample(entry, key) {
+  if (!showable(entry)) return;
+  if (inStyleBook() && styleUiActions.switchLightboxEntry(entry, { anchor: () => tileButton(key) })) return;
+  openStyleExample(entry, 'replace');
+}
+
 function openStyleExample(entry, historyMode) {
   if (!showable(entry)) return;
-  if (state.codex?.id === STYLE_CODEX_ID && !state.favoritesView && !state.siteSearchView) {
+  if (inStyleBook()) {
     styleUiActions.openLightbox(entry, 0, null, { historyMode });
     return;
   }
@@ -178,7 +199,7 @@ function specimensHtml(entry, artist) {
     src: entryThumb(item),
     caption: names.size > 1 ? `${specimenSource(item)} · ${artistNameOf(item)}` : specimenSource(item) || item.title,
     pressed: item.id === entry.id,
-    onOpen: () => { if (item.id !== entry.id) openStyleExample(item, 'replace'); },
+    onOpen: () => { if (item.id !== entry.id) switchStyleExample(item, `specimen:${item.id}`); },
   }));
   return `<div class="lightbox-section ap-section"><div class="section-head"><div class="section-label">例图 <span class="artist-strip-count">${items.length}</span></div></div>${stripHtml('specimens', items)}</div>`;
 }
@@ -214,7 +235,7 @@ function rankStatHtml(artist) {
     ? '画师识别模型看这张 v5 例图，第一个想到的就是这位画师。'
     : `画师识别模型看这张 v5 例图，把这位画师排在第 ${formatCount(artist.rank)} 名，最先想到的是 ${guess}。`;
   const caveat = artist.rank > 10 ? '可能是 v5 没学会这位的画风，也可能是识别模型不认识这位。' : '';
-  profileTiles.set(key, () => openStyleExample(sample, 'replace'));
+  profileTiles.set(key, () => { if (sample.id !== state.lightbox?.entry?.id) switchStyleExample(sample, key); });
   return `<div class="ap-stat ap-rank-stat"><dt>${title}</dt><dd>${verdict}</dd>
     <small>${esc(basis)}${esc(caveat)}</small>
     <button type="button" class="ap-rank-sample ui-press" data-ap-key="${esc(key)}">${esc(source ? `看评估用的例图（${source}）` : '看评估用的例图')}</button></div>`;
@@ -243,16 +264,23 @@ function weightOf(list) {
   return list.length ? { median: median(list.map(item => item.weight)), count: list.length } : null;
 }
 
+/* 画风接近：点格子在大图位置预览那位画师，可以连着换；「打开词条」才跳过去（push，能后退回来） */
 function paintNear(box, indexes) {
-  const items = indexes.map(artistByIndex).map(near => {
+  const peeks = indexes.map(artistByIndex).map(near => {
     const rep = previewEntry(near);
-    if (!rep) return '';
-    const name = artistNameOf(repEntry(near)) || artistNameOf(rep);
-    return tile({
-      key: `near:${near.index}`, src: entryThumb(rep), caption: name,
+    if (!rep) return null;
+    const source = specimenSource(rep);
+    return {
+      key: `near:${near.index}`, src: entryThumb(rep),
+      name: artistNameOf(repEntry(near)) || artistNameOf(rep),
+      source: source ? `例图来源 ${source}` : '',
       onOpen: () => openStyleExample(rep, 'push'),
-    });
+    };
   }).filter(Boolean);
+  const items = peeks.map(item => tile({
+    key: item.key, src: item.src, caption: item.name, peek: true,
+    onOpen: () => toggleSamplePeek(item, peeks),
+  }));
   box.innerHTML = items.length
     ? `<div class="section-head"><div class="section-label">画风接近 <span class="artist-strip-count">${items.length}</span></div></div>${stripHtml('near', items)}`
     : '';
@@ -268,7 +296,7 @@ function paintStrings(box, list) {
     return tile({
       key: `string:${item.index}`, src: stringThumb(item.rep), caption, badge: formatArtistWeight(item.weight) || '',
       onOpen: () => {
-        if (own && state.codex?.id === STYLE_CODEX_ID && !state.favoritesView && !state.siteSearchView) {
+        if (own && inStyleBook()) {
           styleUiActions.openLightbox(own, 0, null, { historyMode: 'push' });
           return;
         }
@@ -295,7 +323,6 @@ export function renderArtistProfile(entry) {
       box.replaceChildren();
     }
     profileArtist = -1;
-    profileEntryId = '';
     expanded.prompts = false;
     return false;
   };
@@ -308,11 +335,11 @@ export function renderArtistProfile(entry) {
   }
   if (!profileApplies(entry)) return off();
   const artist = artistOf(entry);
-  if (entry.id !== profileEntryId) expanded.prompts = false;
-  profileEntryId = entry.id;
+  // 换同一位画师的另一张例图时保留展开状态，换画师才收起
   if (artist.index !== profileArtist) {
     expanded.near = false;
     expanded.strings = false;
+    expanded.prompts = false;
   }
   profileArtist = artist.index;
   const group = groupOf(artist);
@@ -340,11 +367,19 @@ export function renderArtistProfile(entry) {
     </div>`;
   box.hidden = false;
   syncPromptPanel();
-  loadNearArtists(artist.index).then(indexes => {
-    if (seq !== profileSeq) return;
+  const paintNearPart = indexes => {
     const near = box.querySelector('[data-ap-near]');
     if (near) paintNear(near, indexes);
-  });
+  };
+  if (nearCache.artist === artist.index) {
+    paintNearPart(nearCache.indexes);
+  } else {
+    loadNearArtists(artist.index).then(indexes => {
+      // 读失败给的是空名单，不记，下次再读
+      if (indexes.length) nearCache = { artist: artist.index, indexes };
+      if (seq === profileSeq) paintNearPart(indexes);
+    });
+  }
   const paintStringPart = list => {
     const holder = box.querySelector('[data-ap-strings]');
     if (holder) paintStrings(holder, list);
@@ -366,7 +401,6 @@ export function renderArtistProfile(entry) {
 export function resetArtistProfile() {
   profileSeq += 1;
   profileArtist = -1;
-  profileEntryId = '';
   expanded.prompts = false;
   profileTiles = new Map();
   $('#lightbox')?.classList.remove('is-artist', 'artist-prompts-open');
