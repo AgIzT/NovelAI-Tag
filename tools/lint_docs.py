@@ -11,7 +11,7 @@
 退出码：0 = 无 ERROR；1 = 有 ERROR。WARN 不影响退出码（需要人判断的都算 WARN）。
 
 配套：`docs/经验/文档规整.md` 是完整的定期规整流程，本脚本是其中「1.1 机器可验证项」那一步。
-姊妹脚本 `tools/lint_data.py`（数据体检）尚未落地，见 docs/roadmap.md 一.4。
+姊妹脚本 `tools/lint_data.py`（数据体检）尚未落地，见 docs/roadmap.md「统一数据体检」。
 """
 from __future__ import annotations
 import argparse
@@ -36,6 +36,12 @@ INDEXED_DIRS = ('docs/decisions', 'docs/经验', 'docs/运维')
 BUDGET = {'AGENTS.md': 18000, 'CLAUDE.md': 6000, 'HANDOFF.md': 12288}
 # 巨型文件阈值（超过就该只 Grep 不整读）
 HUGE = 40000
+# 篇幅提醒（AGENTS.md「文档读取路由」；超出只报 WARN，由人判断）
+INDEX_ENTRY_AVG = 300          # 索引平均每条字节
+INDEX_ENTRY_MAX = 450          # 单条明显超长时点名
+HANDOFF_ITEM_MAX = 400         # HANDOFF 每条字节
+LOG_ENTRY_MAX = 1536           # 新日志条目字节
+LOG_RULE_SINCE = '2026-11-17'  # 只查这天及以后的新条目，旧日志是史实不动
 
 errors: list[str] = []
 warns: list[str] = []
@@ -63,6 +69,19 @@ def read(p: str) -> str:
         return fh.read()
 
 
+def read_abs(path: str) -> str:
+    with open(path, encoding='utf-8', errors='replace') as fh:
+        return fh.read()
+
+
+def fsize(p: str) -> int:
+    return os.path.getsize(os.path.join(ROOT, p))
+
+
+def nbytes(s: str) -> int:
+    return len(s.encode('utf-8'))
+
+
 def is_readonly(p: str) -> bool:
     return p.startswith(READONLY_PREFIXES)
 
@@ -84,6 +103,12 @@ def check_indexes():
             target = os.path.normpath(os.path.join(ROOT, d, link))
             if not os.path.exists(target):
                 errors.append(f'[索引] {idx_path} 指向不存在的文件：{link}')
+        # 表格式索引的链接文字是篇名，要按 (目标) 再查一遍
+        for target in sorted(markdown_link_targets(idx_path, idx)):
+            if '<' in target:
+                continue      # 模板注释里的 `<文件名>.md` 占位符
+            if not os.path.exists(os.path.join(ROOT, target)):
+                errors.append(f'[索引] {idx_path} 链接到不存在的文件：{target}')
 
 
 # ── 2. 死链 ─────────────────────────────────────────────────────────────
@@ -214,14 +239,14 @@ def check_budget(mds):
         p = os.path.join(ROOT, f)
         if not os.path.exists(p):
             continue
-        size = os.path.getsize(p)
+        size = fsize(f)
         if f in ('AGENTS.md', 'CLAUDE.md'):
             total += size
         flag = '' if size <= cap else f'  ⚠ 超出上限 {cap}B'
         (warns if size > cap else notes).append(f'[预算] {f} = {size}B（上限 {cap}B）{flag}')
     notes.append(f'[预算] always-loaded（AGENTS+CLAUDE）合计 {total}B ≈ {total // 3} tokens 量级，每次会话固定成本')
     for m in mds:
-        size = os.path.getsize(os.path.join(ROOT, m))
+        size = fsize(m)
         if size > HUGE:
             t = read(m)
             has_anchor = bool(re.search(r'^## ', t, re.M))
@@ -278,7 +303,120 @@ def check_handoff_header():
     warns.append('[HANDOFF] 找不到「最后更新」行')
 
 
-# ── 10. git 事实（供人对照文档里的状态断言）────────────────────────────
+# ── 10. 篇幅：索引条目 / HANDOFF 条目 / 新日志条目 ─────────────────────
+def index_entries(text: str) -> list[str]:
+    """索引里的条目行：表格数据行或 `- [` 列表行（模板注释不算）。"""
+    text = re.sub(r'<!--.*?-->', '', text, flags=re.S)
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith('- [') or (s.startswith('|') and not re.match(r'^\|[\s:|-]+\|$', s)
+                                   and not s.startswith('| 篇 |') and not s.startswith('| 文件 |')):
+            out.append(s)
+    return out
+
+
+def check_lengths():
+    for d in INDEXED_DIRS:
+        idx_path = f'{d}/README.md'
+        if not os.path.exists(os.path.join(ROOT, idx_path)):
+            continue
+        rows = index_entries(read(idx_path))
+        if not rows:
+            continue
+        avg = sum(map(nbytes, rows)) / len(rows)
+        long_rows = [r for r in rows if nbytes(r) > INDEX_ENTRY_MAX]
+        (warns if avg > INDEX_ENTRY_AVG else notes).append(
+            f'[篇幅] {idx_path}：{len(rows)} 条，平均 {avg:.0f}B（建议 ≤ {INDEX_ENTRY_AVG}B）')
+        for r in long_rows:
+            warns.append(f'[篇幅] {idx_path} 有一条 {nbytes(r)}B：{r[:40]}…')
+    if os.path.exists(os.path.join(ROOT, 'HANDOFF.md')):
+        items = re.split(r'\n(?=- \*\*)', read('HANDOFF.md'))[1:]
+        for it in items:
+            body = re.split(r'\n## ', it)[0].strip()
+            if nbytes(body) > HANDOFF_ITEM_MAX:
+                warns.append(f'[篇幅] HANDOFF 一条 {nbytes(body)}B（建议 ≤ {HANDOFF_ITEM_MAX}B）：{body[:30]}…')
+    log_dir = os.path.join(ROOT, 'docs', '日志')
+    if os.path.isdir(log_dir):
+        for f in sorted(os.listdir(log_dir)):
+            if not re.match(r'\d{4}-\d{2}\.md$', f):
+                continue
+            for part in re.split(r'\n(?=## )', read(f'docs/日志/{f}')):
+                m = re.match(r'## (\d{4}-\d{2}-\d{2})', part)
+                if m and m.group(1) >= LOG_RULE_SINCE and nbytes(part.strip()) > LOG_ENTRY_MAX:
+                    warns.append(f'[篇幅] docs/日志/{f} 条目「{part.splitlines()[0][3:40]}」'
+                                 f'{nbytes(part.strip())}B（新条目建议 ≤ {LOG_ENTRY_MAX}B，细节放 output/ 报告）')
+
+
+# ── 11. 内容放错地方的迹象 ──────────────────────────────────────────────
+def docs_non_md() -> list[str]:
+    out = []
+    for base, dirs, files in os.walk(os.path.join(ROOT, 'docs')):
+        r = rel(base)
+        if r == 'docs/skills' or r.startswith('docs/skills/'):
+            continue      # 技能源文件（含 agents/*.yaml），见 docs/经验/工程审查.md
+        out += [rel(os.path.join(base, f)) for f in files if not f.endswith('.md')]
+    return sorted(out)
+
+
+# 刻意留在 docs/ 的非文档：搬走会断链或断图，登记原因后只记参考
+KEEP_NON_MD = {
+    'docs/动效方案演示.html': 'roadmap、经验篇和 site/assets/app/copy-fx.js 注释引用了它',
+    'docs/Tag中转站原型.html': '用 ../site/images/ 相对路径引图，搬走图就断',
+    'docs/Tag中转站原型-Codex版.html': '用 ../site/images/ 相对路径引图，搬走图就断',
+}
+
+
+def check_misplaced(mds):
+    for f in docs_non_md():
+        if f in KEEP_NON_MD:
+            notes.append(f'[归位] {f} 刻意留在 docs/：{KEEP_NON_MD[f]}')
+        else:
+            warns.append(f'[归位] {f} 不是文档——原型、演示稿放 output/ 或归档（docs/skills/ 例外）')
+    log_idx = 'docs/日志/README.md'
+    if os.path.exists(os.path.join(ROOT, log_idx)):
+        stray = [l for l in read(log_idx).splitlines()
+                 if l.strip() and not l.lstrip().startswith(('#', '>', '|'))]
+        if stray:
+            warns.append(f'[归位] {log_idx} 有 {len(stray)} 行不是页头或月份表——'
+                         f'「最新…」状态段落不写在这里，看当月日志开头')
+    for m in mds:
+        if not m.startswith(('docs/经验/', 'docs/运维/')) or m.endswith('/README.md'):
+            continue
+        in_code = False
+        for line_no, line in enumerate(read(m).splitlines(), 1):
+            if line.lstrip().startswith('```'):
+                in_code = not in_code
+                continue
+            if not in_code and re.match(r'^#{2,4} (?:\d{4}-\d{2}-\d{2}|.*(?:落地结果|本轮|事故经过))', line):
+                warns.append(f'[归位] {m}:{line_no} 标题像一次性过程记录：「{line[:40]}」——过程写进日志或报告')
+
+
+# ── 12. 工作区：顶层目录登记、预览端口重复 ─────────────────────────────
+def check_workspace():
+    ws_agents = os.path.join(WORKSPACE, 'AGENTS.md')
+    if os.path.exists(ws_agents):
+        text = read_abs(ws_agents)
+        # 只认「顶层目录一览」表格首列和「其它」小节里的条目，正文顺带提到的目录名不算登记
+        registered = set(re.findall(r'(?m)^\|\s*`([^`/]+)/`', text))
+        if '## 其它' in text:
+            registered |= set(re.findall(r'`([^`/\s]+)/', text.split('## 其它', 1)[1]))
+        for name in sorted(os.listdir(WORKSPACE)):
+            if os.path.isdir(os.path.join(WORKSPACE, name)) and name not in registered:
+                warns.append(f'[工作区] 顶层目录 {name}/ 没在工作区 AGENTS.md 登记')
+    if os.path.exists(LAUNCH):
+        with open(LAUNCH, encoding='utf-8') as fh:
+            cfg = json.load(fh)
+        by_port: dict[int, list[str]] = {}
+        for c in cfg.get('configurations', []):
+            if c.get('port'):
+                by_port.setdefault(int(c['port']), []).append(c.get('name', '?'))
+        for port, names in sorted(by_port.items()):
+            if len(names) > 1:
+                warns.append(f'[工作区] launch.json 端口 {port} 被 {" / ".join(names)} 同时占用，一起启动会冲突')
+
+
+# ── 13. git 事实（供人对照文档里的状态断言）────────────────────────────
 def git_facts():
     def sh(cmd):
         try:
@@ -314,6 +452,9 @@ def main() -> int:
     check_budget(mds)
     check_orphans(mds)
     check_handoff_header()
+    check_lengths()
+    check_misplaced(mds)
+    check_workspace()
     git_facts()
 
     lines = [f'文档体检报告  ——  共扫描 {len(mds)} 篇 md',
