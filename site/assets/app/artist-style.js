@@ -14,7 +14,7 @@ import { fetchDataJson } from '../data-source.js';
 export const STYLE_CODEX_ID = 'artist_nai5_personal';
 export const SINGLE_ROOT = '单画师词典';
 export const UNSORTED = '未归类';
-export const SPECIMEN_SOURCE_ORDER = Object.freeze(['花枝鱼', 'AgIzT', '九七', '雨燕', 'MayRain', 'wwuumm']);
+export const SPECIMEN_SOURCE_ORDER = Object.freeze(['花枝鱼', 'AgIzT', '九七', '雨燕', 'nax.moe', 'MayRain', 'wwuumm']);
 const DATA_PATH = 'artist_styles.json';
 const NEAR_BASE = 'artist_styles_near';
 const REQUEST_TIMEOUT_MS = 6000;

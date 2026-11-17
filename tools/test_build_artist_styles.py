@@ -223,7 +223,7 @@ class SafePublication(unittest.TestCase):
 class SpecimenOrder(unittest.TestCase):
     def test_shared_source_priority_and_suffixes(self):
         shared = json.loads((Path(__file__).resolve().parent / 'fixtures' / 'artist_specimen_order.json').read_text(encoding='utf-8'))
-        self.assertEqual(shared['canonicalOrder'], ['花枝鱼', 'AgIzT', '九七', '雨燕', 'MayRain', 'wwuumm'])
+        self.assertEqual(shared['canonicalOrder'], ['花枝鱼', 'AgIzT', '九七', '雨燕', 'nax.moe', 'MayRain', 'wwuumm'])
         for source, rank in shared['sourceCases']:
             with self.subTest(source=source):
                 self.assertEqual(builder.specimen_source_rank({'path': ['单画师词典', source]}), rank)

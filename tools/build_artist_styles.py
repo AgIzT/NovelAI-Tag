@@ -49,7 +49,7 @@ NEAR = 20
 NEAR_SHARD = 512
 SHOWCASE = 8
 REPS = 4
-SPECIMEN_SOURCE_ORDER = ('花枝鱼', 'AgIzT', '九七', '雨燕', 'MayRain', 'wwuumm')
+SPECIMEN_SOURCE_ORDER = ('花枝鱼', 'AgIzT', '九七', '雨燕', 'nax.moe', 'MayRain', 'wwuumm')
 
 
 def norm_name(text):

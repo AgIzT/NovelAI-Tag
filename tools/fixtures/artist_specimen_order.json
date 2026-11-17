@@ -1,5 +1,5 @@
 {
-  "canonicalOrder": ["花枝鱼", "AgIzT", "九七", "雨燕", "MayRain", "wwuumm"],
+  "canonicalOrder": ["花枝鱼", "AgIzT", "九七", "雨燕", "nax.moe", "MayRain", "wwuumm"],
   "sourceCases": [
     ["花枝鱼", 0],
     ["花枝鱼(无原图)", 0],
@@ -8,9 +8,10 @@
     ["AgIzT（无原图）", 1],
     ["九七(无原图)", 2],
     ["雨燕（无原图）", 3],
-    [" MayRain (无原图) ", 4],
-    ["wwuumm(无原图)", 5],
-    ["未知来源", 6],
-    ["", 6]
+    ["nax.moe", 4],
+    [" MayRain (无原图) ", 5],
+    ["wwuumm(无原图)", 6],
+    ["未知来源", 7],
+    ["", 7]
   ]
 }
