@@ -20,7 +20,6 @@ import {
   entryImageCanUseOriginal,
   entrySourceAllowsOriginal,
   entrySourceCodexId,
-  imageItemHasReadableParams,
 } from './original-capability.js';
 import { isEntryAccessBlocked, isR18gBlocked, showNsfwLockedHint, showR18gLockedHint } from './access.js';
 import { openReportDialog } from './report.js';
@@ -1651,8 +1650,7 @@ export function renderLightbox() {
   const hasOriginal = !emptyImage && lightboxItemHasOriginal(e, item);
   const origSrc = hasOriginal ? imageItemUrl('original', e, item) : '';
   const origAbs = resolvedUrl(origSrc);
-  const readableOriginal = hasOriginal && imageItemHasReadableParams(item)
-    && !document.body.classList.contains('local-edition');
+  const readableOriginal = hasOriginal && !document.body.classList.contains('local-edition');
   const exampleModel = String(findCodexMeta(lightboxEntrySourceId(e))?.exampleModel || '').trim();
   img.onload = null;
   img.onerror = emptyImage ? null : () => {

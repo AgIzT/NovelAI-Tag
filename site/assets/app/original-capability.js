@@ -41,8 +41,3 @@ export function entrySourceAllowsOriginal(entry) {
 export function entryImageCanUseOriginal(entry, item) {
   return entrySourceAllowsOriginal(entry) && imageItemHasOriginal(item, entry);
 }
-
-/* 来源发布的原图本身不带生成参数时逐图标 `_noParams: true`（如 nax.moe 的 WebP）：照常查看原图，不承诺能读参数。 */
-export function imageItemHasReadableParams(item) {
-  return item?._noParams !== true;
-}
