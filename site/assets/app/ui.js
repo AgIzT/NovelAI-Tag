@@ -35,10 +35,14 @@ import {
   topHistoryLayerId,
 } from './browser-history.js';
 
-const THEME_ICONS = {
-  moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z"/></svg>',
-  sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
-};
+/* 深浅色图标：一枚日月变形 SVG 常驻不重建，形状只由 body.dark 决定（styles.css「日月变形」），
+   换色时 CSS 过渡才接得上。浅色显示月亮（点了去深色），深色显示太阳。mask id 每处一枚，不能重名；
+   mask 内两件显式 stroke=none——svg 继承下来的描边色会在深色下变成一圈白，把被咬掉的那块又露出来。 */
+const themeMorphIcon = id => `<svg class="theme-morph" viewBox="0 0 24 24" aria-hidden="true">`
+  + `<mask id="${id}"><rect x="-4" y="-4" width="32" height="32" fill="#fff" stroke="none"/>`
+  + `<circle class="tm-cut" cx="17.5" cy="6.5" r="6.5" fill="#000" stroke="none"/></mask>`
+  + `<circle class="tm-core" cx="12" cy="12" r="8.5" fill="currentColor" stroke="none" mask="url(#${id})"/>`
+  + '<path class="tm-rays" d="M12 1.5v2M12 20.5v2M1.5 12h2M20.5 12h2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>';
 
 const uiActions = {
   loadCodex: async () => {},
@@ -475,19 +479,47 @@ export function bindUI() {
     darkMode = next;
     document.body.classList.toggle('dark', d);
     document.documentElement.style.colorScheme = d ? 'dark' : 'light';   // 滚动条等原生控件跟随深浅色
-    const icon = d ? THEME_ICONS.sun : THEME_ICONS.moon;
     const label = d ? '切换浅色模式' : '切换深色模式';
-    themeBtn.innerHTML = icon;
+    if (!themeBtn.querySelector('.theme-morph')) themeBtn.innerHTML = themeMorphIcon('themeMorphTop');
     themeBtn.setAttribute('aria-label', label);
-    if (themeMenuBtn) themeMenuBtn.innerHTML = `${icon}<span><b>${label}</b></span>`;
+    if (themeMenuBtn) {
+      // 只换文字、不重建图标，变形过渡才接得上；还没建过（或节点不全）就整块写一次
+      const text = themeMenuBtn.querySelector('.theme-morph') && themeMenuBtn.querySelector('b');
+      if (text) text.textContent = label;
+      else themeMenuBtn.innerHTML = `${themeMorphIcon('themeMorphMenu')}<span><b>${label}</b></span>`;
+    }
     for (const b of document.querySelectorAll('#darkModeControl [data-dark-mode]'))
       b.setAttribute('aria-pressed', b.dataset.darkMode === darkMode ? 'true' : 'false');
     syncPageGlow();
     return true;
   };
+  /* 圆形扩散换肤（2026-11-19 原型方案 D）：新主题从被点的按钮处画圆铺满整屏，图标同时日月变形。
+     只给用户亲手点的翻面；进站、跟随系统、设置里的三档选择都直接换。applyTheme 纯同步，不会把等待包进过渡。
+     vt-theme 只存活于本次过渡：root 关掉默认交叉淡化，顶栏 / 横幅退出独立成组（理由同 vt-codex），
+     整页只剩 root 一层，圆才能把整屏一起揭开。减弱动态效果、motion-off、老浏览器、起点不可见 → 直接换。 */
+  let themeTransition = null;   // 连点时新过渡会顶掉旧的；只有最后一次负责摘掉 vt-theme
+  const revealTheme = (origin, apply) => {
+    const root = document.documentElement;
+    const rect = origin?.getBoundingClientRect();
+    if (!rect?.width || typeof document.startViewTransition !== 'function'
+      || prefersReducedMotion() || root.classList.contains('motion-off')) { apply(); return; }
+    const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+    const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    root.classList.add('vt-theme');
+    const vt = themeTransition = document.startViewTransition(apply);
+    vt.ready.then(() => root.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+      { duration: 650, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' },
+    )).catch(() => {});
+    vt.finished.catch(() => {}).finally(() => {
+      if (themeTransition !== vt) return;
+      themeTransition = null;
+      root.classList.remove('vt-theme');
+    });
+  };
   /* 顶栏按钮只管「现在翻到反面」，按下就脱离 auto——用户点它要的是确定结果，不是继续跟系统走 */
-  const toggleTheme = () => applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark');
-  themeBtn.onclick = toggleTheme;
+  const toggleTheme = origin => revealTheme(origin, () => applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark'));
+  themeBtn.onclick = () => toggleTheme(themeBtn);
   applyTheme(darkMode, { persist: false });
   // 其它页面只读旧布尔键；首次 auto 也同步派生结果，不改三档偏好。
   writePreference(LEGACY_DARK_STORAGE_KEY, document.body.classList.contains('dark') ? '1' : '0', { announce: false });
@@ -685,7 +717,7 @@ export function bindUI() {
   };
   if (themeMenuBtn) {
     themeMenuBtn.onclick = () => {
-      toggleTheme();
+      toggleTheme(themeMenuBtn);
       closeMore({ focusButton: true });
       moreBtn.focus({ preventScroll: true });
     };

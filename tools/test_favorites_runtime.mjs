@@ -27,7 +27,8 @@ const { library, store: stores } = await loadFavoritesTestModules();
 const store = stores.createLibraryStore({ getStorage: () => storage, getCodexes: () => state.codexes,
   getLocks: () => ({ request: async (_name, _options, fn) => fn({}) }), notify: (...args) => messages.push(args) });
 await store.ensureLibrary();
-globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments, emittedChanges, messages, library, store, stores };
+const animations = [];
+globalThis.__favoritesRuntimeTest = { state, lookupSources, lookupArguments, emittedChanges, messages, library, store, stores, animations };
 
 const coreImport = /import \{\s*atlasFavoriteStorageKeys,\s*createCodexLookup,\s*\} from '\.\/favorites-backup-core\.js';/;
 const favoritesSource = (await readFile(favoritesUrl, 'utf8'))
@@ -46,6 +47,9 @@ const favoritesSource = (await readFile(favoritesUrl, 'utf8'))
     "import { findCodexMeta } from './data.js';",
     'const findCodexMeta = id => state.codexes.find(codex => codex.id === id || (codex.aliases || []).includes(id));',
   )
+  .replace("import { playFavoriteBurst, playFavoriteRelease } from './fav-fx.js';",
+    'const playFavoriteBurst = element => globalThis.__favoritesRuntimeTest.animations.push({ kind: "burst", element }); '
+      + 'const playFavoriteRelease = element => globalThis.__favoritesRuntimeTest.animations.push({ kind: "release", element });')
   .replace(coreImport, `
 const ATLAS_FAVORITES_STORAGE_KEY = 'fadian-favs';
 const createCodexLookup = codexes => {
@@ -110,6 +114,8 @@ assert.equal(lookupArguments.at(-1).source, reloadedCodexes);
   assert.equal(lightboxButton.getAttribute('aria-pressed'), 'false');
   assert.equal(cardButton.getAttribute('aria-pressed'), 'false');
   assert.equal(cardButton.textContent, '☆');
+  assert.deepEqual(animations.map(a => a.kind), ['release'], '取消收藏只轻缩，不播点亮迸发');
+  assert.equal(animations[0].element, lightboxButton, '只有被点的那颗星回应，其它卡片同步不动');
   assert.equal(favorites.flushDeferredFavoritesViewRefresh(), true);
   assert.equal(refreshes, 1);
   assert.equal(favorites.flushDeferredFavoritesViewRefresh(), false, '重复关闭不应重复刷新');
@@ -118,6 +124,8 @@ assert.equal(lookupArguments.at(-1).source, reloadedCodexes);
   assert.equal(favorites.isFav(entry), true, '刷新前仍应能把当前词条重新收藏');
   assert.equal(lightboxButton.getAttribute('aria-pressed'), 'true');
   assert.equal(cardButton.textContent, '★');
+  assert.deepEqual(animations.map(a => a.kind), ['release', 'burst'], '亲手点亮只播一次迸发');
+  assert.equal(animations[1].element, lightboxButton, '迸发只给被点的那颗星，其它卡片同步不动');
   favorites.flushDeferredFavoritesViewRefresh();
   assert.equal(refreshes, 2);
 }
@@ -128,6 +136,7 @@ const before = [...state.favs];
 const eventCount = emittedChanges.length;
 messages.length = 0;
 let buttonTouched = false;
+const animationCount = animations.length;
 const outcome = await favorites.toggleFav({ id: 'alpha-2', title: '第二条' }, {
   set textContent(_) { buttonTouched = true; },
 });
@@ -136,6 +145,7 @@ assert.equal(outcome.reason, 'quota');
 assert.deepEqual([...state.favs], before);
 assert.equal(emittedChanges.length, eventCount);
 assert.equal(buttonTouched, false);
+assert.equal(animations.length, animationCount, '落盘失败不播点亮动效');
 assert.equal(messages.some(([message]) => message.startsWith('已收藏')), false);
 assert.match(messages.at(-1)[0], /^收藏未保存：浏览器存储已满。/);
 assert.equal((await favorites.saveFavs()).ok, false);

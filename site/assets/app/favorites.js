@@ -8,6 +8,7 @@ import {
 import { emitFavoritesChanged } from './favorites-backup.js';
 import { addLibraryItem, libraryKeys, removeLibraryItems } from './favorites-library-core.js';
 import { commitLibrary, librarySnapshot, undoFailureMessage } from './favorites-library-store.js';
+import { playFavoriteBurst, playFavoriteRelease } from './fav-fx.js';
 
 const favoriteActions = {
   applyFilter: () => {}, refreshFavoritesView: () => {}, openOrganize: () => {},
@@ -122,6 +123,9 @@ export async function toggleFav(e, btn, options = {}) {
   emitFavoritesChanged(['atlas'], 'toggle');
   const on = isFav(e);
   setFavoriteButtonState(btn, on);
+  // 只回应亲手点的这一下（点亮迸发、取消轻缩，见 fav-fx.js）；其它卡片与灯箱的同步、撤销恢复都只换形不动
+  if (on) playFavoriteBurst(btn);
+  else playFavoriteRelease(btn);
   syncRenderedFavoriteButtons(e, on);
   if (state.favoritesView) {
     if (options.deferViewRefresh) deferredFavoritesViewRefresh = true;

@@ -86,6 +86,19 @@ body.search-filters-open .topbar{transform:none}
 .icon-btn svg{display:block}
 .topbar-actions{margin-left:auto;display:flex;align-items:center;gap:4px;flex:none}
 .theme-btn svg{width:21px;height:21px;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
+/* 日月变形（ui.js themeMorphIcon，2026-11-19 原型方案 D）：浅色是月亮、深色是太阳，形状只挂 body.dark。
+   太阳收起光芒、被 .tm-cut 咬成月牙，带一点回弹；顶栏与「更多」菜单共用。 */
+.theme-morph{rotate:-40deg;transition:rotate .5s cubic-bezier(.34,1.56,.64,1)}
+.theme-morph .tm-core{transform-box:fill-box;transform-origin:center;transition:scale .5s cubic-bezier(.34,1.56,.64,1)}
+.theme-morph .tm-cut{transition:translate .5s cubic-bezier(.34,1.56,.64,1)}
+.theme-morph .tm-rays{transform-box:fill-box;transform-origin:center;scale:.3;rotate:-90deg;opacity:0;
+  transition:scale .5s cubic-bezier(.34,1.56,.64,1),rotate .5s cubic-bezier(.34,1.56,.64,1),opacity .3s ease}
+body.dark .theme-morph{rotate:0deg}
+body.dark .theme-morph .tm-core{scale:.58}
+body.dark .theme-morph .tm-cut{translate:9px -9px}
+body.dark .theme-morph .tm-rays{scale:1;rotate:0deg;opacity:1}
+@media (prefers-reduced-motion:reduce){.theme-morph,.theme-morph *{transition:none!important}}
+.motion-off .theme-morph,.motion-off .theme-morph *{transition:none!important}
 .settings-top-btn svg{width:19px;height:19px;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .more-wrap{position:relative;flex:none}
 .more-btn svg{width:21px;height:21px;fill:currentColor}
@@ -1763,8 +1776,14 @@ body.dark .badge-char-chip{
 }
 .fav-btn.on::before{-webkit-mask-image:var(--ico-star-f);mask-image:var(--ico-star-f)}
 .fav-btn:active{scale:.88}
-.fav-btn:hover{background:var(--tagbg);color:#f5b301}
+/* 只给真有悬停的指针：触屏点一下会留下黏住的 :hover，取消收藏后星仍是金色，看着像没取消 */
+@media (hover:hover) and (pointer:fine){.fav-btn:hover{background:var(--tagbg);color:#f5b301}}
 .fav-btn.on{color:#f5b301}
+/* 收藏点亮的金环与粒子（app/fav-fx.js）：挂 body 的 fixed 层，按星心定位；层级高于灯箱、低于 toast */
+.fav-burst{position:fixed;left:0;top:0;width:0;height:0;z-index:1200;pointer-events:none}
+.fav-burst>i{position:absolute;left:0;top:0;opacity:0}
+.fav-burst-ring{width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:9px solid #f5b301}
+.fav-burst-dot{width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%}
 .card.no-img .card-title{font-size:13.8px}
 .card-tags{
   position:relative;   /* 复制时的扫光挂在 ::after 上 */
@@ -3419,6 +3438,11 @@ html.vt-arrived .float-actions{animation:none}
 html.vt-codex .topbar{view-transition-name:none}
 html.vt-codex::view-transition-old(root){animation-duration:.16s}
 html.vt-codex::view-transition-new(root){animation-duration:.3s}
+/* 深浅色圆形扩散（ui.js revealTheme）：vt-theme 只存活于本次过渡。root 关掉默认交叉淡化，旧画面垫底，
+   新画面由 JS 用 clip-path 从按钮处画圆揭开；顶栏 / 横幅退出独立成组，否则它们单独淡变、不跟着圆走 */
+html.vt-theme :is(.topbar,.codex-banner){view-transition-name:none}
+html.vt-theme::view-transition-old(root),
+html.vt-theme::view-transition-new(root){animation:none;mix-blend-mode:normal}
 html.vt-codex::view-transition-old(codex-banner),
 html.vt-codex::view-transition-new(codex-banner){animation-duration:.3s}
 
