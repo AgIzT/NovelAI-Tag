@@ -38,7 +38,8 @@ class LocalEditionBuildTests(unittest.TestCase):
             for url in re.findall(r'<(?:script|link)\b[^>]*\b(?:src|href)="([^"]+)"', html):
                 parts = urlsplit(url)
                 self.assertFalse(parts.scheme or parts.netloc, url)
-                self.assertTrue((site / parts.path).is_file(), url)
+                # 以 / 开头的是站点根路径；直接拼会被 pathlib 当成盘符根目录
+                self.assertTrue((site / parts.path.lstrip("/")).is_file(), url)
             self.assertEqual(
                 {p.name for p in (site / "data").iterdir()},
                 {"about.json", "announcements.json", "codexes.json", "demo.json",

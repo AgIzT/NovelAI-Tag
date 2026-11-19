@@ -286,6 +286,8 @@ def create_local_site(product: Path):
         site / "assets",
         ignore=LOCAL_ASSET_IGNORE,
     )
+    # index.html 用 /favicon.ico 给不认 SVG 图标的浏览器兜底，它放在站点根目录，不在 assets 里
+    shutil.copy2(ROOT / "site" / "favicon.ico", site / "favicon.ico")
     html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
     html = html.replace(
         "<title>法典图鉴 · NovelAI 提示词</title>",
