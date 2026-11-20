@@ -8,7 +8,7 @@
   flex:none;border:none;background:transparent;cursor:pointer;
   padding:2px 5px;border-radius:7px;line-height:1;color:var(--muted);
   display:grid;place-items:center;
-  transition:background .12s,color .12s,scale .12s ease;
+  transition:background var(--dur-fast,.12s),color var(--dur-fast,.12s),scale var(--dur-fast,.12s) ease;
 }
 /* 按压幅度与 .fav-btn 同值，两个按钮就在一起，不能一个跟手一个不动。 */
 .hide-card-btn:active{scale:.88}
@@ -40,7 +40,7 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
 .blocking-input-row input{
   min-width:0;flex:1;min-height:36px;border:1px solid var(--line);border-radius:9px;padding:0 10px;
   background:var(--card);color:var(--text);font:inherit;font-size:13px;outline:none;
-  transition:border-color .16s,box-shadow .16s,background .16s;
+  transition:border-color var(--dur-fast,.16s),box-shadow var(--dur-fast,.16s),background var(--dur-fast,.16s);
 }
 .blocking-input-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .blocking-input-row input[aria-invalid="true"]{border-color:var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 12%,transparent)}
@@ -57,7 +57,7 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
 .blocking-word-list li>span{min-width:0;padding:3px 2px 3px 11px;font-size:12px;font-weight:600;overflow-wrap:anywhere}
 .blocking-word-list button{
   flex:none;align-self:stretch;width:28px;border:0;background:transparent;color:var(--muted);
-  font-size:16px;line-height:1;cursor:pointer;transition:background .15s,color .15s,scale .12s ease;
+  font-size:16px;line-height:1;cursor:pointer;transition:background var(--dur-fast,.15s),color var(--dur-fast,.15s),scale var(--dur-fast,.12s) ease;
 }
 .blocking-word-list button:is(:hover,:focus-visible){background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
 

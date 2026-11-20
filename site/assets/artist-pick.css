@@ -7,7 +7,7 @@
 .tree-division-label{flex:none;margin-right:2px}
 .tree-division-btn{
   flex:none;padding:3px 10px;border:1px solid transparent;border-radius:999px;background:transparent;
-  color:var(--muted);font:inherit;font-weight:600;cursor:pointer;transition:background .12s,color .12s,border-color .12s;
+  color:var(--muted);font:inherit;font-weight:600;cursor:pointer;transition:background var(--dur-fast,.12s),color var(--dur-fast,.12s),border-color var(--dur-fast,.12s);
 }
 .tree-division-btn:hover{color:var(--accent);background:var(--accent-soft)}
 .tree-division-btn[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 34%,var(--line));background:var(--accent-soft);color:var(--accent)}

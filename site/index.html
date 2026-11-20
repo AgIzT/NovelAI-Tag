@@ -1328,5 +1328,9 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </template>
 
 <script type="module" src="assets/app.js"></script>
+<script type="module">/* 统一节奏原型：地址带 ?rhythm（或本机已用过面板）才加载调节面板，正常访问不加载 */
+let rhythmLab = new URLSearchParams(location.search).has('rhythm');
+try { rhythmLab ||= !!localStorage.getItem('fadian-rhythm-lab-v1'); } catch {}
+if (rhythmLab) import('./assets/app/rhythm-lab.js');</script>
 </body>
 </html>
