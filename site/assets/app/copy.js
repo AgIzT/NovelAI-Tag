@@ -5,7 +5,7 @@ import { recordRecentEntry, saveBrowseStateNow } from './history.js';
 import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
 import { formatCopyText } from './nai-sd.js';
-import { playCopySample } from './copy-fx.js';
+import { markCopyButton, playCopySample } from './copy-fx.js';
 import { relayTossTarget } from './tag-relay-rail.js';
 import { prepareCopiedEntry, prepareCopiedFragment, recordPreparedCopiedEntry, relayInbox } from './tag-relay-store.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
@@ -215,6 +215,8 @@ export async function copyText(text, message, node, options = {}) {
   if (node) {
     replayCopiedClass(node);
   }
+  // 从按钮复制时按钮自己打勾；芯片只在要抛进中转站时出现，不再在按钮上方重复说一遍
+  const markedInPlace = markCopyButton(node);
   /* 「采样」反馈严格排在剪贴板写入成功之后：失败路径走的是上面的手动复制面板，不该有庆祝动作 */
   /* 复制即入库，就在这里：
      ① 排在上面的失败早退之后 —— 没真复制到就不入库，手动兜底面板那条路也天然排除；
@@ -225,6 +227,7 @@ export async function copyText(text, message, node, options = {}) {
   playCopySample(node, formatted.text, options.sampleLabel || sampleLabelFrom(message), {
     flyTo: intake ? relayTossTarget() : null,
     count: options.sampleCount !== false,
+    inPlace: markedInPlace,
   });
   const followUp = options.followUp;
   const action = followUp?.label && String(followUp.text || '').trim()

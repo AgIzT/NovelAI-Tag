@@ -4,6 +4,7 @@ import { $, clamp, esc, isTouchPrimaryInput, prefersReducedMotion, safeHttpUrl }
 import { notifyImageLoadError } from './masonry.js';
 import { renderHighlightedText, currentHighlightTerms } from './search.js';
 import { copyText, combinedPrompt, combinedPromptLabel } from './copy.js';
+import { clearCopyButton } from './copy-fx.js';
 import { toast, dismissToast } from './feedback.js';
 import { relayKeyFor, snapshotFragment, snapshotLocked } from './tag-relay-snapshot.js';
 import { tokenizePrompt, serializeSelection } from './prompt-fragments.js';
@@ -1689,6 +1690,8 @@ export function renderLightbox() {
   lbOriginalState = { status: '', readable: false };
   hideLightboxNotice({ immediate: true });
   closeLightboxMore();
+  // 换词条或换图时按钮立刻回到原字，别把上一条的「已复制」带过来
+  for (const button of document.querySelectorAll('#lightbox .copy-done')) clearCopyButton(button);
   $('#lightbox').dataset.original = '';
   const img = $('#lightboxImg');
   const stage = $('#lightboxStage');

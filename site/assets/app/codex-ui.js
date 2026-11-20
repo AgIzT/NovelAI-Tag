@@ -6,7 +6,7 @@ import { hasEntryImage, thumbUrl } from './media.js';
 import { toast } from './feedback.js';
 import { bindOutsideDismiss } from './modal.js';
 import { createSelectMenu } from './select-menu.js';
-import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { animateUi, cancelUiMotion, setRollingNumber } from './ui-motion.js';
 import { originalSectionsOf } from './original-capability.js';
 import { sortCategoryTree } from './category-order.js';
 import { artistOf, artistDivision, artistPickedView, deduplicateStyleEntries, inSingleSection, styleTreeSkeleton, styleActive, supportsArtistStyles, treePathOf } from './artist-style.js';
@@ -1685,6 +1685,9 @@ function syncSiteSearchHead(on = Boolean(state.siteSearchView)) {
   siteSearchHeadLaidOut = on;
 }
 
+/* 结果栏上一次显示的条数：只在两次之间数字变了时滚动，首屏不滚 */
+let shownResultCount = null;
+
 export function updateResultBar() {
   syncSiteSearchHead();
   const searchHead = Boolean(state.siteSearchView);
@@ -1746,6 +1749,8 @@ export function updateResultBar() {
     count.className = 'result-root-count';
   }
   count.innerHTML = t;
+  setRollingNumber(count.querySelector('b'), n, shownResultCount);
+  shownResultCount = n;
   box.appendChild(count);
   if (searchHead) box.appendChild(crumbs);
 

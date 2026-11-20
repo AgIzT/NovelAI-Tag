@@ -28,6 +28,33 @@ function rhythmTiming(duration, easing) {
   return { duration: nextDuration, easing: nextEasing };
 }
 
+/* 数字变化：像里程表一样，从第一位变了的数字起往右都滚进来，变大从下往上、变小从上往下。
+   按右端对齐比较，所以 1203 → 1208 只动末位，15673 → 14653 动后四位。
+   没有旧值或值没变时只写字，不加动画。动画在样式表（.num-roll），
+   减少动态效果和 motion-off 由样式表统一关掉。 */
+export function setRollingNumber(element, next, prev) {
+  if (!element) return;
+  const text = String(next);
+  const before = prev === null || prev === undefined ? null : String(prev);
+  if (before === null || before === text || typeof document === 'undefined') {
+    element.textContent = text;
+    return;
+  }
+  const dir = Number(next) >= Number(prev) ? 1 : -1;
+  const shift = text.length - before.length;
+  let first = 0;
+  while (first < text.length && text[first] === before[first - shift]) first++;
+  const digits = [...text.slice(first)].map((ch, i) => {
+    const digit = document.createElement('span');
+    digit.className = 'num-roll';
+    digit.style.setProperty('--roll-dir', String(dir));
+    digit.style.setProperty('--roll-i', String(i));
+    digit.textContent = ch;
+    return digit;
+  });
+  element.replaceChildren(...(first ? [text.slice(0, first)] : []), ...digits);
+}
+
 export function cancelUiMotion(element) {
   const animation = element && animations.get(element);
   if (!animation) return;

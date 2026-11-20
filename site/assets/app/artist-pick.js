@@ -13,7 +13,7 @@ import { copyText, entryPromptText } from './copy.js';
 import { prepareCopiedEntry, recordCopiedEntry } from './tag-relay-store.js';
 import { snapshotLocked } from './tag-relay-snapshot.js';
 import { openRelayRail } from './tag-relay-rail.js';
-import { animateUi } from './ui-motion.js';
+import { animateUi, setRollingNumber } from './ui-motion.js';
 import {
   ARTIST_DIVISIONS, SINGLE_ROOT, artistDivision, artistOf, styleActive, styleBookEntry,
 } from './artist-style.js';
@@ -304,11 +304,14 @@ async function addPickedToPlan(trigger) {
   openRelayRail(trigger);
 }
 
+/* 操作条上一次显示的已选人数：数字变了才滚动 */
+let shownPickCount = null;
+
 function renderBar() {
   if (!bar) return;
   const wasHidden = bar.hidden;
   bar.hidden = !state.artistPicking || !pickScope();
-  if (bar.hidden) return;
+  if (bar.hidden) { shownPickCount = null; return; }
   const count = state.artistPicked.size;
   const focused = bar.contains(document.activeElement) ? document.activeElement.dataset.pickAction : null;
   const copy = button('复制', 'panel-action favorites-action is-primary', () => copyPicked(copy));
@@ -321,7 +324,14 @@ function renderBar() {
   }
   const done = button('完成', 'panel-action favorites-action', () => endPicking());
   bar.setAttribute('aria-busy', String(busy));
-  bar.replaceChildren(element('strong', '', count ? `已选 ${count} 位` : '点卡片选画师'), copy, add, only, done);
+  const summary = element('strong', '', count ? '' : '点卡片选画师');
+  if (count) {
+    const number = document.createElement('span');
+    setRollingNumber(number, count, shownPickCount);
+    summary.append('已选 ', number, ' 位');
+  }
+  shownPickCount = count || null;
+  bar.replaceChildren(summary, copy, add, only, done);
   for (const node of bar.querySelectorAll('button')) node.dataset.pickAction = node.textContent;
   document.body.style.setProperty('--artist-pick-bar-height', bar.offsetHeight + 'px');
   if (focused) [...bar.querySelectorAll('button')].find(node => node.dataset.pickAction === focused)?.focus({ preventScroll: true });

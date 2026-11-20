@@ -35,7 +35,7 @@ const dependencies = {
   },
   showClipboardFallback: () => false,
   formatCopyText,
-  playCopySample() {}, relayTossTarget: () => null,
+  playCopySample() {}, markCopyButton: () => false, relayTossTarget: () => null,
   prepareCopiedEntry: snapshotEntry,
   prepareCopiedFragment,
   recordPreparedCopiedEntry: async snapshot => { stored.push(structuredClone(snapshot)); return true; },

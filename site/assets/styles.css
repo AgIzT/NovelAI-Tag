@@ -109,7 +109,7 @@ body.dark .theme-morph .tm-rays{scale:1;rotate:0deg;opacity:1}
   background:var(--popover-glass);
   backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
   border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);box-shadow:var(--popover-shadow);
-  padding:7px;animation:settingsIn var(--dur-fast) ease;
+  padding:7px;transform-origin:top right;
 }
 body.dark .more-menu{border-color:rgba(255,255,255,.12)}
 .more-item{
@@ -211,12 +211,13 @@ body.dark .codex-btn:hover,body.dark .codex-btn.open{border-color:var(--accent)}
   /* 实心面板：玻璃拟态与 V5 版面的排版语言冲突，顺带省掉一层合成 */
   background:var(--panel);
   border:1px solid var(--popover-line);border-radius:14px;box-shadow:var(--popover-shadow);
-  padding:9px;opacity:1;translate:0 0;
-  transition:opacity var(--dur-short) ease,translate var(--dur-short) var(--ease-out),display var(--dur-short) allow-discrete;
+  padding:9px;opacity:1;translate:0 0;scale:1;transform-origin:top left;
+  transition:opacity var(--dur-short) ease,translate var(--dur-short) var(--ease-out),scale var(--dur-short) var(--ease-out),display var(--dur-short) allow-discrete;
 }
-.codex-menu[hidden]{opacity:0;translate:0 -7px;pointer-events:none}
+/* 和「更多」菜单一样从按钮那一角长出来；面板宽，缩放幅度收小 */
+.codex-menu[hidden]{opacity:0;translate:0 -7px;scale:.97;pointer-events:none}
 @starting-style{
-  .codex-menu:not([hidden]){opacity:0;translate:0 -7px}
+  .codex-menu:not([hidden]){opacity:0;translate:0 -7px;scale:.97}
 }
 .codex-menu.volumes{display:flex;flex-direction:column;gap:9px}
 /* 线路图只在 ≤600px 出现，高度交给窄屏段的 calc(100vh − 顶栏)，比旧分组列表的 460 封顶多用出一屏 */
@@ -1487,6 +1488,10 @@ button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var
 .site-search-head .result-bar .result-bar-head:has(#searchClearAllBtn:not([hidden])),
 .site-search-head .result-bar .result-bar-head:has(#searchClearAllBtn:not([hidden])) #resultInfo{display:contents}
 .search-head-count{color:var(--text);white-space:nowrap}
+/* 条数变化：变了的那几位滚进来（app/ui-motion.js 的 setRollingNumber），变大从下、变小从上 */
+.num-roll{display:inline-block;animation:numRoll var(--dur-medium) var(--ease-spring) backwards;animation-delay:calc(var(--roll-i,0) * 28ms)}
+@keyframes numRoll{from{opacity:0;translate:0 calc(var(--roll-dir,1) * .55em)}}
+@media (prefers-reduced-motion:reduce){.num-roll{animation:none}}
 .search-head-count b{margin-right:4px;font-size:24px;font-weight:800;line-height:1.25}
 .site-search-head .crumbs::before{content:"·";margin-right:4px;color:var(--muted)}
 .site-search-head .crumb{border:0;background:transparent;padding:2px 3px;font-size:13px}
@@ -1650,6 +1655,26 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
    ⚠ z-index 不能去掉：侧栏停靠态是 68，飞向它的最后一段没有 95 会钻到栏底下。 */
 .copy-seed-chip.is-relay-toss{z-index:95}
 .copy-seed-chip[hidden]{display:none}
+/* 按钮自己打勾（app/copy-fx.js 的 markCopyButton）：原字变透明，宽度不动；
+   「✓ 已复制」叠在上面，从下往上浮出，对勾随后画出来。颜色取打勾前按钮的字色。
+   color 要 !important：灯箱复制按钮的字色写在 #id 上。 */
+.copy-done-anchor{position:relative}
+.copy-done:not(.copy-done-leaving){color:transparent!important}
+.copy-done-face{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:4px;
+  color:var(--copy-done-ink,currentColor);white-space:nowrap;pointer-events:none;
+  animation:copyDoneIn var(--dur-short) var(--ease-out) backwards;
+}
+.copy-done-face svg{width:1.2em;height:1.2em;flex:none;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.copy-done-face path{stroke-dasharray:15;animation:copyCheckDraw var(--dur-medium) var(--ease-out) var(--dur-fast) backwards}
+.copy-done-compact .copy-done-face span{display:none}
+.copy-done-leaving .copy-done-face{animation:copyDoneOut var(--dur-fast) ease forwards}
+@keyframes copyDoneIn{from{opacity:0;translate:0 .5em}}
+@keyframes copyDoneOut{to{opacity:0;translate:0 -.4em}}
+@keyframes copyCheckDraw{from{stroke-dashoffset:15}}
+@media (prefers-reduced-motion:reduce){
+  .copy-done-face,.copy-done-face path,.copy-done-leaving .copy-done-face{animation:none}
+}
 .card-img-wrap{
   position:relative;line-height:0;background:var(--tagbg);overflow:hidden;
 }
@@ -1999,9 +2024,9 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
   border:1px solid var(--line);transition:background var(--dur-short),border-color var(--dur-short);
 }
 .switch i::after{
-  content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;
+  content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:999px;
   background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);
-  transition:transform var(--dur-short) var(--ease-out),scale var(--dur-fast) ease;
+  transition:transform var(--dur-medium) var(--ease-spring),width var(--dur-short) var(--ease-out);
 }
 /* 开关的 input 透明覆盖在整个滑块上：全局矩形环换成贴在药丸滑块上的圆环 */
 .switch input:focus-visible{outline:none}
@@ -2010,7 +2035,9 @@ body.dark .settings-panel{border-color:rgba(255,255,255,.12)}
 .switch input:checked + i::after{transform:translateX(18px)}
 /* 已可用的开关：覆盖占位项的灰禁用样式 */
 .switch.live,.switch.live input{opacity:1;cursor:pointer}
-.switch.live:active i::after{scale:.9}
+/* 按住时圆钮朝要去的方向拉长，松手弹过去：开着的往左伸，所以位移同步少 5px，右缘不动 */
+.switch.live:active i::after{width:21px}
+.switch.live:active input:checked + i::after{transform:translateX(13px)}
 .set-desc code{
   font-family:var(--font-prompt);font-size:11px;
   background:var(--tagbg);border:1px solid var(--line);border-radius:4px;padding:0 4px;
@@ -3393,13 +3420,35 @@ html.vt-arrived .topbar,html.vt-arrived .sidebar,html.vt-arrived .main,
 html.vt-arrived .float-actions{animation:none}
 
 /* 悬浮层退场：display 参与过渡（allow-discrete），关闭时淡出上收；
-   入场仍走 settingsIn 动画。不支持的浏览器整条 transition 无效 = 维持瞬时关闭 */
+   横幅弹层入场仍走 settingsIn 动画。不支持的浏览器整条 transition 无效 = 维持瞬时关闭 */
 .more-menu,.banner-pop{
   transition:opacity var(--dur-fast) ease,translate var(--dur-short) var(--ease-out),scale var(--dur-short) var(--ease-out),display var(--dur-short) allow-discrete;
 }
 .more-menu[hidden],.banner-pop[hidden]{
   opacity:0;translate:0 -6px;scale:.97;pointer-events:none;
 }
+/* 「更多」菜单从按钮那一角（右上）长出来，进出同一组值；菜单项按组依次往下落。
+   第二个 .more-group 是窄屏才显示的两项（搜索框挤掉的按钮），宽屏下后两组跳过它接拍 */
+.more-menu[hidden]{scale:.9}
+@starting-style{.more-menu:not([hidden]){opacity:0;translate:0 -6px;scale:.9}}
+.more-menu:not([hidden]) .more-item{
+  animation:moreItemIn var(--dur-short) var(--ease-out) backwards;
+  animation-delay:calc((var(--more-g,0) + var(--more-k,0)) * 14ms);
+}
+.more-group:nth-child(3){--more-g:4}
+.more-group:nth-child(4){--more-g:7}
+@media (max-width:900px){
+  .more-group-compact{--more-g:4}
+  .more-group:nth-child(3){--more-g:6}
+  .more-group:nth-child(4){--more-g:9}
+}
+.more-item:nth-child(2){--more-k:1}
+.more-item:nth-child(3){--more-k:2}
+.more-item:nth-child(4){--more-k:3}
+.more-item:nth-child(5){--more-k:4}
+.more-item:nth-child(6){--more-k:5}
+@keyframes moreItemIn{from{opacity:0;translate:0 -4px}}
+@media (prefers-reduced-motion:reduce){.more-menu:not([hidden]) .more-item{animation:none}}
 
 /* 横幅内容二段浮现：外壳（占位）先随 .main 上浮，数据到位后封面 → 文字 → 角标依次浮现在壳上。
    子元素每次都是 innerHTML 新建节点，插入即播一次，无 display 重启隐患 */
@@ -3744,6 +3793,8 @@ html.vt-arrived.intro-arm .brand,html.vt-arrived.intro-arm .topbar::after{animat
   .feedback-public-state button,.feedback-fallback button,.rail-chip,.tw-arrow):active:not(:disabled),
   .switch.live:active i::after,.theme-option:hover i,
   .search-scope:active .search-scope-label{scale:1}
+  .switch.live:active i::after{width:16px}
+  .switch.live:active input:checked + i::after{transform:translateX(18px)}
 }
 
 /* motion=off：给截图器 / 回归脚本一条直达静止帧的路（URL 参数或 localStorage，UI 里不暴露）。

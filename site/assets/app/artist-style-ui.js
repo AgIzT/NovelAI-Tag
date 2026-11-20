@@ -415,9 +415,13 @@ function onProfileClick(event) {
     syncPromptPanel();
     return;
   }
-  if (target.closest('.ap-copy')) {
+  const apCopy = target.closest('.ap-copy');
+  if (apCopy) {
     event.stopPropagation();
-    $('#copyPositive')?.click();
+    // 借灯箱「复制正向」的同一个动作；像手机底栏那样把被点的按钮当锚点，打勾落在这个按钮上
+    const copyPositive = $('#copyPositive');
+    if (typeof copyPositive?.onclick === 'function') copyPositive.onclick({ currentTarget: apCopy, stopPropagation() {} });
+    else copyPositive?.click();
     return;
   }
   const more = target.closest('[data-ap-more]');

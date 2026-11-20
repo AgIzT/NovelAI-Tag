@@ -101,6 +101,54 @@ function countTags(text) {
     .length;
 }
 
+const DONE_HOLD_MS = 1100;
+const DONE_LEAVE_MS = 160;
+const doneTimers = new WeakMap();
+
+/* 按钮自己打勾：复制成功后按钮上的字换成「✓ 已复制」，停一会儿再换回。
+   只认真按钮；卡片里的「负面」「全部」传进来的是卡片，仍走卡片的采样环。
+   原字靠 color:transparent 藏起来，按钮宽度不变；新字是叠在上面的 aria-hidden 层，
+   读屏仍读按钮原名，成功与否由 toast 播报。窄按钮（少于 64px）只放对勾。
+   点完就收起的按钮（手机灯箱「⋯」菜单里的项，收起时整块 inert）不打勾，照旧飘芯片。
+   返回是否打上了，copy.js 据此决定还要不要原地飘芯片。 */
+export function markCopyButton(node) {
+  if (typeof HTMLButtonElement === 'undefined' || !(node instanceof HTMLButtonElement)) return false;
+  if (node.closest('.card, [inert]') || !node.isConnected || !node.getClientRects().length) return false;
+  const pending = doneTimers.get(node);
+  if (pending) window.clearTimeout(pending);
+  if (!node.classList.contains('copy-done')) {
+    const style = getComputedStyle(node);
+    node.style.setProperty('--copy-done-ink', style.color);
+    node.classList.toggle('copy-done-anchor', style.position === 'static');
+    node.classList.toggle('copy-done-compact', node.clientWidth < 64);
+  }
+  // 连点时整层换新，对勾重新画一遍
+  node.querySelector(':scope > .copy-done-face')?.remove();
+  const face = document.createElement('span');
+  face.className = 'copy-done-face';
+  face.setAttribute('aria-hidden', 'true');
+  face.innerHTML = '<svg viewBox="0 0 16 16"><path d="M3.2 8.6 6.5 11.7 12.8 4.6"/></svg><span>已复制</span>';
+  node.classList.remove('copy-done-leaving');
+  node.classList.add('copy-done');
+  node.appendChild(face);
+  doneTimers.set(node, window.setTimeout(() => {
+    node.classList.add('copy-done-leaving');
+    doneTimers.set(node, window.setTimeout(() => clearCopyButton(node), DONE_LEAVE_MS));
+  }, DONE_HOLD_MS));
+  return true;
+}
+
+/* 立即换回原字：灯箱换词条时调用，别让上一条的「已复制」留在下一条的按钮上。 */
+export function clearCopyButton(node) {
+  if (!node?.classList) return;
+  const pending = doneTimers.get(node);
+  if (pending) window.clearTimeout(pending);
+  doneTimers.delete(node);
+  node.querySelector?.(':scope > .copy-done-face')?.remove();
+  node.classList.remove('copy-done', 'copy-done-leaving', 'copy-done-anchor', 'copy-done-compact');
+  node.style?.removeProperty?.('--copy-done-ink');
+}
+
 function anchorFor(node) {
   const fresh = pointer && performance.now() - pointer.at < 1500;
   if (fresh) return { x: pointer.x, y: pointer.y };
@@ -118,6 +166,7 @@ function anchorFor(node) {
  * @param {Element|null} [options.flyTo] 给了就把芯片抛向它（复制即入库时指向中转站），
  *                                       芯片不再原地悬停淡出——「这条被收走了」比「复制成功了」信息量大
  * @param {boolean} [options.count] 是否附 tag 数；复制链接这类非提示词内容传 false
+ * @param {boolean} [options.inPlace] 按钮已经原地打勾（markCopyButton）；不抛进中转站时就不再飘芯片
  */
 export function playCopySample(node, text, label = '已复制', options = {}) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -151,6 +200,10 @@ export function playCopySample(node, text, label = '已复制', options = {}) {
   chip.className = `copy-seed-chip${hasFlyTarget ? ' is-relay-toss' : ''}`;
   clearChipTimers();
   resetChipAnimations(chip);
+  if (options.inPlace && !hasFlyTarget) {
+    setChipClearState(chip, true);
+    return;
+  }
   setChipClearState(chip, false);
   const target = options.count === false ? `✓ ${label}` : `✓ ${label} · ${countTags(text)} tags`;
   const { x, y } = anchorFor(node);

@@ -30,7 +30,7 @@ function copyFixture(result) {
     showClipboardFallback() { trace.push('manual'); return true; }, toast() {},
     recordSiteEvent(name, detail) { trace.push(`${name}:${detail}`); },
     replayCopiedClass() {}, async recordPreparedCopiedEntry() { trace.push('intake'); return false; },
-    playCopySample() {}, relayTossTarget() {}, sampleLabelFrom: () => 'copy',
+    playCopySample() {}, markCopyButton: () => false, relayTossTarget() {}, sampleLabelFrom: () => 'copy',
   };
   const copy = bindFunction(copyBody, deps);
   return { trace, copy };
