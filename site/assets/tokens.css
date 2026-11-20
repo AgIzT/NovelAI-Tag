@@ -24,23 +24,20 @@
   --danger:#d74b66; --danger-text:#c33f59;
 }
 
-/* 统一节奏（原型）：transition / animation 的时长和曲线都写成 var(--dur-x, 原值) / var(--ease-x, 原曲线)。
-   五档时长都乘 --motion-scale，一处调整体快慢；*-base 是每档的基准值。
-   不在档位里的：无限循环、1 秒以上、100ms 以下、延迟与错峰、浏览器默认 ease，以及开场、换书这两段由脚本计时的编排。 */
+/* 统一节奏：transition / animation 的时长只用五档 --dur-*，曲线用 --ease-out / --ease-spring。
+   数值是 2026-11-21 维护者在节奏原型里选的「利落」（原 140/200/300/450/700ms 整体 0.8 倍、曲线更干脆）。
+   --motion-scale 是总速度，一处调整体快慢；改某一档就改它的 *-base。ui-motion.js 的 animateUi 读同一组变量。
+   不进档位的：无限循环、1 秒以上、100ms 以下、延迟与错峰、浏览器默认 ease，以及开场、换书这两段由脚本计时的编排。
+   新写的动效照此用变量，tools/check_motion_tokens.py 会查出零散数值。 */
 :root{
   --motion-scale:1;
-  --dur-fast-base:140ms;   --dur-fast:calc(var(--dur-fast-base) * var(--motion-scale));     /* 悬停、按下、颜色边框 */
-  --dur-short-base:200ms;  --dur-short:calc(var(--dur-short-base) * var(--motion-scale));   /* 菜单、提示、下拉出现消失 */
-  --dur-medium-base:300ms; --dur-medium:calc(var(--dur-medium-base) * var(--motion-scale)); /* 面板、开关、图片渐显、展开 */
-  --dur-long-base:450ms;   --dur-long:calc(var(--dur-long-base) * var(--motion-scale));     /* 抽屉、横幅等大块移动 */
-  --dur-story-base:700ms;  --dur-story:calc(var(--dur-story-base) * var(--motion-scale));   /* 生日等带情节的动画 */
-  --ease-out:cubic-bezier(.22,1,.36,1);     /* 进场和移动 */
-  --ease-spring:cubic-bezier(.34,1.56,.64,1); /* 带回弹的反馈 */
-}
-/* 原型对比用：变量设成 initial，var() 就回落到各处原来的数值和曲线 */
-html.rhythm-orig{
-  --dur-fast:initial; --dur-short:initial; --dur-medium:initial; --dur-long:initial; --dur-story:initial;
-  --ease-out:initial; --ease-spring:initial;
+  --dur-fast-base:112ms;   --dur-fast:calc(var(--dur-fast-base) * var(--motion-scale));     /* 悬停、按下、颜色边框 */
+  --dur-short-base:160ms;  --dur-short:calc(var(--dur-short-base) * var(--motion-scale));   /* 菜单、提示、下拉出现消失 */
+  --dur-medium-base:240ms; --dur-medium:calc(var(--dur-medium-base) * var(--motion-scale)); /* 面板、开关、图片渐显、展开 */
+  --dur-long-base:360ms;   --dur-long:calc(var(--dur-long-base) * var(--motion-scale));     /* 抽屉、横幅等大块移动 */
+  --dur-story-base:560ms;  --dur-story:calc(var(--dur-story-base) * var(--motion-scale));   /* 生日等带情节的动画 */
+  --ease-out:cubic-bezier(.2,0,0,1);          /* 进场和移动 */
+  --ease-spring:cubic-bezier(.34,1.25,.64,1); /* 带回弹的反馈 */
 }
 /* ============ 主题色（换肤）：每套含 light + dark，与深浅色正交；默认梦境 ============ */
 body.theme-teal{--bg:#eaeef5;--panel:#ffffff;--card:#ffffff;--text:#22304a;--muted:#5a6881;--line:#dbe2ee;--accent:#0fa173;--accent-soft:#dff4ea;--tagbg:#f1f4f9;--tagbg-hover:#e8eef6;--accent-glow:rgba(15,161,115,.18);--on-accent:#131316;

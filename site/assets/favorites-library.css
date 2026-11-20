@@ -78,7 +78,7 @@
   background: var(--popover-glass); color: var(--text); box-shadow: var(--popover-shadow);
   backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
   font: 13px/1.4 var(--font-ui);
-  transition: opacity var(--dur-short,.18s), translate var(--dur-short,.18s) var(--ease-out,cubic-bezier(.22,.61,.36,1)), display var(--dur-short,.18s) allow-discrete;
+  transition: opacity var(--dur-short), translate var(--dur-short) var(--ease-out), display var(--dur-short) allow-discrete;
 }
 .favorites-batch-bar[hidden] { display: none; opacity: 0; translate: -50% 12px; pointer-events: none; }
 .favorites-batch-bar strong { white-space: nowrap; font-weight: 600; padding-right: 3px; }
@@ -100,7 +100,7 @@
    触屏常驻。满屏常驻会给以图为主的瀑布流每张图都压一块标签。无图卡的入口在标题行，照旧常驻。 */
 .favorite-library-card .card-img-wrap .favorite-organize-button {
   opacity: 0; pointer-events: none;
-  transition: opacity var(--dur-fast,.12s), border-color var(--dur-fast,.15s), background var(--dur-fast,.15s), color var(--dur-fast,.15s), box-shadow var(--dur-fast,.15s), translate var(--dur-fast,.15s), scale var(--dur-fast,.14s) ease;
+  transition: opacity var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast), translate var(--dur-fast), scale var(--dur-fast) ease;
 }
 .favorite-library-card:hover .card-img-wrap .favorite-organize-button,
 .favorite-library-card:focus-within .card-img-wrap .favorite-organize-button { opacity: 1; pointer-events: auto; }
@@ -116,7 +116,7 @@
 .favorite-select-check { position: absolute; z-index: 12; left: 8px; top: 8px; display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--panel); border-radius: 7px; background: var(--overlay); color: var(--panel); padding: 0; font: 700 14px/1 var(--font-ui); cursor: pointer; }
 .favorite-select-check[aria-checked="true"] { border-color: var(--accent); background: var(--accent); }
 .favorite-library-card { outline: 2px solid transparent; outline-offset: -2px; }
-.favorite-library-card:not(.card-enter) { transition: opacity var(--dur-fast,.16s), box-shadow var(--dur-fast,.12s), border-color var(--dur-fast,.12s), transform var(--dur-medium,.28s) var(--ease-out,cubic-bezier(.22,1,.36,1)), outline-color var(--dur-fast,.12s); }
+.favorite-library-card:not(.card-enter) { transition: opacity var(--dur-fast), box-shadow var(--dur-fast), border-color var(--dur-fast), transform var(--dur-medium) var(--ease-out), outline-color var(--dur-fast); }
 .favorite-library-card.is-favorite-selected { outline-color: var(--accent); }
 .favorites-selecting .favorite-library-card { cursor: pointer; }
 .favorites-selecting .favorite-library-card .fav-btn,

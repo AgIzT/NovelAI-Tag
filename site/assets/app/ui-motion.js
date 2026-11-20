@@ -2,15 +2,16 @@ import { prefersReducedMotion } from './utils.js';
 
 const animations = new WeakMap();
 
-/* 统一节奏（原型）：调用方给的时长按 tokens.css 的五档换算（同 CSS 的分档），
-   曲线认出主曲线和回弹曲线就换成对应变量；html.rhythm-orig 时一律用调用方原值。
+/* 统一节奏：调用方给的时长按 tokens.css 的五档换算，分档同 tools/check_motion_tokens.py
+   （≤160 快、≤240 短、≤380 中、≤560 长、≤1000 情节；100ms 以下和 1 秒以上照原值），
+   曲线认出主曲线和回弹曲线就换成 --ease-out / --ease-spring。读不到变量（测试替身等）时用原值。
    custom property 的计算值是未求值的 calc()，所以这里读每档的 *-base 和 --motion-scale 自己乘。 */
 const RHYTHM_TIERS = [[160, 'fast'], [240, 'short'], [380, 'medium'], [560, 'long'], [1000, 'story']];
 const SPRING_EASINGS = new Set(['cubic-bezier(.34,1.56,.64,1)', 'cubic-bezier(.3,1.5,.5,1)', 'cubic-bezier(.3,1.4,.5,1)']);
 
 function rhythmTiming(duration, easing) {
   const root = document.documentElement;
-  if (root?.classList?.contains('rhythm-orig') || typeof getComputedStyle !== 'function') return { duration, easing };
+  if (!root || typeof getComputedStyle !== 'function') return { duration, easing };
   let style;
   try { style = getComputedStyle(root); } catch { return { duration, easing }; }
   if (typeof style?.getPropertyValue !== 'function') return { duration, easing };

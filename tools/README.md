@@ -50,6 +50,7 @@
 | `build_artist_index.py` | **现役（2026-10-02 上线）**：生成灯箱「画师」一栏的样张索引 `site/data/artist_index.json`，并生成画风实验台用的画风串表 `site/data/artist_strings.json`（实验台页面仍在分支 `feature/style-lab`，未上线；同一组画师只记一次，倍率算法与前端 `artist-core.js` 全站对拍一致）。样张索引取 v4.5 / v5 两本画师词典里「整条 tags 只有一个 artist:」的常规词条，按画师名对到样张图，另按书名推出各书默认版本。画师名归一与前端 `artist-core.js` 共用夹具 `fixtures/artist_keys.json`，改一侧必须同步另一侧；发布数据链在中文对照之后自动跑一次，没有单独的双击入口 | 只写 `site/data/artist_index.json`、`site/data/artist_strings.json`（内容不变时字节不变）与 `output/artist-index/构建报告.md`（覆盖率与「还没有单画师样张」名单） |
 | `build_artist_styles.py`、`artist_style_labels.py` | v5 单画师目录生成与命名覆盖；`--snapshot` 迁入已审核产物，`--config` 从私密本地缓存重建，`--reorder-specimens` 按花枝鱼 → AgIzT → 九七 → 雨燕 → nax.moe → MayRain → wwuumm 重排已有首图与例图（默认计划，加 `--apply` 才写），保留规范姓名与评估样图；参数格式见 `--help`；配置与输入缓存不进入发布目录。schema 3 绑定来源词典指纹，邻居按不可变版本分片 | 默认仅验证/计划；`--apply` 才先写分片、原子替换 `site/data/artist_styles.json`；保留旧分片，不调用模型、不联网、不发布。`--check` 只读检查正式数据与原词典，根文件不存在时兼容旧 release，存在但错配时失败 |
 | `check_cache_buster.py` | 守卫：确认 JS/CSS 无 `?v=` 缓存号残留（改 JS/CSS 后必跑） | 只读 |
+| `check_motion_tokens.py` | 守卫：CSS 动效时长和曲线都用 `tokens.css` 的统一节奏变量（改动效后跑；`--apply` 按分档自动换成变量） | 默认只读；`--apply` 改写 CSS |
 | `preview_server.py` | 本地预览 `site/`（带 no-store + `/originals/` 映射；WebP 在站内与原图路由显式使用 `image/webp`；`/share/` 深链只发 App 外壳，验 OG 卡片请用 wrangler pages dev） | 只读网络服务 |
 | `preview_blocking.py` | **🔒 试用已结束**：PR #31 已合并，独立 worktree 与 `fadian-blocking` 配置已清理；原双击入口依赖该配置，后续预览使用主项目 `preview_server.py` 与 `fadian` 配置 | 历史只读预览入口，配置退役后不再使用 |
 | `test_content_blocking.mjs` | 屏蔽词边界、角色/套图正向、稳定身份兼容、保存/恢复/暂停与存储异常回归 | 只读，使用内存测试存储 |

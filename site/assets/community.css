@@ -22,7 +22,7 @@ button:disabled{cursor:not-allowed}
   position:fixed;left:0;right:0;top:0;z-index:80;height:2px;
   background:linear-gradient(90deg,var(--accent),#a48cff);
   transform:scaleX(0);transform-origin:left center;
-  transition:transform var(--dur-fast,.12s) linear;
+  transition:transform var(--dur-fast) linear;
 }
 
 .topbar{
@@ -42,13 +42,13 @@ button:disabled{cursor:not-allowed}
   display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
   border-radius:999px;padding:7px 12px;color:var(--muted);text-decoration:none;
   font-size:12px;font-weight:750;background:color-mix(in srgb,var(--panel) 60%,transparent);
-  transition:background var(--dur-fast,.16s),color var(--dur-fast,.16s),border-color var(--dur-fast,.16s);
+  transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast);
 }
 .home-link:hover{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 .topbar-actions{margin-left:auto;display:flex;align-items:center;gap:6px;flex:none}
 .icon-btn,.submit-top-btn{
   border:0;background:transparent;color:var(--text);height:36px;border-radius:999px;
-  display:inline-grid;place-items:center;transition:background var(--dur-fast,.15s),color var(--dur-fast,.15s),opacity var(--dur-fast,.15s);
+  display:inline-grid;place-items:center;transition:background var(--dur-fast),color var(--dur-fast),opacity var(--dur-fast);
 }
 .icon-btn{width:36px}
 .icon-btn:hover,.submit-top-btn:hover{background:var(--tagbg)}
@@ -86,7 +86,7 @@ body.dark .theme-btn .moon{display:block}
 .hero-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:22px}
 .primary-btn,.ghost-btn{
   border:1px solid transparent;border-radius:999px;min-height:36px;padding:8px 14px;font-size:12px;font-weight:850;
-  display:inline-flex;align-items:center;gap:8px;transition:translate var(--dur-fast,.16s),filter var(--dur-fast,.16s),background var(--dur-fast,.16s),border-color var(--dur-fast,.16s),color var(--dur-fast,.16s);
+  display:inline-flex;align-items:center;gap:8px;transition:translate var(--dur-fast),filter var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast);
 }
 .primary-btn{background:var(--accent);color:var(--on-accent);box-shadow:0 12px 26px color-mix(in srgb,var(--accent) 24%,transparent)}
 .primary-btn:hover{filter:brightness(1.06);translate:0 -1px}
@@ -144,7 +144,7 @@ body.dark .theme-btn .moon{display:block}
 .category-chip{
   flex:none;border:1px solid var(--line);background:var(--panel);color:var(--muted);
   border-radius:999px;padding:8px 14px;font-size:13px;font-weight:800;
-  transition:background var(--dur-fast,.15s),color var(--dur-fast,.15s),border-color var(--dur-fast,.15s),translate var(--dur-fast,.15s);
+  transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),translate var(--dur-fast);
 }
 .category-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .category-chip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
@@ -153,7 +153,7 @@ body.dark .theme-btn .moon{display:block}
   width:100%;min-height:82px;border:1.5px dashed var(--accent);border-radius:16px;
   display:flex;align-items:center;justify-content:center;gap:12px;margin:0 0 18px;
   background:color-mix(in srgb,var(--accent-soft) 58%,transparent);color:var(--accent);
-  font-weight:900;font-size:15px;transition:translate var(--dur-fast,.16s),background var(--dur-fast,.16s);
+  font-weight:900;font-size:15px;transition:translate var(--dur-fast),background var(--dur-fast);
 }
 .submit-inline:hover{translate:0 -1px;background:var(--accent-soft)}
 .submit-inline .plus{
@@ -168,9 +168,9 @@ body.dark .theme-btn .moon{display:block}
   position:relative;display:inline-block;width:100%;margin:0 0 16px;break-inside:avoid;
   background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
   box-shadow:var(--shadow);cursor:pointer;min-width:0;
-  animation:cardIn var(--dur-medium,.38s) var(--ease-out,cubic-bezier(.22,1,.36,1)) backwards;
+  animation:cardIn var(--dur-medium) var(--ease-out) backwards;
   animation-delay:calc(min(var(--card-i),18) * 24ms);
-  transition:translate var(--dur-short,.18s),box-shadow var(--dur-short,.18s),border-color var(--dur-short,.18s);
+  transition:translate var(--dur-short),box-shadow var(--dur-short),border-color var(--dur-short);
 }
 .community-card:hover,.community-card:focus-visible{translate:0 -4px;box-shadow:var(--shadow-hover);border-color:color-mix(in srgb,var(--accent) 52%,transparent)}
 .community-card-media{
@@ -186,7 +186,7 @@ body.dark .theme-btn .moon{display:block}
   position:absolute;right:8px;top:8px;z-index:3;width:30px;height:30px;border:0;border-radius:999px;
   display:grid;place-items:center;background:rgba(0,0,0,.46);color:#fff;
   backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
-  transition:background var(--dur-fast,.15s),color var(--dur-fast,.15s),scale var(--dur-fast,.15s);
+  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-fast);
 }
 .card-fav-btn:hover{background:var(--accent)}
 .card-fav-btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linejoin:round}
@@ -219,7 +219,7 @@ body.dark .theme-btn .moon{display:block}
 .community-like-btn{
   height:30px;border:1px solid var(--line);border-radius:999px;padding:0 11px;
   display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--panel);color:var(--muted);
-  font-size:12px;font-weight:850;line-height:1;transition:background var(--dur-fast,.15s),color var(--dur-fast,.15s),border-color var(--dur-fast,.15s),scale var(--dur-fast,.15s),opacity var(--dur-fast,.15s);
+  font-size:12px;font-weight:850;line-height:1;transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),scale var(--dur-fast),opacity var(--dur-fast);
 }
 .community-like-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 .community-like-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -256,14 +256,14 @@ body.dark .theme-btn .moon{display:block}
 .community-mask{
   position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:24px;
   background:var(--overlay);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
-  opacity:0;pointer-events:none;transition:opacity var(--dur-short,.2s) ease,display var(--dur-short,.2s) allow-discrete;
+  opacity:0;pointer-events:none;transition:opacity var(--dur-short) ease,display var(--dur-short) allow-discrete;
 }
 .community-mask.show{opacity:1;pointer-events:auto}
 .dialog-panel{
   position:relative;width:min(960px,100%);max-height:min(88vh,860px);overflow:auto;
   border:1px solid var(--line);border-radius:18px;background:var(--popover-glass);box-shadow:var(--popover-shadow);
   backdrop-filter:blur(18px) saturate(1.1);-webkit-backdrop-filter:blur(18px) saturate(1.1);
-  translate:0 12px;scale:.985;transition:translate var(--dur-short,.22s) var(--ease-out,cubic-bezier(.22,1,.36,1)),scale var(--dur-short,.22s) var(--ease-out,cubic-bezier(.22,1,.36,1));
+  translate:0 12px;scale:.985;transition:translate var(--dur-short) var(--ease-out),scale var(--dur-short) var(--ease-out);
 }
 .community-mask.show .dialog-panel{translate:0 0;scale:1}
 .dialog-close{
@@ -376,7 +376,7 @@ body.dark .sub-source-read{background:rgba(15,110,86,.30);color:#8fe6c8}
 body.dark .sub-source-none{background:rgba(133,79,11,.32);color:#f0c078}
 .sub-drop{
   min-height:166px;border:2px dashed var(--line);border-radius:16px;background:var(--tagbg);
-  display:grid;place-items:center;text-align:center;color:var(--muted);transition:border-color var(--dur-fast,.15s),background var(--dur-fast,.15s),color var(--dur-fast,.15s);
+  display:grid;place-items:center;text-align:center;color:var(--muted);transition:border-color var(--dur-fast),background var(--dur-fast),color var(--dur-fast);
 }
 .sub-drop strong{display:block;color:var(--text);font-size:17px;margin-bottom:5px}
 .sub-drop span{font-size:12px}
@@ -425,7 +425,7 @@ body.dark .sub-source-none{background:rgba(133,79,11,.32);color:#f0c078}
   position:fixed;left:50%;bottom:38px;z-index:200;translate:-50% 18px;
   width:max-content;max-width:calc(100vw - 24px);text-align:center;
   background:var(--accent);color:var(--on-accent);border-radius:999px;padding:11px 22px;font-size:13px;font-weight:800;
-  box-shadow:var(--popover-shadow);opacity:0;pointer-events:none;transition:opacity var(--dur-short,.22s),translate var(--dur-short,.22s) var(--ease-out,cubic-bezier(.22,1,.36,1));
+  box-shadow:var(--popover-shadow);opacity:0;pointer-events:none;transition:opacity var(--dur-short),translate var(--dur-short) var(--ease-out);
 }
 .toast.show{opacity:1;translate:-50% 0}
 .toast.has-action{
@@ -452,14 +452,14 @@ body.dark .sub-source-none{background:rgba(133,79,11,.32);color:#f0c078}
 @view-transition{navigation:auto}
 @keyframes vtRootOut{to{opacity:0}}
 @keyframes vtRootIn{from{opacity:0;translate:0 14px}}
-html.vt-live::view-transition-old(root){animation:vtRootOut var(--dur-short,.18s) ease both}
-html.vt-live::view-transition-new(root){animation:vtRootIn var(--dur-medium,.3s) var(--ease-out,cubic-bezier(.22,1,.36,1)) both}
-::view-transition-group(site-topbar){animation-duration:var(--dur-medium,.38s);animation-timing-function:var(--ease-out,cubic-bezier(.22,1,.36,1))}
+html.vt-live::view-transition-old(root){animation:vtRootOut var(--dur-short) ease both}
+html.vt-live::view-transition-new(root){animation:vtRootIn var(--dur-medium) var(--ease-out) both}
+::view-transition-group(site-topbar){animation-duration:var(--dur-medium);animation-timing-function:var(--ease-out)}
 @keyframes topbarIn{from{opacity:0;translate:0 -12px}}
 @keyframes mainIn{from{opacity:0;translate:0 14px}}
 @keyframes cardIn{from{opacity:0;translate:0 10px}}
-.topbar{animation:topbarIn var(--dur-long,.48s) var(--ease-out,cubic-bezier(.22,1,.36,1)) backwards}
-.community-main{animation:mainIn var(--dur-long,.52s) var(--ease-out,cubic-bezier(.22,1,.36,1)) .06s backwards}
+.topbar{animation:topbarIn var(--dur-long) var(--ease-out) backwards}
+.community-main{animation:mainIn var(--dur-long) var(--ease-out) .06s backwards}
 html.vt-arrived .topbar,html.vt-arrived .community-main{animation:none}
 
 @media(max-width:760px){

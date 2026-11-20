@@ -1837,14 +1837,14 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(railSource, /if \(overlayQuery\.matches\) \{\s*\(rail\.querySelector\('#tagRelayRailClose'\) \|\| rail\)\.focus\?\.\(\)/);
   assert.match(railSource, /const hasOpenInnerLayer = \(\) => \[[\s\S]*#relayCopyHistory[\s\S]*cancelRelayAction\(\);[\s\S]*if \(hasOpenInnerLayer\(\)\) return/);
   assert.doesNotMatch(relayCss, /\.tag-relay-plan-(?:list|pick)(?:\{|\[|:|>)/);
-  assert.match(uiKitSource, /\.ui-select-list\{[\s\S]*display (?:\.18s|var\(--dur-short,\.18s\)) allow-discrete/);
+  assert.match(uiKitSource, /\.ui-select-list\{[\s\S]*display var\(--dur-short\) allow-discrete/);
   assert.match(uiKitSource, /\.ui-select-list\[hidden\]\{display:none/);
   assert.match(uiKitSource, /@starting-style\{\.ui-select-list:not\(\[hidden\]\)/);
   assert.match(uiKitSource, /@media\(prefers-reduced-motion:reduce\)[\s\S]*ui-select-list[\s\S]*transition:none!important/);
   assert.match(uiKitSource, /\.panel-input,\.feedback-field input[\s\S]*border-radius:12px/);
   assert.doesNotMatch(stylesSource, /\.feedback-field input,\.feedback-field select,\.feedback-field textarea,[\s\S]{0,60}width:100%;border/);
-  assert.match(relayCss, /@supports selector\(:has\(\*\)\)[\s\S]*tag-relay-source-slider[\s\S]*transition:translate (?:\.24s|var\(--dur-short,\.24s\))/);
-  assert.match(relayCss, /tag-relay-plan-menu[\s\S]*tag-relay-output-boxes[\s\S]*display (?:\.18s|var\(--dur-short,\.18s\)) allow-discrete/);
+  assert.match(relayCss, /@supports selector\(:has\(\*\)\)[\s\S]*tag-relay-source-slider[\s\S]*transition:translate var\(--dur-short\)/);
+  assert.match(relayCss, /tag-relay-plan-menu[\s\S]*tag-relay-output-boxes[\s\S]*display var\(--dur-short\) allow-discrete/);
   assert.match(relayCss, /tag-relay-plan-menu\[hidden\]\{\s*display:none/);
   assert.match(relayCss, /tag-relay-output-boxes\[hidden\],[^\{]+\{\s*display:none/);
   assert.match(relayCss, /\.tag-relay-rail \.tag-relay-history\[hidden\]\{\s*display:none/);
