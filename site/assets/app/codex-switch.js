@@ -12,7 +12,7 @@
    都会让它卡。现在飞行与淡入淡出只动 transform / opacity，交给合成线程，主线程再忙也不掉帧；
    回顶、换身份、渲染这些主线程上的变化都落在旧内容已经淡成潜影之后。
 
-   红线同开场：不做全屏 blur/filter，模糊只给首排焦点图（预算见 masonry.js introFocusCount）。
+   性能预算同开场（不是禁令，想改先实测手机帧率）：没做全屏 blur/filter，模糊只给首排焦点图（预算见 masonry.js introFocusCount）。
    减少动效、motion=off 时不走这里，由 app.js loadCodex 的原路处理。 */
 
 import { $, prefersReducedMotion } from './utils.js';

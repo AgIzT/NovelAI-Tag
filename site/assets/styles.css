@@ -1665,7 +1665,7 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
 .card-img-wrap.is-loading::before{opacity:1;animation:shimmer 1.3s ease-in-out infinite}
 .card-img-wrap.is-loading::after{content:"图片加载中";opacity:.8}
 .card-img-wrap.is-error::after{content:"图片加载失败";opacity:.8}
-/* 图片"落定"感：加载完成渐显 + 独立 scale 1.02→1（与 hover 的 transform 缩放不同属性、互不干扰；禁 blur——批量图层动画性能红线） */
+/* 图片"落定"感：加载完成渐显 + 独立 scale 1.02→1（与 hover 的 transform 缩放不同属性、互不干扰；这里没用 blur：整屏卡片同时跑模糊动画开销大，要加先在手机上实测帧率） */
 .card-img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;scale:1.02;transition:opacity .3s ease,scale .45s cubic-bezier(.22,1,.36,1),transform .4s cubic-bezier(.22,1,.36,1)}
 .card-img.is-loaded{opacity:1;scale:1}
 .img-retry{
@@ -2722,7 +2722,7 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-credit svg{width:13px;height:13px;flex:none;stroke:currentColor;stroke-width:2;fill:none}
 .lightbox-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 8px}
 .lightbox-actions[hidden]{display:none!important}
-/* 灯箱按钮一律不带阴影：只有「复制」类填色，其余平底细边框。 */
+/* 灯箱按钮不带阴影：只有「复制」类填色，其余平底细边框（2026-10-07 维护者从原型里选的这一版）。 */
 .lightbox-actions button,.section-head button{
   border:none;background:var(--tagbg);color:var(--text);font-weight:800;
   border-radius:999px;padding:7px 12px;font-size:12px;
@@ -3459,7 +3459,7 @@ html.vt-codex::view-transition-new(codex-banner){animation-duration:.3s}
 /* 「按下」：同卷其它书、书脊、卷头、投稿门淡下去，只留按下的那本 */
 .codex-menu.is-choosing :is(.codex-item,.n5-launch-book):not(.is-selecting),
 .codex-menu.is-choosing :is(.codex-type,.vol-head,.codex-door-wrap,.codex-soon-banner){opacity:.32;transition:opacity .04s ease}
-/* 加噪：旧内容淡成潜影、撒颗粒（开场同款纹理），等数据期间不可点。⚠ 红线同开场：不做全屏 blur/filter。
+/* 加噪：旧内容淡成潜影、撒颗粒（开场同款纹理），等数据期间不可点。没用全屏 blur/filter 是开场时定的性能预算，不是禁令；想加先实测手机帧率。
    新书卡片落地前带着 .card-enter 起始态，不吃这里的 opacity。 */
 html.codex-switching .masonry>.card:not(.card-enter){opacity:.2;transition:opacity .2s ease}
 /* 落地前攒着的新书卡片停在同一档潜影，而不是开场那种近零透明：数据到了换掉旧卡片时不露出一片空白；
@@ -3499,7 +3499,7 @@ html.codex-developing .masonry::after{opacity:0}
                                .intro-no-replay 单独压住。不能全局压 rail-chip/banner 内容，
                                否则以后切换法典新建的节点也失去入场动画。
 
-   红线：不做全屏 blur/filter；较强的分段显影只给单个横幅封面，首排卡片图只做短显影，
+   性能预算（不是禁令，想改先实测手机帧率）：没做全屏 blur/filter；较强的分段显影只给单个横幅封面，首排卡片图只做短显影，
    位移一律用独立 translate 属性（transform 被卡片定位与顶栏收起占着）。 */
 
 /* --- 幕布本体：静态标签在 body 最前，第一帧就盖住，避免 JS 建节点前闪一下真实 UI --- */
