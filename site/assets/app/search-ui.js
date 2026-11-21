@@ -1,4 +1,4 @@
-import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { animateUi, cancelUiMotion, shakeInvalid } from './ui-motion.js';
 
 const searchUiActions = {
   addFilter: async () => true,
@@ -547,7 +547,7 @@ function builderPayload() {
   if (!field || !operator || !valueControl || !value) {
     valueControl?.setAttribute('aria-invalid', 'true');
     setFilterFeedback('填写筛选值');
-    animateUi(valueControl, [{ opacity: .55, translate: '0 2px' }, { opacity: 1, translate: '0 0' }], { duration: 180 });
+    shakeInvalid(valueControl);
     valueControl?.focus();
     return null;
   }

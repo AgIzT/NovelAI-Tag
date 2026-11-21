@@ -4,7 +4,7 @@ import { toast } from './feedback.js';
 import { isEntryAccessBlocked, isCodexLocked } from './access.js';
 import { findCodexMeta } from './data.js';
 import { bindBackdropDismiss, openMask, closeMask, trapFocus, focusFirstIn } from './modal.js';
-import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { animateUi, cancelUiMotion, shakeInvalid } from './ui-motion.js';
 import {
   getBlockingPreferences, subscribeContentBlocking, receiveBlockingStorage, contentBlockReason,
   hideContentEntry, restoreContentEntry, addBlockedWords, removeBlockedWord, setContentBlockingEnabled,
@@ -372,6 +372,7 @@ export function setupContentBlocking() {
     input.setAttribute('aria-invalid', String(Boolean(result.error)));
     if (!result.error && input.value === submitted) input.value = '';
     if (mask.classList.contains('show')) input.focus();
+    if (result.error) shakeInvalid(input);
   };
   $('#blockingWordList').onclick = async event => {
     const button = event.target.closest('[data-remove-word]');

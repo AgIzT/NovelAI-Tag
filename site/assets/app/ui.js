@@ -3,7 +3,7 @@ import { normalizeDensity, densityConfig, normalizeSearchScope } from './state.j
 import { $, updateSearchClear, updateScrollProgress, prefersReducedMotion } from './utils.js';
 import { dismissToast, toast } from './feedback.js';
 import { readPreference, writePreference, writePreferences } from './preferences-storage.js';
-import { animateUi } from './ui-motion.js';
+import { animateUi, shakeInvalid } from './ui-motion.js';
 import { setPageGlowEnabled, syncPageGlow } from './page-glow.js';
 import { firstUnlockedCodex, isNsfwPathSegment, isR18gName } from './access.js';
 import { closeBannerAbout, renderCodexArchive, renderTree, randomExplore, setUpdateFilter, updateCodexPickerState } from './codex-ui.js';
@@ -328,7 +328,10 @@ export function bindUI() {
     if (event.key !== 'Enter' || searchComposing || event.isComposing) return;
     event.preventDefault();
     clearTimeout(st);
-    void applySearchConditions({ query: searchInput.value }, { canonicalize: true });
+    // 按回车时条件写错了，搜索框摇一下；边打边搜的中途不摇，写到一半的条件本来就不完整
+    void applySearchConditions({ query: searchInput.value }, { canonicalize: true }).then(() => {
+      if (state.searchPlan?.hasErrors) shakeInvalid(searchInput.closest('.search-wrap') || searchInput);
+    }, () => {});
   });
   searchInput.addEventListener('blur', () => {
     if (searchComposing || searchInput.value === state.query) return;

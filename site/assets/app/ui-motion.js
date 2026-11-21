@@ -55,6 +55,43 @@ export function setRollingNumber(element, next, prev) {
   element.replaceChildren(...(first ? [text.slice(0, first)] : []), ...digits);
 }
 
+/* 输错时让出错的那个输入框左右轻摇一下，人一眼就知道是这里。只动 translate，不挪布局；
+   偏好门控随 animateUi（减少动态效果、motion-off 时不摇）。 */
+export function shakeInvalid(element) {
+  return animateUi(element, [
+    { translate: '0 0' },
+    { translate: '-6px 0', offset: .14 },
+    { translate: '5px 0', offset: .34 },
+    { translate: '-3px 0', offset: .56 },
+    { translate: '2px 0', offset: .78 },
+    { translate: '0 0' },
+  ], { duration: 500, easing: 'ease-out' });
+}
+
+/* 全站统一的等待小动画：一个 span，样式在 ui-kit.css 的 .ui-loader。
+   读屏不读它，等待的文字由调用方写在旁边。 */
+export function createLoader() {
+  const loader = document.createElement('span');
+  loader.className = 'ui-loader';
+  loader.setAttribute('aria-hidden', 'true');
+  return loader;
+}
+
+/* 按钮等待态：字前面加一个等待动画并标 aria-busy；结束时摘掉。按钮禁用与否仍由调用方管。 */
+export function setButtonBusy(button, busy) {
+  if (!button) return;
+  const current = button.querySelector(':scope > .ui-loader');
+  if (busy) {
+    button.setAttribute('aria-busy', 'true');
+    button.classList.add('is-waiting');
+    if (!current) button.prepend(createLoader());
+    return;
+  }
+  button.removeAttribute('aria-busy');
+  button.classList.remove('is-waiting');
+  current?.remove();
+}
+
 export function cancelUiMotion(element) {
   const animation = element && animations.get(element);
   if (!animation) return;

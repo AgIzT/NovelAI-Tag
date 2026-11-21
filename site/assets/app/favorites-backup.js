@@ -20,6 +20,7 @@ import { decodeFavoritesTransfer, encodeFavoritesTransfer } from './favorites-tr
 import { createPickup, redeemPickup } from './favorites-pickup.js';
 import { writeClipboardText } from './clipboard.js';
 import { showClipboardFallback } from './clipboard-fallback.js';
+import { setButtonBusy, shakeInvalid } from './ui-motion.js';
 
 const CHANGE_EVENT = 'novelai-tag:favorites-changed';
 
@@ -602,6 +603,7 @@ export function setupFavoritesBackup(options = {}) {
 
   pickupCreateButton?.addEventListener('click', async () => {
     setBusy(true);
+    setButtonBusy(pickupCreateButton, true);
     setError('');
     setStatus('');
     showPickup(null);
@@ -615,6 +617,7 @@ export function setupFavoritesBackup(options = {}) {
       setError(friendlyError(error));
     } finally {
       setBusy(false);
+      setButtonBusy(pickupCreateButton, false);
       if (pickupResult && !pickupResult.hidden) pickupCopyButton?.focus();
     }
   });
@@ -634,9 +637,12 @@ export function setupFavoritesBackup(options = {}) {
     if (!source.trim()) {
       setError('输入取件码后再取件。');
       pickupInput?.focus();
+      shakeInvalid(pickupInput);
       return;
     }
     setBusy(true);
+    setButtonBusy(pickupRedeemButton, true);
+    let failed = false;
     try {
       const { code, payload } = await redeemPickup(source);
       if (pickupInput) pickupInput.value = '';
@@ -645,8 +651,15 @@ export function setupFavoritesBackup(options = {}) {
       preview?.scrollIntoView?.({ block: 'nearest' });
     } catch (error) {
       setError(friendlyError(error));
+      failed = true;
     } finally {
       setBusy(false);
+      setButtonBusy(pickupRedeemButton, false);
+    }
+    // 输入框在等待时是禁用的，解禁之后再摇，焦点也回到它身上方便改
+    if (failed) {
+      pickupInput?.focus();
+      shakeInvalid(pickupInput);
     }
   };
   pickupRedeemButton?.addEventListener('click', redeemFromInput);

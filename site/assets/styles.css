@@ -2252,7 +2252,7 @@ body.dark .feedback-status.success{color:#73d89a}
 .feedback-public-state small{display:block;max-width:420px;color:var(--muted);font-size:10px}
 .feedback-public-state button{border:1px solid var(--accent);border-radius:999px;background:var(--accent-soft);color:var(--accent);padding:7px 12px;font-size:11px;font-weight:850}
 .feedback-public-state.is-loading{display:flex;min-height:170px}
-.feedback-public-state.is-loading i{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:feedbackSpin .7s linear infinite}
+.feedback-public-state.is-loading .ui-loader{color:var(--accent)}
 .feedback-public-state.is-error{border-color:color-mix(in srgb,var(--new) 35%,var(--line));background:color-mix(in srgb,var(--new) 7%,var(--tagbg))}
 .feedback-public-card{
   aspect-ratio:1;min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:15px;
@@ -2671,12 +2671,15 @@ body.dark .lightbox{background:rgba(7,9,15,.58);--lb-muted:var(--muted);--neg-in
 .lightbox-original-status[data-state="failed"]{color:var(--new)}
 .lightbox-original-status.is-faded{opacity:0}
 .lightbox-original-status[data-state="loading"]{color:var(--accent)}
+/* 和全站等待动画同一个点阵（ui-kit.css 的 .ui-loader），伪元素直接套它的关键帧和几何；
+   不播动画时整个藏起来，字已经写着在加载 */
 .lightbox-original-status[data-state="loading"]::before{
-  content:"";flex:none;width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;
-  border-radius:50%;animation:feedbackSpin .8s linear infinite;
+  content:"";--ld-ink:currentColor;--ld-dim:color-mix(in srgb,currentColor 22%,transparent);
+  flex:none;font-size:12px;width:.1875em;height:.1875em;margin:0 .625em .625em 0;border-radius:1px;
+  animation:uiLoaderMatrix 1.4s linear infinite;
 }
-@media (prefers-reduced-motion:reduce){.lightbox-original-status::before{animation:none}}
-.motion-off .lightbox-original-status::before{animation:none}
+@media (prefers-reduced-motion:reduce){.lightbox-original-status::before{animation:none;content:none}}
+.motion-off .lightbox-original-status::before{animation:none;content:none}
 .lightbox[data-original="loading"] #lightboxImg{cursor:progress}
 .lightbox[data-original="ready"] #lightboxImg{cursor:grab}
 /* 原图没加载完就拖时拦下拖动，在图中央说明原因；文字由 lightbox.js 写入，清空即收起。 */
@@ -3818,7 +3821,7 @@ html.motion-off{scroll-behavior:auto!important}
   .rail-chip,.card-img,.card-img-diffusion,.tree-spy,
   .brand,.sb-head,.banner-title,.banner-eyebrow,.banner-author,.banner-meta,.card.card-enter,
   .topbar::after,.codex-banner::after,.intro-noise,.intro-deck,.intro-today,.copy-sample-noise,.copy-seed-chip,
-  .feedback-public-state.is-loading i,.feedback-progress-intro button[aria-busy="true"] span{
+  .feedback-progress-intro button[aria-busy="true"] span{
     animation:none!important;
     transition:none!important;
   }

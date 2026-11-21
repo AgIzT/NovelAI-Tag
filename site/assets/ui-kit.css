@@ -187,3 +187,37 @@
 }
 .motion-off :is(.ui-select-button,.ui-select-option,.ui-select-arrow,.ui-select-list,.panel-input){transition:none!important}
 .motion-off :is(.ui-select-button,.ui-select-option):active:not(:disabled){scale:1}
+
+/* ---------- 等待动画 ---------- */
+/* 全站统一的等待小动画（app/ui-motion.js 的 createLoader / setButtonBusy）：
+   3×3 小点按打散的顺序逐个亮起，亮满停一下再一起淡回，像一张图从噪点里显出来。
+   只用一个元素 + box-shadow 画点，伪元素也能套（灯箱「原图加载中」）。颜色跟字色走，
+   大小跟 --loader-size（默认 16px，点阵约 13px 见方）。由 gen_loaders.py 生成。 */
+.ui-loader{
+  --ld-ink:currentColor;--ld-dim:color-mix(in srgb,currentColor 22%,transparent);
+  display:inline-block;flex:none;vertical-align:middle;font-size:var(--loader-size,16px);
+  width:0.1875em;height:0.1875em;margin:0 0.625em 0.625em 0;border-radius:1px;
+  box-shadow:0em 0em 0 var(--ld-dim),0.3125em 0em 0 var(--ld-dim),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-dim),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-dim),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-dim);
+  animation:uiLoaderMatrix 1.4s linear infinite;
+}
+@keyframes uiLoaderMatrix{
+  0%{box-shadow:0em 0em 0 var(--ld-dim),0.3125em 0em 0 var(--ld-dim),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-dim),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-dim),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-dim)}
+  7%{box-shadow:0em 0em 0 var(--ld-dim),0.3125em 0em 0 var(--ld-dim),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-dim),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-dim)}
+  14%{box-shadow:0em 0em 0 var(--ld-dim),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-dim),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-dim)}
+  21%{box-shadow:0em 0em 0 var(--ld-dim),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-dim)}
+  28%{box-shadow:0em 0em 0 var(--ld-dim),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-ink)}
+  35%{box-shadow:0em 0em 0 var(--ld-ink),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-ink)}
+  42%{box-shadow:0em 0em 0 var(--ld-ink),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-ink),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-ink)}
+  49%{box-shadow:0em 0em 0 var(--ld-ink),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-ink),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-ink),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-ink)}
+  56%{box-shadow:0em 0em 0 var(--ld-ink),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-ink),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-ink),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-ink),0.625em 0.625em 0 var(--ld-ink)}
+  63%{box-shadow:0em 0em 0 var(--ld-ink),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-ink),0em 0.3125em 0 var(--ld-ink),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-ink),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-ink),0.625em 0.625em 0 var(--ld-ink)}
+  82%{box-shadow:0em 0em 0 var(--ld-ink),0.3125em 0em 0 var(--ld-ink),0.625em 0em 0 var(--ld-ink),0em 0.3125em 0 var(--ld-ink),0.3125em 0.3125em 0 var(--ld-ink),0.625em 0.3125em 0 var(--ld-ink),0em 0.625em 0 var(--ld-ink),0.3125em 0.625em 0 var(--ld-ink),0.625em 0.625em 0 var(--ld-ink)}
+  100%{box-shadow:0em 0em 0 var(--ld-dim),0.3125em 0em 0 var(--ld-dim),0.625em 0em 0 var(--ld-dim),0em 0.3125em 0 var(--ld-dim),0.3125em 0.3125em 0 var(--ld-dim),0.625em 0.3125em 0 var(--ld-dim),0em 0.625em 0 var(--ld-dim),0.3125em 0.625em 0 var(--ld-dim),0.625em 0.625em 0 var(--ld-dim)}
+}
+/* 减少动态效果：不闪，点阵整体半亮，旁边的文字说明在等 */
+@media (prefers-reduced-motion:reduce){.ui-loader{animation:none;--ld-dim:color-mix(in srgb,currentColor 55%,transparent)}}
+.motion-off .ui-loader{animation:none}
+/* 按钮等待态：等待动画排在字前面（setButtonBusy），禁用时也不减淡，让人看清在等。
+   按钮多是块级居中排字，没有 gap，点阵右边自己多留 6px */
+button.is-waiting:disabled{opacity:1}
+.is-waiting > .ui-loader{margin-right:calc(.625em + 6px)}

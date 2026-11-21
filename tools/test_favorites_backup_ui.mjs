@@ -81,6 +81,7 @@ async function setup(initialLibrary, localEdition = false) {
     './favorites-pickup.js': pickupModule,
     './clipboard.js': { writeClipboardText: async () => ({ ok: true }) },
     './clipboard-fallback.js': { showClipboardFallback: () => false },
+    './ui-motion.js': { setButtonBusy() {}, shakeInvalid() {} },
   };
   const rewritten = source.replace(/import\s*\{([\s\S]*?)\}\s*from\s*'([^']+)';/g, (_, imports, path) => 'const {' + imports + '} = globalThis.__backupUiModules[' + JSON.stringify(path) + '];');
   assert.doesNotMatch(rewritten, /^import /m);

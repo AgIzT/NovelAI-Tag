@@ -4,7 +4,7 @@ import { findCodexMeta } from './data.js';
 import { $, clamp, esc } from './utils.js';
 import { toast } from './feedback.js';
 import { openMask, closeMask, trapFocus, bindBackdropDismiss } from './modal.js';
-import { animateUi, cancelUiMotion } from './ui-motion.js';
+import { animateUi, cancelUiMotion, setButtonBusy, shakeInvalid } from './ui-motion.js';
 import { entryImages, imageItemUrl, thumbUrl, hasEntryImage } from './media.js';
 import { entryImageCanUseOriginal } from './original-capability.js';
 import {
@@ -130,6 +130,7 @@ export function refreshReportAccess() {
   $('#feedbackForm')?.reset();
   const submit = $('#feedbackSubmit');
   if (submit) submit.disabled = false;
+  setButtonBusy(submit, false);
   for (const id of ['feedbackContextPreview', 'feedbackStatus']) {
     const element = $(`#${id}`);
     if (element) element.textContent = '';
@@ -212,6 +213,7 @@ function resetFeedbackForm(type, context) {
   if (form) form.reset();
   const submit = $('#feedbackSubmit');
   if (submit) submit.disabled = false;
+  setButtonBusy(submit, false);
   $('#feedbackType').value = type;
   $('#feedbackDesc').value = '';
   $('#feedbackContact').value = '';
@@ -261,14 +263,17 @@ async function submitFeedback(ev) {
   }
   if (description.length < MIN_DESC) {
     showStatus(`描述至少 ${MIN_DESC} 个字。`, true);
+    shakeInvalid($('#feedbackDesc'));
     return;
   }
   if (description.length > MAX_DESC) {
     showStatus(`反馈内容最多 ${MAX_DESC} 个字。`, true);
+    shakeInvalid($('#feedbackDesc'));
     return;
   }
   if (contact.length > MAX_CONTACT) {
     showStatus(`联系方式最多 ${MAX_CONTACT} 个字。`, true);
+    shakeInvalid($('#feedbackContact'));
     return;
   }
 
@@ -281,6 +286,7 @@ async function submitFeedback(ev) {
   };
   const fallbackText = buildFallbackText(currentPayload);
   if (submit) submit.disabled = true;
+  setButtonBusy(submit, true);
   if (status) {
     status.textContent = '正在提交…';
     status.classList.remove('error', 'success');
@@ -320,7 +326,10 @@ async function submitFeedback(ev) {
     showFallback(fallbackText);
     showStatus('提交失败，下面已生成可复制的反馈文本。', true);
   } finally {
-    if (submit && seq === reportSeq) submit.disabled = false;
+    if (submit && seq === reportSeq) {
+      submit.disabled = false;
+      setButtonBusy(submit, false);
+    }
   }
 }
 
@@ -408,7 +417,7 @@ async function loadPublicFeedback({ force = false } = {}) {
   }
   if (list) {
     list.setAttribute('aria-busy', 'true');
-    list.innerHTML = '<div class="feedback-public-state is-loading"><i></i><span>正在加载公开处理进度…</span></div>';
+    list.innerHTML = '<div class="feedback-public-state is-loading"><span class="ui-loader" aria-hidden="true"></span><span>正在加载公开处理进度…</span></div>';
   }
   try {
     const response = await fetch('/api/feedback-public', {
