@@ -154,7 +154,7 @@ for (const scope of ['codex', 'site', 'favorites']) {
   let renders = 0;
   const deps = {
     state, window: { scrollY: 0 }, cancelSiteSearchObservation: () => f.analytics.cancelSearch(),
-    cancelCodexSwitch() {}, virtualView: () => state.siteSearchView, invalidateOrganizeRequest() {},
+    cancelOpeningUpgrade() {}, cancelCodexSwitch() {}, virtualView: () => state.siteSearchView, invalidateOrganizeRequest() {},
     parseSearchQuery, prepareSearchZh, prepareViewBaseCodex: async () => state.codex,
     normalizeCodexRoutePath: () => [], commitCodexView: (_seq, _options, render) => render(),
     showSkeleton() {}, hideSkeleton() {}, setLoading() {}, clearMasonry() {}, setOnlyFavControl() {},

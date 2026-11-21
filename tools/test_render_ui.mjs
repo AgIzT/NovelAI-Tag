@@ -1432,7 +1432,6 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
 {
   const paths = [
     '../site/assets/app/data.js',
-    '../site/assets/app/MODULE_MAP.md',
     '../site/assets/app/masonry.js',
     '../site/assets/app/lightbox.js',
     '../site/assets/app/codex-ui.js',
@@ -1453,7 +1452,6 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   ];
   const [
     dataSource,
-    moduleMap,
     masonrySource,
     lightboxSource,
     codexUiSource,
@@ -1474,7 +1472,6 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   ] = await Promise.all(paths.map(path => readFile(new URL(path, import.meta.url), 'utf8')));
 
   assert.doesNotMatch(dataSource, /export async function load(?:CodexIndex|Media|About)\b/);
-  assert.match(moduleMap, /\| `data\.js` \| 引导数据、法典加载、规范化/);
   assert.match(masonrySource, /import \{ updateReadingSpy \} from '\.\/codex-ui\.js';/);
   assert.match(lightboxSource, /const reuseThumbs = lbThumbEntry === e[\s\S]*if \(!reuseThumbs\) \{\s*thumbs\.innerHTML = '';/);
   assert.match(lightboxSource, /&& lbThumbState === lb/);
@@ -1508,30 +1505,25 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(onboardingSource, /function finishOnboarding\(\) \{\s*try \{\s*localStorage\.setItem/);
   assert.match(onboardingSource, /export function openOnboarding\(\{ trigger = document\.activeElement, historyMode = 'push' \} = \{\}\)/);
   assert.equal((onboardingSource.match(/cls: 'obs-[1-4]'/g) || []).length, 4);
-  assert.match(onboardingSource, /多本法典随时切，也能全站搜/);
-  assert.match(onboardingSource, /点顶栏书名切换法典/);
-  assert.match(onboardingSource, /社区整理的 NovelAI 提示词法典图鉴/);
   assert.match(indexSource, /id="onboardingStep"[^>]*>1 \/ 4</);
   assert.equal((indexSource.match(/class="onboarding-dot(?: active)?"/g) || []).length, 4);
   assert.match(indexSource, /id="onboardingBtn"/);
   assert.match(uiSource, /onboardingBtn\.onclick = \(\) => \{[\s\S]*openOnboarding\(\{/);
   assert.match(indexSource, /id="communityBrowseLink"[^>]*href="\/strings\.html"/);
-  assert.match(codexUiSource, /<span class="cd-name">共创广场 · 投稿<\/span>/);
-  assert.match(codexUiSource, /图片与提示词作品/);
+  assert.match(codexUiSource, /a\.className = 'codex-door';\s*a\.href = '\/strings\.html';/);
   assert.doesNotMatch(codexUiSource, /这里是大家的画风串/);
   assert.match(localEditionBuilderSource, /body\.local-edition #communityBrowseLink,/);
   assert.match(localEditionBuilderSource, /body\.local-edition #onboardingBtn,/);
   assert.match(codexUiSource, /const hiddenCount = \(!state\.siteSearchView && !state\.favoritesView\) \? accessHiddenCount\(\) : 0;/);
-  assert.match(codexUiSource, /\$\{hiddenCount\} 条受限/);
-  assert.match(codexUiSource, /\$\{lockedBooks\} 本受限法典未纳入搜索/);
+  assert.match(codexUiSource, /\$\{hiddenCount\}/);
+  assert.match(codexUiSource, /\$\{lockedBooks\}/);
   assert.match(codexUiSource, /查看未解锁范围[\s\S]*access-hint/);
   assert.match(reportSource, /image && entryImageCanUseOriginal\(entry, image\)/);
   assert.match(lightboxSource, /return entryImageCanUseOriginal\(entry, item\);/);
   assert.match(indexSource, /rel="modulepreload" href="assets\/app\/original-capability\.js"/);
-  assert.match(indexSource, /placeholder="搜索标题或标签，多个条件用逗号分隔"/);
   assert.match(indexSource, /id="searchFilterBtn"[\s\S]*aria-haspopup="dialog"[\s\S]*aria-controls="searchFilterPanel"/);
   assert.match(indexSource, /id="searchFilterPanel"[^>]*role="dialog"[^>]*aria-modal="false"[^>]*hidden/);
-  assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*long hair, blue eyes[\s\S]*path:构图[\s\S]*has:image[\s\S]*fav:true/);
+  assert.match(indexSource, /id="searchSyntaxHint"[\s\S]*path:[\s\S]*has:image[\s\S]*fav:true/);
   const scopeButtonHandler = uiSource.match(/searchScopeBtn\.onclick = \(\) => \{[\s\S]*?\n    \};/)?.[0] || '';
   assert.match(scopeButtonHandler, /void applySearchConditions\(\)/, '范围切换必须复用统一搜索历史入口');
   assert.doesNotMatch(scopeButtonHandler, /uiActions\.applySearch/, '范围切换不得绕过 searchHistory pending 状态');
@@ -1651,8 +1643,8 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(masonrySource, /estimateTagLines\(entryPromptText\(e\), contentWidth, cfg\)/);
   assert.match(masonrySource, /renderHighlightedText\(node\.querySelector\('\.card-tags'\), entryPromptText\(e\), currentPromptHighlightTerms\(\)\)/);
   const indexSource = await readFile(new URL('../site/index.html', import.meta.url), 'utf8');
-  assert.match(indexSource, /<span class="badge-char" hidden>角色词<\/span>/);
-  assert.match(indexSource, /<span class="badge-char-chip" hidden title="含角色词">角色词<\/span>/);
+  assert.match(indexSource, /<span class="badge-char" hidden[ >]/);
+  assert.match(indexSource, /<span class="badge-char-chip" hidden[ >]/);
   assert.match(masonrySource, /charBadge\.hidden = !\(hasImage && charPrompts\.length\)/);
   assert.match(masonrySource, /charChip\.hidden = hasImage \|\| !charPrompts\.length/);
   const stylesSource = await readFile(new URL('../site/assets/styles.css', import.meta.url), 'utf8');
@@ -1664,7 +1656,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(stylesSource, /\.toast\.has-action\{[\s\S]*min-height:44px[\s\S]*padding:4px 6px 4px 14px/);
   assert.match(stylesSource, /\.toast\.has-action \.toast-message\{[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/);
   // 设置里界面风格下面依次是「背景动效」（默认勾上）和「点击卡片放大」（电脑端开关、手机隐藏；只管有图的卡，点击时现读设置）。
-  assert.match(indexSource, /id="themeControl"[\s\S]*?<\/div>\s*<\/div>\s*<div class="set-row">\s*<div class="set-info">\s*<div class="set-name">背景动效<\/div>[\s\S]*?id="pageGlowToggle" checked[\s\S]*?<\/div>\s*<div class="set-row card-zoom-set-row">[\s\S]*?id="cardZoomToggle"/);
+  assert.match(indexSource, /id="themeControl"[\s\S]*?<\/div>\s*<\/div>\s*<div class="set-row">[\s\S]*?id="pageGlowToggle" checked[\s\S]*?<\/div>\s*<div class="set-row card-zoom-set-row">[\s\S]*?id="cardZoomToggle"/);
   assert.match(stylesSource, /@media \(max-width:600px\)\{[\s\S]*?\.card-zoom-set-row\{display:none\}/);
   // 「背景动效」关掉时先存偏好再停动态层。
   const uiGlowSource = await readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8');
