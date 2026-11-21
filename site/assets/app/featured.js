@@ -29,8 +29,18 @@ export function todayFeatured(codex) {
   if (codex?.id !== FEATURED_CODEX_ID || !Array.isArray(codex.entries)) return null;
   const day = localDay();
   if (memo.entries === codex.entries && memo.day === day) return memo.entry;
-  const pool = codex.entries.filter(isCandidate);
   let entry = null;
+  if (codex._opening) {
+    // 开场轻量包只含前 ~50 条，不能在 50 条上取模（否则会抽错人，完整数据到达后首卡会跳）。
+    // 直接查构建期预算的日期表；超出日期表范围时宁可等完整数据补齐再置顶。
+    const id = codex.openingFeaturedByDay?.[day];
+    if (id) {
+      entry = codex.entries.find(item => item.id === id) || codex.openingFeaturedEntries?.[id] || null;
+    }
+    memo = { entries: codex.entries, day, entry };
+    return entry;
+  }
+  const pool = codex.entries.filter(isCandidate);
   if (pool.length) {
     let hash = 2166136261;
     for (const ch of day) hash = Math.imul(hash ^ ch.charCodeAt(0), 16777619);
@@ -43,7 +53,7 @@ export function todayFeatured(codex) {
 export function isFeaturedEntry(entry, codex) {
   const featured = todayFeatured(codex);
   if (!entry || !featured) return false;
-  if (entry === featured) return true;
+  if (entry === featured || (entry.id && entry.id === featured.id)) return true;
   const artist = styleActive(codex) ? artistOf(featured) : null;
   return Boolean(artist && artistOf(entry) === artist);
 }
@@ -52,7 +62,7 @@ export function isFeaturedEntry(entry, codex) {
 export function pinFeatured(list, codex) {
   const entry = todayFeatured(codex);
   const artist = entry && styleActive(codex) ? artistOf(entry) : null;
-  const index = entry ? list.findIndex(item => item === entry || (artist && artistOf(item) === artist)) : -1;
+  const index = entry ? list.findIndex(item => item === entry || (item.id && item.id === entry.id) || (artist && artistOf(item) === artist)) : -1;
   if (index <= 0) return list;
   const pinned = list.slice();
   const [selected] = pinned.splice(index, 1);

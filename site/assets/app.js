@@ -3,7 +3,7 @@ import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from '
 import { setupSiteAnalytics, recordSiteEvent, beginSiteSearchObservation, cancelSiteSearchObservation } from './app/site-analytics.js';
 import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
-import { loadBootstrapData, fetchCodex, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
+import { loadBootstrapData, fetchCodex, fetchCodexOpening, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
 import { sortCategoryEntries } from './app/category-order.js';
 import { parseSearchFilter, parseSearchQuery, matchSearchPlan, rankSearchResults, splitSearchPhrases } from './app/search.js';
 import { prepareSearchZh } from './app/search-zh.js';
@@ -48,6 +48,7 @@ import { setupContentBlocking, hideCard, setBlockingUiActions, updateBlockingSum
 
 let codexLoadSeq = 0;
 let pendingCodexLoad = null;
+let openingUpgrade = null; // { seq, codexId, opening, timer, promise, start }
 let favoritesBackupBound = false;
 let favoritesFolderHistoryActive = false;
 let favoritesRefreshSeq = 0;
@@ -434,12 +435,105 @@ function watchEditModeForStyles() {
     const now = document.body.classList.contains('edit-mode');
     if (now === editing) return;
     editing = now;
+    if (now && state.codex?._opening) void ensureFullCodexNow();
     if (!supportsArtistStyles(state.codex) || state.favoritesView || state.siteSearchView) return;
     if (state.activePath[0] === SINGLE_ROOT && state.activePath.length > 1) state.activePath = [SINGLE_ROOT];
     renderTree();
     applyFilter({ resetScroll: true });
     syncUrlState({ historyMode: 'replace' });
   }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+}
+
+function cancelOpeningUpgrade() {
+  if (!openingUpgrade) return;
+  clearTimeout(openingUpgrade.timer);
+  openingUpgrade = null;
+}
+
+function canUseOpeningSlice(meta, options = {}) {
+  if (!meta?.id || meta.dataUrl || state.codexCache.has(meta.id)) return false;
+  if (document.body?.classList?.contains('edit-mode')) return false;
+  const u = options.urlState;
+  if (u) {
+    if (u.favorites || u.scope === 'site' || u.entry || u.q || u.pathCode || u.updateFilter || u.onlyNew) return false;
+    if ((Array.isArray(u.path) && u.path.length) || (Array.isArray(u.searchFilters) && u.searchFilters.length)) return false;
+  }
+  if (supportsArtistStyles(meta)) {
+    const division = readPreference('fadian-artist-division');
+    if (division && division !== 'style') return false;
+  }
+  return true;
+}
+
+function scheduleOpeningUpgrade(meta, seq, opening) {
+  cancelOpeningUpgrade();
+  const upgrade = {
+    seq,
+    codexId: meta.id,
+    opening,
+    timer: 0,
+    promise: null,
+    start() {
+      if (upgrade.promise) return upgrade.promise;
+      clearTimeout(upgrade.timer);
+      upgrade.timer = 0;
+      upgrade.promise = fetchCodexForView(meta).then(fullCodex => {
+        if (openingUpgrade === upgrade) openingUpgrade = null;
+        if (
+          state.codex !== opening
+          || state.favoritesView
+          || state.siteSearchView
+          || isCodexLocked(fullCodex)
+        ) {
+          return fullCodex;
+        }
+        const anchor = window.scrollY > 0 ? captureMasonryAnchor() : null;
+        state.codex = fullCodex;
+        state.browseCodex = fullCodex;
+        if (state.lightbox?.entry) {
+          const matched = fullCodex.entries.find(e => e.id === state.lightbox.entry.id);
+          if (matched) {
+            state.lightbox.entry = matched;
+            if ($('#lightbox')?.classList.contains('is-artist')) renderArtistProfile(matched);
+          }
+        }
+        renderTree();
+        renderCodexHeader({ keepIdentity: true });
+        applyFilter({ transition: 'none' });
+        if (anchor) restoreMasonryAnchor(anchor);
+        announceCodexLoaded(fullCodex);
+        return fullCodex;
+      }, error => {
+        if (openingUpgrade === upgrade) openingUpgrade = null;
+        console.warn('[opening] 完整法典后台补全失败', error);
+        return null;
+      });
+      return upgrade.promise;
+    },
+  };
+  // 给首屏开场包与首批可见卡图留出半秒带宽窗口，避免整本大 JSON 抢占首屏连接。
+  upgrade.timer = window.setTimeout(() => {
+    if (openingUpgrade === upgrade && state.codex === opening && !state.favoritesView && !state.siteSearchView) {
+      void upgrade.start();
+    }
+  }, 500);
+  openingUpgrade = upgrade;
+  return upgrade;
+}
+
+function ensureFullCodexNow() {
+  if (state.codex?._opening && openingUpgrade?.opening === state.codex) {
+    return openingUpgrade.start();
+  }
+  return Promise.resolve(state.codex);
+}
+
+async function fetchCodexInitialOrFull(meta, options) {
+  if (canUseOpeningSlice(meta, options)) {
+    const opening = await fetchCodexOpening(meta);
+    if (opening) return opening;
+  }
+  return fetchCodexForView(meta);
 }
 
 /* 单画师按画风重排（原型）：v5 画师词典要挂画风数据。画风数据（压缩后约 250 KB）和法典数据（约 1 MB）同时下载，
@@ -466,6 +560,7 @@ export async function loadCodex(id, options = {}) {
     setLoading('在设置中开启「显示 NSFW 内容」后可查看这本法典');
     return;
   }
+  cancelOpeningUpgrade();
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
   pendingCodexLoad = { seq, meta };
@@ -479,11 +574,14 @@ export async function loadCodex(id, options = {}) {
     clearMasonry();
   }
   try {
-    const codex = await fetchCodexForView(meta);
+    const codex = await fetchCodexInitialOrFull(meta, options);
     if (seq !== codexLoadSeq || options.isCurrent?.() === false || isCodexLocked(meta) || isCodexLocked(codex)) return;
     const wasSwitching = Boolean(state.codex);
     const render = () => renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), closeOldLightbox: Boolean(options.isCurrent) });
     await runCodexViewTransition(seq, () => commitCodexView(seq, options, render), { wasSwitching, transition: options.transition, isCurrent: options.isCurrent });
+    if (codex._opening && seq === codexLoadSeq && state.codex === codex) {
+      scheduleOpeningUpgrade(meta, seq, codex);
+    }
   } catch (ex) {
     if (seq === codexLoadSeq && options.isCurrent?.() !== false) {
       console.error(ex);
@@ -500,7 +598,7 @@ export async function loadCodex(id, options = {}) {
 async function switchCodexAnimated(meta, seq, options, parentScrollY) {
   const isCurrent = () => seq === codexLoadSeq && options.isCurrent?.() !== false && !isCodexLocked(meta);
   setLoading('');
-  const loading = fetchCodexForView(meta);
+  const loading = fetchCodexInitialOrFull(meta, options);
   const sw = beginCodexSwitch({
     origin: options.origin,
     isCurrent,
@@ -524,6 +622,9 @@ async function switchCodexAnimated(meta, seq, options, parentScrollY) {
          留着它会在新书落地后把旧书词条记到新书名下（PR #37 审查） */
       renderCodexView(codex, seq, { ...codexViewArgs(options, parentScrollY), keepIdentity: true, closeOldLightbox: true });
     }, codex);
+    if (codex._opening && seq === codexLoadSeq && state.codex === codex) {
+      scheduleOpeningUpgrade(meta, seq, codex);
+    }
   } catch (ex) {
     if (!isCurrent()) return;
     console.error(ex);
@@ -584,7 +685,7 @@ async function prepareViewBaseCodex(options) {
   const base = state.codex && !virtualView() ? state.codex : state.browseCodex;
   const requested = findCodexMeta(options.browseCodexId || options.urlState?.codex || '');
   if (requested && isCodexLocked(requested)) return null;
-  if (base && !isCodexLocked(base) && (!requested || base.id === requested.id)) return base;
+  if (base && !base._opening && !isCodexLocked(base) && (!requested || base.id === requested.id)) return base;
   const meta = requested || firstUnlockedCodex();
   if (!meta) return null;
   const codex = await fetchCodex(meta);
@@ -594,6 +695,7 @@ async function prepareViewBaseCodex(options) {
 export async function openFavoritesView(options = {}) {
   if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
+  cancelOpeningUpgrade();
   cancelCodexSwitch();
   invalidateOrganizeRequest();
   const seq = ++codexLoadSeq;
@@ -651,6 +753,7 @@ export async function openFavoritesView(options = {}) {
 export async function openSiteSearchView(options = {}) {
   if (!options.onSearchSettled) cancelSiteSearchObservation();
   const parentScrollY = options.parentScrollY ?? Math.max(0, window.scrollY || 0);
+  cancelOpeningUpgrade();
   cancelCodexSwitch();
   const searchReturnPath = Array.isArray(options.searchReturnPath)
     ? [...options.searchReturnPath]
@@ -870,6 +973,14 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
       actions: [{ id: 'clear-all', label: '清空整个搜索', primary: true }],
     });
   } else if (active && state.list.length === 0) {
+    if (state.codex?._opening && !state.favoritesView && !state.siteSearchView) {
+      renderSearchStatus({
+        kind: 'info',
+        message: '正在加载完整法典，稍候自动补全搜索结果…',
+        pending: true,
+      });
+      return;
+    }
     const count = state.relatedDirectoryCount;
     const actions = retryActions.map((action, index) => ({ ...action, primary: index === 0 }));
     if (splitSearchPhrases(plan)) actions.push({ id: 'split-phrases', label: '拆词搜索' });
@@ -901,6 +1012,10 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
 export function applyFilter(options = {}) {
   if (!options.onSearchSettled) cancelSiteSearchObservation();
   const plan = compileSearchState();
+  if (state.codex?._opening && !state.favoritesView && !state.siteSearchView
+    && (plan.hasActiveSearch || state.activePath.length || state.updateFilter || state.artistPickOnly)) {
+    void ensureFullCodexNow();
+  }
   const sourceEntries = isCodexLocked(state.codex) ? [] : state.codex?.entries || [];
   const visibleEntries = sourceEntries.filter(entry => !isEntryAccessBlocked(entry));
   // 目录节点与查询词无关，按法典 entries 引用和权限态缓存；一轮过滤内同时复用于
@@ -1280,6 +1395,17 @@ setArtistPickActions({
   applyFilter: () => applyFilter(),
   // 换分法：目录和墙一起换。当前目录在单画师词典更深处时退到单画师词典，其余（含「全部」）留在原处。
   changeDivision: mode => {
+    if (state.codex?._opening) {
+      void ensureFullCodexNow().then(full => {
+        if (!full || full._opening || state.codex !== full) return;
+        if (!setArtistDivision(state.codex, mode)) return;
+        if (state.activePath[0] === SINGLE_ROOT && state.activePath.length > 1) state.activePath = [SINGLE_ROOT];
+        renderTree();
+        applyFilter({ resetScroll: true });
+        syncUrlState({ historyMode: 'replace' });
+      });
+      return;
+    }
     if (!setArtistDivision(state.codex, mode)) return;
     if (state.activePath[0] === SINGLE_ROOT && state.activePath.length > 1) state.activePath = [SINGLE_ROOT];
     renderTree();
@@ -1303,6 +1429,7 @@ async function openUpdateBatch({ codexId, batchId, consumeLayer = false }) {
     });
     return;
   }
+  if (state.codex?._opening) void ensureFullCodexNow();
   // 从全站更新时间线点开往期批次时，和换书一样看全书的那批更新。
   if (inSingleSection() && !hasActiveSearchState()
     && codexUpdateFilters(state.codex).some(filter => filter.id === batchId && !filter.latest)) {

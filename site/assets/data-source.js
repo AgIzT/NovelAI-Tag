@@ -305,6 +305,17 @@ export async function prewarmDataFiles(paths) {
   return started;
 }
 
+/* 检查当前已锁定的 v2 release 清单里是否包含该逻辑文件（零网络请求，复用已缓存清单）。
+   返回 true / false；非 v2（本地或旧 v1）返回 null，由调用方按需试探。 */
+export async function hasReleaseFile(path, { signal } = {}) {
+  signal?.throwIfAborted();
+  const source = await awaitShared(initializeDataSource(), signal);
+  signal?.throwIfAborted();
+  if (!source.v2) return null;
+  const manifest = await loadManifest(source, signal);
+  return Object.hasOwn(manifest.files, normalizeKey(path));
+}
+
 function normalizeBatchRequest(request) {
   const spec = typeof request === 'string' ? { path: request } : { ...(request || {}) };
   return {

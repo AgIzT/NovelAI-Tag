@@ -61,6 +61,10 @@ echo [ERROR] R2 asset sync failed with code %RC%.
 exit /b %RC%
 
 :sync_ok
+echo == Packing repeated codex notes ==
+call %PY% "tools\codex_note_pack.py" --apply
+if errorlevel 1 exit /b 1
+
 echo == Building cross-codex update index ==
 call %PY% "tools\build_updates_index.py"
 if errorlevel 1 exit /b 1
@@ -75,6 +79,10 @@ if errorlevel 1 exit /b 1
 
 echo == Building artist sample index ==
 call %PY% "tools\build_artist_index.py"
+if errorlevel 1 exit /b 1
+
+echo == Building lightweight opening slices ==
+call %PY% "tools\build_opening_slices.py"
 if errorlevel 1 exit /b 1
 
 echo == Publishing immutable JSON release to Cloudflare R2 ==

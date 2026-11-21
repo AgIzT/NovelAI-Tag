@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { stripTrailingSlash } from './utils.js';
 import { hasEntryImage } from './media.js';
 import { toast } from './feedback.js';
-import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource } from '../data-source.js';
+import { fetchDataJson, fetchDataJsonBatch, fetchDataJsonResult, getDataSource, hasReleaseFile } from '../data-source.js';
 import { normalizeCategoryOrder, sortCategoryTree } from './category-order.js';
 import { stripNaiDefaultTags } from './nai-default-tags.js';
 import { codexMatches } from './initial-codex.js';
@@ -121,6 +121,71 @@ export async function fetchCodex(meta, { signal } = {}) {
   return waitForCodex(cached, key, signal);
 }
 
+export async function fetchCodexOpening(meta, { signal } = {}) {
+  signal?.throwIfAborted();
+  if (!meta?.id || meta.dataUrl) return null;
+  const openingPath = `opening/${meta.id}.json`;
+  try {
+    const exists = await hasReleaseFile(openingPath, { signal });
+    if (exists === false) return null;
+    const result = await fetchDataJsonResult(openingPath, { signal });
+    const data = result?.data;
+    if (!data || data.openingSchema !== 1 || !Array.isArray(data.entries) || !data.entries.length) return null;
+    let sourceMeta = meta;
+    if (result.source === 'r2') {
+      sourceMeta = { ...meta, dataStatus: 'R2 数据', dataRelease: result.release };
+    } else if (result.source === 'proxy' || result.source === 'proxy-fallback') {
+      sourceMeta = {
+        ...meta,
+        dataStatus: result.source === 'proxy-fallback' ? 'R2 代理回退' : 'R2 数据（Pages 代理）',
+        dataRelease: result.release,
+        dataNotice: result.source === 'proxy-fallback'
+          ? 'R2 公网直连失败，已通过 Pages Functions 读取同一发布版本'
+          : '',
+        dataError: result.error?.message || String(result.error || ''),
+      };
+    }
+    const codex = normalizeCodex(data, sourceMeta);
+    codex._opening = true;
+    codex.openingAccessView = data.openingAccessView && typeof data.openingAccessView === 'object' ? data.openingAccessView : null;
+    codex.openingFeaturedByDay = data.openingFeaturedByDay && typeof data.openingFeaturedByDay === 'object' ? data.openingFeaturedByDay : null;
+    if (data.openingFeaturedEntries && typeof data.openingFeaturedEntries === 'object') {
+      const noteTemplates = Array.isArray(data.noteTemplates) ? data.noteTemplates : null;
+      const normalizedFeatured = {};
+      for (const [id, rawEntry] of Object.entries(data.openingFeaturedEntries)) {
+        if (rawEntry && typeof rawEntry === 'object') {
+          normalizedFeatured[id] = normalizeEntry(rawEntry, codex, codex.entries.length, noteTemplates);
+        }
+      }
+      codex.openingFeaturedEntries = normalizedFeatured;
+      // 把当天的「今日画师」放进开场词条池，这样权限/个人屏蔽与 pinFeatured 走完全同一套逻辑，
+      // 既能零跳动置顶，也不会把其余 90 天的候选画师混进首屏列表。
+      const now = new Date();
+      const dayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+      const todayId = codex.openingFeaturedByDay?.[dayKey];
+      if (todayId && normalizedFeatured[todayId] && !codex.entries.some(e => e.id === todayId)) {
+        codex.entries.unshift(normalizedFeatured[todayId]);
+      }
+    }
+    if (Array.isArray(data.openingStyleTree)) {
+      codex._openingStyle = true;
+      codex.styleTree = data.openingStyleTree;
+      codex.styleDivision = 'style';
+      Object.defineProperty(codex, 'displayTree', {
+        configurable: true,
+        get() {
+          const editing = typeof document !== 'undefined' && Boolean(document.body?.classList?.contains('edit-mode'));
+          return !editing && this.styleTree ? this.styleTree : this.tree;
+        },
+      });
+    }
+    return codex;
+  } catch (ex) {
+    if (signal?.aborted) throw ex;
+    return null;
+  }
+}
+
 export async function fetchJson(url, cache = 'default', signal) {
   return fetch(url, { cache, ...(signal ? { signal } : {}) }).then(r => {
     if (!r.ok) throw new Error(`Failed to load codex: ${url}`);
@@ -206,7 +271,33 @@ export function resolveUpdateFilter(codex, requested) {
   return filters.some(filter => filter.id === value) ? value : '';
 }
 
+export function resolveEntryNote(rawNote, templates) {
+  if (rawNote == null || rawNote === '') return '';
+  if (typeof rawNote === 'string') return rawNote;
+  if (!Array.isArray(templates)) return '';
+  if (Number.isInteger(rawNote)) {
+    const tpl = templates[rawNote];
+    if (typeof tpl === 'string') return tpl;
+    if (Array.isArray(tpl) && tpl.length === 1 && typeof tpl[0] === 'string') return tpl[0];
+    return '';
+  }
+  if (Array.isArray(rawNote) && rawNote.length >= 1 && Number.isInteger(rawNote[0])) {
+    const tpl = templates[rawNote[0]];
+    const args = rawNote.slice(1);
+    if (Array.isArray(tpl) && tpl.length === args.length + 1) {
+      let out = '';
+      for (let i = 0; i < tpl.length; i += 1) {
+        out += String(tpl[i] ?? '');
+        if (i < args.length) out += String(args[i] ?? '');
+      }
+      return out;
+    }
+  }
+  return '';
+}
+
 export function normalizeCodex(data, meta = {}) {
+  const noteTemplates = Array.isArray(data.noteTemplates) ? data.noteTemplates : null;
   const codex = {
     ...data,
     id: meta.id || data.id,
@@ -236,7 +327,8 @@ export function normalizeCodex(data, meta = {}) {
     coverRev: meta.coverRev ?? data.coverRev ?? '',
     coverFraming: meta.coverFraming ?? data.coverFraming ?? null,
   };
-  codex.entries = (data.entries || []).map((entry, i) => normalizeEntry(entry, codex, i));
+  delete codex.noteTemplates;
+  codex.entries = (data.entries || []).map((entry, i) => normalizeEntry(entry, codex, i, noteTemplates));
   codex.entryCount = Number(codex.entryCount || codex.entries.length);
   codex.imagedCount = Number(codex.imagedCount || codex.entries.filter(hasEntryImage).length);
   if (Array.isArray(data.categoryOrder)) codex.categoryOrder = normalizeCategoryOrder(data.categoryOrder);
@@ -245,7 +337,7 @@ export function normalizeCodex(data, meta = {}) {
   return codex;
 }
 
-export function normalizeEntry(entry, codex, index) {
+export function normalizeEntry(entry, codex, index, noteTemplates = null) {
   const images = normalizeImageList(entry);
   const primary = images[0];
   return {
@@ -259,7 +351,7 @@ export function normalizeEntry(entry, codex, index) {
       ? [...new Set(entry.updateBatches.map(String).filter(Boolean))]
       : [],
     characterPrompts: normalizeCharacterPrompts(entry.characterPrompts),
-    note: String(entry.note || ''),
+    note: resolveEntryNote(entry.note, noteTemplates),
     image: entry.image || primary?.path || '',
     original: entry.original || primary?.original || primary?.path || '',
     images,

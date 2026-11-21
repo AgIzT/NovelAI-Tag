@@ -1319,6 +1319,33 @@ function accessViewSnapshot() {
     accessViewMemo.allowR18g === allowR18g
   ) return accessViewMemo;
 
+  // 轻量开场包自带构建期按完整词典算好的目录树与条数，首屏无需等 30 MB 完整正文即可正确呈现侧栏。
+  if (
+    state.codex?._opening &&
+    state.codex.openingAccessView &&
+    !state.favoritesView &&
+    !state.siteSearchView &&
+    !document.body?.classList?.contains('edit-mode')
+  ) {
+    const tier = allowR18g ? 'r18g' : (allowNsfw ? 'nsfw' : 'safe');
+    const precomputed = state.codex.openingAccessView[tier];
+    if (precomputed && Array.isArray(precomputed.tree)) {
+      accessViewMemo = {
+        styleStamp,
+        entries,
+        emptyPaths,
+        categoryOrder,
+        locked,
+        allowNsfw,
+        allowR18g,
+        tree: precomputed.tree,
+        hiddenCount: Number(precomputed.hiddenCount || 0),
+        visibleCount: Number(precomputed.visibleCount ?? 0),
+      };
+      return accessViewMemo;
+    }
+  }
+
   const displayCount = styleStamp ? deduplicateStyleEntries(entries, state.codex).length : null;
   accessViewMemo = {
     styleStamp,
@@ -1795,11 +1822,17 @@ export function updateResultBar() {
     count.innerHTML = `<b>${n}</b> <span class="result-count-unit">条</span>`;
   } else {
     count.classList.add('result-root-count');
-    count.innerHTML = `<b>${n}</b> <span class="result-count-unit">条</span>`;
+    const rootCount = state.codex?._opening ? (visibleEntryCount() || n) : n;
+    count.innerHTML = `<b>${rootCount}</b> <span class="result-count-unit">条</span>`;
+    setRollingNumber(count.querySelector('b'), rootCount, shownResultCount);
+    shownResultCount = rootCount;
+    box.appendChild(count);
   }
-  setRollingNumber(count.querySelector('b'), n, shownResultCount);
-  shownResultCount = n;
-  box.appendChild(count);
+  if (!count.parentNode) {
+    setRollingNumber(count.querySelector('b'), n, shownResultCount);
+    shownResultCount = n;
+    box.appendChild(count);
+  }
   if (showCrumbs) {
     if (!searchHead) {
       const sep = document.createElement('span');
@@ -1855,7 +1888,10 @@ export function updateEmptyState(n) {
   let desc = '换个分类或稍后再来看看。';
   const actions = [];
 
-  if (q) {
+  if (state.codex?._opening && !state.favoritesView && !state.siteSearchView) {
+    title = '正在加载完整法典…';
+    desc = '完整词条正在后台补全，稍候自动显示。';
+  } else if (q) {
     title = state.searchPlan?.isSyntax ? '没有符合条件的筛选结果' : '没有找到匹配词条';
     desc = state.siteSearchView
       ? '试试换个关键词，或切到“本书”只在当前法典里找。'

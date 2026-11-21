@@ -32,9 +32,9 @@ function editing() {
   return typeof document !== 'undefined' && Boolean(document.body?.classList?.contains('edit-mode'));
 }
 
-/* 这本书当前是否按画风展示：数据挂上了、且不在本地编辑模式 */
+/* 这本书当前是否按画风展示：数据挂上了（或轻量开场包已带预计算画风树）、且不在本地编辑模式 */
 export function styleActive(codex = state.codex) {
-  return Boolean(codex?.styleTree && styles && !editing());
+  return Boolean(codex?.styleTree && (styles || codex._openingStyle) && !editing());
 }
 
 function normalize(raw) {
@@ -459,6 +459,7 @@ export function specimenSource(entry) {
    不删原词条，详情、收藏与具体图深链仍使用各自的原 ID。 */
 export function deduplicateStyleEntries(entries, codex = state.codex) {
   if (!supportsArtistStyles(codex) || !styleActive(codex)) return entries;
+  if (codex?._openingStyle && !styles) return entries;
   const identity = entry => entry.path?.[0] === SINGLE_ROOT ? artistOf(entry) : null;
   const picked = new Map();
   for (const entry of entries) {
@@ -482,6 +483,10 @@ export function deduplicateStyleEntries(entries, codex = state.codex) {
 
 /* 单画师各层先筛分级、批次和屏蔽，再按来源优先级每人选一张；同来源按 e/x 稳定取图。 */
 export function selectStyleEntries(entries, path = state.activePath, { deduplicate = true } = {}) {
+  if (state.codex?._openingStyle && !styles && isSinglePath(path)) {
+    return entries.filter(entry => entry.path?.[0] === SINGLE_ROOT
+      && path.every((seg, i) => entry.stylePath?.[i] === seg));
+  }
   const where = styleLocation(path);
   if (!where) return entries;
   if (where.level === 'unsorted') return entries.filter(entry => entry.stylePath?.[1] === UNSORTED && entry.path?.[0] === SINGLE_ROOT);
@@ -530,7 +535,12 @@ export function pickedArtistEntries(list, picked = state.artistPicked) {
 
 /* 画风小组页底行只写 post；其余各层（大类、单画师首页、post 档位、只看所选）再带上画风小组名。 */
 export function styleCardLine(entry) {
-  if (!artistListActive()) return '';
+  if (!artistListActive()) {
+    if (state.codex?._openingStyle && !styles && inSingleSection() && entry?.styleGroupName) {
+      return [entry.styleGroupName, formatPost(entry.stylePost)].join(' · ');
+    }
+    return '';
+  }
   const artist = artistOf(entry);
   if (!artist) return '';
   const parts = styleLocation()?.level === 'group' && !artistPickedView() ? [] : [groupOf(artist).name];
@@ -540,6 +550,12 @@ export function styleCardLine(entry) {
 
 /* 其它视图（全部、搜索、收藏）里单画师卡片的路径行：和侧栏目录一致，后面带上例图来源 */
 export function stylePathText(entry) {
+  if (state.codex?._openingStyle && !styles && !state.favoritesView && !state.siteSearchView
+    && styleActive(state.codex) && mayHaveStyle(entry) && entry?.path?.[0] === SINGLE_ROOT) {
+    const source = sourceOf(entry);
+    if (!entry.styleGroupName) return [SINGLE_ROOT, UNSORTED].join(' › ') + (source ? ` · ${source}` : '');
+    return `${SINGLE_ROOT} › ${entry.styleGroupName}${source ? ` · ${source}` : ''}`;
+  }
   const book = styleBookCodex();
   if (!book || !styleActive(book) || !mayHaveStyle(entry) || entry?.path?.[0] !== SINGLE_ROOT) return '';
   const artist = artistOf(entry);
@@ -556,6 +572,7 @@ export function stylePathText(entry) {
    排序使用所有例图的展示路径，不能用只给代表图计数的 treePathOf。 */
 export function sortStyleEntries(list, codex = state.codex) {
   if (!styleActive(codex)) return list;
+  if (codex?._openingStyle && !styles) return list;
   const ranks = new Map();
   const walk = (nodes, prefix = []) => {
     for (const node of nodes || []) {

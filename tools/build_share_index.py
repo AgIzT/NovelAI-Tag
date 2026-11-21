@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+try:
+    from .codex_note_pack import resolve_entry_note
+except ImportError:
+    from codex_note_pack import resolve_entry_note
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "site" / "data"
@@ -236,7 +241,7 @@ def entry_image(entry: dict[str, Any], codex: dict[str, Any], media: dict[str, A
     }
 
 
-def entry_description(entry: dict[str, Any]) -> str:
+def entry_description(entry: dict[str, Any], note_templates: Any = None) -> str:
     parts: list[str] = []
     path = entry.get("path") if isinstance(entry.get("path"), list) else []
     path_text = " / ".join(clean_text(part) for part in path if clean_text(part))
@@ -245,7 +250,8 @@ def entry_description(entry: dict[str, Any]) -> str:
     tags = clean_text(entry.get("tags") or entry.get("prompt") or "")
     if tags:
         parts.append(tags)
-    note = clean_text(entry.get("note") or entry.get("comment") or "")
+    raw_note = entry.get("note") if entry.get("note") is not None else entry.get("comment")
+    note = clean_text(resolve_entry_note(raw_note, note_templates))
     if note and not tags:
         parts.append(note)
     return truncate(" | ".join(parts) or "NovelAI 提示词条目")
@@ -289,7 +295,7 @@ def build_entry(entry: dict[str, Any], codex: dict[str, Any], media: dict[str, A
     return {
         "id": entry_id,
         "title": title,
-        "description": entry_description(entry),
+        "description": entry_description(entry, codex.get("noteTemplates")),
         "image": image,
         "shareable": True,
     }
