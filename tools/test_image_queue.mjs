@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 const { createImageQueue } = await import('../site/assets/app/image-queue.js');
 
-function harness({ visibleLimit = 2, prefetchLimit = 1, stalledMs = 1000 } = {}) {
+function harness({ visibleLimit = 2, prefetchLimit = 1, stalledMs = 1000, canPrefetch } = {}) {
   const band = { top: 0, bottom: 1000 };
   let clock = 0;
   const timers = new Map();
@@ -17,6 +17,7 @@ function harness({ visibleLimit = 2, prefetchLimit = 1, stalledMs = 1000 } = {})
     visibleLimit,
     prefetchLimit,
     stalledMs,
+    ...(canPrefetch ? { canPrefetch } : {}),
     now: () => clock,
     setTimer: (fn, ms) => { const id = nextTimer++; timers.set(id, { fn, at: clock + ms }); return id; },
     clearTimer: id => timers.delete(id),
@@ -187,6 +188,23 @@ function harness({ visibleLimit = 2, prefetchLimit = 1, stalledMs = 1000 } = {})
   for (const item of [h.job('above1', 1300), h.job('above2', 1600), h.job('vis1', 2100), h.job('vis2', 2400)]) h.queue.request(item);
   h.flush();
   assert.deepEqual(h.started, ['vis1', 'vis2']);
+}
+
+// 回归：canPrefetch 为假（window.load 之前）时，可见图照常发出，屏外图暂不预取，放行后立即补发
+{
+  let allowPrefetch = false;
+  const h = harness({ visibleLimit: 2, prefetchLimit: 2, canPrefetch: () => allowPrefetch });
+  const vis = h.job('vis', 0);
+  const off = h.job('off', 1400);
+  h.queue.request(vis);
+  h.queue.request(off);
+  h.flush();
+  assert.deepEqual(h.started, ['vis'], '可见图不受 canPrefetch 限制');
+  h.queue.finish(vis);
+  assert.deepEqual(h.started, ['vis'], 'canPrefetch 为假时不链式发屏外图');
+  allowPrefetch = true;
+  h.queue.pump();
+  assert.deepEqual(h.started, ['vis', 'off'], 'window.load 后放行屏外预取');
 }
 
 console.log('image queue scheduling: PASS');

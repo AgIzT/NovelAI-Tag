@@ -100,19 +100,19 @@ function normalize(raw) {
   return { nearShard: raw.nearShard, revision, sourceFingerprint: raw.sourceFingerprint, artists, groups, parents, byEntry, pathAliases };
 }
 
-async function fetchStyleData(path) {
+async function fetchStyleData(path, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetchDataJson(path, { cache: 'no-cache', signal: controller.signal });
+    return await fetchDataJson(path, { cache: 'default', signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
 }
 
-export function loadArtistStyles() {
+export function loadArtistStyles({ timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   if (styles) return Promise.resolve(styles);
-  loading ??= fetchStyleData(DATA_PATH)
+  loading ??= fetchStyleData(DATA_PATH, timeoutMs)
     .then(normalize)
     .catch(error => {
       console.warn('画风数据不可用，单画师词典按来源显示。', error);

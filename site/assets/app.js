@@ -452,6 +452,7 @@ function cancelOpeningUpgrade() {
   openingSearchSettle = null;
   if (!openingUpgrade) return;
   clearTimeout(openingUpgrade.timer);
+  if (openingUpgrade.onLoad) window.removeEventListener('load', openingUpgrade.onLoad);
   openingUpgrade = null;
 }
 
@@ -494,20 +495,31 @@ function canUseOpeningSlice(meta, options = {}) {
 
 function scheduleOpeningUpgrade(meta, seq, opening) {
   // 只换掉旧的补全任务；换书过渡期间输入的搜索回调要留给这次补全去记
-  if (openingUpgrade) clearTimeout(openingUpgrade.timer);
+  if (openingUpgrade) {
+    clearTimeout(openingUpgrade.timer);
+    if (openingUpgrade.onLoad) window.removeEventListener('load', openingUpgrade.onLoad);
+  }
   const upgrade = {
     seq,
     codexId: meta.id,
     opening,
     timer: 0,
+    onLoad: null,
     promise: null,
     autoRetries: 0,
     start() {
       if (upgrade.promise) return upgrade.promise;
       clearTimeout(upgrade.timer);
       upgrade.timer = 0;
+      if (upgrade.onLoad) {
+        window.removeEventListener('load', upgrade.onLoad);
+        upgrade.onLoad = null;
+      }
       opening._openingFailed = false;
-      upgrade.promise = fetchCodexForView(meta).then(fullCodex => {
+      upgrade.promise = fetchCodexForView(meta, {
+        styleTimeoutMs: 25000,
+        retryStyles: Boolean(opening._openingStyle),
+      }).then(fullCodex => {
         if (openingUpgrade === upgrade) openingUpgrade = null;
         if (!openingViewActive(opening) || isCodexLocked(fullCodex)) {
           return fullCodex;
@@ -526,7 +538,7 @@ function scheduleOpeningUpgrade(meta, seq, opening) {
         renderCodexHeader({ keepIdentity: true });
         const onSearchSettled = openingSearchSettle;
         openingSearchSettle = null;
-        applyFilter({ transition: 'none', ...(onSearchSettled ? { onSearchSettled } : {}) });
+        applyFilter({ transition: 'upgrade', ...(onSearchSettled ? { onSearchSettled } : {}) });
         if (anchor) restoreMasonryAnchor(anchor);
         announceCodexLoaded(fullCodex);
         return fullCodex;
@@ -553,12 +565,24 @@ function scheduleOpeningUpgrade(meta, seq, opening) {
       return upgrade.promise;
     },
   };
-  // 给首屏开场包与首批可见卡图留出半秒带宽窗口，避免整本大 JSON 抢占首屏连接。
-  upgrade.timer = window.setTimeout(() => {
+  const triggerIfActive = () => {
     if (openingUpgrade === upgrade && openingViewActive(opening)) {
       void upgrade.start();
     }
-  }, 500);
+  };
+  // 优先等 window.load 完成后再启动后台补全（设 2.5s 兜底，慢网也不耽误升级），
+  // 避免普通刷新时与首屏可见图或浏览器 load 争抢。用户提前筛选/搜索仍会立即加速。
+  if (document.readyState === 'complete') {
+    upgrade.timer = window.setTimeout(triggerIfActive, 350);
+  } else {
+    upgrade.onLoad = () => {
+      upgrade.onLoad = null;
+      clearTimeout(upgrade.timer);
+      upgrade.timer = window.setTimeout(triggerIfActive, 250);
+    };
+    window.addEventListener('load', upgrade.onLoad, { once: true });
+    upgrade.timer = window.setTimeout(triggerIfActive, 2500);
+  }
   openingUpgrade = upgrade;
   return upgrade;
 }
@@ -578,12 +602,16 @@ async function fetchCodexInitialOrFull(meta, options) {
   return fetchCodexForView(meta);
 }
 
-/* 单画师按画风重排（原型）：v5 画师词典要挂画风数据。画风数据（压缩后约 250 KB）和法典数据（约 1 MB）同时下载，
-   两者到齐再渲染，目录不会先出来源再闪成画风；画风数据不可用时照旧按来源显示。 */
-async function fetchCodexForView(meta) {
-  const styles = supportsArtistStyles(meta) ? loadArtistStyles() : null;
+/* 单画师按画风重排（原型）：v5 画师词典要挂画风数据。画风数据（压缩后约 413 KB）和法典数据同时下载，
+   两者到齐再渲染，目录不会先出来源再闪成画风；慢线路给足 25 秒超时，避免 6 秒误杀后从画风退回来源。 */
+async function fetchCodexForView(meta, { styleTimeoutMs = 25000, retryStyles = false } = {}) {
+  const styles = supportsArtistStyles(meta) ? loadArtistStyles({ timeoutMs: styleTimeoutMs }) : null;
   const codex = await fetchCodex(meta);
-  if (styles && await styles) await attachArtistStyles(codex);
+  if (styles) {
+    let loaded = await styles;
+    if (!loaded && retryStyles) loaded = await loadArtistStyles({ timeoutMs: styleTimeoutMs });
+    if (loaded) await attachArtistStyles(codex);
+  }
   return codex;
 }
 

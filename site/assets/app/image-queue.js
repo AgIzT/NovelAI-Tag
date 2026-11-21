@@ -45,6 +45,7 @@ export function createImageQueue({
   visibleLimit = VISIBLE_IMAGE_CONCURRENCY,
   prefetchLimit = PREFETCH_IMAGE_CONCURRENCY,
   stalledMs = STALLED_IMAGE_MS,
+  canPrefetch = () => true,
   now = () => globalThis.performance?.now?.() ?? Date.now(),
   setTimer = (fn, ms) => globalThis.setTimeout(fn, ms),
   clearTimer = id => globalThis.clearTimeout(id),
@@ -100,7 +101,9 @@ export function createImageQueue({
         launch(job);
         continue;
       }
-      // 屏外：可见带里还有排队或在飞的图时一张都不发，让可见的独占带宽
+      // 屏外：可见带里还有排队或在飞的图时一张都不发，让可见的独占带宽；
+      // window.load 之前不链式预取屏外图，避免 eager 预取把整页 load 拖长数十秒。
+      if (!canPrefetch()) break;
       if (active.visible > 0 || ranked.some(item => item.rank.tier === VISIBLE && waiting.has(item.job))) break;
       if (active.offscreen >= prefetchLimit) break;
       active.offscreen += 1;

@@ -150,6 +150,55 @@ function renderBlockingList(m) {
   updateScrollProgress();
 }
 
+// 开场轻量包原地升级为完整词典：按稳定词条 ID + 展示图复用已有卡片 DOM 与在飞图片，
+// 不销毁重挂、不取消下载到一半的卡图，同时把交互引用切换到完整词条对象。
+function renderUpgradeList(m) {
+  const keyOf = entry => (entry ? `${entry.id}\0${entry.image || ''}` : '');
+  const oldByKey = new Map();
+  for (const placement of state.placements) {
+    const k = keyOf(placement.entry);
+    if (!k || oldByKey.has(k)) continue;
+    oldByKey.set(k, { placement, node: state.nodes.get(placement.index) || null });
+  }
+  const previous = new Map();
+  for (const entry of state.list) {
+    const old = oldByKey.get(keyOf(entry));
+    if (old) previous.set(entry, old.placement);
+  }
+  finishBlockingMotion();
+  clearTimeout(relayoutAnimTimer);
+  relayoutAnimating = false;
+  m.classList.remove('is-relayouting');
+  computeLayout({ previous });
+  state.nodes.clear();
+  for (const placement of state.placements) {
+    const k = keyOf(placement.entry);
+    const old = oldByKey.get(k);
+    if (!old?.node) continue;
+    oldByKey.delete(k);
+    const node = old.node;
+    const e = placement.entry;
+    node._entry = e;
+    node.dataset.index = String(placement.index);
+    if (node._imageJob) node._imageJob.placement = placement;
+    const pathEl = node.querySelector('.card-path');
+    if (pathEl) pathEl.textContent = styleCardLine(e) || stylePathText(e) || e.path.join(' › ');
+    const featured = isFeaturedEntry(e, state.codex);
+    const featuredBadge = node.querySelector('.badge-featured');
+    if (featuredBadge) featuredBadge.hidden = !featured;
+    node.classList.toggle('is-featured', featured);
+    updateCardPosition(node, placement);
+    state.nodes.set(placement.index, node);
+  }
+  for (const { node } of oldByKey.values()) {
+    if (!node) continue;
+    cleanupCard(node);
+    node.remove();
+  }
+  updateVirtualCards(true);
+  updateScrollProgress();
+}
+
 export function setMasonryActions(actions = {}) {
   Object.assign(masonryActions, actions);
 }
@@ -259,6 +308,11 @@ export function renderList({ resetScroll = false, transition = 'none' } = {}) {
   // 搜索退场中仍是旧高亮/命中提示；此时不能把旧 DOM 当作当前结果复用。
   if (transition === 'blocking' && !interruptedFilter && m && state.placements.length && !resetScroll) {
     renderBlockingList(m);
+    return;
+  }
+
+  if (transition === 'upgrade' && !interruptedFilter && m && state.placements.length && !resetScroll) {
+    renderUpgradeList(m);
     return;
   }
 
@@ -426,8 +480,14 @@ export function textUnits(text) {
 let virtualRaf = 0;
 /* 由 updateVirtualCards 每轮写入的真实可视带（masonry 内部坐标，不含虚拟缓冲）。 */
 const visibleBand = { top: 0, bottom: 0 };
-/* 卡片图片何时发出由队列决定：可见的先下、限并发，屏外的后下（image-queue.js）。 */
-export const cardImageQueue = createImageQueue({ band: () => visibleBand });
+/* 卡片图片何时发出由队列决定：可见的先下、限并发，屏外的等 window.load 后再预取（image-queue.js）。 */
+export const cardImageQueue = createImageQueue({
+  band: () => visibleBand,
+  canPrefetch: () => typeof document === 'undefined' || document.readyState === 'complete',
+});
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && document.readyState !== 'complete') {
+  window.addEventListener('load', () => cardImageQueue.pump(), { once: true });
+}
 
 let relayoutTimer = 0;
 let relayoutAnimTimer = 0;
@@ -589,7 +649,9 @@ export function makeCard(placement) {
   const e = placement.entry;
   const title = cardTitleOf(e);
   const node = $('#cardTpl').content.firstElementChild.cloneNode(true);
+  node._entry = e;
   node.dataset.index = String(placement.index);
+  const currentEntry = () => node._entry || e;
   updateCardPosition(node, placement);
 
   const highlightTerms = currentHighlightTerms();
@@ -640,9 +702,10 @@ export function makeCard(placement) {
     negBtn.hidden = !e.negative;
     negBtn.onclick = ev => {
       ev.stopPropagation();
-      copyText(e.negative, `已复制负面：${e.title}`, node, {
-        entry: e,
-        fragment: { text: e.negative, channel: 'negative', scope: 'negative' },
+      const cur = currentEntry();
+      copyText(cur.negative, `已复制负面：${cur.title}`, node, {
+        entry: cur,
+        fragment: { text: cur.negative, channel: 'negative', scope: 'negative' },
         sampleLabel: '已复制负面',
       });
     };
@@ -652,7 +715,8 @@ export function makeCard(placement) {
     allBtn.hidden = !e.negative && !charPrompts.length;
     allBtn.onclick = ev => {
       ev.stopPropagation();
-      copyText(combinedPrompt(e), `已复制${combinedPromptLabel(e)}：${e.title}`, node, { entry: e });
+      const cur = currentEntry();
+      copyText(combinedPrompt(cur), `已复制${combinedPromptLabel(cur)}：${cur.title}`, node, { entry: cur });
     };
   }
 
@@ -662,20 +726,20 @@ export function makeCard(placement) {
   fav.classList.toggle('on', faved);
   fav.title = faved ? '取消收藏' : '收藏';
   fav.setAttribute('aria-label', faved ? '取消收藏' : '收藏');
-  fav.onclick = ev => { ev.stopPropagation(); masonryActions.toggleFav(e, fav); };
+  fav.onclick = ev => { ev.stopPropagation(); masonryActions.toggleFav(currentEntry(), fav); };
 
   const reportBtn = node.querySelector('.report-card-btn');
   const hideBtn = node.querySelector('.hide-card-btn');
   if (hideBtn) hideBtn.onclick = ev => {
     ev.stopPropagation();
     // 保存成功后的订阅刷新负责退场；错误时保留原卡，来源也不会被迟到回调改写。
-    masonryActions.hideCard(e);
+    masonryActions.hideCard(currentEntry());
   };
   if (reportBtn) {
     reportBtn.onclick = ev => {
       ev.stopPropagation();
       const imageError = Boolean(node.querySelector('.card-img-wrap')?.classList.contains('is-error'));
-      masonryActions.reportEntry(e, {
+      masonryActions.reportEntry(currentEntry(), {
         source: 'card',
         imageIndex: 0,
         imageError,
@@ -693,8 +757,9 @@ export function makeCard(placement) {
 
   syncCopyHint(node, e);
   const openDetail = () => {
+    const cur = currentEntry();
     const img = hasImage ? node.querySelector('.card-img') : null;
-    masonryActions.openLightbox(e, 0, img, { allowEmpty: true });
+    masonryActions.openLightbox(cur, 0, img, { allowEmpty: true });
   };
   const detailBtn = node.querySelector('.card-detail-btn');
   if (detailBtn) {
@@ -705,11 +770,12 @@ export function makeCard(placement) {
     };
   }
   node.onclick = () => {
-    if (cardClickOpensDetail(e)) {
+    const cur = currentEntry();
+    if (cardClickOpensDetail(cur)) {
       openDetail();
       return;
     }
-    masonryActions.copyEntry(e, node);
+    masonryActions.copyEntry(cur, node);
   };
   masonryActions.decorateFavoriteCard(node, e);
   masonryActions.decorateArtistPickCard(node, e);
@@ -1204,7 +1270,7 @@ export function setupImage(node, placement) {
   }
   wrap.querySelector('.zoom-btn').onclick = ev => {
     ev.stopPropagation();
-    masonryActions.openLightbox(e, 0, wrap.querySelector('.card-img'));
+    masonryActions.openLightbox(node._entry || e, 0, wrap.querySelector('.card-img'));
   };
 }
 
