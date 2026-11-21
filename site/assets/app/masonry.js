@@ -1056,7 +1056,10 @@ export function updateCardPosition(node, placement) {
   const wrap = node.querySelector('.card-img-wrap');
   if (wrap && placement.imageHeight) wrap.style.height = `${placement.imageHeight}px`;
   const tags = node.querySelector('.card-tags');
-  if (tags) tags.style.height = `${placement.tagsHeight}px`;
+  if (tags) {
+    tags.hidden = masonryActions.leanCard(placement.entry);
+    tags.style.height = `${placement.tagsHeight}px`;
+  }
 }
 
 /* 卡片进场 = 显影术：壳只做合成友好的位移/透明度，滤镜只落在图片层。

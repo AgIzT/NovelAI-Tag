@@ -33,9 +33,10 @@ globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 
 const { state } = await import('../site/assets/app/state.js');
+const { leanArtistCard } = await import('../site/assets/app/artist-pick.js');
 const { attachArtistStyles } = await import('../site/assets/app/artist-style.js');
 const { accessHiddenCount, visibleEntryCount, visibleTree, invalidateAccessViewMemo, randomKey, rememberRandomEntry } = await import('../site/assets/app/codex-ui.js');
-const { estimateBodyMetrics, makeCard } = await import('../site/assets/app/masonry.js');
+const { estimateBodyMetrics, makeCard, setMasonryActions, updateCardPosition } = await import('../site/assets/app/masonry.js');
 
 const prefix = 'artist_nai5_personal_';
 const entry = (id, source, rating = 'safe', title = id) => ({ id: prefix + id, title, rating,
@@ -61,6 +62,25 @@ globalThis.fetch = async () => ({ ok: true, json: async () => data });
 const codex = { id: 'artist_nai5_personal', entryCount: entries.length, entries,
   tree: [{ name: '单画师词典', children: [{ name: '花枝鱼', children: [] }, { name: 'MayRain', children: [] }, { name: '雨燕', children: [] }] },
     { name: '画风组词典', children: [{ name: 'W.O.F', children: [] }] }] };
+
+setMasonryActions({ leanCard: leanArtistCard });
+state.codex = { ...codex, _openingStyle: true, styleTree: codex.tree };
+const openingEntry = { ...entries[0], styleArtistTitle: entries[0].title, styleRep: true };
+const openingPlacement = { entry: openingEntry, index: 0, width: 160, height: 180, left: 0, top: 0, tagsHeight: 0, imageHeight: 0 };
+const openingCard = makeCard(openingPlacement);
+const openingTags = openingCard.querySelector('.card-tags');
+assert.equal(openingTags.hidden, true, '画风索引到齐前，按开场包标记隐藏单画师卡的 tag 框');
+assert.equal(estimateBodyMetrics(openingEntry, 160).tagsHeight, 0, '首屏估高不为隐藏的 tag 框留空间');
+for (const entry of [entries[5], entries[6]]) {
+  assert.equal(makeCard({ ...openingPlacement, entry }).querySelector('.card-tags').hidden, false, '保留未归类条目和画风串的 tag 框');
+}
+state.favoritesView = true;
+assert.ok(estimateBodyMetrics(openingEntry, 160).tagsHeight > 0, '标题相同时，tag 显示状态变化也会使估高缓存失效');
+state.favoritesView = false;
+state.codex = codex;
+updateCardPosition(openingCard, openingPlacement);
+assert.equal(openingTags.hidden, false, '整本回退为来源模式时，复用卡恢复显示 tag 框');
+
 assert.equal(await attachArtistStyles(codex), true);
 state.codex = codex;
 state.codexes = [{ id: codex.id, entryCount: entries.length }];
@@ -121,6 +141,7 @@ const rawMetrics = estimateBodyMetrics(example, 160);
 assert.equal(title(), example.title);
 document.body.classList.remove('edit-mode');
 const allMetrics = estimateBodyMetrics(example, 160);
+assert.equal(allMetrics.tagsHeight, 0, '整本加载后按完整索引识别单画师卡');
 assert.equal(title(), 'Canonical', '整书全部页沿用规范画师名，不随高优先级例图变成旧写法');
 assert.ok(allMetrics.height < rawMetrics.height, '估高与实际渲染使用同一规范标题');
 assert.equal(estimateBodyMetrics(example, 160), allMetrics, '标题不变时复用测高缓存');

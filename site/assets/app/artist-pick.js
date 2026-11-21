@@ -39,7 +39,8 @@ const PHONE = '(max-width: 600px)';
 const onPhone = () => Boolean(globalThis.matchMedia?.(PHONE).matches);
 const bookScope = () => styleActive() && !state.favoritesView && !state.siteSearchView;
 const pickScope = () => bookScope() && !onPhone();
-const artistCard = entry => (bookScope() && entry?.path?.[0] === SINGLE_ROOT ? artistOf(entry) : null);
+const inSingleArtistSection = entry => entry?.path?.[0] === SINGLE_ROOT && bookScope();
+const artistCard = entry => (inSingleArtistSection(entry) ? artistOf(entry) : null);
 
 function pickedEntries() {
   return [...state.artistPicked.values()].map(styleBookEntry).filter(entry => entry && !isEntryAccessBlocked(entry));
@@ -73,7 +74,7 @@ function syncCard(card, order) {
     badge.hidden = !on;
     badge.textContent = on ? String(position + 1) : '';
   }
-  if (state.artistPicking) {
+  if (state.artistPicking && card.dataset.artistPick != null) {
     if (!cardSemantics.has(card)) {
       cardSemantics.set(card, ['role', 'tabindex', 'aria-checked'].map(name => [name, card.getAttribute(name)]));
     }
@@ -115,41 +116,61 @@ function togglePick(entry, artist) {
 }
 
 /* 多选中点卡片就是勾选；没进多选时按住 Ctrl / ⌘ 点卡片，直接从这一张开始。放大镜和重试照常。 */
-function handleCardClick(event, entry, artist) {
+function handleCardClick(event) {
   if (!pickScope()) return;
   const inner = event.target.closest?.('button, a');
   if (!state.artistPicking) {
     if (!(event.ctrlKey || event.metaKey) || inner) return;
   } else if (inner?.matches('.zoom-btn, .img-retry')) return;
+  const entry = event.currentTarget._entry;
+  const artist = artistCard(entry);
+  if (!artist) return;
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
   togglePick(entry, artist);
 }
 
-/* makeCard 末尾调用。手机上只挂卡片类名，不接多选。 */
-export function decorateArtistPickCard(card, entry) {
+function handleCardKeydown(event) {
+  const card = event.currentTarget;
+  if (!state.artistPicking || event.target !== card || event.repeat || !pickScope()) return;
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const entry = card._entry;
   const artist = artistCard(entry);
   if (!artist) return;
-  card.classList.add('artist-pick-card');
-  if (onPhone()) return;
+  event.preventDefault();
+  togglePick(entry, artist);
+}
+
+/* 新建卡片和开场包接管都调用。复用时按当前词条更新，多选事件只绑定一次。 */
+export function decorateArtistPickCard(card, entry) {
+  const artist = artistCard(entry);
+  card.classList.toggle('artist-pick-card', Boolean(artist));
+  if (!artist || onPhone()) {
+    if (card.dataset.artistPick == null) return;
+    delete card.dataset.artistPick;
+    card.querySelector('.badge-pick')?.remove();
+    card.removeEventListener('click', handleCardClick, true);
+    card.removeEventListener('keydown', handleCardKeydown);
+    syncCard(card, pickOrder());
+    return;
+  }
+  if (card.dataset.artistPick == null) {
+    const badge = element('span', 'badge-pick');
+    badge.hidden = true;
+    card.querySelector('.card-badges')?.prepend(badge);
+    card.addEventListener('click', handleCardClick, true);
+    card.addEventListener('keydown', handleCardKeydown);
+  }
   card.dataset.artistPick = String(artist.index);
-  const badge = element('span', 'badge-pick');
-  badge.hidden = true;
-  card.querySelector('.card-badges')?.prepend(badge);
-  card.addEventListener('click', event => handleCardClick(event, entry, artist), true);
-  card.addEventListener('keydown', event => {
-    if (!state.artistPicking || event.target !== card || event.repeat) return;
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    togglePick(entry, artist);
-  });
   syncCard(card, pickOrder());
 }
 
 /* 单画师卡的标题已经是画师名，提示词行不再重复一遍；瀑布流估高、测高与样式用同一判断。 */
 export function leanArtistCard(entry) {
-  return Boolean(artistCard(entry));
+  if (!inSingleArtistSection(entry)) return false;
+  // 开场包只给已识别的画师卡标记 styleRep，画风索引随后才到。
+  return state.codex._openingStyle ? entry.styleRep === true : Boolean(artistOf(entry));
 }
 
 /* ---------- 进入与退出 ---------- */

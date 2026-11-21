@@ -1,4 +1,4 @@
-/* 挑画师：侧栏分法开关，结果栏里的多选 / 只看所选，选中卡片的序号徽章，底部操作条，单画师卡不重复写画师名。
+/* 挑画师：侧栏分法开关，结果栏里的多选 / 只看所选，选中卡片的序号徽章，底部操作条。
    通用件复用站内已有的：.bar-btn、.panel-action、.favorites-batch-bar；这里只挂定位和选中态。 */
 
 /* ---------- 侧栏：单画师词典下面的分法开关 ----------
@@ -49,6 +49,3 @@
 @media (max-width:720px){
   .artist-picking .float-actions{bottom:calc(var(--artist-pick-bar-height,60px) + max(10px, env(safe-area-inset-bottom)) + 12px)}
 }
-
-/* ---------- 单画师卡：标题已经是画师名，提示词行不再重复 ---------- */
-.artist-pick-card .card-tags{display:none}
