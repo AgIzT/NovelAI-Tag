@@ -1674,7 +1674,11 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.ok(stylesSource.indexOf('.masonry.depth-hold>.card:hover{') < stylesSource.indexOf('.masonry>.card.depth-live:not(.card-retiring){'),
     '放手期间的压制规则必须排在 .depth-live 之前，同权重靠源序让活动卡赢');
   assert.match(masonrySource, /function cardOpensImage\(e\) \{\s*return hasEntryImage\(e\) && \(state\.cardZoom \|\| isPackEntry\(e\)\);/);
-  assert.match(masonrySource, /node\.onclick = \(\) => \{[^}]{0,80}?if \(cardClickOpensDetail\(/);
+  assert.match(masonrySource, /node\.onclick = ev => \{[^}]{0,120}?if \(cardClickOpensDetail\(/);
+  assert.match(masonrySource, /node\.ondblclick = ev => \{[\s\S]{0,220}?cardCanDoubleClickOpen\(node, cur, ev\)[\s\S]{0,160}?openDetail\(\);/);
+  assert.match(masonrySource, /export const CARD_DOUBLE_CLICK_MS = 220;/);
+  assert.match(masonrySource, /export const CARD_DBLCLICK_HINT_KEY = 'fadian-card-dblclick-hint-v1';/);
+  assert.match(stylesSource, /\.card-dblclick-hint\{[\s\S]*?var\(--mat-frost-bg\)/);
   const uiZoomSource = await readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8');
   assert.match(uiZoomSource, /cardZoomToggle\.onchange = e => applyCardZoom\(e\.target\.checked\)/);
 

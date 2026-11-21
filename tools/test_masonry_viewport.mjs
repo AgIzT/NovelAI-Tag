@@ -38,17 +38,26 @@ globalThis.cancelAnimationFrame = () => {};
 globalThis.getComputedStyle = () => ({ display: 'block' });
 
 const {
+  CARD_DBLCLICK_HINT_KEY,
+  CARD_DOUBLE_CLICK_MS,
   applyCardImageLoadPolicy,
   applyCardHeightChanges,
   beginMasonryResize,
   cardImageLoadPolicy,
+  cleanupCard,
+  clearMasonry,
   computeLayout,
+  dismissCardDblclickHint,
   endMasonryResize,
   estimateBodyMetrics,
   estimateImageHeight,
   invalidateBodyMetrics,
+  makeCard,
   masonryViewport,
+  refreshCopyHints,
   scheduleRelayout,
+  setMasonryActions,
+  syncCardDblclickHint,
 } = await import('../site/assets/app/masonry.js');
 const { state, densityConfig, DEFAULT_DENSITY } = await import('../site/assets/app/state.js');
 
@@ -322,6 +331,349 @@ function viewportAt(rectTop, { totalHeight = 2400, viewportHeight = 800 } = {}) 
     state.density = saved.density;
     if (saved.innerWidth === undefined) delete window.innerWidth;
     else window.innerWidth = saved.innerWidth;
+  }
+}
+
+// 电脑端默认「单击复制」卡片：单击延迟 220ms 判双击，双击整卡取消待发复制并进灯箱，避开按钮/多选/编辑态。
+{
+  const makeClassList = () => {
+    const names = new Set();
+    return {
+      add: (...list) => list.forEach(n => names.add(n)),
+      remove: (...list) => list.forEach(n => names.delete(n)),
+      contains: name => names.has(name),
+      toggle(name, force) {
+        const on = force ?? !names.has(name);
+        if (on) names.add(name);
+        else names.delete(name);
+        return on;
+      },
+    };
+  };
+  class StubNode {
+    constructor(tag = 'DIV') {
+      this.tagName = tag;
+      this.dataset = {};
+      this.classList = makeClassList();
+      this.children = new Map();
+      this.childNodes = [];
+      this.parentElement = null;
+      this.isConnected = true;
+      const props = new Map();
+      this.style = {
+        setProperty: (k, v) => props.set(k, v),
+        getPropertyValue: k => props.get(k) || '',
+        removeProperty: k => props.delete(k),
+      };
+    }
+    querySelector(selector) {
+      if (!this.children.has(selector)) {
+        const tag = selector === '.card-img' ? 'IMG' : selector.includes('btn') ? 'BUTTON' : 'DIV';
+        const child = new StubNode(tag);
+        child.parentElement = this;
+        this.children.set(selector, child);
+      }
+      return this.children.get(selector);
+    }
+    appendChild(child) {
+      if (child.parentElement) child.remove();
+      child.parentElement = this;
+      this.childNodes.push(child);
+      return child;
+    }
+    append(...nodes) {
+      for (const node of nodes) this.appendChild(node);
+    }
+    remove() {
+      if (!this.parentElement) return;
+      const siblings = this.parentElement.childNodes;
+      const i = siblings.indexOf(this);
+      if (i >= 0) siblings.splice(i, 1);
+      this.parentElement = null;
+    }
+    contains(target) {
+      for (let cur = target; cur; cur = cur.parentElement) {
+        if (cur === this) return true;
+      }
+      return false;
+    }
+    closest(selector) {
+      for (let cur = this; cur; cur = cur.parentElement) {
+        if (selector === '.card' && cur.tagName === 'ARTICLE') return cur;
+      }
+      return null;
+    }
+    setAttribute(k, v) { this[k] = v; }
+    removeAttribute(k) { delete this[k]; }
+    getAttribute(k) { return this[k] ?? null; }
+    cloneNode() { return new StubNode(this.tagName); }
+  }
+
+  const saved = {
+    query: document.querySelector,
+    createElement: document.createElement,
+    bodyClassList: document.body.classList,
+    localStorage: globalThis.localStorage,
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+    innerWidth: window.innerWidth,
+    getSelection: window.getSelection,
+    codex: state.codex,
+    list: state.list,
+    placements: state.placements,
+    cardZoom: state.cardZoom,
+    artistPicking: state.artistPicking,
+    favSelecting: state.favSelecting,
+    lightbox: state.lightbox,
+  };
+  const timers = new Map();
+  const storage = new Map();
+  let timerId = 0;
+  let selectionCleared = 0;
+  const template = { content: { firstElementChild: new StubNode('ARTICLE') } };
+  const resultBar = new StubNode('DIV');
+  const resultBarActions = resultBar.querySelector('.result-bar-actions');
+  resultBar.insertBefore = (node, ref) => {
+    if (node.parentElement) node.remove();
+    node.parentElement = resultBar;
+    const i = resultBar.childNodes.indexOf(ref);
+    if (i >= 0) resultBar.childNodes.splice(i, 0, node);
+    else resultBar.childNodes.push(node);
+    return node;
+  };
+  resultBar.appendChild(resultBarActions);
+  document.querySelector = selector => {
+    if (selector === '#cardTpl') return template;
+    if (selector === '.result-bar') return resultBar;
+    return null;
+  };
+  document.createElement = tag => new StubNode(String(tag || 'DIV').toUpperCase());
+  document.body.classList = makeClassList();
+  globalThis.localStorage = {
+    getItem: k => (storage.has(k) ? storage.get(k) : null),
+    setItem: (k, v) => storage.set(k, String(v)),
+    removeItem: k => storage.delete(k),
+  };
+  globalThis.setTimeout = (fn, delay) => {
+    const id = ++timerId;
+    timers.set(id, { fn, delay });
+    return id;
+  };
+  globalThis.clearTimeout = id => timers.delete(id);
+  window.innerWidth = 1440;
+  window.getSelection = () => ({ removeAllRanges: () => { selectionCleared += 1; } });
+  const runTimers = () => {
+    const entries = [...timers.entries()];
+    for (const [id, item] of entries) {
+      if (!timers.has(id)) continue;
+      timers.delete(id);
+      item.fn();
+    }
+  };
+  const copied = [];
+  const opened = [];
+  const favToggled = [];
+  setMasonryActions({
+    copyEntry: (entry, node) => copied.push({ entry, node }),
+    openLightbox: (entry, index, img, opts) => opened.push({ entry, index, img, opts }),
+    toggleFav: entry => favToggled.push(entry),
+    hideCard: () => {},
+    reportEntry: () => {},
+    decorateFavoriteCard: () => {},
+    decorateArtistPickCard: () => {},
+    leanCard: () => false,
+    favoriteBadgeHeight: () => 0,
+  });
+
+  state.codex = { id: 'suozhang', type: 'codex' };
+  state.cardZoom = false;
+  state.artistPicking = false;
+  state.favSelecting = false;
+  state.lightbox = { entry: null, images: [], index: 0 };
+
+  const entryA = { id: 'a1', title: '词条 A', path: ['分类'], image: 'a1.webp', tags: '1girl' };
+  const entryB = { id: 'b1', title: '词条 B', path: ['分类'], image: 'b1.webp', tags: '1boy' };
+  const packEntry = { id: 'p1', title: '图包卡', path: ['分类'], image: 'p1.webp', tags: '1girl', _srcType: 'pack' };
+  const plainTarget = { closest: () => null };
+  const buttonTarget = { closest: sel => (sel.includes('button') ? {} : null) };
+  const makePlacement = (entry, index) => ({ index, entry, col: 0, left: 0, top: 0, width: 240, height: 320, imageHeight: 200, tagsHeight: 40 });
+
+  try {
+    const cardA = makeCard(makePlacement(entryA, 0));
+    const cardB = makeCard(makePlacement(entryB, 1));
+
+    // 1. 真实单击：先等 CARD_DOUBLE_CLICK_MS，再复制，不开灯箱
+    cardA.onclick({ detail: 1, target: plainTarget });
+    assert.equal(copied.length, 0, '单击在双击窗口内不得提前复制');
+    assert.equal(timers.size, 1);
+    assert.equal([...timers.values()][0].delay, CARD_DOUBLE_CLICK_MS);
+    runTimers();
+    assert.equal(copied.length, 1);
+    assert.equal(copied[0].entry, entryA);
+    assert.equal(opened.length, 0);
+
+    // 2. 快速双击：取消待发复制，阻止选字，清空选区，携带 card-img 进入灯箱，且 0 次复制
+    let prevented = false;
+    cardA.onclick({ detail: 1, target: plainTarget });
+    cardA.onmousedown({ detail: 2, target: plainTarget, preventDefault: () => { prevented = true; } });
+    cardA.onclick({ detail: 2, target: plainTarget });
+    cardA.ondblclick({ detail: 2, target: plainTarget });
+    runTimers();
+    assert.equal(prevented, true, '双击第二下应阻止选中卡片文字');
+    assert.equal(selectionCleared, 1, '双击打开前应清理残留选区');
+    assert.equal(copied.length, 1, '双击不得触发误复制');
+    assert.equal(opened.length, 1, '双击应进入灯箱');
+    assert.equal(opened[0].entry, entryA);
+    assert.equal(opened[0].img, cardA.querySelector('.card-img'));
+
+    // 3. 连续点不同卡片：点 B 时立即兑现 A 的待发复制，再为 B 排队
+    cardA.onclick({ detail: 1, target: plainTarget });
+    cardB.onclick({ detail: 1, target: plainTarget });
+    assert.equal(copied.length, 2, '切到另一张卡时立即兑现上一张的单击复制');
+    assert.equal(copied[1].entry, entryA);
+    runTimers();
+    assert.equal(copied.length, 3);
+    assert.equal(copied[2].entry, entryB);
+
+    // 4. 点卡片后迅速点卡内按钮（如收藏）：取消待发复制；双击按钮本身不进灯箱
+    cardA.onclick({ detail: 1, target: plainTarget });
+    cardA.querySelector('.fav-btn').onclick({ stopPropagation() {} });
+    runTimers();
+    assert.equal(favToggled.length, 1);
+    assert.equal(copied.length, 3, '点卡内按钮应取消待发复制');
+    let btnPrevented = false;
+    cardA.onmousedown({ detail: 2, target: buttonTarget, preventDefault: () => { btnPrevented = true; } });
+    cardA.ondblclick({ detail: 2, target: buttonTarget });
+    assert.equal(btnPrevented, false);
+    assert.equal(opened.length, 1, '双击卡内按钮不得误进灯箱');
+
+    // 5. 多选、收藏批量整理、编辑态、修饰键、已开灯箱均屏蔽双击进灯箱
+    for (const toggle of [
+      () => { state.artistPicking = true; return () => { state.artistPicking = false; }; },
+      () => { state.favSelecting = true; return () => { state.favSelecting = false; }; },
+      () => { document.body.classList.add('edit-mode'); return () => document.body.classList.remove('edit-mode'); },
+      () => { state.lightbox = { entry: entryA, images: [{}], index: 0 }; return () => { state.lightbox = { entry: null, images: [], index: 0 }; }; },
+    ]) {
+      const restore = toggle();
+      cardA.ondblclick({ detail: 2, target: plainTarget });
+      restore();
+    }
+    cardA.ondblclick({ detail: 2, ctrlKey: true, target: plainTarget });
+    assert.equal(opened.length, 1, '特殊模式或修饰键下双击不触发灯箱');
+
+    // 6. 开启「点击卡片放大」、图包卡、手机宽度：单击直接进灯箱，不延迟且双击不重复开
+    const packCard = makeCard(makePlacement(packEntry, 2));
+    packCard.onclick({ detail: 1, target: plainTarget });
+    assert.equal(opened.length, 2);
+    assert.equal(opened[1].entry, packEntry);
+    packCard.ondblclick({ detail: 2, target: plainTarget });
+    assert.equal(opened.length, 2);
+
+    state.cardZoom = true;
+    cardA.onclick({ detail: 1, target: plainTarget });
+    assert.equal(opened.length, 3);
+    state.cardZoom = false;
+
+    window.innerWidth = 390;
+    cardA.onclick({ detail: 1, target: plainTarget });
+    assert.equal(opened.length, 4);
+    window.innerWidth = 1440;
+
+    // 7. 程序触发 click（detail === 0）立即复制；cleanupCard / clearMasonry 取消待发复制
+    cardA.onclick({ detail: 0, target: plainTarget });
+    assert.equal(copied.length, 4, '程序触发 click 应立即复制');
+    cardA.onclick({ detail: 1, target: plainTarget });
+    cleanupCard(cardA);
+    runTimers();
+    assert.equal(copied.length, 4, '卡片回收必须取消待发复制');
+    cardB.onclick({ detail: 1, target: plainTarget });
+    clearMasonry();
+    runTimers();
+    assert.equal(copied.length, 4, '清空瀑布流必须取消待发复制');
+
+    // 8. 卡片上方结果栏一次性引导胶囊：有合格有图卡时挂在结果栏中部（操作区前），仅在双击卡片或点「知道了」后永久收起，点放大镜不收起
+    storage.clear();
+    const noImgEntry = { id: 'n1', title: '无图卡', path: ['分类'], image: '', tags: '1girl' };
+    const cardNoImg = makeCard(makePlacement(noImgEntry, 0));
+    const cardFirstImg = makeCard(makePlacement(entryA, 1));
+    const cardSecondImg = makeCard(makePlacement(entryB, 2));
+    state.list = [noImgEntry, entryA, entryB];
+    state.placements = [makePlacement(noImgEntry, 0), makePlacement(entryA, 1), makePlacement(entryB, 2)];
+    state.nodes.clear();
+    state.nodes.set(0, cardNoImg);
+    state.nodes.set(1, cardFirstImg);
+    state.nodes.set(2, cardSecondImg);
+    const barHint = () => resultBar.childNodes.find(n => n.className === 'card-dblclick-hint') || null;
+
+    syncCardDblclickHint();
+    assert.ok(barHint(), '有可双击卡片时应在上方结果栏中部显示引导胶囊');
+    assert.ok(resultBar.childNodes.indexOf(barHint()) < resultBar.childNodes.indexOf(resultBarActions), '引导胶囊应插在右侧操作区之前');
+    assert.equal(cardFirstImg.querySelector('.zoom-btn').title, '放大查看（也可双击卡片）');
+
+    // 开「点击卡片放大」时暂时隐藏，关闭后若尚未看过应恢复
+    state.cardZoom = true;
+    refreshCopyHints();
+    assert.equal(barHint(), null, '开启点击卡片放大时应隐藏双击引导');
+    assert.equal(storage.has(CARD_DBLCLICK_HINT_KEY), false, '临时切换设置不应提前消耗一次性提示');
+    state.cardZoom = false;
+    refreshCopyHints();
+    assert.ok(barHint(), '关闭点击卡片放大后应恢复尚未看过的提示');
+
+    // 点放大镜不算学会双击：不得关闭或消耗一次性引导
+    cardFirstImg.querySelector('.card-img-wrap').querySelector('.zoom-btn').onclick({ stopPropagation() {} });
+    assert.equal(storage.has(CARD_DBLCLICK_HINT_KEY), false, '点击放大镜不得消耗双击引导');
+    assert.ok(barHint(), '点击放大镜后引导胶囊应继续保留');
+
+    // 方式 1：点「知道了」永久关闭，且不触发复制或开灯箱
+    const dismissBtn = barHint().childNodes.find(n => n.className?.includes('card-dblclick-hint-dismiss'));
+    const copiedBeforeDismiss = copied.length;
+    const openedBeforeDismiss = opened.length;
+    dismissBtn.onclick({ stopPropagation() {} });
+    assert.equal(storage.get(CARD_DBLCLICK_HINT_KEY), '1', '点「知道了」必须落盘标记');
+    assert.equal(barHint(), null, 'reduced-motion 下点「知道了」应立即移除');
+    assert.equal(copied.length, copiedBeforeDismiss);
+    assert.equal(opened.length, openedBeforeDismiss);
+    syncCardDblclickHint();
+    assert.equal(barHint(), null, '已记住后不再出现');
+
+    // 方式 2：双击任意合格卡片进入灯箱 → 永久关闭
+    storage.clear();
+    syncCardDblclickHint();
+    assert.ok(barHint());
+    cardSecondImg.ondblclick({ detail: 2, target: plainTarget });
+    assert.equal(storage.get(CARD_DBLCLICK_HINT_KEY), '1', '双击任意合格卡片必须永久关闭引导');
+    assert.equal(barHint(), null);
+
+    // 手机宽度或图包法典不显示
+    storage.clear();
+    window.innerWidth = 390;
+    syncCardDblclickHint();
+    assert.equal(barHint(), null, '手机宽度不显示双击引导');
+    window.innerWidth = 1440;
+    state.codex = { id: 'pack1', type: 'pack' };
+    syncCardDblclickHint();
+    assert.equal(barHint(), null, '图包法典不显示双击引导');
+    dismissCardDblclickHint();
+  } finally {
+    clearMasonry();
+    timers.clear();
+    document.querySelector = saved.query;
+    document.createElement = saved.createElement;
+    document.body.classList = saved.bodyClassList;
+    globalThis.localStorage = saved.localStorage;
+    globalThis.setTimeout = saved.setTimeout;
+    globalThis.clearTimeout = saved.clearTimeout;
+    window.getSelection = saved.getSelection;
+    if (saved.innerWidth === undefined) delete window.innerWidth;
+    else window.innerWidth = saved.innerWidth;
+    state.codex = saved.codex;
+    state.list = saved.list;
+    state.placements = saved.placements;
+    state.nodes.clear();
+    state.cardZoom = saved.cardZoom;
+    state.artistPicking = saved.artistPicking;
+    state.favSelecting = saved.favSelecting;
+    state.lightbox = saved.lightbox;
   }
 }
 

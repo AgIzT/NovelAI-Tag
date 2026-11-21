@@ -2136,6 +2136,157 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         check_no_errors(cdp)
         return data
 
+    def card_double_click_lightbox():
+        clear_errors(cdp)
+        cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False})
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('#masonry .card:not(.no-img)').length >= 1", "desktop image cards")
+        cdp.eval("""
+(() => {
+  localStorage.removeItem('fadian-card-zoom');
+  localStorage.removeItem('fadian-tag-relay-v4');
+  localStorage.removeItem('fadian-card-dblclick-hint-v1');
+  const toggle = document.querySelector('#cardZoomToggle');
+  if (toggle && toggle.checked) toggle.click();
+  const toast = document.querySelector('#toast');
+  if (toast) toast.textContent = '';
+  return true;
+})()
+""")
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('#masonry .card:not(.no-img)').length >= 1", "desktop image cards with hint")
+        settle(cdp, 250)
+
+        hint_info = cdp.eval("""
+(() => {
+  const hints = [...document.querySelectorAll('.card-dblclick-hint')];
+  const bar = document.querySelector('.result-bar');
+  const firstCard = document.querySelector('#masonry .card:not(.no-img)');
+  const hint = hints[0] || null;
+  const hr = hint?.getBoundingClientRect();
+  const br = bar?.getBoundingClientRect();
+  const cr = firstCard?.getBoundingClientRect();
+  return {
+    count: hints.length,
+    inResultBar: Boolean(bar && hint && bar.contains(hint)),
+    aboveCards: Boolean(hr && cr && hr.bottom <= cr.top + 8),
+    withinBar: Boolean(hr && br && hr.left >= br.left - 1 && hr.right <= br.right + 1),
+    text: hint?.querySelector('.card-dblclick-hint-text')?.textContent?.trim() || '',
+    arrow: hint?.querySelector('.card-dblclick-hint-arrow')?.textContent?.trim() || '',
+    textOverflow: Boolean(hint && hint.scrollWidth > hint.clientWidth + 1),
+  };
+})()
+""")
+        if (hint_info["count"] != 1 or not hint_info["inResultBar"] or not hint_info["aboveCards"]
+                or not hint_info["withinBar"] or hint_info["arrow"] != "↓" or hint_info["textOverflow"]):
+            raise CheckFailed(f"One-time card double-click hint rendered unexpectedly: {hint_info}")
+
+        # 0a. 点放大镜进灯箱不算完成双击引导：关灯箱后引导仍在、localStorage 未写入
+        cdp.eval("document.querySelector('#masonry .card:not(.no-img) .zoom-btn')?.click(); true")
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open')", "zoom btn opens lightbox", timeout=6)
+        cdp.eval("document.querySelector('#lightboxClose').click(); true")
+        wait_for(cdp, "document.querySelector('#lightbox')?.hidden === true", "lightbox closes after zoom btn", timeout=6)
+        settle(cdp, 180)
+        after_zoom_btn = cdp.eval("({stored: localStorage.getItem('fadian-card-dblclick-hint-v1'), count: document.querySelectorAll('.card-dblclick-hint').length})")
+        if after_zoom_btn["stored"] is not None or after_zoom_btn["count"] != 1:
+            raise CheckFailed(f"Zoom button click should not dismiss double-click hint: {after_zoom_btn}")
+
+        # 0b. 点胶囊里的「知道了」永久关闭提示，不复制也不开灯箱
+        cdp.eval("document.querySelector('.card-dblclick-hint-dismiss')?.click(); true")
+        wait_for(cdp, "document.querySelectorAll('.card-dblclick-hint').length === 0", "dismiss button removes hint", timeout=4)
+        settle(cdp, 280)
+        after_dismiss = cdp.eval("""
+({
+  stored: localStorage.getItem('fadian-card-dblclick-hint-v1'),
+  open: document.querySelector('#lightbox')?.classList.contains('is-open') === true,
+  toast: document.querySelector('#toast')?.textContent || '',
+})
+""")
+        if after_dismiss["stored"] != "1" or after_dismiss["open"] or "已复制" in after_dismiss["toast"]:
+            raise CheckFailed(f"Hint dismiss button had unexpected side effects: {after_dismiss}")
+
+        # 清除一次标记并重进，验证双击卡片也会永久关闭引导胶囊
+        cdp.eval("localStorage.removeItem('fadian-card-dblclick-hint-v1'); true")
+        navigate(cdp, base + "?codex=suozhang")
+        wait_for(cdp, "document.querySelectorAll('.card-dblclick-hint').length === 1", "hint returns after clearing storage", timeout=8)
+        settle(cdp, 250)
+
+        def mouse_click(x: float, y: float, click_count: int = 1):
+            cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+            cdp.command("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": click_count})
+            cdp.command("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": click_count})
+
+        def mouse_dblclick(x: float, y: float):
+            mouse_click(x, y, 1)
+            time.sleep(0.06)
+            mouse_click(x, y, 2)
+
+        target = cdp.eval("""
+(() => {
+  const card = document.querySelector('#masonry .card:not(.no-img)');
+  if (!card) return null;
+  card.scrollIntoView({ block: 'center', behavior: 'instant' });
+  const titleEl = card.querySelector('.card-title');
+  const favEl = card.querySelector('.fav-btn');
+  const tr = titleEl.getBoundingClientRect();
+  const fr = favEl.getBoundingClientRect();
+  return {
+    title: titleEl.textContent.trim(),
+    tx: tr.left + Math.min(24, tr.width / 2),
+    ty: tr.top + tr.height / 2,
+    fx: fr.left + fr.width / 2,
+    fy: fr.top + fr.height / 2,
+    relayBefore: Number(document.querySelector('#tagRelayCount')?.textContent || '0'),
+  };
+})()
+""")
+        if not target:
+            raise CheckFailed("No desktop image card found for double-click test")
+
+        # 1. 双击卡片文字区：直接进灯箱，不触发误复制，也不选中文字，且永久关闭卡片引导
+        mouse_dblclick(target["tx"], target["ty"])
+        wait_for(cdp, "document.querySelector('#lightbox')?.classList.contains('is-open')", "double-click opens lightbox", timeout=6)
+        settle(cdp, 340)
+        after_dbl = cdp.eval("""
+({
+  open: document.querySelector('#lightbox')?.classList.contains('is-open') === true,
+  lbTitle: document.querySelector('#lightboxTitle')?.textContent.trim() || '',
+  toast: document.querySelector('#toast')?.textContent || '',
+  relayCount: Number(document.querySelector('#tagRelayCount')?.textContent || '0'),
+  selection: String(window.getSelection?.() || ''),
+  hintRemaining: document.querySelectorAll('.card-dblclick-hint').length,
+  hintStored: localStorage.getItem('fadian-card-dblclick-hint-v1'),
+})
+""")
+        if not after_dbl["open"] or after_dbl["lbTitle"] != target["title"]:
+            raise CheckFailed(f"Double-click did not open expected lightbox: {after_dbl} vs {target}")
+        if "已复制" in after_dbl["toast"] or after_dbl["relayCount"] != target["relayBefore"]:
+            raise CheckFailed(f"Double-click should not trigger copy or relay intake: {after_dbl}")
+        if after_dbl["selection"]:
+            raise CheckFailed(f"Double-click left stray text selection: {after_dbl['selection']!r}")
+        if after_dbl["hintRemaining"] != 0 or after_dbl["hintStored"] != "1":
+            raise CheckFailed(f"Double-click did not permanently dismiss card hint: {after_dbl}")
+
+        # 2. 关闭灯箱，双击收藏按钮不得误开灯箱
+        cdp.eval("document.querySelector('#lightboxClose').click(); true")
+        wait_for(cdp, "document.querySelector('#lightbox')?.hidden === true", "lightbox closes", timeout=6)
+        settle(cdp, 200)
+        mouse_dblclick(target["fx"], target["fy"])
+        settle(cdp, 300)
+        fav_open = cdp.eval("document.querySelector('#lightbox')?.classList.contains('is-open') === true")
+        if fav_open:
+            raise CheckFailed("Double-clicking card fav button should not open lightbox")
+
+        # 3. 真实鼠标单击卡片：延迟判定后正常复制，不开灯箱
+        cdp.eval("const t = document.querySelector('#toast'); if (t) t.textContent = ''; true")
+        mouse_click(target["tx"], target["ty"], 1)
+        feedback = assert_copy_feedback("single click delayed copy")
+        still_closed = cdp.eval("document.querySelector('#lightbox')?.classList.contains('is-open') !== true")
+        if not still_closed:
+            raise CheckFailed("Single click should copy without opening lightbox")
+        check_no_errors(cdp)
+        return {"title": target["title"], "hintVerified": True, "dblclickNoCopy": True, "singleClickCopied": feedback["success"]}
+
     def pack_character_prompts():
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False})
@@ -4757,6 +4908,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         ("author search syntax", author_search),
         ("desktop search clear all", desktop_search_clear_all),
         ("copy card shows feedback", copy_card_feedback),
+        ("double click card opens lightbox", card_double_click_lightbox),
         ("pack character prompts render", pack_character_prompts),
         ("entry deep-link opens lightbox", deep_link_lightbox),
         ("lightbox preserves scrolled page chrome", lightbox_scrolled_chrome),

@@ -29,6 +29,12 @@ const FILTER_EXIT_PAD_MS = 24;
 /* 「不想看」和收藏墙取消收藏：卡片朝刚才按的那颗按钮缩走，让人看见它是被那颗按钮收走的 */
 const RETIRE_MS = 300;   // 经 animateUi 换算成节奏「中」档（--dur-medium）
 const RETIRE_SCALE = 0.72;
+/* 电脑端默认「单击复制」的卡片支持双击整卡放大进入灯箱：
+   真实鼠标第一次点击先等 220ms 确认没有第二下，避免双击看图时误写剪贴板和污染中转站；
+   等待期间点了另一张卡就立即兑现上一张的复制；点了卡内按钮、切到多选/编辑或卡片回收则取消待发复制。 */
+export const CARD_DOUBLE_CLICK_MS = 220;
+export const CARD_DBLCLICK_HINT_KEY = 'fadian-card-dblclick-hint-v1';
+const CARD_INTERACTIVE_SELECTOR = 'button, a, input, select, textarea, label';
 
 let filterTransitionSeq = 0;
 let filterTransitionTimer = 0;
@@ -36,6 +42,187 @@ let forceEntryAnim = false;
 let suppressNextInitialEntryBatch = false;
 const retiringCards = new Map();
 let blockingMotionTimer = 0;
+let pendingCardCopy = null;
+let dblclickHintNode = null;
+let dblclickHintLeaveTimer = 0;
+let dblclickHintMemoryDismissed = false;
+let dblclickHintAnchorPlacements = null;
+let dblclickHintAnchorIndex = -1;
+
+function isCardDblclickHintDone() {
+  if (dblclickHintMemoryDismissed) return true;
+  try {
+    return Boolean(globalThis.localStorage?.getItem?.(CARD_DBLCLICK_HINT_KEY));
+  } catch {
+    return true;
+  }
+}
+
+function persistCardDblclickHintDone() {
+  try {
+    if (globalThis.localStorage?.setItem) {
+      globalThis.localStorage.setItem(CARD_DBLCLICK_HINT_KEY, '1');
+      return;
+    }
+  } catch {
+    /* 写盘受限时仅在本会话内隐藏，避免点了「知道了」仍关不掉 */
+  }
+  dblclickHintMemoryDismissed = true;
+}
+
+function detachCardDblclickHint(onlyWithinNode = null) {
+  if (!dblclickHintNode) return;
+  if (onlyWithinNode && !onlyWithinNode.contains?.(dblclickHintNode)) return;
+  clearTimeout(dblclickHintLeaveTimer);
+  dblclickHintLeaveTimer = 0;
+  dblclickHintNode.classList.remove('is-leaving');
+  dblclickHintNode.remove();
+}
+
+export function dismissCardDblclickHint({ animate = false } = {}) {
+  persistCardDblclickHintDone();
+  if (!dblclickHintNode) return;
+  clearTimeout(dblclickHintLeaveTimer);
+  dblclickHintLeaveTimer = 0;
+  const node = dblclickHintNode;
+  const canAnimate = animate
+    && node.isConnected
+    && !prefersReducedMotion()
+    && !document.documentElement?.classList?.contains('motion-off');
+  if (!canAnimate) {
+    node.classList.remove('is-leaving');
+    node.remove();
+    return;
+  }
+  node.classList.add('is-leaving');
+  dblclickHintLeaveTimer = setTimeout(() => {
+    dblclickHintLeaveTimer = 0;
+    node.classList.remove('is-leaving');
+    node.remove();
+  }, 180);
+}
+
+function ensureCardDblclickHint() {
+  if (dblclickHintNode) return dblclickHintNode;
+  if (typeof document?.createElement !== 'function') return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'card-dblclick-hint';
+  wrap.setAttribute('role', 'note');
+  const icon = document.createElement('span');
+  icon.className = 'card-dblclick-hint-ico';
+  icon.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.className = 'card-dblclick-hint-text';
+  text.textContent = '新功能：双击下方卡片可直接放大查看';
+  const arrow = document.createElement('span');
+  arrow.className = 'card-dblclick-hint-arrow';
+  arrow.setAttribute('aria-hidden', 'true');
+  arrow.textContent = '↓';
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'card-dblclick-hint-dismiss ui-press';
+  dismiss.textContent = '知道了';
+  dismiss.setAttribute('aria-label', '知道了，关闭双击放大提示');
+  dismiss.onclick = ev => {
+    ev.stopPropagation();
+    cancelPendingCardCopy();
+    dismissCardDblclickHint({ animate: true });
+  };
+  wrap.append(icon, text, arrow, dismiss);
+  dblclickHintNode = wrap;
+  return wrap;
+}
+
+function hasCardDblclickCandidate() {
+  if (dblclickHintAnchorPlacements === state.placements) return dblclickHintAnchorIndex >= 0;
+  dblclickHintAnchorPlacements = state.placements;
+  dblclickHintAnchorIndex = state.placements.findIndex(
+    placement => hasEntryImage(placement.entry) && !isPackEntry(placement.entry),
+  );
+  return dblclickHintAnchorIndex >= 0;
+}
+
+export function syncCardDblclickHint() {
+  if (isCardDblclickHintDone()) {
+    if (!dblclickHintLeaveTimer) detachCardDblclickHint();
+    return;
+  }
+  if (
+    densityConfig().mobile
+    || state.cardZoom
+    || state.siteSearchView
+    || state.artistPicking
+    || state.favSelecting
+    || state.codex?.type === 'pack'
+    || document.body?.classList?.contains('edit-mode')
+    || document.body?.classList?.contains('site-search-head')
+    || !hasCardDblclickCandidate()
+  ) {
+    detachCardDblclickHint();
+    return;
+  }
+  const bar = $('.result-bar');
+  if (!bar || bar.hidden) {
+    detachCardDblclickHint();
+    return;
+  }
+  const hint = ensureCardDblclickHint();
+  if (!hint) return;
+  if (hint.parentElement !== bar) {
+    clearTimeout(dblclickHintLeaveTimer);
+    dblclickHintLeaveTimer = 0;
+    hint.classList.remove('is-leaving');
+    const actions = bar.querySelector?.('.result-bar-actions') || null;
+    if (actions && typeof bar.insertBefore === 'function') bar.insertBefore(hint, actions);
+    else bar.appendChild(hint);
+  }
+}
+
+function cancelPendingCardCopy(node = null) {
+  if (!pendingCardCopy) return;
+  if (node && pendingCardCopy.node !== node) return;
+  clearTimeout(pendingCardCopy.timer);
+  pendingCardCopy = null;
+}
+
+function flushPendingCardCopy() {
+  if (!pendingCardCopy) return;
+  const task = pendingCardCopy;
+  clearTimeout(task.timer);
+  pendingCardCopy = null;
+  task.run();
+}
+
+function cardCanCopyNow(node, entry) {
+  if (!entry || !node || node.isConnected === false) return false;
+  if (node.classList.contains('card-retiring') || node.classList.contains('card-leaving')) return false;
+  if (state.lightbox?.entry || state.artistPicking || state.favSelecting) return false;
+  if (document.body?.classList?.contains('edit-mode')) return false;
+  return !cardClickOpensDetail(entry);
+}
+
+function cardCanDoubleClickOpen(node, entry, ev) {
+  if (!cardCanCopyNow(node, entry)) return false;
+  if (ev?.ctrlKey || ev?.metaKey || ev?.shiftKey || ev?.altKey) return false;
+  if (ev?.target?.closest?.(CARD_INTERACTIVE_SELECTOR)) return false;
+  return true;
+}
+
+function scheduleCardCopy(node, getEntry) {
+  if (pendingCardCopy && pendingCardCopy.node !== node) flushPendingCardCopy();
+  cancelPendingCardCopy(node);
+  const run = () => {
+    const cur = getEntry();
+    if (!cardCanCopyNow(node, cur)) return;
+    masonryActions.copyEntry(cur, node);
+  };
+  const timer = setTimeout(() => {
+    if (pendingCardCopy?.timer !== timer) return;
+    pendingCardCopy = null;
+    run();
+  }, CARD_DOUBLE_CLICK_MS);
+  pendingCardCopy = { timer, node, run };
+}
 
 function finishBlockingMotion() {
   clearTimeout(blockingMotionTimer);
@@ -51,6 +238,8 @@ function finishBlockingMotion() {
 }
 
 function retireCard(entry, node, animate) {
+  cancelPendingCardCopy(node);
+  detachCardDblclickHint(node);
   const visual = getComputedStyle(node);
   const opacity = visual.opacity;
   const transform = visual.transform;
@@ -188,6 +377,7 @@ function renderUpgradeList(m) {
     if (featuredBadge) featuredBadge.hidden = !featured;
     node.classList.toggle('is-featured', featured);
     updateCardPosition(node, placement);
+    masonryActions.decorateArtistPickCard(node, e);
     state.nodes.set(placement.index, node);
   }
   for (const { node } of oldByKey.values()) {
@@ -282,6 +472,10 @@ export function colCount(w = containerLayoutWidth ?? ($('#masonry').clientWidth 
 }
 
 export function clearMasonry() {
+  cancelPendingCardCopy();
+  detachCardDblclickHint();
+  dblclickHintAnchorPlacements = null;
+  dblclickHintAnchorIndex = -1;
   finishBlockingMotion();
   cleanupFilterTransition();
   for (const node of state.nodes.values()) cleanupCard(node);
@@ -443,15 +637,16 @@ export function estimateBodyMetrics(e, width) {
   const badgeHeight = masonryActions.favoriteBadgeHeight(e);
   const cfg = densityConfig();
   const title = cardTitleOf(e);
+  const hideTags = (cfg.hideImageTags && hasEntryImage(e)) || masonryActions.leanCard(e);
   const cached = bodyMetricsCache.get(e);
-  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight && cached.sdMode === state.sdMode && cached.title === title) return cached.value;
+  if (cached && cached.width === width && cached.config === cfg && cached.badgeHeight === badgeHeight
+    && cached.sdMode === state.sdMode && cached.title === title && cached.hideTags === hideTags) return cached.value;
   const contentWidth = Math.max(120, width - cfg.bodyPadX * 2);
   const titleWidth = cfg.mobile ? Math.max(1, width - 2 - cfg.bodyPadX * 2 - (cfg.titleActionWidth || 26)) : contentWidth;
   const titleLines = clamp(Math.ceil(textUnits(title) / Math.max(8, Math.floor(titleWidth / cfg.titleCharWidth))), 1, cfg.maxTitleLines || 2);
-  const tagLines = estimateTagLines(entryPromptText(e), contentWidth, cfg);
   const titleHeight = Math.max(cfg.mobile ? (cfg.titleMinHeight || 20) : 0, titleLines * cfg.titleLineHeight);
-  const tagsHeight = (cfg.hideImageTags && hasEntryImage(e)) || masonryActions.leanCard(e) ? 0
-    : clamp(tagLines * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
+  const tagsHeight = hideTags ? 0
+    : clamp(estimateTagLines(entryPromptText(e), contentWidth, cfg) * cfg.tagLineHeight + cfg.tagPaddingY, cfg.minTagHeight, cfg.maxTagHeight);
   const titleGap = tagsHeight ? cfg.titleGap : 0;
   const footGap = cfg.footGap;
   const footHeight = cfg.mobile ? cfg.footHeight : (e.negative ? cfg.footHeightNegative : cfg.footHeight);
@@ -459,7 +654,7 @@ export function estimateBodyMetrics(e, width) {
     height: Math.ceil(cfg.bodyPadTop + titleHeight + titleGap + tagsHeight + footGap + footHeight + badgeHeight + cfg.bodyPadBottom),
     tagsHeight,
   };
-  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, sdMode: state.sdMode, title, value });
+  bodyMetricsCache.set(e, { width, config: cfg, badgeHeight, sdMode: state.sdMode, title, hideTags, value });
   return value;
 }
 
@@ -568,6 +763,7 @@ export function updateVirtualCards(force = false) {
   const m = $('#masonry');
   if (!m || !state.placements.length) {
     state.rendered = 0;
+    detachCardDblclickHint();
     updateReadingSpy();   // 无内容时收起目录浏览指示条
     return;
   }
@@ -642,6 +838,7 @@ export function updateVirtualCards(force = false) {
   state.rendered = next.size;
   // 批量校准可能让缓冲区边缘的 placement 进出范围；下一帧按新位置收敛虚拟节点。
   if (layoutChanged) scheduleVirtualUpdate();
+  syncCardDblclickHint();
   updateReadingSpy();   // 借这里现成的 rAF 滚动节流驱动目录浏览指示条
 }
 
@@ -702,6 +899,7 @@ export function makeCard(placement) {
     negBtn.hidden = !e.negative;
     negBtn.onclick = ev => {
       ev.stopPropagation();
+      cancelPendingCardCopy(node);
       const cur = currentEntry();
       copyText(cur.negative, `已复制负面：${cur.title}`, node, {
         entry: cur,
@@ -715,6 +913,7 @@ export function makeCard(placement) {
     allBtn.hidden = !e.negative && !charPrompts.length;
     allBtn.onclick = ev => {
       ev.stopPropagation();
+      cancelPendingCardCopy(node);
       const cur = currentEntry();
       copyText(combinedPrompt(cur), `已复制${combinedPromptLabel(cur)}：${cur.title}`, node, { entry: cur });
     };
@@ -726,18 +925,20 @@ export function makeCard(placement) {
   fav.classList.toggle('on', faved);
   fav.title = faved ? '取消收藏' : '收藏';
   fav.setAttribute('aria-label', faved ? '取消收藏' : '收藏');
-  fav.onclick = ev => { ev.stopPropagation(); masonryActions.toggleFav(currentEntry(), fav); };
+  fav.onclick = ev => { ev.stopPropagation(); cancelPendingCardCopy(node); masonryActions.toggleFav(currentEntry(), fav); };
 
   const reportBtn = node.querySelector('.report-card-btn');
   const hideBtn = node.querySelector('.hide-card-btn');
   if (hideBtn) hideBtn.onclick = ev => {
     ev.stopPropagation();
+    cancelPendingCardCopy(node);
     // 保存成功后的订阅刷新负责退场；错误时保留原卡，来源也不会被迟到回调改写。
     masonryActions.hideCard(currentEntry());
   };
   if (reportBtn) {
     reportBtn.onclick = ev => {
       ev.stopPropagation();
+      cancelPendingCardCopy(node);
       const imageError = Boolean(node.querySelector('.card-img-wrap')?.classList.contains('is-error'));
       masonryActions.reportEntry(currentEntry(), {
         source: 'card',
@@ -757,6 +958,7 @@ export function makeCard(placement) {
 
   syncCopyHint(node, e);
   const openDetail = () => {
+    cancelPendingCardCopy(node);
     const cur = currentEntry();
     const img = hasImage ? node.querySelector('.card-img') : null;
     masonryActions.openLightbox(cur, 0, img, { allowEmpty: true });
@@ -769,13 +971,40 @@ export function makeCard(placement) {
       openDetail();
     };
   }
-  node.onclick = () => {
+  node.onmousedown = ev => {
+    // 双击整卡放大进灯箱时，阻止第二下按下顺手选中卡片标题或提示词文字
+    if (ev?.detail >= 2 && cardCanDoubleClickOpen(node, currentEntry(), ev)) {
+      ev.preventDefault?.();
+    }
+  };
+  node.onclick = ev => {
     const cur = currentEntry();
     if (cardClickOpensDetail(cur)) {
+      cancelPendingCardCopy();
       openDetail();
       return;
     }
-    masonryActions.copyEntry(cur, node);
+    if (ev?.target?.closest?.(CARD_INTERACTIVE_SELECTOR)) return;
+    if (ev?.detail >= 2) {
+      cancelPendingCardCopy(node);
+      return;
+    }
+    // 真实鼠标单击（detail === 1）先等 220ms 确认没有第二下；程序触发或键盘激活（detail === 0）直接复制
+    if (ev?.detail === 1) {
+      scheduleCardCopy(node, currentEntry);
+      return;
+    }
+    if (pendingCardCopy && pendingCardCopy.node !== node) flushPendingCardCopy();
+    cancelPendingCardCopy(node);
+    if (cardCanCopyNow(node, cur)) masonryActions.copyEntry(cur, node);
+  };
+  node.ondblclick = ev => {
+    const cur = currentEntry();
+    if (!cardCanDoubleClickOpen(node, cur, ev)) return;
+    cancelPendingCardCopy();
+    dismissCardDblclickHint();
+    globalThis.window?.getSelection?.()?.removeAllRanges?.();
+    openDetail();
   };
   masonryActions.decorateFavoriteCard(node, e);
   masonryActions.decorateArtistPickCard(node, e);
@@ -787,7 +1016,7 @@ function isPackEntry(e) {
 }
 
 /* 点卡片：手机一律开详情；电脑上无图卡开详情（没有图可看，要复制角色词等只能进详情），
-   有图的图包、或开了「点击卡片放大」的有图卡开大图，其余复制。
+   有图的图包、或开了「点击卡片放大」的有图卡单击开大图，其余单击复制（等待 220ms 判双击）、双击整卡进灯箱。
    无图词条打开时详情栏强制展开，见 lightbox.js 的 syncLightboxInfoFold。点击时现读设置，切换后不用重建卡片。 */
 function cardOpensImage(e) {
   return hasEntryImage(e) && (state.cardZoom || isPackEntry(e));
@@ -799,10 +1028,13 @@ function cardClickOpensDetail(e) {
 
 function syncCopyHint(node, e) {
   const hint = node.querySelector('.copy-hint');
-  if (!hint) return;
   const view = cardOpensImage(e) || !hasEntryImage(e);
-  hint.textContent = view ? '点击查看' : '点击复制';
-  hint.classList.toggle('is-view', view);
+  if (hint) {
+    hint.textContent = view ? '点击查看' : '点击复制';
+    hint.classList.toggle('is-view', view);
+  }
+  const zoom = node.querySelector('.zoom-btn');
+  if (zoom) zoom.title = view ? '放大查看' : '放大查看（也可双击卡片）';
 }
 
 export function refreshCopyHints() {
@@ -810,6 +1042,7 @@ export function refreshCopyHints() {
     const entry = state.list[index];
     if (entry) syncCopyHint(node, entry);
   }
+  syncCardDblclickHint();
 }
 
 export function updateCardPosition(node, placement) {
@@ -1283,12 +1516,14 @@ export function setupImage(node, placement) {
   if (retryBtn) {
     retryBtn.onclick = ev => {
       ev.stopPropagation();
+      cancelPendingCardCopy(node);
       retryNext = true;
       cardImageQueue.request(job, { immediate: true });
     };
   }
   wrap.querySelector('.zoom-btn').onclick = ev => {
     ev.stopPropagation();
+    cancelPendingCardCopy(node);
     masonryActions.openLightbox(node._entry || e, 0, wrap.querySelector('.card-img'));
   };
 }
@@ -1301,6 +1536,8 @@ export function notifyImageLoadError(e) {
 }
 
 export function cleanupCard(node) {
+  cancelPendingCardCopy(node);
+  detachCardDblclickHint(node);
   cancelUiMotion(node);
   // 还在排队的直接撤掉，一个字节都不花；在飞的由队列取消请求并空出名额
   if (node._imageJob) {
