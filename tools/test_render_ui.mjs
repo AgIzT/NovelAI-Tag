@@ -1125,8 +1125,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.ok(launchBlock.length > 500, '没定位到 V5 版面样式块');
   assert.doesNotMatch(launchBlock, /gradient|backdrop-filter/, 'V5 版面禁止渐变与玻璃拟态');
   const menuRule = chipStyles.slice(chipStyles.indexOf('.codex-menu{'), chipStyles.indexOf('}', chipStyles.indexOf('.codex-menu{')));
-  assert.match(menuRule, /background:var\(--panel\)/);
-  assert.doesNotMatch(menuRule, /backdrop-filter/, '选择器面板已去玻璃');
+  // 2026-11-21 材质规范：选择器面板和顶栏、菜单同一种磨砂（V5 上线时的实心面板是那一次的选择）
+  assert.match(menuRule, /background:var\(--mat-frost-bg\)/, '选择器面板用统一的磨砂材质');
+  assert.match(menuRule, /backdrop-filter:var\(--mat-frost-filter\)/, '选择器面板用统一的磨砂模糊');
 
   const codexUiSource = await readFile(new URL('../site/assets/app/codex-ui.js', import.meta.url), 'utf8');
   assert.match(codexUiSource, /NEW · NOVELAI V5/);

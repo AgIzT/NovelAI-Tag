@@ -59,24 +59,24 @@
 
 .favorites-backup-mask{
   position:fixed;inset:0;z-index:140;display:grid;place-items:center;padding:20px;
-  background:var(--overlay);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   opacity:0;pointer-events:none;transition:opacity var(--dur-short) ease,display var(--dur-short) allow-discrete;
+  background:var(--mat-scrim);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
 }
 .favorites-backup-mask.show{opacity:1;pointer-events:auto}
 .favorites-backup-dialog{
   position:relative;display:flex;flex-direction:column;width:min(680px,100%);
   max-height:min(88dvh,780px);overflow:hidden;color:var(--text);
-  background:var(--popover-glass);border:1px solid var(--popover-line);border-radius:22px;
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(20px) saturate(1.08);
-  -webkit-backdrop-filter:blur(20px) saturate(1.08);
+  border:1px solid var(--popover-line);border-radius:22px;
+  box-shadow:var(--popover-shadow);
   translate:0 12px;scale:.985;
   transition:translate var(--dur-short) var(--ease-out),scale var(--dur-short) var(--ease-out);
+  background:var(--panel);-webkit-backdrop-filter:none;backdrop-filter:none;
 }
 .favorites-backup-mask.show .favorites-backup-dialog{translate:0 0;scale:1}
 
 .favorites-backup-header{
   position:relative;flex:none;padding:22px 64px 17px 24px;border-bottom:1px solid var(--line);
-  background:color-mix(in srgb,var(--popover-glass) 88%,transparent);
+  background:var(--panel);-webkit-backdrop-filter:none;backdrop-filter:none;
 }
 .favorites-backup-title-row{display:flex;align-items:center;gap:12px;min-width:0}
 .favorites-backup-title-row>div{min-width:0}
@@ -218,7 +218,7 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 .favorites-backup-footer{
   flex:none;display:flex;align-items:center;justify-content:space-between;gap:14px;
   min-height:68px;padding:11px 24px;border-top:1px solid var(--line);
-  background:color-mix(in srgb,var(--popover-glass) 92%,var(--card));
+  background:var(--panel);-webkit-backdrop-filter:none;backdrop-filter:none;
 }
 .favorites-backup-feedback{min-width:0;flex:1}
 .favorites-backup-error,
@@ -229,8 +229,7 @@ label.favorites-backup-file:has(+ .favorites-backup-file-input:focus-visible){ou
 
 .favorites-replace-confirm{
   position:absolute;inset:0;z-index:3;display:grid;place-items:center;padding:24px;
-  background:color-mix(in srgb,var(--popover-glass) 88%,transparent);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  background:var(--mat-frost-bg);-webkit-backdrop-filter:var(--mat-frost-filter);backdrop-filter:var(--mat-frost-filter);
 }
 .favorites-replace-card{
   width:min(430px,100%);padding:22px;border:1px solid color-mix(in srgb,var(--red) 38%,var(--line));

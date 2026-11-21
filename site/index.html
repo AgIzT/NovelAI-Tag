@@ -20,7 +20,11 @@ if (!document.querySelector('base[href]')) {
 <meta name="theme-color" content="#6f5cf2">
 <script>/* 跨页 View Transition 抵达打标：vt-arrived 永久关掉入场编排避免叠影；
    vt-live 只活到过渡结束，专供跨页专属的上滑动画选择器（站内同文档过渡不带它） */
-addEventListener('pagereveal',e=>{if(e.viewTransition){const h=document.documentElement;h.classList.add('vt-arrived','vt-live');e.viewTransition.finished.finally(()=>h.classList.remove('vt-live'))}},{once:true});
+addEventListener('pagereveal',e=>{if(e.viewTransition){const h=document.documentElement;h.classList.add('vt-arrived','vt-live','vt-cross');e.viewTransition.finished.finally(()=>h.classList.remove('vt-live','vt-cross'))}},{once:true});
+/* vt-cross：顶栏只在跨页跳转那一刻挂过渡名字（平时挂着会让顶栏里的菜单磨砂失效，见 styles.css）。
+   离开时打上；从往返缓存回来时摘掉 */
+addEventListener('pageswap',e=>{if(e.viewTransition)document.documentElement.classList.add('vt-cross')});
+addEventListener('pageshow',e=>{if(e.persisted)document.documentElement.classList.remove('vt-cross')});
 /* 滚动恢复自管：浏览器在骨架屏阶段恢复上次滚动会把横幅顶进顶栏底下，
    随后 loadCodex 的 resetScroll 又拉回顶部（"占位贴顶栏→加载完甩下去"的元凶）。
    本站有自己的「继续上次浏览」恢复与深链定位，浏览器的恢复只会捣乱 */

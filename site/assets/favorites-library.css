@@ -74,11 +74,11 @@
 .favorites-batch-bar {
   position: fixed; bottom: 22px; left: 50%; translate: -50% 0; z-index: 75;
   display: flex; align-items: center; gap: 7px; width: max-content; max-width: calc(100vw - 24px);
-  box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--popover-line); border-radius: 14px;
-  background: var(--popover-glass); color: var(--text); box-shadow: var(--popover-shadow);
-  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--mat-frost-line); border-radius: 14px;
+   color: var(--text); 
   font: 13px/1.4 var(--font-ui);
   transition: opacity var(--dur-short), translate var(--dur-short) var(--ease-out), display var(--dur-short) allow-discrete;
+  background:var(--mat-frost-bg);-webkit-backdrop-filter:var(--mat-frost-filter);backdrop-filter:var(--mat-frost-filter);box-shadow:var(--mat-frost-shadow),var(--mat-frost-rim);
 }
 .favorites-batch-bar[hidden] { display: none; opacity: 0; translate: -50% 12px; pointer-events: none; }
 .favorites-batch-bar strong { white-space: nowrap; font-weight: 600; padding-right: 3px; }

@@ -12,6 +12,31 @@
   /* 窄屏/触屏下同排胶囊（.bar-btn、.ui-select.is-pill）的高度，与中转站次要动作同一档。 */
   --ui-bar-touch-height:34px;
 }
+/* ---------- 面板材质 ----------
+   全站浮层与面板只用三种材质，每种一套写法（2026-11-21 维护者定的规范，经过见本地私有文档的材质规范）：
+     磨砂  直接放在页面上的：顶栏、目录、中转站、法典选择、所有菜单和下拉、浮钮、灯箱圆按钮和小签、浮动条
+     实体  压在遮罩上的：设置 / 屏蔽 / 反馈 / 收藏备份等弹窗、灯箱信息栏（遮罩已经压暗了底下）
+     图上  压在图片上的中性小件：卡片张数角标、放大按钮（深色玻璃）
+   遮罩只用 --mat-scrim 一种；投影和高光边归材质管，磨砂件不再各带各的。不做液态折射（实测大面板折射拖慢滚动）。
+   颜色取当前皮肤的 --panel，皮肤类挂在 body 上，所以变量也写在 body 上。新加浮层只能从这三种里选。
+   ⚠ 有磨砂子元素的容器（顶栏）自己不能带 backdrop-filter / view-transition-name：那会让它成为子元素的「背景根」，
+     里面菜单的模糊只看得见容器内部，整页内容透不上来（「更多」一直不磨砂就是这个原因），顶栏的磨砂画在 ::before 上。 */
+body{
+  --mat-frost-bg:color-mix(in srgb,var(--panel) 62%,transparent);
+  --mat-frost-filter:blur(14px) saturate(1.5);
+  --mat-frost-line:color-mix(in srgb,var(--line) 75%,transparent);
+  --mat-frost-shadow:0 8px 28px rgb(20 22 40 / .12);
+  --mat-frost-rim:inset 1.5px 1.5px 0 rgb(255 255 255 / .75),inset -1px -1px 0 rgb(255 255 255 / .32);
+  --mat-onimage-bg:rgb(20 20 24 / .4);
+  --mat-onimage-filter:blur(12px) saturate(1.6) brightness(.9);
+  --mat-onimage-shadow:0 4px 14px rgb(0 0 0 / .22),inset 1px 1px 0 rgb(255 255 255 / .45),inset -1px -1px 0 rgb(255 255 255 / .16);
+  --mat-scrim:rgb(15 18 30 / .42);
+}
+body.dark{
+  --mat-frost-shadow:0 10px 30px rgb(0 0 0 / .4);
+  --mat-frost-rim:inset 1.5px 1.5px 0 rgb(255 255 255 / .2),inset -1px -1px 0 rgb(255 255 255 / .08);
+}
+
 /* 独立操作控件显式接入；编辑区、定位容器不参与按压缩放。 */
 .ui-press{transition:var(--ui-control-transition)}
 .ui-press,.icon-btn,.more-item,.bar-btn,.panel-action,.ui-select-button,.ui-select-option,.seg-tabs>button{
@@ -154,12 +179,12 @@
   position:absolute;left:0;top:calc(100% + 6px);z-index:6;
   width:max(100%,190px);max-width:min(260px,calc(100vw - 28px));max-height:min(46vh,288px);
   box-sizing:border-box;display:flex;flex-direction:column;gap:2px;overflow-y:auto;overscroll-behavior:contain;padding:6px;
-  border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);background:var(--popover-glass);color:var(--text);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
+  border:1px solid var(--mat-frost-line);border-radius:var(--ui-popover-radius);color:var(--text);
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
   opacity:1;translate:0 0;scale:1;transform-origin:top left;
   transition:opacity var(--dur-fast) ease,translate var(--dur-short) var(--ease-out),
     scale var(--dur-short) var(--ease-out),display var(--dur-short) allow-discrete;
+  background:var(--mat-frost-bg);-webkit-backdrop-filter:var(--mat-frost-filter);backdrop-filter:var(--mat-frost-filter);box-shadow:var(--mat-frost-shadow),var(--mat-frost-rim);
 }
 .ui-select-option{
   width:100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;

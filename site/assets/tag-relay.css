@@ -38,12 +38,12 @@
   position:sticky;top:var(--topbar-h);align-self:flex-start;flex:0 0 440px;width:440px;
   height:var(--relay-rail-height);max-height:var(--relay-rail-height);overflow:hidden;min-height:0;
   display:flex;flex-direction:column;
-  background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);
+  border:1px solid var(--mat-frost-line);border-radius:18px;
   /* 顶栏显隐时 top / height / max-height 同步过渡，保持底边稳定。
      漏掉 max-height 会先瞬间压短栏高，再随 top 下移，素材区因此回弹。 */
   /* 宽度交给外壳的受控动画：先测终态，不能让 RO 把中间宽度反复交给卡片。 */
   transition:top var(--dur-medium) var(--ease-out),height var(--dur-medium) var(--ease-out),max-height var(--dur-medium) var(--ease-out);
+  background:var(--mat-frost-bg);-webkit-backdrop-filter:var(--mat-frost-filter);backdrop-filter:var(--mat-frost-filter);box-shadow:var(--mat-frost-shadow),var(--mat-frost-rim);
 }
 .tag-relay-rail.closed{flex-basis:0;width:0;padding:0;border-color:transparent;box-shadow:none}
 .tag-relay-rail-backdrop{display:none}
@@ -116,9 +116,9 @@ body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
     --relay-rail-height:calc(100dvh - var(--topbar-h) - 8px);
     position:fixed;z-index:68;top:var(--topbar-h);right:8px;left:auto;
     width:min(440px,calc(100vw - 16px));flex-basis:auto;
-    box-shadow:var(--shadow-hover);
     transition:transform var(--dur-medium) var(--ease-out),
-      top var(--dur-medium) var(--ease-out),height var(--dur-medium) var(--ease-out),max-height var(--dur-medium) var(--ease-out);
+    top var(--dur-medium) var(--ease-out),height var(--dur-medium) var(--ease-out),max-height var(--dur-medium) var(--ease-out);
+    box-shadow:var(--mat-frost-shadow),var(--mat-frost-rim);
   }
   .tag-relay-rail.closed{
     transform:translateX(calc(100% + 16px));width:min(440px,calc(100vw - 16px));
@@ -217,9 +217,9 @@ body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 .tag-relay-plan-more:hover{background:var(--tagbg);color:var(--accent)}
 .tag-relay-plan-menu{
   position:absolute;right:0;top:calc(100% + 6px);z-index:6;min-width:132px;padding:6px;
-  border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);background:var(--popover-glass);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
+  border:1px solid var(--mat-frost-line);border-radius:var(--ui-popover-radius);
   display:flex;flex-direction:column;gap:2px;
+  background:var(--mat-frost-bg);-webkit-backdrop-filter:var(--mat-frost-filter);backdrop-filter:var(--mat-frost-filter);box-shadow:var(--mat-frost-shadow),var(--mat-frost-rim);
 }
 .tag-relay-plan-menu button{
   border:0;border-radius:8px;background:transparent;color:var(--text);
@@ -449,8 +449,8 @@ body.rail-docked .float-actions{right:calc(26px + 440px + 14px)}
 .tag-relay-rail .tag-relay-history{
   position:absolute;left:14px;right:14px;bottom:calc(100% - 8px);z-index:6;
   max-height:min(52vh,340px);display:flex;flex-direction:column;
-  border:1px solid var(--popover-line);border-radius:var(--ui-popover-radius);background:var(--popover-glass);
-  box-shadow:var(--popover-shadow);backdrop-filter:blur(var(--ui-popover-blur));-webkit-backdrop-filter:blur(var(--ui-popover-blur));
+  border:1px solid var(--mat-frost-line);border-radius:var(--ui-popover-radius);
+  background:var(--mat-frost-bg);-webkit-backdrop-filter:var(--mat-frost-filter);backdrop-filter:var(--mat-frost-filter);box-shadow:var(--mat-frost-shadow),var(--mat-frost-rim);
 }
 
 @media (prefers-reduced-motion:reduce){
