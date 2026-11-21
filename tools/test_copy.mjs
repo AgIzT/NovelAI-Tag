@@ -510,7 +510,7 @@ function execDocument(result) {
   assert.match(lightboxSource, /copyText\(shareUrl, '已复制分享链接', shareBtn, \{ convert: false, sampleCount: false \}\)/);
   assert.match(lightboxSource, /copyText\(negative[\s\S]*sampleLabel: '已复制负面'/);
   assert.match(lightboxSource, /#copyRawTag[\s\S]*copyText\(item\.rawTag[\s\S]*accessEntry: e/);
-  assert.match(masonrySource, /copyText\(e\.negative[\s\S]*sampleLabel: '已复制负面'/);
+  assert.match(masonrySource, /copyText\(\w+\.negative[\s\S]*sampleLabel: '已复制负面'/);
   assert.match(moduleMapSource, /`copy-fx\.js`/);
   assert.match(communityDetailSource, /type !== 'negative'[\s\S]*label: '再复制负面'/);
   for (const source of [copySource, lightboxSource, masonrySource, moduleMapSource, communityDetailSource]) {
@@ -540,7 +540,7 @@ function execDocument(result) {
   assert.match(masonrySource, /allBtn\.hidden = !e\.negative && !charPrompts\.length/);
   assert.match(lightboxSource, /\$\('#copyAll'\)\.hidden = !negative && !characterPrompts\.length/);
   for (const source of [masonrySource, lightboxSource]) {
-    assert.match(source, /已复制\$\{combinedPromptLabel\((?:e|shownEntry)\)\}/);
+    assert.match(source, /已复制\$\{combinedPromptLabel\(\w+\)\}/);
     assert.doesNotMatch(source, /已复制正向\+负面/);
   }
   // 灯箱的「复制全部」只在手机「⋯」里：电脑由样式藏掉（瀑布流卡片上有「全部」），窄屏规则再放出来
