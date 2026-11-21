@@ -214,22 +214,22 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   }
 }catch(e){}})();
 </script>
-<!-- 开场幕：必须是静态标签、且排在 body 最前，才能在第一帧就盖住页面（JS 建节点会先闪一下真实 UI）。
-     .intro-veil 是纯色幕，数据就绪后淡出；.intro-noise 活得更久，要一直盖到封面/卡片显影完。
-     牌堆也写死在这里：模块还没加载完的那段时间，画面上就已经是一叠卡背，而不是一片底色。
-     切牌、名字行和开幕发牌由 assets/app/intro.js 驱动。 -->
+<!-- 开场幕（典籍开卷）：必须是静态标签、且排在 body 最前，才能在第一帧就盖住页面（JS 建节点会先闪一下真实 UI）。
+     左右两扇书页承接当前皮肤底色与浅色光晕，中缝书脊细线指示加载进度；
+     数据就绪后两页左右对开，露出下方连续显影的横幅、目录与瀑布流。编排由 assets/app/intro.js 驱动。 -->
 <div id="introStage" class="intro-stage" aria-hidden="true">
-  <div class="intro-veil"></div>
-  <i class="intro-noise"></i>
-  <div id="introDeck" class="intro-deck">
-    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
-    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
-    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
-    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
-    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
-    <i class="intro-card"><b>法典<span>图鉴</span></b></i>
+  <div id="introFolioLeft" class="intro-folio intro-folio-left">
+    <span class="intro-folio-word">法典</span>
+    <span class="intro-folio-sub">NOVELAI TAG ATLAS</span>
+    <span class="intro-folio-corner">P.001</span>
   </div>
-  <div id="introToday" class="intro-today" hidden><span>今日画师</span><b>artist:<i id="introTodayName"></i></b></div>
+  <div id="introFolioRight" class="intro-folio intro-folio-right">
+    <span class="intro-folio-word">图鉴</span>
+    <span id="introToday" class="intro-folio-sub intro-today" hidden>TODAY · artist:<b id="introTodayName"></b></span>
+    <span id="introPct" class="intro-folio-corner">00%</span>
+  </div>
+  <div id="introSpine" class="intro-spine"><i id="introSpineFill" class="intro-spine-fill"></i></div>
+  <i class="intro-noise"></i>
 </div>
 <div id="scrollProgress" class="scroll-progress" aria-hidden="true"></div>
 <header class="topbar">

@@ -830,9 +830,12 @@ export function updateCardPosition(node, placement) {
    原型页的 blur12→5→0 是一张小卡；把它放到真实瀑布流整卡上会连文字、阴影一起重栅格化，
    快速滚动时尤其容易掉帧。图片显影仍保留，但目标数和半径都收窄，避免「糊成一片」。 */
 const ENTRY_WAVES = {
+  /* 开场中缝展翼（配合「典籍开卷」双页对开）：从中轴列向两侧同步舒展，左半列向左展、右半列向右展 */
   intro: {
-    lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
-    imageBlur: 6, imageDur: 340, base: 30, step: 24, cap: 110, imageOffset: 30,
+    lift: 16, mobileLift: 12, fanX: 16, mobileFanX: 10,
+    dur: 380, ease: 'cubic-bezier(.22,1,.36,1)',
+    imageBlur: 5, mobileImageBlur: 4, imageDur: 340,
+    base: 10, step: 56, rowStep: 60, cap: 210, imageOffset: 30,
   },
   scroll: {
     lift: 6, dur: 220, ease: 'cubic-bezier(.16,1,.3,1)',
@@ -863,23 +866,38 @@ export function maybeAnimateCardEntry(node, placement) {
 
   const html = document.documentElement;
   /* 开场期间卡片是在幕布背后渲染的。进场走的是 CSS 过渡，过渡**没法像动画那样 paused**，
-     所以这里只摆好起始态（抬起 + 透明，图片显影另行暂停），等 intro:reveal 掀幕那一刻再统一放行——
-     不然开场结束掀开幕布，卡片早就自己演完了，只剩终态。 */
+     所以这里只摆好起始态（收向中缝 + 轻沉 + 透明，图片显影另行暂停），等 intro:reveal 对开裂缝那一刻再统一放行——
+     不然开场结束推开幕布，卡片早就自己演完了，只剩终态。 */
   const introHold = html.classList.contains('intro-run') && !html.classList.contains('intro-reveal');
   const wave = switchHold
     ? ENTRY_WAVES.switch
     : introHold || html.classList.contains('intro-reveal')
       ? ENTRY_WAVES.intro
       : ENTRY_WAVES.scroll;
-  const stagger = switchHold
-    ? (placement.col + Math.floor(placement.index / Math.max(1, state.colN))) * wave.step
-    : placement.col * wave.step + (placement.index % Math.max(1, state.colN)) * 10;
+  const cols = Math.max(1, state.colN);
+  const isIntroWave = wave === ENTRY_WAVES.intro;
+  const narrow = isIntroWave && window.matchMedia('(max-width: 600px)').matches;
+  let stagger;
+  let fanX = 0;
+  if (isIntroWave) {
+    const mid = (cols - 1) / 2;
+    const distMid = Math.abs(placement.col - mid);
+    const side = placement.col < mid ? -1 : (placement.col > mid ? 1 : 0);
+    const row = Math.floor(placement.index / cols);
+    stagger = Math.round(distMid * wave.step + row * wave.rowStep);
+    fanX = -side * (narrow ? wave.mobileFanX : wave.fanX);
+  } else if (switchHold) {
+    stagger = (placement.col + Math.floor(placement.index / cols)) * wave.step;
+  } else {
+    stagger = placement.col * wave.step + (placement.index % cols) * 10;
+  }
   const delay = wave.base + Math.min(wave.cap, stagger);
   const imageDelay = Math.max(0, delay + (wave.imageOffset || 0));
-  const imageBlur = wave === ENTRY_WAVES.intro && window.matchMedia('(max-width: 600px)').matches
-    ? 5
-    : wave.imageBlur;
-  node.style.setProperty('--entry-offset', `${wave.lift}px`);
+  const lift = narrow ? wave.mobileLift : wave.lift;
+  const imageBlur = narrow ? wave.mobileImageBlur : wave.imageBlur;
+  node.style.setProperty('--entry-offset', `${lift}px`);
+  if (fanX) node.style.setProperty('--entry-x', `${fanX}px`);
+  else node.style.removeProperty('--entry-x');
   node.style.setProperty('--entry-delay', `${delay}ms`);
   node.style.setProperty('--entry-image-delay', `${imageDelay}ms`);
   node.style.setProperty('--entry-dur', `${wave.dur}ms`);
@@ -912,6 +930,7 @@ export function maybeAnimateCardEntry(node, placement) {
     image?.classList.add('card-img-diffusion');
   }
   node.classList.add('card-enter');
+  if (isIntroWave) node.classList.add('card-intro-fan');
   if (introHold) {
     introHeld.add(node);
     return;
@@ -982,8 +1001,8 @@ export function settleCardEntry(node, { immediate = false } = {}) {
      从当前半透明值补播一小段淡入。先用 inline transition:none 结算一帧，再恢复基础规则。 */
   const previousTransition = node.style.transition;
   if (immediate) node.style.transition = 'none';
-  node.classList.remove('card-enter', 'is-entered', 'intro-focus', 'switch-focus');
-  for (const prop of ['--entry-delay', '--entry-image-delay', '--entry-dur', '--entry-image-blur', '--entry-image-dur', '--entry-ease']) {
+  node.classList.remove('card-enter', 'is-entered', 'card-intro-fan', 'intro-focus', 'switch-focus');
+  for (const prop of ['--entry-x', '--entry-delay', '--entry-image-delay', '--entry-dur', '--entry-image-blur', '--entry-image-dur', '--entry-ease']) {
     node.style.removeProperty(prop);
   }
   node.querySelector('.card-img')?.classList.remove('card-img-diffusion', 'intro-image-ready', 'switch-image-ready');

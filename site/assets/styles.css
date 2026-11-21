@@ -1323,13 +1323,54 @@ body.dark .bwall-send{color:#1b1406}
 .wish-combo[data-tier="4"].is-milestone{animation:wishRing var(--dur-story) var(--ease-out),wishShine 1.4s linear infinite}
 @keyframes wishRing{from{box-shadow:0 0 0 0 color-mix(in srgb,var(--bday) 70%,transparent),0 5px 14px rgba(28,32,58,.18)}
   to{box-shadow:0 0 0 16px transparent,0 5px 14px rgba(28,32,58,.18)}}
-/* 开场生日牌（intro.js 的 startBirthdayCard）：反面同普通牌背、角标换日期；正面同站内卡片：竖图 + 卡身 */
-.intro-bday{position:absolute;inset:0;z-index:30;transform-style:preserve-3d;transform:perspective(1400px) rotateY(180deg)}
-.intro-bday>.intro-card,.intro-bday-face{backface-visibility:hidden;-webkit-backface-visibility:hidden}
-.intro-bday>.intro-card{transform:rotateY(180deg)}
-.intro-bday>.intro-card::after{content:attr(data-mark);color:var(--bday)}
+/* 开场生日插页卡（intro.js 的 startBirthdayCard）：典籍中缝居中翻面亮相；反面典籍格纹 + 日期角标，正面同站内竖卡 */
+html.intro-arm .intro-stage{
+  --intro-bday-w:clamp(172px,15.5vw,236px);
+  --intro-bday-h:calc(var(--intro-bday-w) * 1.4608 + 86px);
+}
+@media (max-width:600px){
+  html.intro-arm .intro-stage{--intro-bday-w:42vw;--intro-bday-h:calc(var(--intro-bday-w) * 1.4608 + 76px)}
+}
+.intro-bday{
+  position:absolute;left:50%;top:46%;width:var(--intro-bday-w);height:var(--intro-bday-h);translate:-50% -50%;
+  z-index:30;pointer-events:none;transform-style:preserve-3d;transform:perspective(1400px) rotateY(180deg);
+}
+/* 生日当天插页卡居中时，大字与副标让位到插页卡两翼（手机端挪到卡上方），避免被卡身挡住半字 */
+html.intro-arm .intro-stage.has-bday .intro-folio-left .intro-folio-word,
+html.intro-arm .intro-stage.has-bday .intro-folio-left .intro-folio-sub{right:calc(var(--intro-bday-w) / 2 + 34px)}
+html.intro-arm .intro-stage.has-bday .intro-folio-right .intro-folio-word,
+html.intro-arm .intro-stage.has-bday .intro-folio-right .intro-folio-sub{left:calc(var(--intro-bday-w) / 2 + 34px)}
+@media (max-width:600px){
+  html.intro-arm .intro-stage.has-bday .intro-folio-word{top:calc(46% - var(--intro-bday-h) / 2 - 42px);font-size:24px;letter-spacing:2px}
+  html.intro-arm .intro-stage.has-bday .intro-folio-left .intro-folio-word{right:10px}
+  html.intro-arm .intro-stage.has-bday .intro-folio-right .intro-folio-word{left:12px}
+  html.intro-arm .intro-stage.has-bday .intro-folio-sub{display:none}
+}
+.intro-bday-back,.intro-bday-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.intro-bday-back{
+  display:grid;place-items:center;font-style:normal;transform:rotateY(180deg);
+  border-radius:14px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);
+}
+.intro-bday-back::before{
+  content:"";position:absolute;inset:7px;border-radius:9px;
+  border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);
+  background:
+    repeating-linear-gradient(45deg,color-mix(in srgb,var(--accent) 12%,transparent) 0 1px,transparent 1px 9px),
+    repeating-linear-gradient(-45deg,color-mix(in srgb,var(--accent) 12%,transparent) 0 1px,transparent 1px 9px),
+    var(--accent-soft);
+}
+.intro-bday-back::after{
+  content:attr(data-mark);position:absolute;left:15px;top:14px;
+  font:600 9.5px/1 var(--font-prompt);letter-spacing:.6px;color:var(--bday);
+}
+.intro-bday-back b{
+  position:relative;padding:12px 16px;border-radius:10px;white-space:nowrap;
+  background:var(--card);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);
+  font:800 20px/1 var(--font-display);letter-spacing:.5px;color:var(--text);
+}
+.intro-bday-back b span{color:var(--accent)}
 .intro-bday-face{
-  position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  display:flex;flex-direction:column;overflow:hidden;
   border-radius:14px;background:var(--card);border:1px solid var(--bday-line);box-shadow:var(--shadow-hover);
 }
 .ibd-img{flex:none;aspect-ratio:753/1100;overflow:hidden;background:linear-gradient(160deg,var(--bday-soft),var(--accent-soft))}
@@ -1551,16 +1592,24 @@ button.crumb{max-width:11em;overflow:hidden;text-overflow:ellipsis;white-space:n
 .card.card-enter{
   /* 近零而不写死 0：首访时浏览器仍会在不透明幕布下预栅格图片滤镜，避免揭幕首帧才建层。 */
   opacity:.001;
+  /* 开场中缝展翼的横向微位移走独立 translate，不抢内联 transform 定位模板 */
+  translate:var(--entry-x,0px) 0;
   /* 起始态必须是真 hold：把 transition 写在这里会让卡片在幕布下自己从 1 过渡到 0，
      资产等待多出一两帧时尤其明显。等 is-entered flip 再同时挂 transition。 */
   transition:none;
 }
+/* 开场展翼的轻微缩放走 --card-tilt 尾槽（排在 translate3d 之后，支点严格在卡片中心）；
+   card-depth.js 在 .card-enter 与 intro-arm 期间停用，二者生命周期完全互斥，结算摘类即恢复空槽 */
+.card.card-enter.card-intro-fan{--card-tilt:scale(.975)}
 .card.card-enter.is-entered{
   opacity:1;
+  translate:0 0;
   transition:
     opacity var(--entry-dur,350ms) linear var(--entry-delay,0ms),
-    transform var(--entry-dur,350ms) var(--entry-ease,linear) var(--entry-delay,0ms);
+    transform var(--entry-dur,350ms) var(--entry-ease,linear) var(--entry-delay,0ms),
+    translate var(--entry-dur,350ms) var(--entry-ease,linear) var(--entry-delay,0ms);
 }
+.card.card-enter.card-intro-fan.is-entered{--card-tilt:scale(1)}
 .card.card-enter .card-img-diffusion.is-loaded{
   animation:cardImageDiffusion var(--entry-image-dur,260ms) linear var(--entry-image-delay,var(--entry-delay,0ms)) both;
   animation-play-state:paused;
@@ -3590,105 +3639,107 @@ html.codex-developing .masonry::after{opacity:0}
 .banner-progress.is-pending .bp-fill{clip-path:inset(0 100% 0 0)}
 .bp-text.is-sampling{font-family:var(--font-prompt);letter-spacing:.5px}
 
-/* ---------- 首访开场「显影」 ----------
-   开幕后的显影照搬 `珍贵的优化建议/动效方案演示.html` 的 INTROS.diffusion 分镜；等数据那一幕是「发牌」：
-   一叠卡背切牌，开幕时首排几张翻面飞到各自的位置（编排与等待逻辑在 app/intro.js）。
+/* ---------- 首访开场「典籍开卷」（Folio Split） ----------
+   左右双页对开封套，中缝书脊细线指示等待进度，数据就绪后左右对开，露出下方显影内容（编排在 app/intro.js）。
    全站固定播放，只让 prefers-reduced-motion 与 motion=off。
 
    两段状态机：
-     html.intro-arm            幕布落下 = 等数据（牌堆切牌）。真实 UI 的显影动画**已挂上但暂停**，
-                               这样节点插入的时机（数据到位）与播放的时机（开幕）可以分开——
-                               否则内容会在幕布背后自己演完，掀开时只剩终态。
+     html.intro-arm            双页合拢 = 等数据（书脊进度 + 今日画师解码）。真实 UI 的显影动画**已挂上但暂停**，
+                               这样节点插入的时机（数据到位）与播放的时机（开卷）可以分开——
+                               否则内容会在幕布背后自己演完，推开时只剩终态。
      html.intro-arm.intro-run  数据就绪，新插入的横幅/胶囊/卡片带着显影动画进场，仍暂停。
-     html.intro-reveal         开幕：统一放行，全部开始跑。
+     html.intro-reveal         开卷放行：对开露缝后统一放行，横幅/卡片/侧栏顺势显影。
      html.intro-done           落幕后永久留下，压掉静态骨架的常规入场；首批动态节点由
                                .intro-no-replay 单独压住。不能全局压 rail-chip/banner 内容，
                                否则以后切换法典新建的节点也失去入场动画。
 
-   性能预算（不是禁令，想改先实测手机帧率）：没做全屏 blur/filter；较强的分段显影只给单个横幅封面，首排卡片图只做短显影，
-   位移一律用独立 translate 属性（transform 被卡片定位与顶栏收起占着）。 */
+   性能预算（不是禁令，想改先实测手机帧率）：对开仅动合成属性 transform/opacity，没做全屏 blur/filter；
+   较强的分段显影只给单个横幅封面，首排卡片图只做短显影，位移一律用独立 translate 属性（transform 被卡片定位与顶栏收起占着）。 */
 
 /* --- 幕布本体：静态标签在 body 最前，第一帧就盖住，避免 JS 建节点前闪一下真实 UI --- */
 .intro-stage{display:none}
 html.intro-arm .intro-stage{
-  display:block;position:fixed;inset:0;z-index:90;pointer-events:none;
+  display:block;position:fixed;inset:0;z-index:90;overflow:hidden;pointer-events:none;
 }
-html.intro-arm .intro-veil{position:absolute;inset:0;background:var(--bg);pointer-events:auto}
-html.intro-arm body:not(.dark) .intro-veil{background:var(--page-wash,none),var(--bg)}   /* 没有光晕色时 --page-wash 落空，退回纯底色 */
-/* 牌堆：站里同款卡片的背面叠成一副牌，等数据时由 intro.js 切牌；开幕时首排几张从牌顶翻面飞到各自的位置。
-   尺寸照首排卡片估：竖图（753×1100）+ 卡身；桌面宽随视口在 172–236px 之间，手机取 40vw。
-   放在屏幕中间偏上：开幕后首排就在它两侧和下方，发牌的路线以横向为主。 */
-html.intro-arm .intro-stage{
-  --intro-card-w:clamp(172px,15.5vw,236px);
-  --intro-card-h:calc(var(--intro-card-w) * 1.4608 + 86px);
+html.intro-arm .intro-folio{
+  position:absolute;top:0;bottom:0;width:50%;overflow:hidden;
+  background:var(--bg);pointer-events:auto;will-change:transform;
 }
-@media (max-width:600px){
-  html.intro-arm .intro-stage{--intro-card-w:40vw;--intro-card-h:calc(var(--intro-card-w) * 1.4608 + 76px)}
+html.intro-arm .intro-folio-left{
+  left:0;border-right:1px solid color-mix(in srgb,var(--line) 82%,transparent);
 }
-html.intro-arm .intro-deck{
-  position:absolute;left:50%;top:46%;width:var(--intro-card-w);height:var(--intro-card-h);translate:-50% -50%;
-  animation:introDeckIn .38s cubic-bezier(.22,1,.36,1) backwards;
+html.intro-arm .intro-folio-right{right:0}
+html.intro-arm .intro-stage.is-opening .intro-folio{pointer-events:none}
+html.intro-arm .intro-stage.is-opening .intro-folio-left{box-shadow:18px 0 44px rgba(18,22,40,.10)}
+html.intro-arm .intro-stage.is-opening .intro-folio-right{box-shadow:-18px 0 44px rgba(18,22,40,.10)}
+html.intro-arm body.dark .intro-stage.is-opening .intro-folio-left{box-shadow:18px 0 48px rgba(0,0,0,.55)}
+html.intro-arm body.dark .intro-stage.is-opening .intro-folio-right{box-shadow:-18px 0 48px rgba(0,0,0,.55)}
+/* 浅色档承接两角光晕，与底图 --page-wash 保持同一色系；无光晕变量时退回纯底色 */
+html.intro-arm body:not(.dark) .intro-folio-left{
+  background:radial-gradient(90vmax 65vmax at 0% 0%,var(--glow-1,transparent),transparent 76%),var(--bg);
 }
-@keyframes introDeckIn{from{opacity:0;translate:-50% calc(-50% + 16px);scale:.95}}
-.intro-card{
-  position:absolute;inset:0;display:grid;place-items:center;font-style:normal;
-  border-radius:14px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);
+html.intro-arm body:not(.dark) .intro-folio-right{
+  background:radial-gradient(90vmax 65vmax at 100% 6%,var(--glow-2,transparent),transparent 76%),var(--bg);
 }
-/* 牌背：内框里一层强调色细格纹，角标与花纹都走伪元素，每张牌只有一个品牌字节点 */
-.intro-card::before{
-  content:"";position:absolute;inset:7px;border-radius:9px;
-  border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);
-  background:
-    repeating-linear-gradient(45deg,color-mix(in srgb,var(--accent) 12%,transparent) 0 1px,transparent 1px 9px),
-    repeating-linear-gradient(-45deg,color-mix(in srgb,var(--accent) 12%,transparent) 0 1px,transparent 1px 9px),
-    var(--accent-soft);
+/* 中缝书脊：纵向进度细线，等数据时渐近生长，就绪后补满发光并淡出 */
+html.intro-arm .intro-spine{
+  position:absolute;left:50%;top:0;bottom:0;width:2px;translate:-50% 0;z-index:5;
+  pointer-events:none;overflow:hidden;
+  background:color-mix(in srgb,var(--accent) 16%,transparent);
 }
-.intro-card::after{
-  content:"NAI";position:absolute;left:15px;top:14px;
-  font:600 9.5px/1 var(--font-prompt);letter-spacing:.6px;color:color-mix(in srgb,var(--accent) 72%,transparent);
+html.intro-arm .intro-spine-fill{
+  display:block;width:100%;height:100%;transform-origin:top center;transform:scaleY(0);will-change:transform;
+  background:linear-gradient(180deg,transparent,var(--accent) 36%,var(--accent) 64%,transparent);
 }
-.intro-card b{
-  position:relative;padding:12px 16px;border-radius:10px;white-space:nowrap;
-  background:var(--card);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);
-  font:800 20px/1 var(--font-display);letter-spacing:.5px;color:var(--text);
+html.intro-arm .intro-spine.is-full{
+  overflow:visible;
+  box-shadow:0 0 14px color-mix(in srgb,var(--accent) 55%,transparent);
 }
-.intro-card b span{color:var(--accent)}
-/* 模块还没起跑时就要有牌堆的厚度：最后一张画在最上面，往前每张错开一点（intro.js 接手后改写同一组偏移） */
-.intro-deck>.intro-card:nth-last-child(2){transform:translate(2px,2.4px)}
-.intro-deck>.intro-card:nth-last-child(3){transform:translate(4px,4.8px)}
-.intro-deck>.intro-card:nth-last-child(4){transform:translate(6px,7.2px)}
-.intro-deck>.intro-card:nth-last-child(5){transform:translate(8px,9.6px)}
-.intro-deck>.intro-card:nth-last-child(6){transform:translate(10px,12px)}
-/* 名字行：等数据时 artist: 后面的字乱跳，数据到了定在今日画师上（只在直接进站时显示）。
-   用系统等宽字：网络字体这时多半还没到，比例字体会让乱跳的字一直抖宽度 */
-html.intro-arm .intro-today{
-  position:absolute;left:50%;top:calc(46% + var(--intro-card-h) / 2 + 26px);translate:-50% 0;
-  display:flex;align-items:center;gap:10px;white-space:nowrap;
-  animation:introTodayIn .3s cubic-bezier(.22,1,.36,1) .16s backwards;
+/* 对开大字：沿中缝分列左右，首帧即在画面中央 */
+html.intro-arm .intro-folio-word{
+  position:absolute;top:46%;translate:0 -50%;white-space:nowrap;
+  font:800 clamp(34px,5.2vw,58px)/1 var(--font-display);letter-spacing:6px;
+  animation:introFolioWordIn .36s cubic-bezier(.22,1,.36,1) backwards;
 }
+html.intro-arm .intro-folio-left .intro-folio-word{right:22px;color:var(--text)}
+html.intro-arm .intro-folio-right .intro-folio-word{left:26px;color:var(--accent)}
+@keyframes introFolioWordIn{from{opacity:0;translate:0 calc(-50% + 10px)}}
+/* 中缝下方的副标与今日画师解码行：用系统等宽字，避免网络字体未到前乱跳字符抖宽度 */
+html.intro-arm .intro-folio-sub{
+  position:absolute;top:calc(46% + 48px);max-width:calc(100% - 44px);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font:500 12px/1.25 ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  letter-spacing:.9px;color:var(--muted);font-variant-ligatures:none;
+  animation:introSubIn .32s cubic-bezier(.22,1,.36,1) .1s backwards;
+}
+html.intro-arm .intro-folio-left .intro-folio-sub{right:22px;text-align:right}
+html.intro-arm .intro-folio-right .intro-folio-sub{left:26px}
 html.intro-arm .intro-today[hidden]{display:none}
-@keyframes introTodayIn{from{opacity:0;translate:-50% 6px}}
-.intro-today>span{
-  padding:3px 9px;border-radius:999px;font:700 11px/1.35 var(--font-ui);letter-spacing:.5px;
-  color:var(--accent);background:var(--accent-soft);
+html.intro-arm .intro-today b{font-weight:600;color:var(--text)}
+html.intro-arm .intro-today.is-locked b{color:var(--accent)}
+@keyframes introSubIn{from{opacity:0;translate:0 6px}}
+/* 底角页码与百分比：tabular-nums 避免跳位 */
+html.intro-arm .intro-folio-corner{
+  position:absolute;bottom:calc(26px + env(safe-area-inset-bottom,0px));
+  font:600 11.5px/1 ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  font-variant-numeric:tabular-nums;letter-spacing:.6px;color:var(--muted);
 }
-.intro-today b{
-  font:500 14px/1 ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
-  color:var(--muted);font-variant-ligatures:none;
+html.intro-arm .intro-folio-left .intro-folio-corner{left:26px}
+html.intro-arm .intro-folio-right .intro-folio-corner{right:26px}
+@media (max-width:600px){
+  html.intro-arm .intro-folio-word{font-size:clamp(28px,8.5vw,38px);letter-spacing:3px}
+  html.intro-arm .intro-folio-left .intro-folio-word{right:12px}
+  html.intro-arm .intro-folio-right .intro-folio-word{left:14px}
+  html.intro-arm .intro-folio-sub{top:calc(46% + 34px);max-width:calc(100% - 22px);font-size:10px;letter-spacing:.2px}
+  html.intro-arm .intro-folio-left .intro-folio-sub{right:12px}
+  html.intro-arm .intro-folio-right .intro-folio-sub{left:14px}
+  html.intro-arm .intro-folio-corner{bottom:calc(20px + env(safe-area-inset-bottom,0px));font-size:10.5px}
+  html.intro-arm .intro-folio-left .intro-folio-corner{left:16px}
+  html.intro-arm .intro-folio-right .intro-folio-corner{right:16px}
 }
-.intro-today i{font-style:normal;color:var(--text)}
-.intro-today.is-locked i{color:var(--accent)}
-/* 发牌替身：克隆的真卡做正面、一张牌背做反面，落地那一刻换回真卡（intro.js）。
-   真卡在替身落地前保持透明；它自己的显影也压掉，改由替身在半空做，免得同一张图滤镜两份 */
-.intro-flyer{position:fixed;left:0;top:0;z-index:95;pointer-events:none;transform-style:preserve-3d;transform-origin:50% 50%}
-.intro-flyer>.card,.intro-flyer>.intro-card{backface-visibility:hidden;-webkit-backface-visibility:hidden}
-.intro-flyer>.intro-card{transform:rotateY(180deg)}
-.intro-flyer>.card{box-shadow:var(--shadow-hover)}
-html.intro-arm .masonry .card.intro-dealt{opacity:0!important;transition:none!important}
-html.intro-arm .masonry .card.intro-dealt .card-img{animation:none!important}
-/* 噪声层活得比幕布久：要一直盖到封面显影完（原方案 .14→.05→0 三段，由 intro.js 驱动） */
+/* 纸感细颗粒：等数据时轻铺，开卷后柔和退净（由 intro.js 驱动） */
 html.intro-arm .intro-noise{
-  position:absolute;inset:0;display:block;opacity:0;pointer-events:none;
+  position:absolute;inset:0;z-index:8;display:block;opacity:0;pointer-events:none;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.9'/%3E%3C/svg%3E");
   background-size:120px 120px;
 }
@@ -3874,7 +3925,7 @@ html.motion-off{scroll-behavior:auto!important}
   .tree.tree-entering .tree-row>span,
   .rail-chip,.card-img,.card-img-diffusion,.tree-spy,
   .brand,.sb-head,.banner-title,.banner-eyebrow,.banner-author,.banner-meta,.card.card-enter,
-  .topbar::after,.codex-banner::after,.intro-noise,.intro-deck,.intro-today,.copy-sample-noise,.copy-seed-chip,
+  .topbar::after,.codex-banner::after,.intro-noise,.intro-folio,.intro-folio-word,.intro-folio-sub,.intro-spine,.intro-spine-fill,.intro-bday,.copy-sample-noise,.copy-seed-chip,
   .feedback-progress-intro button[aria-busy="true"] span{
     animation:none!important;
     transition:none!important;

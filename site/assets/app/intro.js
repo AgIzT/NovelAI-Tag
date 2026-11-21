@@ -1,53 +1,45 @@
-/* 首访开场：等数据时「发牌」，开幕后「显影」。
+/* 首访开场「典籍开卷」（Folio Split）：等数据时双页合拢 + 书脊推进，开幕时左右对开 + 内容显影。
 
    等数据（html.intro-arm）：
-     ① 全屏噪声层     opacity 0→.14→.05→0（浅色主题按比例抬到 .16/.065，见下），活得比幕布久
-     ② 牌堆切牌        index.html 里写死的一叠卡背（首帧就在，不等模块），这里每 540ms 切一次牌；
-                      数据不来就一直切，画面不会停住。等待逻辑仍是 dataReady，不靠动画时长
-     ③ 今日画师名字行  只在直接进站时显示（featured.js 的 isPlainFeaturedVisit）：artist: 后面的字乱跳，
-                      app.js 拿到首屏真放在第一格的今日画师后调 setIntroFeatured()，约 0.3s 内逐字定住
-     ③' 生日牌         只在所长生日（birthday.js）：牌堆顶多压一张牌，起手翻面；切牌照常在它底下进行，
-                      翻完停够 BIRTHDAY_HOLD_MS 才允许开幕，开幕时它先上浮淡出再发牌
-   开幕（intro-reveal）：
-     ④ 发牌            首排几张卡从牌堆顶一张接一张翻面飞到各自的位置（替身是真卡的克隆），图在半空由糊到清，
-                      落地即换回真卡；第一张就是今日画师
-     ⑤ 连续显影        横幅封面按桌面 12→4.5→1.2→0 / 移动 8→3→.8→0 平滑收敛（原 diffusion 分镜），
-                      分类圆点 scale(.4)→1 / 200ms / 错峰 50ms，首排以外的卡片照常短显影
+     ① 纸感颗粒层     .intro-noise 轻铺（深色 .08 / 浅色 .10），开卷时柔和退净
+     ② 典籍双页与书脊  index.html 静态首帧即盖住页面（左「法典」、右「图鉴」），书脊细线与右下角百分比
+                      按平滑渐近曲线推进；数据不来就自然减速等待，绝不卡死也不虚假跳满
+     ③ 今日画师名字行  只在直接进站时显示（featured.js 的 isPlainFeaturedVisit）：右侧副标 artist: 乱跳，
+                      app.js 拿到首屏真放在第一格的今日画师后调 setIntroFeatured()，约 0.22s 内逐字定住
+     ③' 生日插页卡     只在所长生日（birthday.js）：中缝中央浮出一张典藏竖卡，封面解码后翻面亮相，
+                      翻完停够 BIRTHDAY_HOLD_MS 才允许开卷，开卷前先上浮淡出
+   开卷（intro-reveal）：
+     ④ 书脊补满与对开  书脊冲满 100% 轻闪，随后左右两扇页幕沿编辑重曲线（cubic-bezier(.76,0,.24,1)）
+                      向两侧推开；刚裂开中缝即刻放行下方真实 UI 的入场与显影
+     ⑤ 连续显影        横幅封面按桌面 12→4.5→1.2→0 / 移动 8→3→.8→0 平滑收敛，分类胶囊错峰弹入，
+                      首排焦点卡经 masonry.js 的 intro:reveal 放行并短显影，横幅计数同步滚动
 
    纪律：静止帧 = 终态（收尾把 intro-* 全摘掉；intro-done 只压静态页面骨架，首批动态节点另打
-   intro-no-replay，不能顺手锁死以后切换法典新建的 chip/banner 内容）；任意输入立即跳终态，
-   在飞的替身当场收掉、真卡当场显形。 */
+   intro-no-replay，不能顺手锁死以后切换法典新建的 chip/banner 内容）；任意输入立即跳终态。 */
 
 import { $, esc } from './utils.js';
 import { isPlainFeaturedVisit } from './featured.js';
 import { isBirthday, BIRTHDAY_AUTHOR, BIRTHDAY_LABEL } from './birthday.js';
 
-const introActions = { settleCardEntry: () => {} };
-
-export function setIntroActions(actions) {
-  Object.assign(introActions, actions);
-}
-
 /* ⚠ 与 index.html 内联脚本共用：改名两处同改。UI 里不暴露，只给截图器 / 回归脚本关动效用
    （tools/verify_ui.py 经 Page.addScriptToEvaluateOnNewDocument 预置成 'off'） */
 export const MOTION_STORAGE_KEY = 'fadian-motion';
 
-const MIN_SHOW_MS = 700;     // 数据秒到时也让牌堆亮个相、切一次牌（原打字机本来就占约 0.8s）
-const CUT_FIRST_MS = 300;
-const CUT_EVERY_MS = 540;
-const DEAL_FLY_MS = 520;
-const DEAL_FACE_AT = 0.42;
-const DEVELOP_MS = 520;      // hero 封面显影，与 CSS 的 introDevelop 必须同长
-const TAIL_MS = 180;         // 等首排图片/分类波落稳；最后一帧不靠 finish() 硬切
-const VEIL_MS = 130;         // 幕布只负责交接；不能盖住卡片最有辨识度的模糊→清晰阶段
+const MIN_SHOW_MS = 560;         // 数据秒到时也让典籍双页稳稳亮个相、书脊走一段
+const LOCK_MS = 170;             // 数据就绪后书脊补满 100% 并轻停一拍再推开
+const SPLIT_MS = 540;            // 左右双页对开时长
+const REVEAL_AT_MS = 110;        // 中缝刚裂开约 12% 时放行下层显影，既不藏在幕后也不慢半拍
+const DEVELOP_MS = 520;          // hero 封面显影，与 CSS 的 introDevelop 必须同长
+const TAIL_MS = 160;             // 等首排图片/分类波落稳；最后一帧不靠 finish() 硬切
 const INTRO_ASSET_WAIT_MS = 420;
-const PROGRESS_DELAY_MS = 90;
+const PROGRESS_DELAY_MS = 70;
 const PROGRESS_MS = 520;
-const BIRTHDAY_FLIP_AT_MS = 260;     // 牌堆入场（introDeckIn .38s）快落定时翻
-const BIRTHDAY_COVER_WAIT_MS = 900;  // 封面图最多等到这时，没到就带着占位底色先翻
+const BIRTHDAY_FLIP_AT_MS = 220;
+const BIRTHDAY_COVER_WAIT_MS = 900;
 const BIRTHDAY_FLIP_MS = 480;
-const BIRTHDAY_HOLD_MS = 900;        // 翻完至少停这么久再开幕，字要读得完
+const BIRTHDAY_HOLD_MS = 900;
 const EASE = 'cubic-bezier(.22,1,.36,1)';
+const EASE_SPLIT = 'cubic-bezier(.76,0,.24,1)';
 
 let settled = null;
 let settleNow = null;
@@ -112,7 +104,7 @@ export function startIntro() {
   dataReadyRequested = false;
   bindSkip();
   document.addEventListener('intro:timeout', onIntroTimeout, { once: true });
-  startShuffle();
+  startSpineTrack();
   startBirthdayCard();
   startTodayScramble();
   runIntro().catch(() => finishIntro({ skipped: true }));
@@ -121,235 +113,111 @@ export function startIntro() {
 const onIntroTimeout = () => finishIntro({ skipped: true });
 
 async function runIntro() {
-  const noise = document.querySelector('.intro-noise');
+  const stage = $('#introStage');
+  const noise = stage?.querySelector('.intro-noise');
+  const left = $('#introFolioLeft');
+  const right = $('#introFolioRight');
+  const spine = $('#introSpine');
+  const spineFill = $('#introSpineFill');
+  const pct = $('#introPct');
 
-  // ① 噪声铺开：站点先是「一片未成形」
-  // ⚠ 原方案的 .14 是按近黑舞台（#07080d）调的；浅色主题略抬一档，但不能让噪声盖住
-  //   幕布退开后的图片显影。
+  // ① 轻铺一层纸感颗粒：衬出精装画册触感，不抢双页干净底色
   const dark = document.body.classList.contains('dark');
-  const peak = dark ? 0.14 : 0.16;
-  const mid = dark ? 0.05 : 0.065;
+  const peak = dark ? 0.08 : 0.10;
   const noiseIn = noise?.animate([{ opacity: 0 }, { opacity: peak }], { duration: 200, fill: 'both' });
+  if (noiseIn) noiseIn.id = 'intro-noise-in';
   if (finished) return;
 
-  // ②③ 切牌与名字行已在 startIntro 起跑；这里只等「首次视图 + 首排图片到位」与最短亮相时长（生日牌另要翻完停够）
+  // ②③ 等「首次视图 + 首排焦点图解码到位」与最短亮相时长（生日当天还要等插页卡翻完停够）
   await Promise.all([dataReady, wait(MIN_SHOW_MS), bday.shown]);
   if (finished) return;
 
-  // ④ 开幕：幕布让开，真实 UI 在噪声底下连续分段显影（CSS introDevelop / play-state 由此刻放行）
-  const html = document.documentElement;
-  html.classList.add('intro-reveal');
+  // ④ 书脊冲满 100% 并轻停一拍；如有生日插页卡，先上浮让路
+  stopSpineTrack();
+  const fromRatio = spineRatio;
+  if (spineFill) {
+    const fillEnd = spineFill.animate(
+      [{ transform: `scaleY(${fromRatio})` }, { transform: 'scaleY(1)' }],
+      { duration: LOCK_MS, easing: EASE, fill: 'forwards' },
+    );
+    fillEnd.id = 'intro-spine-lock';
+  }
+  spine?.classList.add('is-full');
+  if (pct) pct.textContent = '100%';
+  if (bday.card) {
+    const bdayOut = bday.card.animate(
+      [{ opacity: 1, translate: '-50% -50%' }, { opacity: 0, translate: '-50% calc(-50% - 28px)' }],
+      { duration: 200, easing: 'ease-in', fill: 'forwards' },
+    );
+    bdayOut.id = 'intro-bday-out';
+  }
+
+  await wait(LOCK_MS);
+  if (finished) return;
+
+  // ⑤ 正式对开：双页立即让出交互，沿重曲线向左右推开
+  stage?.classList.add('is-opening');
   noiseIn?.finish();
-  const veil = document.querySelector('.intro-veil');
-  veil?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: VEIL_MS, easing: 'ease-out', fill: 'forwards' });
-  timers.push(window.setTimeout(() => { if (veil) veil.style.display = 'none'; }, VEIL_MS));
-  document.dispatchEvent(new CustomEvent('intro:reveal'));
-  const dealMs = dealFirstRow();
+  if (spine) {
+    const spineOut = spine.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' });
+    spineOut.id = 'intro-spine-out';
+  }
+  if (left) {
+    const openL = left.animate(
+      [{ transform: 'translateX(0)' }, { transform: 'translateX(-102%)' }],
+      { duration: SPLIT_MS, easing: EASE_SPLIT, fill: 'forwards' },
+    );
+    openL.id = 'intro-folio-open-l';
+  }
+  if (right) {
+    const openR = right.animate(
+      [{ transform: 'translateX(0)' }, { transform: 'translateX(102%)' }],
+      { duration: SPLIT_MS, easing: EASE_SPLIT, fill: 'forwards' },
+    );
+    openR.id = 'intro-folio-open-r';
+  }
+  if (noise) {
+    const noiseOut = noise.animate([{ opacity: peak }, { opacity: 0 }], { duration: 260, easing: 'ease-out', fill: 'forwards' });
+    noiseOut.id = 'intro-noise-out';
+  }
 
-  // 噪声跟着显影两段退场：先在轮廓成形时回落，再在细节清晰时退净
+  // ⑥ 中缝裂开瞬间放行下方页面入场、横幅/首排卡片显影与进度条滚数
   timers.push(window.setTimeout(() => {
-    noise?.animate([{ opacity: peak }, { opacity: mid }], { duration: 180, fill: 'both' });
-  }, VEIL_MS));
-  timers.push(window.setTimeout(() => {
-    noise?.animate([{ opacity: mid }, { opacity: 0 }], { duration: 160, fill: 'both' });
-  }, DEVELOP_MS));
+    if (finished) return;
+    document.documentElement.classList.add('intro-reveal');
+    document.dispatchEvent(new CustomEvent('intro:reveal'));
+    startProgressCount();
+  }, REVEAL_AT_MS));
 
-  startProgressCount();
-  // 发牌比显影长时多等最后一张落地：动画按帧对齐，定时器若抢在落地之前收尾，那张真卡会再淡入一次
-  await wait(Math.max(DEVELOP_MS + TAIL_MS, dealMs + 80));
+  await wait(Math.max(SPLIT_MS + 60, REVEAL_AT_MS + DEVELOP_MS + TAIL_MS));
   finishIntro();
 }
 
-/* ---------- 牌堆：切牌（等数据）与发牌（开幕） ---------- */
+/* ---------- 书脊渐近进度（等数据时平滑推进，不假满、不倒退） ---------- */
 
-const deal = { cards: [], shuffling: false, flyers: [], dealt: [] };
-const slot = k => `translate(${k * 2}px,${k * 2.4}px)`;
+let spineRaf = 0;
+let spineRatio = 0;
 
-function placeDeck() {
-  const n = deal.cards.length;
-  deal.cards.forEach((card, k) => { card.style.zIndex = String(n - k); card.style.transform = slot(k); });
-}
-
-/* 切牌：顶牌往一侧抽出、塞回牌底，左右交替；其余每张上移一格。
-   index.html 里最后一张牌画在最上面，所以倒过来排：cards[0] 是顶牌。 */
-function startShuffle() {
-  const deck = $('#introDeck');
-  if (!deck) return;
-  deal.cards = [...deck.children].reverse();
-  deal.shuffling = true;
-  placeDeck();
-  let dir = 1;
-  const cut = () => {
-    if (!deal.shuffling || finished) return;
-    const width = deck.getBoundingClientRect().width;
-    const top = deal.cards.shift();
-    const out = `translate(${dir * width * 0.7}px,-10px) rotate(${dir * 8}deg)`;
-    top.style.zIndex = String(deal.cards.length + 2);   // 抽出途中压在所有牌之上，塞回时再落到牌底
-    const lift = top.animate([{ transform: slot(0) }, { transform: out }],
-      { duration: 200, easing: 'cubic-bezier(.3,.6,.3,1)', fill: 'forwards' });
-    const n = deal.cards.length + 1;
-    deal.cards.forEach((card, k) => {
-      card.animate([{ transform: slot(k + 1) }, { transform: slot(k) }], { duration: 240, easing: EASE });
-      card.style.transform = slot(k);
-      card.style.zIndex = String(n - k);
-    });
-    deal.cards.push(top);
-    lift.finished.then(() => {
-      if (!deal.shuffling) return;
-      top.style.zIndex = '0';
-      top.style.transform = slot(n - 1);
-      top.animate([{ transform: out }, { transform: slot(n - 1) }], { duration: 240, easing: EASE });
-      lift.cancel();
-    }, () => {});
-    dir = -dir;
-    timers.push(window.setTimeout(cut, CUT_EVERY_MS));
+function startSpineTrack() {
+  const fill = $('#introSpineFill');
+  const pct = $('#introPct');
+  if (!fill && !pct) return;
+  const start = performance.now();
+  const tick = now => {
+    if (finished) return;
+    const elapsed = Math.max(0, now - start);
+    // 指数渐近曲线：快网前段利落，慢网柔和贴近 92% 等待数据到来
+    spineRatio = Math.min(0.92, 0.92 * (1 - Math.exp(-elapsed / 880)));
+    if (fill) fill.style.transform = `scaleY(${spineRatio.toFixed(4)})`;
+    if (pct) pct.textContent = `${String(Math.round(spineRatio * 100)).padStart(2, '0')}%`;
+    spineRaf = requestAnimationFrame(tick);
   };
-  timers.push(window.setTimeout(cut, CUT_FIRST_MS));
+  spineRaf = requestAnimationFrame(tick);
 }
 
-/* 首排 = 视口里最靠上的那一排卡，按 left 从左到右（瀑布流第一格在最左）。
-   取落地矩形时临时归零主内容与卡片的入场位移；同一任务内还原，不结束或重启原动画。 */
-function firstRowCards() {
-  const nodes = [...document.querySelectorAll('#masonry .card')];
-  const styles = [];
-  const override = (node, prop, value) => {
-    if (!node) return;
-    styles.push([node, prop, node.style.getPropertyValue(prop), node.style.getPropertyPriority(prop)]);
-    node.style.setProperty(prop, value, 'important');
-  };
-  try {
-    override($('#main'), 'translate', 'none');
-    for (const card of nodes) {
-      override(card, 'transition', 'none');
-      override(card, '--entry-offset', '0px');
-    }
-    const cards = nodes.map(card => [card, card.getBoundingClientRect()])
-      .filter(([, r]) => r.width > 0 && r.bottom > 0 && r.top < innerHeight);
-    if (!cards.length) return [];
-    const top = Math.min(...cards.map(([, r]) => r.top));
-    return cards.filter(([, r]) => r.top - top < 10).sort((a, b) => a[1].left - b[1].left);
-  } finally {
-    for (const [node, prop, value, priority] of styles.reverse()) {
-      if (value) node.style.setProperty(prop, value, priority);
-      else node.style.removeProperty(prop);
-    }
-  }
-}
-
-/* 发牌：每张首排卡克隆成替身，从牌堆顶翻面飞到真卡的位置，落地即换回真卡。返回整段时长。
-   只有原本就是显影焦点（intro-focus）的那几张替身做模糊收清，守住「桌面 ≤3、手机 1 张滤镜」的预算；
-   开幕时图还没到的，替身逐帧跟着真卡补上 src / 加载完成态。 */
-function dealFirstRow() {
-  deal.shuffling = false;
-  const deck = $('#introDeck');
-  const today = $('#introToday');
-  if (today && !today.hidden && !today.classList.contains('is-gone')) {
-    today.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
-  }
-  // 生日牌让路：用独立的 translate 往上浮，不打断翻面动画留下的 transform
-  bday.card?.animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: '0 -28px' }],
-    { duration: 240, easing: 'ease-in', fill: 'forwards' });
-  if (!deck) return 0;
-  for (const card of deal.cards) for (const anim of card.getAnimations()) anim.cancel();
-  placeDeck();
-  const row = firstRowCards();
-  const stagger = innerWidth <= 600 ? 110 : 85;
-  const fadeDeck = delay => deck.animate([{ opacity: 1, scale: 1 }, { opacity: 0, scale: 0.92 }],
-    { duration: 220, delay, easing: 'ease-in', fill: 'forwards' });
-  if (!row.length) {
-    fadeDeck(0);
-    return 220;
-  }
-  const d = deck.getBoundingClientRect();
-  const cx = d.left + d.width / 2;
-  const cy = d.top + d.height / 2;
-  row.forEach(([card, r], i) => {
-    card.classList.add('intro-dealt');
-    deal.dealt.push(card);
-    const fly = document.createElement('div');
-    fly.className = 'intro-flyer';
-    fly.inert = true;
-    fly.setAttribute('aria-hidden', 'true');
-    fly.style.width = `${r.width}px`;
-    fly.style.height = `${r.height}px`;
-    const face = card.cloneNode(true);
-    const focus = face.classList.contains('intro-focus');
-    face.classList.remove('card-enter', 'is-entered', 'intro-focus', 'switch-focus', 'intro-dealt', 'intro-no-replay');
-    face.removeAttribute('data-entry-pending');
-    face.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;transform:none;opacity:1;margin:0;transition:none';
-    const back = document.createElement('i');
-    back.className = 'intro-card';
-    back.innerHTML = '<b>法典<span>图鉴</span></b>';
-    fly.append(face, back);
-    document.body.append(fly);
-    deal.flyers.push(fly);
-
-    const delay = i * stagger;
-    timers.push(window.setTimeout(() => { if (deal.cards[i]) deal.cards[i].style.visibility = 'hidden'; }, delay));
-    const s0 = d.width / r.width;
-    const sx = cx - r.width / 2;
-    const sy = cy - r.height / 2;
-    const tilt = (i % 2 ? 1 : -1) * (4 + i);
-    const flight = fly.animate([
-      { transform: `perspective(1600px) translate(${sx}px,${sy}px) rotateY(180deg) rotate(0deg) scale(${s0})` },
-      { transform: `perspective(1600px) translate(${(sx + r.left) / 2}px,${Math.min(sy, r.top) - 46}px) rotateY(95deg) rotate(${tilt}deg) scale(${(s0 + 1) / 2})`, offset: DEAL_FACE_AT },
-      { transform: `perspective(1600px) translate(${r.left}px,${r.top}px) rotateY(0deg) rotate(0deg) scale(1)` },
-    ], { duration: DEAL_FLY_MS, delay, easing: 'cubic-bezier(.3,.7,.25,1)', fill: 'both' });
-
-    const img = face.querySelector('.card-img');
-    const realImg = card.querySelector('.card-img');
-    if (img && realImg) {
-      const follow = () => {
-        if (!fly.isConnected) return;
-        const src = realImg.getAttribute('src');
-        if (src && img.getAttribute('src') !== src) img.setAttribute('src', src);
-        if (realImg.classList.contains('is-loaded') || (img.complete && img.naturalWidth)) {
-          img.classList.add('is-loaded');
-          face.querySelector('.card-img-wrap')?.classList.remove('is-loading');
-          return;
-        }
-        requestAnimationFrame(follow);
-      };
-      follow();
-      // 翻过来那一刻图还带一点糊，落地前收清
-      if (focus) {
-        img.animate([{ filter: 'blur(6px) saturate(.75)' }, { filter: 'blur(2px) saturate(.92)', offset: 0.5 }, { filter: 'blur(0) saturate(1)' }],
-          { duration: DEAL_FLY_MS * (1 - DEAL_FACE_AT), delay: delay + DEAL_FLY_MS * DEAL_FACE_AT, easing: 'linear', fill: 'backwards' });
-      }
-    }
-    flight.finished.then(() => landCard(card, fly), () => {});
-  });
-  // 首排以外的余牌不能留在原地淡出；最后一张起飞时整副牌堆立即退场。
-  deck.animate([{ opacity: 1 }, { opacity: 0 }],
-    { duration: 1, delay: (row.length - 1) * stagger, easing: 'step-start', fill: 'forwards' });
-  return (row.length - 1) * stagger + DEAL_FLY_MS;
-}
-
-/* 交回真卡前由瀑布流统一结算壳与图片；先撤显影规则再显形，避免图片重播与两处恢复过渡相互覆盖。 */
-function revealDealt(card) {
-  introActions.settleCardEntry(card, { immediate: true });
-  card.classList.remove('intro-dealt');
-  void card.offsetWidth;
-}
-
-function landCard(card, fly) {
-  if (!fly.isConnected) return;
-  revealDealt(card);
-  fly.remove();
-  deal.flyers = deal.flyers.filter(item => item !== fly);
-  deal.dealt = deal.dealt.filter(item => item !== card);
-}
-
-/* 跳过、超时或收尾：在飞的替身当场收掉，真卡当场显形 */
-function settleDeal() {
-  deal.shuffling = false;
-  for (const fly of deal.flyers) {
-    for (const anim of fly.getAnimations()) anim.cancel();
-    fly.remove();
-  }
-  for (const card of deal.dealt) revealDealt(card);
-  deal.flyers = [];
-  deal.dealt = [];
+function stopSpineTrack() {
+  cancelAnimationFrame(spineRaf);
+  spineRaf = 0;
 }
 
 /* ---------- 今日画师名字行 ---------- */
@@ -375,40 +243,39 @@ export function setIntroFeatured(artist) {
   if (finished || !line || !name || line.hidden) return;
   window.clearInterval(scrambleTimer);
   if (!artist) {
-    // 记一笔：开幕时别再从不透明淡一次（那会让已经淡掉的名字行闪回来）
     line.classList.add('is-gone');
-    line.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
+    const out = line.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
+    out.id = 'intro-today-out';
     return;
   }
-  // 不管名字多长都在约 0.3 秒内定完：数据到了离开幕通常只剩零点几秒
-  const per = Math.max(1, Math.ceil(artist.length / 9));
+  const per = Math.max(1, Math.ceil(artist.length / 8));
   let locked = 0;
   const tick = () => {
+    if (finished) return;
     locked = Math.min(artist.length, locked + per);
     name.textContent = artist.slice(0, locked) + noiseText(artist.length - locked);
-    if (locked < artist.length) timers.push(window.setTimeout(tick, 32));
+    if (locked < artist.length) timers.push(window.setTimeout(tick, 28));
     else line.classList.add('is-locked');
   };
   tick();
 }
 
-/* ---------- 生日牌 ---------- */
+/* ---------- 生日插页卡（所长生日当天居中压在书脊之上翻面亮相） ---------- */
 
-/* 压在牌堆最上面、不进 deal.cards：切牌只动它底下那几张，从它身后左右抽出又塞回。
-   正反两面同一套卡片语言：反面就是普通牌背，正面是图 + 卡身；整张牌转 rotateY 翻面。 */
 const bday = { card: null, coverReadyNow: null, coverReady: Promise.resolve(), shown: Promise.resolve() };
 
 function startBirthdayCard() {
-  const deck = $('#introDeck');
-  if (!deck || !isBirthday()) return;
+  const stage = $('#introStage');
+  if (!stage || !isBirthday()) return;
+  stage.classList.add('has-bday');
   const card = document.createElement('div');
   card.className = 'intro-bday';
   card.innerHTML =
     '<div class="intro-bday-face"><span class="ibd-img"></span>' +
     `<span class="ibd-body"><b>所长生日快乐</b><span class="ibd-meta"><span class="ibd-pill">${esc(BIRTHDAY_LABEL)}</span>` +
     `<small>${esc(BIRTHDAY_AUTHOR)}</small></span></span></div>` +
-    `<i class="intro-card" data-mark="${esc(BIRTHDAY_LABEL)}"><b>法典<span>图鉴</span></b></i>`;
-  deck.append(card);
+    `<i class="intro-bday-back" data-mark="${esc(BIRTHDAY_LABEL)}"><b>法典<span>图鉴</span></b></i>`;
+  stage.append(card);
   bday.card = card;
   bday.coverReady = new Promise(resolve => { bday.coverReadyNow = resolve; });
   bday.shown = (async () => {
@@ -426,7 +293,7 @@ function startBirthdayCard() {
   })();
 }
 
-/** app.js 拿到 codexes.json 后调：给生日牌正面换上图。没有图就让翻面不再等。 */
+/** app.js 拿到 codexes.json 后调：给生日插页卡正面换上图。没有图就让翻面不再等。 */
 export function setIntroBirthdayCover(url, styleAttr = '') {
   const slot = bday.card?.querySelector('.ibd-img');
   if (finished || !slot) return;
@@ -434,22 +301,19 @@ export function setIntroBirthdayCover(url, styleAttr = '') {
   if (!url) { ready(); return; }
   slot.innerHTML = `<img src="${esc(url)}" alt=""${styleAttr}>`;
   const img = slot.firstElementChild;
-  // 解码完再放行翻面，免得翻到正面那一帧才解大图
   const loaded = () => Promise.resolve(img.decode?.()).catch(() => {}).then(() => { img.classList.add('is-loaded'); ready(); });
   if (img.complete && img.naturalWidth) loaded();
   else { img.onload = loaded; img.onerror = ready; }
 }
 
+/* ---------- 资产预解码闸门（确保焦点图在双页背后解码并建层） ---------- */
+
 async function waitForIntroAssets() {
   const images = [...document.querySelectorAll('.masonry .card.intro-focus .card-img')];
   if (!images.length) return;
 
-  /* load 事件只保证字节到了，第一次 filter paint 仍可能顺带做大图解码，冷启动就会卡一帧。
-     只有 decode() 已完成的焦点图才允许显影；420ms 内没准备好的图直接走普通 load settle。 */
   const decoded = new Set();
   const prepare = async img => {
-    /* 无 src 的 <img> 也会报告 complete=true；首图由 masonry 的图片队列稍后才赋 src，
-       所以必须把「尚无 src」一起当 pending，否则这里会在 timer task 前误判无图并开幕。 */
     if (!img.hasAttribute('src') || !img.complete) {
       await new Promise(resolve => {
         const done = () => resolve();
@@ -471,8 +335,6 @@ async function waitForIntroAssets() {
   ]);
   window.clearTimeout(timeout);
   for (const img of decoded) img.classList.add('intro-image-ready');
-  /* 数据若比图片晚，ready class 与揭幕会落在同一 task：第一张带 filter 的 paint 就会暴露给用户。
-     给浏览器最多两帧在不透明幕布下建层/栅格；后台标签 rAF 被节流时用 80ms 兜底，绝不锁门。 */
   if (decoded.size && !finished) {
     await new Promise(resolve => {
       let done = false;
@@ -494,18 +356,19 @@ export function finishIntro({ skipped = false } = {}) {
   finished = true;
   for (const id of timers) { window.clearTimeout(id); window.clearInterval(id); }
   timers = [];
-  settleDeal();
+  stopSpineTrack();
   cancelAnimationFrame(counterRaf);
   counterRaf = 0;
   unbindSkip();
   document.removeEventListener('intro:timeout', onIntroTimeout);
   settleCounter();
-  /* 先把在飞的动画推到终点，再摘类；只摘类会让元素从半途「跳」回终态。
-     CSS 动画认 animationName（都以 intro 打头），WAAPI 那几条认自取的 id */
+  /* 先把在飞的页面 intro 动画推到终点，再摘类；只摘类会让元素从半途「跳」回终态。
+     CSS 动画认 animationName（都以 intro 打头），WAAPI 认自取的 intro- 前缀 id。 */
   if (typeof document.getAnimations === 'function') {
     for (const anim of document.getAnimations()) {
       const name = String(anim.animationName || '');
-      if (!name.startsWith('intro') && !String(anim.id || '').startsWith('intro-')) continue;
+      const id = String(anim.id || '');
+      if (!name.startsWith('intro') && !id.startsWith('intro-')) continue;
       try { anim.finish(); } catch { /* 已结束或不可完成，忽略 */ }
     }
   }
@@ -513,15 +376,14 @@ export function finishIntro({ skipped = false } = {}) {
   document.dispatchEvent(new CustomEvent('intro:settle', { detail: { skipped } }));
   const stage = $('#introStage');
   if (stage) stage.remove();
+  bday.card = null;
   const html = document.documentElement;
   /* 只给**当前首批动态节点**打标；换法典 innerHTML 新建的节点没有此类，常规二段浮现仍可用。
      数据前跳过时节点还不存在，留一个一次性标志，等 markIntroDataReady() 在首次 render 后补标。 */
   markCurrentDynamicNoReplay();
   if (skipped && !dataReadyRequested) suppressNextDynamicReplay = true;
   html.classList.remove('intro-arm', 'intro-run', 'intro-reveal');
-  /* ⚠ intro-done 必须留下：它压掉静态骨架与当前首批节点的常规入场动画。
-     少了这一手，摘掉 intro-* 的瞬间那些规则重新生效 = 常规入场紧接着再播一遍（看着像加载了两次）；
-     但不能全局压 rail-chip / banner 内容，否则以后切换法典的新节点也永远不会动。 */
+  /* ⚠ intro-done 必须留下：它压掉静态骨架与当前首批节点的常规入场动画。 */
   html.classList.add('intro-done');
   if (settleNow) { settleNow(); settleNow = null; }
   if (dataReadyNow) { dataReadyNow(); dataReadyNow = null; }

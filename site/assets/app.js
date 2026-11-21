@@ -33,7 +33,7 @@ import { bindUI, applyDensity, setUiActions, updateSearchScopeControl } from './
 import { readPreference, writePreference } from './app/preferences-storage.js';
 import { setUpdatesActions, loadUpdates, markBatchBookRead, bookPreviews } from './app/updates.js';
 import { maybeShowOnboarding } from './app/onboarding.js';
-import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroActions, setIntroBirthdayCover } from './app/intro.js';
+import { startIntro, beginIntroReveal, markIntroDataReady, introSettled, setIntroFeatured, setIntroBirthdayCover } from './app/intro.js';
 import { setupPageGlow } from './app/page-glow.js';
 import { setupCardDepth } from './app/card-depth.js';
 import { pinFeatured, isFeaturedEntry, featuredArtistName } from './app/featured.js';
@@ -249,7 +249,7 @@ export async function init() {
   setupSiteAnalytics();
   const initSkeletonToken = 'init';
   try {
-    /* 开场脚本先起跑，不等任何网络请求：牌堆切牌就是数据加载期的等待画面 */
+    /* 开场脚本先起跑，不等任何网络请求：典籍双页与书脊细线就是数据加载期的等待画面 */
     startIntro();
     // 背景动效同样不等网络：幕布底下先画好 t=0 那一帧（与静态光晕一致），开幕后才开始呼吸
     setupPageGlow({ enabled: readPreference(PAGE_GLOW_STORAGE_KEY) !== '0' });
@@ -1472,8 +1472,6 @@ setMasonryActions({
   favoriteBadgeHeight: entry => state.favoritesView && folderBadges(entry).length ? 24 : 0,
   reportEntry: (entry, opts = {}) => openReportDialog({ entry, ...opts }),
 });
-
-setIntroActions({ settleCardEntry });
 
 setArtistPickActions({
   applyFilter: () => applyFilter(),
