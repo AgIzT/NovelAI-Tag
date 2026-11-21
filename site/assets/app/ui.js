@@ -1206,12 +1206,17 @@ export function bindUI() {
     }
   });
 
-  /* 分类轨道：纵向滚轮转横向滚动 */
+  /* 分类轨道：纵向滚轮转横向滚动。只在分类真放不下、而且这个方向还能滚时才接管：
+     宽屏上分类常常一行放得下，滚到头时也一样，这时还拦着，鼠标停在这一行整页就滚不动。
+     触控板横向手势浏览器自己会滚，不接管；按行滚动的滚轮（Firefox）换算成像素。 */
   const rail = $('#chipRail');
   if (rail) rail.addEventListener('wheel', ev => {
-    if (!ev.deltaY) return;
+    if (!ev.deltaY || Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) return;
+    const max = rail.scrollWidth - rail.clientWidth;
+    if (max <= 1) return;
+    if (ev.deltaY < 0 ? rail.scrollLeft <= 0 : rail.scrollLeft >= max - 1) return;
     ev.preventDefault();
-    rail.scrollLeft += ev.deltaY;
+    rail.scrollLeft += ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY;
   }, { passive: false });
 
   /* 手机选择栏吸顶判定：零高度哨兵越过顶栏下沿就算吸顶，目前只有梦境浅色用（styles.css）。
