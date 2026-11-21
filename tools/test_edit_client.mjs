@@ -119,4 +119,17 @@ assert.equal(TREE_PATH_SEP.charCodeAt(0), 1, 'TREE_PATH_SEP 必须是 U+0001');
   // characterPrompts 不在图片键白名单里，mergeEntryInPlace 不管它（保留由前端 normalize 负责）
 }
 
+// 旧版编辑服务器会回传打包备注（模板下标），不能把它写成「3」「1,123,artist:a」
+{
+  const entry = { title: '旧', tags: 't', note: '已还原的备注', path: ['甲'] };
+  mergeEntryInPlace(entry, { title: '新', tags: 't', path: ['甲'], note: 3 });
+  assert.equal(entry.note, '已还原的备注');
+  mergeEntryInPlace(entry, { title: '新', tags: 't', path: ['甲'], note: [1, '123', 'artist:a'] });
+  assert.equal(entry.note, '已还原的备注');
+  mergeEntryInPlace(entry, { title: '新', tags: 't', path: ['甲'], note: '改过的备注' });
+  assert.equal(entry.note, '改过的备注');
+  mergeEntryInPlace(entry, { title: '新', tags: 't', path: ['甲'] });
+  assert.equal(entry.note, '');
+}
+
 console.log('edit-core pure functions: PASS');

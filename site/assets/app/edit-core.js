@@ -110,7 +110,8 @@ export function mergeEntryInPlace(entry, serverEntry) {
   entry.title = String(serverEntry.title || '');
   entry.tags = String(serverEntry.tags || '');
   entry.negative = String(serverEntry.negative || '');
-  entry.note = String(serverEntry.note || '');
+  // 编辑服务器会先还原打包备注；还在跑旧版服务器时会收到模板下标，这时保留内存里已还原的备注
+  if (serverEntry.note == null || typeof serverEntry.note === 'string') entry.note = String(serverEntry.note || '');
   entry.path = Array.isArray(serverEntry.path) ? serverEntry.path.slice() : entry.path;
   if (serverEntry.rating) entry.rating = serverEntry.rating;
   else delete entry.rating;

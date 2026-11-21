@@ -1,7 +1,7 @@
 import { state, ADULT_CONFIRMATION_STORAGE_KEY, RECENT_STORAGE_KEY, LAST_BROWSE_STORAGE_KEY, NSFW_STORAGE_KEY, R18G_STORAGE_KEY, DENSITY_STORAGE_KEY, SEARCH_SCOPE_STORAGE_KEY, PAGE_GLOW_STORAGE_KEY, normalizeSearchScope } from './app/state.js';
 import { $, esc, safeJsonParse, updateSearchClear, prefersReducedMotion } from './app/utils.js';
 import { setupSiteAnalytics, recordSiteEvent, beginSiteSearchObservation, cancelSiteSearchObservation } from './app/site-analytics.js';
-import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton } from './app/feedback.js';
+import { setLoading, showSkeleton, hideSkeleton, replaceSkeleton, toast } from './app/feedback.js';
 import { isCodexLocked, firstUnlockedCodex, showNsfwLockedHint, isEntryAccessBlocked, isR18gPath } from './app/access.js';
 import { loadBootstrapData, fetchCodex, fetchCodexOpening, findCodexMeta, notifyCodexDataStatus, codexUpdateFilters, entryMatchesUpdateFilter, resolveUpdateFilter } from './app/data.js';
 import { sortCategoryEntries } from './app/category-order.js';
@@ -48,7 +48,11 @@ import { setupContentBlocking, hideCard, setBlockingUiActions, updateBlockingSum
 
 let codexLoadSeq = 0;
 let pendingCodexLoad = null;
-let openingUpgrade = null; // { seq, codexId, opening, timer, promise, start }
+let openingUpgrade = null; // { seq, codexId, opening, timer, promise, autoRetries, start }
+// 开场包期间的搜索只查了开头几十条，结果不算数：观察回调先存着，完整法典到了由补全那次重排去记
+let openingSearchSettle = null;
+// 后台补全失败后的自动重试间隔；用完后靠用户操作或「重新加载」再试
+const OPENING_RETRY_DELAYS = [4000, 15000];
 let favoritesBackupBound = false;
 let favoritesFolderHistoryActive = false;
 let favoritesRefreshSeq = 0;
@@ -445,9 +449,32 @@ function watchEditModeForStyles() {
 }
 
 function cancelOpeningUpgrade() {
+  openingSearchSettle = null;
   if (!openingUpgrade) return;
   clearTimeout(openingUpgrade.timer);
   openingUpgrade = null;
+}
+
+function openingViewActive(opening) {
+  return state.codex === opening && !state.favoritesView && !state.siteSearchView;
+}
+
+/* 空状态和搜索提示要跟着「加载中 / 加载失败」换文案；全部视图里卡片不变，不必重排。
+   带 skipOpeningUpgrade：失败后的这次重排不能顺手再发请求，否则断网时会原地打转。 */
+function refreshOpeningPlaceholder() {
+  if (state.list.length && !hasActiveSearchState()) return;
+  applyFilter({
+    transition: 'none',
+    skipOpeningUpgrade: true,
+    ...(openingSearchSettle ? { onSearchSettled: openingSearchSettle } : {}),
+  });
+}
+
+function retryOpeningUpgrade() {
+  if (!state.codex?._opening || openingUpgrade?.opening !== state.codex) return false;
+  void openingUpgrade.start();
+  refreshOpeningPlaceholder();
+  return true;
 }
 
 function canUseOpeningSlice(meta, options = {}) {
@@ -466,25 +493,23 @@ function canUseOpeningSlice(meta, options = {}) {
 }
 
 function scheduleOpeningUpgrade(meta, seq, opening) {
-  cancelOpeningUpgrade();
+  // 只换掉旧的补全任务；换书过渡期间输入的搜索回调要留给这次补全去记
+  if (openingUpgrade) clearTimeout(openingUpgrade.timer);
   const upgrade = {
     seq,
     codexId: meta.id,
     opening,
     timer: 0,
     promise: null,
+    autoRetries: 0,
     start() {
       if (upgrade.promise) return upgrade.promise;
       clearTimeout(upgrade.timer);
       upgrade.timer = 0;
+      opening._openingFailed = false;
       upgrade.promise = fetchCodexForView(meta).then(fullCodex => {
         if (openingUpgrade === upgrade) openingUpgrade = null;
-        if (
-          state.codex !== opening
-          || state.favoritesView
-          || state.siteSearchView
-          || isCodexLocked(fullCodex)
-        ) {
+        if (!openingViewActive(opening) || isCodexLocked(fullCodex)) {
           return fullCodex;
         }
         const anchor = window.scrollY > 0 ? captureMasonryAnchor() : null;
@@ -499,13 +524,30 @@ function scheduleOpeningUpgrade(meta, seq, opening) {
         }
         renderTree();
         renderCodexHeader({ keepIdentity: true });
-        applyFilter({ transition: 'none' });
+        const onSearchSettled = openingSearchSettle;
+        openingSearchSettle = null;
+        applyFilter({ transition: 'none', ...(onSearchSettled ? { onSearchSettled } : {}) });
         if (anchor) restoreMasonryAnchor(anchor);
         announceCodexLoaded(fullCodex);
         return fullCodex;
       }, error => {
-        if (openingUpgrade === upgrade) openingUpgrade = null;
+        // 补全任务留着、只清掉这次请求：之后的自动重试、用户操作和「重新加载」都还能再发
+        upgrade.promise = null;
         console.warn('[opening] 完整法典后台补全失败', error);
+        if (openingUpgrade !== upgrade || !openingViewActive(opening)) return null;
+        opening._openingFailed = true;
+        refreshOpeningPlaceholder();
+        if (upgrade.autoRetries < OPENING_RETRY_DELAYS.length) {
+          const delay = OPENING_RETRY_DELAYS[upgrade.autoRetries++];
+          upgrade.timer = window.setTimeout(() => {
+            if (openingUpgrade !== upgrade || !openingViewActive(opening)) return;
+            void upgrade.start();
+            refreshOpeningPlaceholder();
+          }, delay);
+        } else if (state.list.length && !hasActiveSearchState()) {
+          // 全部视图里没有空状态可放按钮，用提示条告诉他只显示了一部分
+          toast('完整法典加载失败，只显示了部分词条', '!', { label: '重新加载', onClick: retryOpeningUpgrade });
+        }
         return null;
       });
       return upgrade.promise;
@@ -513,7 +555,7 @@ function scheduleOpeningUpgrade(meta, seq, opening) {
   };
   // 给首屏开场包与首批可见卡图留出半秒带宽窗口，避免整本大 JSON 抢占首屏连接。
   upgrade.timer = window.setTimeout(() => {
-    if (openingUpgrade === upgrade && state.codex === opening && !state.favoritesView && !state.siteSearchView) {
+    if (openingUpgrade === upgrade && openingViewActive(opening)) {
       void upgrade.start();
     }
   }, 500);
@@ -962,8 +1004,12 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
   const zhNotice = searchZh?.pending ? '正在补充中文对照匹配…'
     : (searchZh?.failed ? '部分中文对照未加载。' : '');
   const missingNotice = missingBooks ? `结果不完整：${missingBooks} 本法典没有加载完。` : '';
+  const openingView = Boolean(state.codex?._opening && !state.favoritesView && !state.siteSearchView);
+  const openingFailed = openingView && Boolean(state.codex._openingFailed);
+  const openingNotice = openingFailed ? '完整法典加载失败，结果不完整。' : '';
   const retryActions = [];
   if (missingBooks) retryActions.push({ id: 'reload-site-search', label: '重新加载' });
+  if (openingFailed) retryActions.push({ id: 'retry-opening', label: '重新加载' });
   if (searchZh?.failed && !searchZh.pending) retryActions.push({ id: 'retry-search-zh', label: '重试中文对照' });
   if (plan?.hasErrors) {
     renderSearchStatus({
@@ -973,12 +1019,18 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
       actions: [{ id: 'clear-all', label: '清空整个搜索', primary: true }],
     });
   } else if (active && state.list.length === 0) {
-    if (state.codex?._opening && !state.favoritesView && !state.siteSearchView) {
-      renderSearchStatus({
-        kind: 'info',
-        message: '正在加载完整法典，稍候自动补全搜索结果…',
-        pending: true,
-      });
+    if (openingView) {
+      renderSearchStatus(openingFailed
+        ? {
+          kind: 'empty',
+          message: '已加载的词条里没有结果，完整法典加载失败。',
+          actions: [{ id: 'retry-opening', label: '重新加载', primary: true }],
+        }
+        : {
+          kind: 'info',
+          message: '正在加载完整法典，稍候自动补全搜索结果…',
+          pending: true,
+        });
       return;
     }
     const count = state.relatedDirectoryCount;
@@ -997,10 +1049,10 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
       actions,
       pending: Boolean(searchZh?.pending),
     });
-  } else if (active && (missingBooks || zhNotice)) {
+  } else if (active && (missingBooks || openingNotice || zhNotice)) {
     renderSearchStatus({
       kind: 'info',
-      message: [missingNotice, zhNotice].filter(Boolean).join(' '),
+      message: [missingNotice, openingNotice, zhNotice].filter(Boolean).join(' '),
       actions: retryActions,
       pending: Boolean(searchZh?.pending),
     });
@@ -1012,7 +1064,7 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
 export function applyFilter(options = {}) {
   if (!options.onSearchSettled) cancelSiteSearchObservation();
   const plan = compileSearchState();
-  if (state.codex?._opening && !state.favoritesView && !state.siteSearchView
+  if (!options.skipOpeningUpgrade && state.codex?._opening && !state.favoritesView && !state.siteSearchView
     && (plan.hasActiveSearch || state.activePath.length || state.updateFilter || state.artistPickOnly)) {
     void ensureFullCodexNow();
   }
@@ -1110,7 +1162,10 @@ export function applyFilter(options = {}) {
   }
   renderList(options);
   updateBlockingSummary(blockedCount);
-  if (!searchZh?.pending) options.onSearchSettled?.({
+  // 开场包里只有开头几十条，这时的「有没有结果」不算数，否则整本还没到就被记成零结果
+  const awaitingFullCodex = plan.hasActiveSearch && state.codex?._opening && !state.favoritesView && !state.siteSearchView;
+  if (awaitingFullCodex) openingSearchSettle = options.onSearchSettled || null;
+  else if (!searchZh?.pending) options.onSearchSettled?.({
     active: plan.hasActiveSearch, valid: !plan.hasErrors,
     hasResults: state.list.length > 0,
     scope: state.favoritesView ? 'favorites' : state.siteSearchView ? 'site' : 'codex',
@@ -1311,6 +1366,7 @@ setCodexUiActions({
   syncUrlState,
   openLightbox,
   updateVirtualCards,
+  retryOpening: retryOpeningUpgrade,
 });
 
 setStyleUiActions({
@@ -1415,7 +1471,7 @@ setArtistPickActions({
 });
 setupArtistPick();
 
-setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch: applyObservedSearch, cancelSearchObservation: cancelSiteSearchObservation, openRelatedDirectory, refreshAccessView });
+setUiActions({ loadCodex, toggleFavoritesFolders, openFavoritesView, openSiteSearchView, exitSiteSearchView, applyFilter, applySearch: applyObservedSearch, cancelSearchObservation: cancelSiteSearchObservation, openRelatedDirectory, refreshAccessView, retryOpening: retryOpeningUpgrade });
 
 /* 更新时间线的行点击：换书 + 落到该批次的筛选，等于替用户按了一次结果栏里的
    「NEW x.xx更新」。换书时把批次当作路由状态交给 loadCodex（换书本身会重置 updateFilter），

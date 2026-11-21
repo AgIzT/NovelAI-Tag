@@ -244,6 +244,25 @@ class EditStoreTest(unittest.TestCase):
         for key in ("image", "original", "assetRev", "imageWidth", "imageHeight", "characterPrompts", "credit", "isNew"):
             self.assertEqual(after[key], before[key], key)
 
+    def test_update_returns_unpacked_note_and_keeps_packed_file(self):
+        path = os.path.join(self.data, "testbook.json")
+        book = self.read_book("testbook")
+        book["noteTemplates"] = ["固定备注", ["种子 ", " · ", ""]]
+        book["entries"][0]["note"] = 0
+        book["entries"][1]["note"] = [1, "123", "artist:a"]
+        _write(path, json.dumps(book, ensure_ascii=False))
+
+        res = self.store.update_entry("testbook", "testbook-0001", {"title": "改名"})
+        self.assertEqual(res["entry"]["note"], "固定备注")
+        res = self.store.update_entry("testbook", book["entries"][1]["id"], {"tags": "t2"})
+        self.assertEqual(res["entry"]["note"], "种子 123 · artist:a")
+
+        after = self.read_book("testbook")
+        self.assertEqual(after["noteTemplates"], book["noteTemplates"])
+        self.assertEqual(after["entries"][0]["note"], 0)
+        self.assertEqual(after["entries"][0]["title"], "改名")
+        self.assertEqual(after["entries"][1]["note"], [1, "123", "artist:a"])
+
     def test_update_accepts_compatible_nsfw_rating(self):
         self.store.update_entry("testbook", "testbook-0001", {"rating": "nsfw"})
         after = self.read_book("testbook")["entries"][0]

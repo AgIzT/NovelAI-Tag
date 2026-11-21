@@ -192,6 +192,7 @@ const codexUiActions = {
   openUpdateBatch: async () => {},
   isContentBlocked: () => false,
   bookPreviews: () => [],
+  retryOpening: () => false,
 };
 
 export function setCodexUiActions(actions = {}) {
@@ -1889,8 +1890,14 @@ export function updateEmptyState(n) {
   const actions = [];
 
   if (state.codex?._opening && !state.favoritesView && !state.siteSearchView) {
-    title = '正在加载完整法典…';
-    desc = '完整词条正在后台补全，稍候自动显示。';
+    if (state.codex._openingFailed) {
+      title = '完整法典加载失败';
+      desc = '点「重新加载」再试一次。';
+      actions.push({ label: '重新加载', action: 'retry-opening' });
+    } else {
+      title = '正在加载完整法典…';
+      desc = '完整词条正在后台补全，稍候自动显示。';
+    }
   } else if (q) {
     title = state.searchPlan?.isSyntax ? '没有符合条件的筛选结果' : '没有找到匹配词条';
     desc = state.siteSearchView
@@ -1940,6 +1947,10 @@ export function updateEmptyState(n) {
 export function handleEmptyAction(action) {
   if (action === 'access-hint') {
     showNsfwLockedHint();
+    return;
+  }
+  if (action === 'retry-opening') {
+    codexUiActions.retryOpening();
     return;
   }
   if (action === 'clear-search') {

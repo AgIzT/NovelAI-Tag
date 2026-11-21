@@ -55,6 +55,7 @@ const uiActions = {
   cancelSearchObservation: () => {},
   openRelatedDirectory: async () => {},
   refreshAccessView: () => {},
+  retryOpening: () => false,
 };
 
 export function setUiActions(actions = {}) {
@@ -437,6 +438,8 @@ export function bindUI() {
         await applySearchConditions();
       } else if (action?.id === 'retry-search-zh' && !searchComposing && searchInput.value === state.query) {
         uiActions.applyFilter({ retrySearchZh: true });
+      } else if (action?.id === 'retry-opening') {
+        uiActions.retryOpening();
       }
     },
   });

@@ -34,6 +34,7 @@ import time
 import urllib.parse
 from pathlib import Path
 
+from codex_note_pack import resolve_entry_note
 from sd_metadata_inspector import extract_image_metadata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -248,6 +249,16 @@ def _extract_metadata_payload(raw, ext):
         "source": str(meta.source_type or "unknown"),
         "sha256": hashlib.sha256(raw).hexdigest(),
     }
+
+
+def client_entry(entry, note_templates):
+    """回给编辑器的词条副本：发布链会把重复备注打包成 noteTemplates 下标，
+    编辑器只认原字符串，这里先还原；盘上的打包格式保持不动。"""
+    if not isinstance(entry, dict) or "note" not in entry or isinstance(entry["note"], str):
+        return entry
+    out = dict(entry)
+    out["note"] = resolve_entry_note(entry["note"], note_templates)
+    return out
 
 
 class EditStore:
@@ -611,7 +622,7 @@ class EditStore:
             self._run_transaction(protected, commit)
             return {
                 "ok": True,
-                "entry": entry,
+                "entry": client_entry(entry, data.get("noteTemplates")),
                 "entryCount": entry_count,
                 "imagedCount": imaged_count,
                 "tree": data["tree"],
