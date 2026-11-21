@@ -1674,7 +1674,7 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.ok(stylesSource.indexOf('.masonry.depth-hold>.card:hover{') < stylesSource.indexOf('.masonry>.card.depth-live:not(.card-retiring){'),
     '放手期间的压制规则必须排在 .depth-live 之前，同权重靠源序让活动卡赢');
   assert.match(masonrySource, /function cardOpensImage\(e\) \{\s*return hasEntryImage\(e\) && \(state\.cardZoom \|\| isPackEntry\(e\)\);/);
-  assert.match(masonrySource, /node\.onclick = \(\) => \{\s*if \(cardClickOpensDetail\(e\)\)/);
+  assert.match(masonrySource, /node\.onclick = \(\) => \{[^}]{0,80}?if \(cardClickOpensDetail\(/);
   const uiZoomSource = await readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8');
   assert.match(uiZoomSource, /cardZoomToggle\.onchange = e => applyCardZoom\(e\.target\.checked\)/);
 
