@@ -186,7 +186,7 @@ body.dark .theme-btn .moon{display:block}
   position:absolute;right:8px;top:8px;z-index:3;width:30px;height:30px;border:0;border-radius:999px;
   display:grid;place-items:center;background:rgba(0,0,0,.46);color:#fff;
   backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
-  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-fast);
+  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .card-fav-btn:hover{background:var(--accent)}
 .card-fav-btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linejoin:round}
@@ -219,7 +219,7 @@ body.dark .theme-btn .moon{display:block}
 .community-like-btn{
   height:30px;border:1px solid var(--line);border-radius:999px;padding:0 11px;
   display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--panel);color:var(--muted);
-  font-size:12px;font-weight:850;line-height:1;transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),scale var(--dur-fast),opacity var(--dur-fast);
+  font-size:12px;font-weight:850;line-height:1;transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),scale var(--dur-medium) var(--ease-spring),opacity var(--dur-fast);
 }
 .community-like-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 .community-like-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}

@@ -3,8 +3,10 @@
    新增控件先来这里找同源件；这里没有再谈新增，别在功能样式表里另起一套尺寸。 */
 
 :root{
-  --ui-press-scale:.96;
-  --ui-control-transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),box-shadow var(--dur-fast),transform var(--dur-fast),translate var(--dur-fast),scale var(--dur-fast) ease;
+  /* 按压回弹（2026-11-21 维护者在对比页选的 B）：按下缩到 93%，松手 scale 走回弹曲线弹回；
+     按下这一下的快速过渡在 styles.css 末尾统一给 */
+  --ui-press-scale:.93;
+  --ui-control-transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),box-shadow var(--dur-fast),transform var(--dur-fast),translate var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
   --ui-popover-blur:18px;
   --ui-popover-radius:16px;
   /* 窄屏/触屏下同排胶囊（.bar-btn、.ui-select.is-pill）的高度，与中转站次要动作同一档。 */
@@ -31,10 +33,10 @@
   min-height:30px;border:1px solid var(--line);border-radius:999px;
   padding:4px 12px;background:var(--card);color:var(--text);
   font:700 12px/1.25 var(--font-ui);white-space:nowrap;cursor:pointer;
-  transition:border-color var(--dur-fast),background var(--dur-fast),color var(--dur-fast),box-shadow var(--dur-fast),translate var(--dur-fast),scale var(--dur-fast) ease;
+  transition:border-color var(--dur-fast),background var(--dur-fast),color var(--dur-fast),box-shadow var(--dur-fast),translate var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .bar-btn:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
-.bar-btn:active:not(:disabled){scale:.96}
+.bar-btn:active:not(:disabled){scale:var(--ui-press-scale)}
 .bar-btn[aria-pressed="true"]{
   border-color:var(--accent);background:var(--accent);color:var(--on-accent);
   box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 18%,transparent);
@@ -46,12 +48,12 @@
 .panel-action,.nsfw-actions button{
   min-height:36px;border:1px solid var(--line);border-radius:999px;padding:9px 15px;
   font:800 13px/1.25 var(--font-ui);cursor:pointer;
-  transition:background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast),transform var(--dur-fast),translate var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-fast) ease;
+  transition:background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast),transform var(--dur-fast),translate var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 /* 底色只给 .panel-action：.nsfw-primary / .nsfw-secondary 的特异度是 (0,1,0)，
    写进上面那条 (0,1,1) 的共用规则会把它们的红/灰盖掉。几何共用，配色各归各。 */
 .panel-action{background:var(--card);color:var(--text)}
-.panel-action:active:not(:disabled){scale:.96}
+.panel-action:active:not(:disabled){scale:var(--ui-press-scale)}
 .panel-action:disabled{cursor:not-allowed;opacity:.46;box-shadow:none;translate:none}
 .panel-action:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 .panel-action.is-primary{
@@ -88,11 +90,11 @@
 .seg-tabs>button{
   min-height:38px;border:0;border-radius:10px;background:transparent;color:var(--muted);
   font:850 13px/1.25 var(--font-ui);cursor:pointer;
-  transition:background var(--dur-fast),color var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-fast) ease;
+  transition:background var(--dur-fast),color var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .seg-tabs>button:hover{color:var(--text);background:var(--card)}
 .seg-tabs>button:is([aria-selected="true"],[aria-checked="true"]){color:var(--on-accent);background:transparent}
-.seg-tabs>button:active:not(:disabled){scale:.96}
+.seg-tabs>button:active:not(:disabled){scale:var(--ui-press-scale)}
 /* 页签后面的计数 / 未读点，选中时要在 accent 底上认得出来 */
 .seg-tabs>button>span{
   display:inline-grid;min-width:19px;height:19px;margin-left:5px;padding:0 5px;place-items:center;
@@ -133,7 +135,7 @@
   width:100%;min-width:0;min-height:var(--select-height,32px);display:flex;align-items:center;gap:5px;
   border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);
   font:700 var(--select-font-size,12px)/1.25 var(--font-ui);padding:5px 9px;text-align:left;cursor:pointer;
-  transition:border-color var(--dur-fast),color var(--dur-fast),background var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-fast) ease;
+  transition:border-color var(--dur-fast),color var(--dur-fast),background var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .ui-select-button:hover,.ui-select-button[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
 .ui-select-button:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}

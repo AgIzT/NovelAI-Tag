@@ -8,7 +8,7 @@
   flex:none;border:none;background:transparent;cursor:pointer;
   padding:2px 5px;border-radius:7px;line-height:1;color:var(--muted);
   display:grid;place-items:center;
-  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-fast) ease;
+  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 /* 按压幅度与 .fav-btn 同值，两个按钮就在一起，不能一个跟手一个不动。 */
 .hide-card-btn:active{scale:.88}
@@ -57,7 +57,7 @@ body.density-compact .hide-card-btn svg{width:14px;height:14px}
 .blocking-word-list li>span{min-width:0;padding:3px 2px 3px 11px;font-size:12px;font-weight:600;overflow-wrap:anywhere}
 .blocking-word-list button{
   flex:none;align-self:stretch;width:28px;border:0;background:transparent;color:var(--muted);
-  font-size:16px;line-height:1;cursor:pointer;transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-fast) ease;
+  font-size:16px;line-height:1;cursor:pointer;transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .blocking-word-list button:is(:hover,:focus-visible){background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
 

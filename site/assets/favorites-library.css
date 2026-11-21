@@ -100,7 +100,7 @@
    触屏常驻。满屏常驻会给以图为主的瀑布流每张图都压一块标签。无图卡的入口在标题行，照旧常驻。 */
 .favorite-library-card .card-img-wrap .favorite-organize-button {
   opacity: 0; pointer-events: none;
-  transition: opacity var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast), translate var(--dur-fast), scale var(--dur-fast) ease;
+  transition: opacity var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast), translate var(--dur-fast), scale var(--dur-medium) var(--ease-spring);
 }
 .favorite-library-card:hover .card-img-wrap .favorite-organize-button,
 .favorite-library-card:focus-within .card-img-wrap .favorite-organize-button { opacity: 1; pointer-events: auto; }

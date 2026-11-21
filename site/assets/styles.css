@@ -4,7 +4,7 @@
 .tw-name{font-family:var(--font-directory)}
 /* 六块色板固定两行三列：比自动换行的 flex 齐，宽度也跟深浅色/字体的分段控件对齐 */
 .theme-control{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:none;min-width:212px}
-.theme-option{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--tagbg);color:var(--text);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;transition:border-color var(--dur-fast),background var(--dur-fast),color var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-fast) ease}
+.theme-option{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--tagbg);color:var(--text);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;transition:border-color var(--dur-fast),background var(--dur-fast),color var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-medium) var(--ease-spring)}
 .theme-option i{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);transition:scale var(--dur-short) var(--ease-out),box-shadow var(--dur-fast)}
 .theme-option:hover{border-color:var(--accent)}
 .theme-option:hover i{scale:1.18}
@@ -195,7 +195,7 @@ body.dark .more-menu{border-color:rgba(255,255,255,.12)}
   display:flex;align-items:center;gap:8px;min-width:0;max-width:280px;height:var(--topbar-control-h);
   border:1px solid var(--line);background:var(--card);color:var(--text);
   border-radius:999px;padding:0 14px;cursor:pointer;
-  transition:border-color var(--dur-fast),box-shadow var(--dur-fast),background var(--dur-fast),scale var(--dur-fast) ease;
+  transition:border-color var(--dur-fast),box-shadow var(--dur-fast),background var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .codex-btn span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .codex-btn:hover{border-color:var(--accent)}
@@ -269,7 +269,7 @@ body.dark .n5-launch-panel,body.dark .n5-launch-notice{
 .n5-launch-book{
   display:grid;grid-template-columns:50px minmax(0,1fr) auto auto;align-items:center;gap:16px;
   width:100%;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:var(--n5-ink);
-  font-family:inherit;text-align:left;cursor:pointer;transition:background var(--dur-fast),scale var(--dur-fast) ease;
+  font-family:inherit;text-align:left;cursor:pointer;transition:background var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .n5-launch-book + .n5-launch-book{border-top:1px solid var(--n5-line)}
 .n5-launch-book:hover,.n5-launch-book.is-selecting{background:var(--n5-wash)}
@@ -317,7 +317,7 @@ body.dark .n5-launch-notice{box-shadow:0 10px 34px rgba(0,0,0,.55)}
 .codex-item{
   position:relative;text-align:left;border:1px solid var(--line);background:var(--card);color:var(--text);
   font-size:13px;cursor:pointer;
-  transition:translate var(--dur-fast),box-shadow var(--dur-fast),border-color var(--dur-fast),background var(--dur-fast),scale var(--dur-fast) ease;
+  transition:translate var(--dur-fast),box-shadow var(--dur-fast),border-color var(--dur-fast),background var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 /* 新书不再靠底色发光突出（渐变已废）：一枚纯黑 V5 药丸就够，书卡本体保持静态 */
 .ci-n5-chip{flex:none;border-radius:999px;padding:2px 8px;background:#1d1d1f;color:#fff;
@@ -428,7 +428,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .vol-spine{
   position:absolute;inset:0;width:var(--spine);display:flex;flex-direction:column;align-items:center;gap:10px;
   padding:18px 0 14px;border:0;border-radius:inherit;background:transparent;color:var(--text);cursor:pointer;
-  transition:opacity var(--dur-short),background var(--dur-short),scale var(--dur-fast) ease;
+  transition:opacity var(--dur-short),background var(--dur-short),scale var(--dur-medium) var(--ease-spring);
 }
 .vol-spine:hover,.vol-spine:focus-visible{background:color-mix(in srgb,var(--cat) 9%,transparent)}
 .vol-spine:focus-visible{outline:2px solid var(--cat);outline-offset:-3px}
@@ -653,7 +653,7 @@ body.dark .ci-soon-chip{color:#e3b463;border-color:rgba(227,180,99,.3)}
 /* 社区投稿门：置底、跨栏、虚线卡+加号，明确区分于策展书行 */
 .codex-door-wrap{grid-column:1/-1;margin-top:4px;padding-top:9px;border-top:1px solid var(--line)}
 body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
-.codex-door{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px dashed var(--accent);border-radius:12px;background:var(--accent-soft);text-decoration:none;transition:transform var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-fast) ease}
+.codex-door{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px dashed var(--accent);border-radius:12px;background:var(--accent-soft);text-decoration:none;transition:transform var(--dur-fast),box-shadow var(--dur-fast),scale var(--dur-medium) var(--ease-spring)}
 .codex-door:hover,.codex-door:focus-visible{transform:translateY(-1px);box-shadow:0 6px 18px var(--accent-glow);outline:none}
 .codex-door .cd-ico{flex:none;width:30px;height:30px;border-radius:9px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center}
 .codex-door .cd-ico svg{width:18px;height:18px}
@@ -717,8 +717,8 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   letter-spacing:0;cursor:pointer;
   transition:background var(--dur-fast),color var(--dur-fast);
 }
-.search-scope-label{display:block;pointer-events:none;transition:scale var(--dur-fast) ease}
-.search-scope:active .search-scope-label{scale:.96}
+.search-scope-label{display:block;pointer-events:none;transition:scale var(--dur-medium) var(--ease-spring)}
+.search-scope:active .search-scope-label{scale:var(--ui-press-scale)}
 .search-scope::after{
   content:"";position:absolute;right:-6px;top:5px;bottom:5px;width:1px;
   background:var(--line);opacity:.85;pointer-events:none;
@@ -730,7 +730,7 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   position:absolute;right:84px;top:50%;transform:translateY(-50%);
   width:25px;height:25px;border:none;border-radius:50%;padding:0;
   display:grid;place-items:center;background:var(--tagbg);color:var(--muted);
-  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-fast);
+  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .search-clear svg{
   width:14px;height:14px;display:block;
@@ -1138,7 +1138,7 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 .banner-bday{
   display:inline-block;margin-left:8px;padding:1px 8px;border:0;border-radius:999px;vertical-align:1px;
   font:800 11px/1.35 var(--font-ui);color:var(--bday);background:var(--bday-soft);cursor:pointer;
-  transition:background-color var(--dur-fast),scale var(--dur-fast);
+  transition:background-color var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .banner-bday:hover{background:color-mix(in srgb,var(--bday) 26%,transparent)}
 .banner-bday:active{scale:.94}
@@ -1191,7 +1191,7 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 /* 送上祝福：选择器里一颗同生日签的胶囊，横幅生日签本身也算；总数是胶囊尾巴上的白色小签（birthday-wishes.js） */
 .bd-actions{display:flex;align-items:center;gap:6px;margin-top:3px}
 .bd-wish{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:0;border-radius:999px;cursor:pointer;
-  font:800 11px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft);transition:background-color var(--dur-fast),scale var(--dur-fast)}
+  font:800 11px/1.4 var(--font-ui);color:var(--bday);background:var(--bday-soft);transition:background-color var(--dur-fast),scale var(--dur-medium) var(--ease-spring)}
 .bd-wish:hover{background:color-mix(in srgb,var(--bday) 26%,transparent)}
 .bd-wish:active{scale:.94}
 .wish-n{display:inline-block;margin-right:-6px;padding:0 6px;border-radius:999px;background:var(--card);
@@ -1199,7 +1199,7 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 .banner-bday .wish-n{margin:0 -5px 0 6px;padding:0 5px;font-size:10px;vertical-align:.5px}
 /* 生日贺卡入口：生日签 / 送上祝福旁边一颗描边小胶囊；墙关着（html 没有 .bday-wall）就不出现 */
 .bd-wall-btn,.banner-wall{padding:1px 8px;border:1px solid var(--bday-line);border-radius:999px;background:none;cursor:pointer;
-  font:800 11px/1.3 var(--font-ui);color:var(--bday);transition:background-color var(--dur-fast),scale var(--dur-fast)}
+  font:800 11px/1.3 var(--font-ui);color:var(--bday);transition:background-color var(--dur-fast),scale var(--dur-medium) var(--ease-spring)}
 .bd-wall-btn:hover,.banner-wall:hover{background:var(--bday-soft)}
 .bd-wall-btn:active,.banner-wall:active{scale:.94}
 .banner-wall{display:inline-block;margin-left:6px;vertical-align:1px}
@@ -1722,7 +1722,7 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
   position:absolute;z-index:7;top:8px;right:8px;display:grid;place-items:center;
   border:none;border-radius:8px;width:30px;height:30px;padding:0;
   background:rgba(0,0,0,.45);color:#fff;cursor:zoom-in;
-  opacity:0;pointer-events:none;transition:opacity var(--dur-fast),scale var(--dur-fast) ease;
+  opacity:0;pointer-events:none;transition:opacity var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .zoom-btn svg{
   width:15px;height:15px;display:block;stroke:currentColor;stroke-width:2.2;
@@ -1818,7 +1818,7 @@ body.dark .badge-char-chip{
 .fav-btn{
   margin-left:auto;flex:none;border:none;background:transparent;cursor:pointer;
   font-size:0;line-height:1;color:var(--muted);padding:2px 5px;border-radius:7px;
-  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-fast) ease;
+  transition:background var(--dur-fast),color var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 /* JS 仍写 ★/☆ 文本（verify_ui 断言），这里把字形换成与顶栏同几何的矢量星 */
 .fav-btn::before{
@@ -1964,7 +1964,7 @@ body.density-compact .copy-hint{display:none}
   width:42px;height:42px;border-radius:50%;
   border:1px solid var(--line);background:var(--panel);color:var(--muted);
   box-shadow:var(--shadow-hover);display:grid;place-items:center;
-  transition:opacity var(--dur-medium),transform var(--dur-medium),visibility var(--dur-medium),color var(--dur-fast),border-color var(--dur-fast),background var(--dur-fast),scale var(--dur-fast) ease;
+  transition:opacity var(--dur-medium),transform var(--dur-medium),visibility var(--dur-medium),color var(--dur-fast),border-color var(--dur-fast),background var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .float-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 /* 法典选择器打开时让出右下角：面板挂在顶栏的层叠上下文里压不过这组按钮，
@@ -2753,7 +2753,7 @@ body.dark .lightbox-info{border-color:rgba(255,255,255,.12)}
   border:1px solid var(--line);background:var(--glass);color:var(--muted);
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--shadow);
   display:grid;place-items:center;
-  transition:right var(--dur-medium) var(--ease-out),color var(--dur-fast),border-color var(--dur-fast),scale var(--dur-fast) ease;
+  transition:right var(--dur-medium) var(--ease-out),color var(--dur-fast),border-color var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .lb-fold:hover{color:var(--accent);border-color:var(--accent)}
 .lightbox.folded .lb-fold{right:18px}
@@ -2967,7 +2967,7 @@ a.lightbox-credit:hover{text-decoration:underline}
 .lightbox-thumb{
   flex:none;width:46px;height:58px;padding:0;border-radius:9px;overflow:hidden;
   border:2px solid transparent;background:var(--tagbg);cursor:pointer;
-  opacity:.65;transition:border-color var(--dur-fast),opacity var(--dur-fast),scale var(--dur-fast) ease;
+  opacity:.65;transition:border-color var(--dur-fast),opacity var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 .lightbox-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .lightbox-thumb:hover{opacity:1}
@@ -2976,7 +2976,7 @@ a.lightbox-credit:hover{text-decoration:underline}
   position:absolute;z-index:4;display:grid;place-items:center;cursor:pointer;
   border:1px solid var(--line);background:var(--glass);color:var(--text);
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--shadow);
-  transition:border-color var(--dur-fast),color var(--dur-fast),right var(--dur-medium) var(--ease-out),scale var(--dur-fast) ease;
+  transition:border-color var(--dur-fast),color var(--dur-fast),right var(--dur-medium) var(--ease-out),scale var(--dur-medium) var(--ease-spring);
 }
 .lb-circle:hover{border-color:var(--accent);color:var(--accent)}
 body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
@@ -3032,7 +3032,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
     right var(--dur-medium) var(--ease-out),width var(--dur-medium) var(--ease-out);
 }
 .lightbox.lb-wide .lb-circle{
-  transition:border-color var(--dur-fast),color var(--dur-fast),left var(--dur-medium) var(--ease-out),right var(--dur-medium) var(--ease-out),scale var(--dur-fast) ease;
+  transition:border-color var(--dur-fast),color var(--dur-fast),left var(--dur-medium) var(--ease-out),right var(--dur-medium) var(--ease-out),scale var(--dur-medium) var(--ease-spring);
 }
 .lightbox.lb-settling :is(.lightbox-stage,.lightbox-info,.lb-circle,.lb-fold,.lightbox-thumbs){transition:none}
 .lightbox.lb-wide .artist-strip{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}
@@ -3087,7 +3087,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   .lightbox.native-reader .lightbox-thumbs{bottom:12px;max-width:calc(100% - 10px);transition:none}
   .lightbox.native-reader .lb-fold{bottom:-13px;transition:color var(--dur-fast),border-color var(--dur-fast)}
   .lightbox.native-reader.details-expanded .lb-fold{visibility:hidden}
-  .lightbox.native-reader .lightbox-nav{top:calc(50% - 5px);transition:border-color var(--dur-fast),color var(--dur-fast),scale var(--dur-fast) ease}
+  .lightbox.native-reader .lightbox-nav{top:calc(50% - 5px);transition:border-color var(--dur-fast),color var(--dur-fast),scale var(--dur-medium) var(--ease-spring)}
   .lightbox.native-reader.has-thumbs .lightbox-nav{top:calc(50% - 47px)}
   .lightbox.native-reader .lightbox-prev{left:0}
   .lightbox.native-reader .lightbox-next{right:0}
@@ -3171,7 +3171,7 @@ body.dark .lb-circle{border-color:rgba(255,255,255,.14)}
   /* 四种状态的翻页按钮都跟随图片区居中，缩略条和信息栏共用同一高度。 */
   .lightbox-nav{
     width:40px;height:40px;top:calc(50% - var(--lb-sheet-height) / 2 - 5px);
-    transition:border-color var(--dur-fast),color var(--dur-fast),top var(--dur-medium) var(--ease-out),scale var(--dur-fast) ease;
+    transition:border-color var(--dur-fast),color var(--dur-fast),top var(--dur-medium) var(--ease-out),scale var(--dur-medium) var(--ease-spring);
   }
   .lightbox.has-thumbs .lightbox-nav{top:calc(50% - var(--lb-sheet-height) / 2 - 47px)}
   .lightbox.folded .lightbox-nav{top:calc(50% - 32px)}
@@ -3803,13 +3803,13 @@ html.vt-arrived.intro-arm .brand,html.vt-arrived.intro-arm .topbar::after{animat
 .topbar .icon-btn,.more-item,.theme-option,.density-option,.seg-option,.settings-close,
 .feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
 .feedback-public-state button,.feedback-fallback button,.rail-chip{
-  transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),box-shadow var(--dur-fast),transform var(--dur-fast),scale var(--dur-fast) ease;
+  transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),box-shadow var(--dur-fast),transform var(--dur-fast),scale var(--dur-medium) var(--ease-spring);
 }
 :is(.topbar .icon-btn,.more-item,.theme-option,.density-option,.seg-option,.settings-close,
 .nsfw-actions button,.feedback-tab,.feedback-progress-filters button,.feedback-progress-intro button,
-.feedback-public-state button,.feedback-fallback button,.rail-chip):active:not(:disabled){scale:.96}
+.feedback-public-state button,.feedback-fallback button,.rail-chip):active:not(:disabled){scale:var(--ui-press-scale)}
 .tree-row{transition:background var(--dur-fast),color var(--dur-fast)}
-.tw-arrow{transition:transform var(--dur-short) var(--ease-out),scale var(--dur-fast) ease}
+.tw-arrow{transition:transform var(--dur-short) var(--ease-out),scale var(--dur-medium) var(--ease-spring)}
 .tw-arrow[role="button"]:active{scale:.88}
 @media (prefers-reduced-motion:reduce){
   .topbar .icon-btn,.more-item,.theme-option,.theme-option i,.density-option,.seg-option,.settings-close,
@@ -3872,12 +3872,12 @@ html.motion-off{scroll-behavior:auto!important}
 }
 .search-filter-close,.search-filter-add,.search-filter-examples button,.search-filter-footer button,
 .search-filter-chip-remove,.update-pop-more,.update-pop-links button,.announcements-tab,.update-row{
-  transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),box-shadow var(--dur-fast),translate var(--dur-fast),scale var(--dur-fast) ease,filter var(--dur-fast);
+  transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),box-shadow var(--dur-fast),translate var(--dur-fast),scale var(--dur-medium) var(--ease-spring),filter var(--dur-fast);
 }
 .search-filter-form :is(input,select){transition:border-color var(--dur-fast),box-shadow var(--dur-fast),background var(--dur-fast)}
 .search-filter-close:active,.search-filter-add:active:not(:disabled),.search-filter-examples button:active,
 .search-filter-footer button:active:not(:disabled),.search-filter-chip-remove:active,
-.update-pop-more:active,.update-pop-links button:active,.announcements-tab:active{scale:.96}
+.update-pop-more:active,.update-pop-links button:active,.announcements-tab:active{scale:var(--ui-press-scale)}
 .update-row:active{scale:.985}
 .update-row-cover,.announcements-foot-arrow{transition:translate var(--dur-short) var(--ease-out)}
 .update-row:hover .update-row-cover{translate:0 -1px}
@@ -3918,8 +3918,8 @@ pre.prompt-selecting{border-color:color-mix(in srgb,var(--accent) 40%,var(--line
   border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow);
 }
 .prompt-selection-bar[hidden]{display:none}
-.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-ui);transition:opacity var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast),scale var(--dur-fast)}
-.prompt-selection-bar button:active:not(:disabled){scale:.96}
+.prompt-selection-bar button{border:1px solid var(--line);border-radius:999px;background:var(--tagbg);color:var(--text);padding:6px 8px;font:12px/1.5 var(--font-ui);transition:opacity var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast),scale var(--dur-medium) var(--ease-spring)}
+.prompt-selection-bar button:active:not(:disabled){scale:var(--ui-press-scale)}
 .prompt-selection-bar .prompt-selection-copy:not(:disabled){border-color:transparent;background:var(--accent);color:var(--on-accent);font-weight:700}
 .prompt-selection-bar button:disabled{opacity:.4;cursor:default}
 .prompt-selection-bar .prompt-selection-close{
@@ -3945,3 +3945,10 @@ pre.prompt-selecting{border-color:color-mix(in srgb,var(--accent) 40%,var(--line
 }
 .motion-off .lightbox-actions button:hover,.motion-off .section-head button:hover{transform:none;translate:none}
 .motion-off .prompt-selection-bar button:active:not(:disabled){scale:1}
+
+/* 按压回弹（2026-11-21 维护者在对比页选的 B）：各按钮平时 scale 的过渡是 --dur-medium + --ease-spring，
+   管的是松手弹回；按下这一下要快，这里给按下期间的持续时间和曲线写单值（整组过渡都按快的走，按下时别的属性本来也不动）。
+   减少动态效果、motion=off 的 !important 规则照样压过它 */
+:is(button,[role="button"],.more-item,.ui-select-option,.codex-item,.codex-door,.n5-launch-book):active:not(:disabled){
+  transition-duration:var(--dur-fast);transition-timing-function:ease;
+}
