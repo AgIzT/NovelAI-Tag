@@ -26,6 +26,9 @@ const masonryActions = {
 
 const FILTER_EXIT_MS = 140;
 const FILTER_EXIT_PAD_MS = 24;
+/* 「不想看」和收藏墙取消收藏：卡片朝刚才按的那颗按钮缩走，让人看见它是被那颗按钮收走的 */
+const RETIRE_MS = 300;   // 经 animateUi 换算成节奏「中」档（--dur-medium）
+const RETIRE_SCALE = 0.72;
 
 let filterTransitionSeq = 0;
 let filterTransitionTimer = 0;
@@ -70,8 +73,19 @@ function retireCard(entry, node, animate) {
     node.remove();
     if (!retiringCards.size) $('#masonry')?.classList.remove('has-retiring-cards');
   };
-  const animation = animateUi(node, [{ opacity }, { opacity: 0 }], { duration: FILTER_EXIT_MS, easing: 'linear' });
-  retirement.timer = window.setTimeout(finish, FILTER_EXIT_MS + FILTER_EXIT_PAD_MS);
+  // 收藏墙上是星标收走它，其余是「不想看」；按钮缺席（批量屏蔽词）就朝卡片中心缩
+  const button = node.querySelector(state.favoritesView ? '.fav-btn' : '.hide-card-btn') || node.querySelector('.fav-btn');
+  const box = node.getBoundingClientRect();
+  const target = button?.getBoundingClientRect();
+  if (target?.width && box.width) {
+    node.style.transformOrigin = `${Math.round(target.left + target.width / 2 - box.left)}px ${Math.round(target.top + target.height / 2 - box.top)}px`;
+  }
+  const base = transform && transform !== 'none' ? transform : '';
+  const animation = animateUi(node, [
+    { opacity, transform: base || 'none' },
+    { opacity: 0, transform: `${base} scale(${RETIRE_SCALE})`.trim(), offset: 1 },
+  ], { duration: RETIRE_MS, easing: 'cubic-bezier(.4,0,1,1)' });
+  retirement.timer = window.setTimeout(finish, RETIRE_MS + FILTER_EXIT_PAD_MS);
   if (animation) animation.finished.then(finish, finish);
   else finish();
 }
@@ -105,6 +119,7 @@ function renderBlockingList(m) {
       clearTimeout(retirement.timer);
       cancelUiMotion(node);
       node.classList.remove('card-retiring');
+      node.style.removeProperty('transform-origin');
       node.inert = false;
       node.removeAttribute('aria-hidden');
     }
@@ -590,7 +605,9 @@ export function makeCard(placement) {
     hiddenMatchChip.title = hiddenMatch.excerpt;
   }
   if (e.isNew) node.querySelector('.badge-new').hidden = false;
-  if (isFeaturedEntry(e, state.codex)) node.querySelector('.badge-featured').hidden = false;
+  const featured = isFeaturedEntry(e, state.codex);
+  if (featured) node.querySelector('.badge-featured').hidden = false;
+  node.classList.toggle('is-featured', featured);   // 卡片描边流光（styles.css），节点回收时跟着摘掉
 
   const hasImage = hasEntryImage(e);
   const hasNegative = !!(e.negative && String(e.negative).trim());
@@ -1080,6 +1097,21 @@ export function syncMasonryHeight() {
   m.style.height = `${Math.max(0, Math.ceil(totalHeight))}px`;
 }
 
+/* 占位接力：图片到了以后，占位的扫光再扫完这一程、和字一起淡出，图片同时从低饱和显影出来
+   （样式在 .card-img-wrap.is-handoff）。节点回收或重新加载时立即结束。 */
+const PLACEHOLDER_HANDOFF_MS = 420;
+const PLACEHOLDER_SEEN_MS = 120;
+function beginPlaceholderHandoff(wrap) {
+  clearTimeout(wrap._handoffTimer);
+  wrap.classList.add('is-handoff');
+  wrap._handoffTimer = setTimeout(() => endPlaceholderHandoff(wrap), PLACEHOLDER_HANDOFF_MS);
+}
+function endPlaceholderHandoff(wrap) {
+  clearTimeout(wrap._handoffTimer);
+  wrap._handoffTimer = 0;
+  wrap.classList.remove('is-handoff');
+}
+
 export function setupImage(node, placement) {
   const e = placement.entry;
   const wrap = node.querySelector('.card-img-wrap');
@@ -1093,6 +1125,8 @@ export function setupImage(node, placement) {
   img.alt = cardTitleOf(e);
 
   const markLoading = () => {
+    endPlaceholderHandoff(wrap);
+    wrap._loadingSince = performance.now();
     wrap.classList.add('is-loading');
     wrap.classList.remove('is-error');
     img.classList.remove('is-loaded');
@@ -1100,6 +1134,11 @@ export function setupImage(node, placement) {
   };
   const markLoaded = () => {
     state.loadedImages.add(key);
+    // 真等过的图才接力：扫光和「图片加载中」随图片显影淡出。缓存命中也会走一遍 loading → loaded，
+    // 只隔一两帧，占位几乎没被看见，这时再淡出一道扫光反而是滚动时的噪点
+    if (wrap.classList.contains('is-loading') && performance.now() - (wrap._loadingSince || 0) > PLACEHOLDER_SEEN_MS) {
+      beginPlaceholderHandoff(wrap);
+    }
     wrap.classList.remove('is-loading', 'is-error');
     img.classList.add('is-loaded');
     if (retryBtn) retryBtn.hidden = true;
@@ -1188,6 +1227,7 @@ export function cleanupCard(node) {
   const wrap = node.querySelector('.card-img-wrap');
   img.onload = null;
   img.onerror = null;
+  if (wrap) endPlaceholderHandoff(wrap);
   if (wrap?.classList.contains('is-loading')) img.removeAttribute('src');
 }
 

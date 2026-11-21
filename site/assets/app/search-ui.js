@@ -1,4 +1,4 @@
-import { animateUi, cancelUiMotion, shakeInvalid } from './ui-motion.js';
+import { animateUi, cancelUiMotion, createLoader, shakeInvalid } from './ui-motion.js';
 
 const searchUiActions = {
   addFilter: async () => true,
@@ -468,6 +468,8 @@ export function renderSearchStatus(status = null) {
   }
   const detail = clean(value?.detail);
   live.textContent = detail ? `${message} ${detail}` : message;
+  // 中文对照还在补的时候，文字前面放全站统一的等待动画（读屏不读它）
+  if (value?.pending) live.prepend(createLoader());
   region.dataset.kind = ['error', 'empty', 'info'].includes(value?.kind) ? value.kind : 'info';
   renderedStatusActions.forEach((action, index) => {
     const button = document.createElement('button');

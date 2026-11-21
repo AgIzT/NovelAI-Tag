@@ -1687,6 +1687,10 @@ function syncSiteSearchHead(on = Boolean(state.siteSearchView)) {
 
 /* 结果栏上一次显示的条数：只在两次之间数字变了时滚动，首屏不滚 */
 let shownResultCount = null;
+/* 面包屑：上一次显示的路径（新进的层级从左滑进来），手机上点开「…」的那条路径 */
+let shownCrumbPath = null;
+let expandedCrumbPath = '';
+const CRUMB_FOLD_MEDIA = '(max-width:600px)';
 
 export function updateResultBar() {
   syncSiteSearchHead();
@@ -1708,24 +1712,62 @@ export function updateResultBar() {
     chip.textContent = label;
     if (!isCurrent) {
       chip.type = 'button';
+      chip.title = label;   // 长名字在样式里截成「…」，悬停看全名
       chip.onclick = () => selectPathByPath(path);
     }
     crumbs.appendChild(chip);
+    return chip;
   };
   const addSep = () => {
     const s = document.createElement('span');
     s.className = 'crumb-sep';
     s.textContent = '›';
     crumbs.appendChild(s);
+    return s;
   };
   if (searching && !state.siteSearchView) {
     addChip('全部', [], false);
+    shownCrumbPath = null;
   } else {
     addChip(searchHead ? '全站' : '全部', [], state.activePath.length === 0);
-    state.activePath.forEach((seg, i) => {
-      addSep();
-      addChip(seg, state.activePath.slice(0, i + 1), i === state.activePath.length - 1);
+    const path = state.activePath;
+    const pathKey = JSON.stringify(path);
+    /* 手机上三层起把中间几层收成「…」，点开后这条路径保持展开；电脑上宽度够，长名字靠截断 */
+    const fold = path.length >= 3 && expandedCrumbPath !== pathKey && Boolean(window.matchMedia?.(CRUMB_FOLD_MEDIA).matches);
+    const previous = shownCrumbPath;
+    let entering = 0;
+    path.forEach((seg, i) => {
+      if (fold && i > 0 && i < path.length - 1) {
+        if (i === 1) {
+          addSep();
+          const more = document.createElement('button');
+          more.type = 'button';
+          more.className = 'crumb crumb-more';
+          more.textContent = '…';
+          more.title = path.slice(1, -1).join(' › ');
+          more.setAttribute('aria-label', `展开中间 ${path.length - 2} 层：${more.title}`);
+          more.onclick = () => {
+            expandedCrumbPath = pathKey;
+            updateResultBar();
+            // 「…」被展开的层级替换掉了，焦点交给展开出来的第一层（前面是「全部」和第一层）
+            document.querySelectorAll('#resultInfo .crumbs button.crumb')[2]?.focus({ preventScroll: true });
+          };
+          crumbs.appendChild(more);
+        }
+        return;
+      }
+      const sep = addSep();
+      const chip = addChip(seg, path.slice(0, i + 1), i === path.length - 1);
+      // 比上一次多出来、或换了的层级从左边滑进来；第一次显示和往上退时不动
+      if (previous && previous[i] !== seg) {
+        for (const node of [sep, chip]) {
+          node.classList.add('crumb-enter');
+          node.style.setProperty('--crumb-i', String(entering));
+        }
+        entering++;
+      }
     });
+    shownCrumbPath = [...path];
   }
   // 分类轨上的「全部」已经是选中态，根目录不再写一遍；进目录和搜索才需要面包屑退回
   if (!searchHead && (searching || state.activePath.length || state.favoritesView)) box.appendChild(crumbs);

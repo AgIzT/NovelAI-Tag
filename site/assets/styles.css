@@ -1397,6 +1397,7 @@ html.motion-off .bwall-drift{display:none}
 .search-status[data-kind="error"]{border-color:color-mix(in srgb,var(--danger) 42%,var(--line));background:color-mix(in srgb,var(--danger) 7%,var(--panel))}
 .search-status[data-kind="empty"]{border-style:dashed}
 .search-status p{margin:0;font-size:13px;line-height:1.6}
+.search-status p > .ui-loader{--loader-size:13px;color:var(--accent);margin-right:calc(.625em + 6px)}
 .search-status[data-kind="error"] p{color:var(--danger-text)}
 .search-status-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
 .search-status-actions:empty{display:none}
@@ -1475,6 +1476,14 @@ html.motion-off .bwall-drift{display:none}
 button.crumb:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 .crumb.current{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);font-weight:600}
 .crumb-sep{color:var(--muted);opacity:.6;font-size:11px}
+/* 长目录名截成「…」，悬停看全名（title）；当前这一层写全。手机上三层起中间收成「…」按钮（codex-ui.js） */
+button.crumb{max-width:11em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumb-more{padding-inline:9px;letter-spacing:1px}
+@media (max-width:600px){button.crumb{max-width:7em}}
+/* 新进的层级从左边滑进来，一层接一层 */
+.crumb-enter{animation:crumbEnter var(--dur-short) var(--ease-out) backwards;animation-delay:calc(var(--crumb-i,0) * 40ms)}
+@keyframes crumbEnter{from{opacity:0;translate:-6px 0}}
+@media (prefers-reduced-motion:reduce){.crumb-enter{animation:none}}
 
 /* ---------- 全站搜索专用页头 ---------- */
 /* 结果栏整体当页头卡片，形制同法典横幅；子项拍平成一行，排成「结果数 · 范围 · 条件 … 动作」，窄了自然折行。
@@ -1689,10 +1698,15 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
 }
 .card-img-wrap.is-loading::before{opacity:1;animation:shimmer 1.3s ease-in-out infinite}
 .card-img-wrap.is-loading::after{content:"图片加载中";opacity:.8}
+/* 占位接力（masonry.js 的 beginPlaceholderHandoff）：图片到了以后扫光不立刻停，继续扫过正在显影的图片并淡出；
+   字先退，不和图片叠在一起 */
+.card-img-wrap.is-handoff::before{animation:shimmer 1.3s ease-in-out infinite;transition:opacity var(--dur-long) ease}
+.card-img-wrap.is-handoff::after{content:"图片加载中";transition:opacity var(--dur-fast) ease}
 .card-img-wrap.is-error::after{content:"图片加载失败";opacity:.8}
-/* 图片"落定"感：加载完成渐显 + 独立 scale 1.02→1（与 hover 的 transform 缩放不同属性、互不干扰；这里没用 blur：整屏卡片同时跑模糊动画开销大，要加先在手机上实测帧率） */
-.card-img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;scale:1.02;transition:opacity var(--dur-medium) ease,scale var(--dur-long) var(--ease-out),transform var(--dur-long) var(--ease-out)}
-.card-img.is-loaded{opacity:1;scale:1}
+/* 图片"落定"感：加载完成渐显 + 独立 scale 1.02→1（与 hover 的 transform 缩放不同属性、互不干扰）+ 从低饱和显影到原色，
+   和换书、开场首排图的显影是同一个意思，只是不带模糊：整屏卡片同时跑模糊动画开销大，要加先在手机上实测帧率 */
+.card-img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;scale:1.02;filter:saturate(.4) brightness(1.05);transition:opacity var(--dur-medium) ease,scale var(--dur-long) var(--ease-out),filter var(--dur-long) var(--ease-out),transform var(--dur-long) var(--ease-out)}
+.card-img.is-loaded{opacity:1;scale:1;filter:none}
 .img-retry{
   position:absolute;left:50%;top:calc(50% + 24px);z-index:5;transform:translateX(-50%);
   border:1px solid var(--line);background:var(--panel);color:var(--text);
@@ -1738,6 +1752,18 @@ body.dark .card:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 32%,t
 }
 .badge-count[hidden],.badge-neg-chip[hidden],
 .badge-char[hidden],.badge-char-chip[hidden],.badge-featured[hidden]{display:none!important}
+/* 今日画师卡：一道强调色流光沿卡边慢慢绕圈，在一整墙卡片里一眼认出它。只有这一张卡，开销小。
+   用 ::after 画环（遮罩只留 2px 边）；悬停立体时 ::after 归反光用，这时让位，移开再回来 */
+@property --featured-spin{syntax:"<angle>";inherits:false;initial-value:0deg}
+.masonry>.card.is-featured:not(.depth-live)::after{
+  content:"";position:absolute;inset:0;z-index:8;pointer-events:none;border-radius:inherit;padding:2px;
+  background:conic-gradient(from var(--featured-spin),transparent 0 58%,color-mix(in srgb,var(--accent) 70%,#fff) 76%,var(--accent) 84%,transparent 96%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+  animation:featuredSpin 5s linear infinite;
+}
+@keyframes featuredSpin{to{--featured-spin:360deg}}
+@media (prefers-reduced-motion:reduce){.masonry>.card.is-featured:not(.depth-live)::after{animation:none;--featured-spin:200deg}}
 /* 今日画师：默认那本书每天一位，置顶在「全部」第一格（app/featured.js） */
 .badge-featured{
   display:inline-flex;align-items:center;line-height:1.35;
@@ -1918,7 +1944,7 @@ body.density-compact .copy-hint{display:none}
   .codex-banner,.chip-rail,.result-bar,.banner-cover img{
     transition:none;
   }
-  .more-menu,.codex-menu,.banner-pop,.card-img-wrap.is-loading::before,.card.copied,
+  .more-menu,.codex-menu,.banner-pop,.card-img-wrap.is-loading::before,.card-img-wrap.is-handoff::before,.card.copied,
   .skeleton-thumb,.skeleton-line,
   .main.skeleton-visible .codex-banner:empty::before,
   .main.skeleton-visible .codex-banner:empty::after,

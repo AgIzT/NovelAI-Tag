@@ -884,12 +884,14 @@ function renderSearchExperience(plan, directoryOptions, searchZh) {
       detail: [zhNotice, count ? '可打开下方相关目录，或调整搜索条件。'
         : (missingBooks || zhNotice ? '' : '调整关键词或减少筛选条件。')].filter(Boolean).join(' '),
       actions,
+      pending: Boolean(searchZh?.pending),
     });
   } else if (active && (missingBooks || zhNotice)) {
     renderSearchStatus({
       kind: 'info',
       message: [missingNotice, zhNotice].filter(Boolean).join(' '),
       actions: retryActions,
+      pending: Boolean(searchZh?.pending),
     });
   } else {
     renderSearchStatus(null);
