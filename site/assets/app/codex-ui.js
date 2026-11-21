@@ -290,13 +290,37 @@ export function setupCodexPicker() {
     const overflow = menu.getBoundingClientRect().right - (document.documentElement.clientWidth - 14);
     if (overflow > 0) menu.style.left = `${-Math.ceil(overflow)}px`;
   };
+  /* 入场跟着面板走：里面的东西按离起点的远近错开出场，--cascade-d 交给 CSS 当 animation-delay。
+     距离量到元素盒子最近的那一点；后插进来的样图、最近新增继承最近祖先的值。 */
+  const CASCADE_ANCHORS = '.codex-vol, .vol-head, .vh-text, .vol-recent, .codex-item, .codex-soon-banner, .codex-door-wrap, .n5-launch-panel, .metro-badge, .metro-bday';
+  const CASCADE_MS_PER_PX = 0.16;
+  const CASCADE_MAX_DELAY = 200;
+  const cascadeFrom = (root, originX, originY, start) => {
+    const base = root.getBoundingClientRect();
+    root.querySelectorAll(CASCADE_ANCHORS).forEach(element => {
+      const rect = element.getBoundingClientRect();
+      const left = rect.left - base.left;
+      const top = rect.top - base.top;
+      const dx = Math.max(0, left - originX, originX - (left + rect.width));
+      const dy = Math.max(0, top - originY, originY - (top + rect.height));
+      const delay = Math.min(CASCADE_MAX_DELAY, start + Math.hypot(dx, dy) * CASCADE_MS_PER_PX);
+      element.style.setProperty('--cascade-d', `${Math.round(delay)}ms`);
+    });
+  };
+  /* 起点是按钮左下角：窄桌面面板被 placeMenu 往左推时，生长点也跟着按钮。
+     量面板左沿时生长点要在面板左上角（CSS 默认），缩放起点那一帧左沿才不偏。 */
+  const buttonOriginX = () => Math.round(btn.getBoundingClientRect().left - menu.getBoundingClientRect().left);
   const openDirect = ({ focus = false } = {}) => {
     // 上一次换书留下的「按下」淡化，只属于那一次关闭
     menu.classList.remove('is-choosing');
+    menu.style.transformOrigin = '';
     renderMenu();
     menu.inert = false;
     menu.hidden = false;
     placeMenu();
+    const originX = buttonOriginX();
+    menu.style.transformOrigin = `${originX}px 0`;
+    cascadeFrom(menu, originX, 0, 24);
     ensureUpdates();
     celebratePickerOpen();
     btn.classList.add('open');
@@ -779,11 +803,39 @@ export function setupCodexPicker() {
       }
       body.replaceChildren(head, ...(t.soon ? [makeSoonBanner(t)] : []), grid);
     };
+    /* 换卷：旧卷内容留一个替身贴住旧卷不动的那条边淡出，真身当场清空，
+       `.codex-item[data-id]` 仍然只列打开的那一卷（verify_ui 依赖）。替身淡完再摘掉；减少动态效果时没有淡出，当场摘。 */
+    const leaveVolume = (body, anchorRight) => {
+      if (!body.childElementCount) return;
+      const ghost = body.cloneNode(true);
+      ghost.removeAttribute('id');
+      ghost.inert = true;
+      ghost.setAttribute('aria-hidden', 'true');
+      ghost.classList.add('vol-ghost');
+      ghost.classList.toggle('anchor-right', anchorRight);
+      ghost.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
+      ghost.querySelectorAll('[data-id], [data-lock-id], [data-recent-batch]').forEach(element => {
+        element.removeAttribute('data-id');
+        element.removeAttribute('data-lock-id');
+        element.removeAttribute('data-recent-batch');
+      });
+      body.after(ghost);
+      const fade = ghost.getAnimations().find(animation => animation.animationName === 'picker-out');
+      if (fade) fade.finished.then(() => ghost.remove(), () => ghost.remove());
+      else ghost.remove();
+    };
     const setActive = (id, { fromSpine = null } = {}) => {
       rememberPickerScroll();
+      const fromIndex = volumes.findIndex(v => v.t.id === activeType);
       activeType = id;
-      // 首次打开时卷内跟着书脊入场；换卷时等宽度过渡走一段再浮入
-      vols.classList.toggle('is-switching', Boolean(fromSpine));
+      const toIndex = volumes.findIndex(v => v.t.id === id);
+      // 首次打开时卷内跟着面板一起铺开（openDirect 统一排时间）；点书脊换卷才走下面这套
+      const switching = Boolean(fromSpine) && fromIndex >= 0 && fromIndex !== toIndex;
+      // 点的书脊在旧卷右边：新卷向左撑开、右边不动，内容从右边进来；在左边则相反
+      const fromRight = switching && toIndex > fromIndex;
+      vols.classList.toggle('enter-from-left', switching && !fromRight);
+      vols.classList.toggle('enter-from-right', fromRight);
+      menu.querySelectorAll('.vol-ghost').forEach(ghost => ghost.remove());
       volumes.forEach(v => {
         const open = v.t.id === id;
         v.section.classList.toggle('is-open', open);
@@ -791,9 +843,19 @@ export function setupCodexPicker() {
         v.spine.setAttribute('aria-expanded', open ? 'true' : 'false');
         v.spine.tabIndex = open ? -1 : 0;
         v.body.inert = !open;
-        if (open) fillVolume(v);
-        else v.body.replaceChildren();
+        if (open) {
+          v.body.classList.toggle('anchor-right', fromRight);
+          fillVolume(v);
+        } else {
+          if (switching && v.index === fromIndex) leaveVolume(v.body, !fromRight);
+          v.body.replaceChildren();
+        }
       });
+      // 宽度过渡先走 60ms 再进，起点是被点书脊那一侧的上角
+      if (switching) {
+        const opened = volumes[toIndex].body;
+        cascadeFrom(opened, fromRight ? opened.getBoundingClientRect().width : 0, 0, 60);
+      }
       restorePickerScroll();
       // 键盘换卷：被按的书脊随即藏到卷体后面，焦点交给新卷的第一本
       if (fromSpine && document.activeElement === fromSpine) {
@@ -855,6 +917,8 @@ export function setupCodexPicker() {
     rememberPickerScroll();
     renderMenu();
     placeMenu();
+    // 重建后的内容照样从按钮那一角铺开（面板已经停稳，只排内容的时间）
+    cascadeFrom(menu, buttonOriginX(), 0, 24);
     restorePickerScroll();
     if (focused) {
       const target = [...menu.querySelectorAll('button')].find(element =>

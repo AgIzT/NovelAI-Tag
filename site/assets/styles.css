@@ -411,17 +411,27 @@ body.dark .ci-chip.has-orig{background:rgba(255,255,255,.1)}
   --cat-mid:color-mix(in srgb,var(--cat) 26%,var(--card));
 }
 
+/* ── 入场：内容跟着面板走（2026-11-21）──
+   面板从按钮那一角往下长出来，里面的东西接着往下落 6px，按离那一角的远近依次出现；
+   --cascade-d 由 codex-ui.js 的 cascadeFrom 按距离写，后插进来的样图、最近新增继承最近祖先的值。
+   换卷时 .codex-vols 挂 enter-from-left / right，新内容从被点书脊那一侧横着进来。 */
+.codex-menu{--cascade-x:0px;--cascade-y:-6px}
+.codex-vols.enter-from-left{--cascade-x:-14px;--cascade-y:0px}
+.codex-vols.enter-from-right{--cascade-x:14px;--cascade-y:0px}
+.vh-text,.vr-cap,.vr-dist,.codex-item.vbook,.codex-soon-banner,.codex-door-wrap,.metro-badge,.codex-item.stn{
+  animation:picker-in var(--dur-medium) var(--ease-out) var(--cascade-d,0ms) backwards}
+
 /* ── PC 四卷：每类一卷并排，打开的那卷占满，其余收成书脊 ──
-   面板打开时书脊依次上浮、书卡依次显现；换卷靠 flex-grow 过渡。 */
+   换卷靠 flex-grow 过渡；卷体贴住不动的那条边（向左撑开时贴右边，.anchor-right），
+   旧卷内容留一个替身（.vol-ghost）随卷宽收缩淡出。 */
 .codex-vols{
-  --spine:76px;--vol-gap:8px;--vol-delay:110ms;
+  --spine:76px;--vol-gap:8px;
   display:flex;gap:var(--vol-gap);height:clamp(360px,calc(100vh - 230px),488px);
 }
-.codex-vols.is-switching{--vol-delay:150ms}
 .codex-vol{
   position:relative;flex:0 0 var(--spine);min-width:0;border-radius:14px;overflow:hidden;background:var(--cat-soft);
-  transition:flex-grow var(--dur-long) cubic-bezier(.27,0,.51,1),background var(--dur-medium);
-  animation:vol-rise var(--dur-medium) var(--ease-out) backwards;animation-delay:calc(var(--i,0) * 40ms);
+  transition:flex-grow var(--dur-long) var(--ease-out),background var(--dur-medium);
+  animation:picker-fade var(--dur-short) ease var(--cascade-d,0ms) backwards;
 }
 .codex-vol::before{content:"";position:absolute;inset:0 0 auto;z-index:2;height:4px;background:var(--cat);transition:height var(--dur-short)}
 .codex-vol:not(.is-open):hover::before{height:7px}
@@ -455,8 +465,11 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
   width:calc(min(800px,100vw - 28px) - 20px - (var(--n,4) - 1) * (var(--spine) + var(--vol-gap)));
   display:flex;flex-direction:column;gap:12px;padding:18px 14px 12px;
 }
-.vol-head{display:flex;align-items:flex-end;gap:16px;min-height:92px;padding:0 4px;
-  animation:vol-rise var(--dur-medium) var(--ease-out) backwards;animation-delay:var(--vol-delay)}
+.vol-body.anchor-right{left:auto;right:0}
+.vol-ghost{pointer-events:none;animation:picker-out var(--dur-fast) ease forwards}
+/* 替身是克隆出来的，里面的入场动画全部掐掉，否则会再播一遍 */
+.vol-ghost *,.vol-ghost *::before,.vol-ghost *::after{animation:none!important}
+.vol-head{display:flex;align-items:flex-end;gap:16px;min-height:92px;padding:0 4px}
 .vh-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .vh-no{font-size:10.5px;font-weight:800;letter-spacing:.18em;color:var(--cat)}
 .vh-name{display:flex;align-items:center;gap:10px}
@@ -472,7 +485,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
   box-shadow:0 0 0 2px var(--card),0 6px 14px rgba(28,32,58,.18);transform-origin:50% 100%;
   translate:var(--x) 0;rotate:var(--r);
   transition:translate var(--dur-medium) var(--ease-out),rotate var(--dur-medium) var(--ease-out);
-  animation:vol-fan var(--dur-long) var(--ease-out) backwards;animation-delay:calc(var(--vol-delay) + 60ms)}
+  animation:picker-fan var(--dur-long) var(--ease-out) calc(var(--cascade-d,0ms) + 40ms) backwards}
 .vc-card:nth-child(1){--x:-44px;--r:-10deg}
 .vc-card:nth-child(2){--x:-14px;--r:-3deg;z-index:1}
 .vc-card:nth-child(3){--x:16px;--r:4deg;z-index:2}
@@ -484,8 +497,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .vol-recent{flex:none;display:flex;align-items:flex-end;gap:14px}
 .vol-recent.is-pending{width:150px;height:96px}
 .vr-cap{display:flex;flex-direction:column;align-items:flex-end;gap:1px;max-width:156px;padding:4px 2px;border:0;border-radius:8px;
-  background:transparent;color:var(--text);text-align:right;cursor:pointer;
-  animation:vol-rise var(--dur-medium) var(--ease-out) backwards;animation-delay:calc(var(--vol-delay) + 40ms)}
+  background:transparent;color:var(--text);text-align:right;cursor:pointer}
 .vr-k{font-size:10.5px;font-weight:800;letter-spacing:.14em;color:var(--cat)}
 .vr-cap b{font-size:22px;font-weight:800;line-height:1.1;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .vr-cap b i{margin-left:2px;font-style:normal;font-size:11px;font-weight:700;letter-spacing:0;color:var(--muted)}
@@ -507,8 +519,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 /* 这一批没有能看的图：改画「新增分布」——落在哪几个目录、各多少条，条长按最多那一项折算，入场时依次长出来 */
 .vr-dist{flex:none;width:170px;display:flex;flex-direction:column;gap:5px;padding:7px 10px 8px;border:1px solid var(--line);border-radius:10px;
   background:var(--card);color:var(--text);text-align:left;cursor:pointer;box-shadow:0 6px 14px -6px rgba(28,32,58,.18);
-  transition:border-color var(--dur-fast),translate var(--dur-fast);
-  animation:vol-rise var(--dur-medium) var(--ease-out) backwards;animation-delay:calc(var(--vol-delay) + 60ms)}
+  transition:border-color var(--dur-fast),translate var(--dur-fast)}
 .vr-dist:hover{border-color:var(--cat);translate:0 -2px}
 .vr-dist:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .vr-dist-k{font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--muted)}
@@ -517,7 +528,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .vr-row b{font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--muted)}
 .vr-bar{position:relative;grid-column:1/-1;height:4px;border-radius:2px;background:var(--cat-soft);overflow:hidden}
 .vr-bar::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--w);border-radius:2px;background:var(--cat);transform-origin:0 50%;
-  animation:vr-grow var(--dur-long) var(--ease-out) backwards;animation-delay:calc(var(--vol-delay) + 140ms + var(--i,0) * 60ms)}
+  animation:vr-grow var(--dur-long) var(--ease-out) calc(var(--cascade-d,0ms) + 80ms + var(--i,0) * 40ms) backwards}
 @keyframes vr-grow{from{scale:0 1}}
 @container vol-head (max-width:440px){.vr-fan,.vr-dist{display:none}}
 /* 卷内等大书卡：列数由 JS 按本数给（--cols），行多了网格内部滚动；内边距给悬停抬升留余量 */
@@ -527,9 +538,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
   gap:var(--book-gap);margin:-3px;padding:3px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
 .codex-item.vbook{
-  --book-delay:calc(var(--vol-delay) + 50ms + var(--i,0) * 35ms);
   display:flex;flex-direction:column;gap:7px;min-width:0;min-height:0;padding:6px 6px 8px;border-radius:12px;box-shadow:var(--shadow);
-  animation:vol-book-in var(--dur-medium) var(--ease-out) var(--book-delay) backwards;
 }
 .codex-item.vbook:hover,.codex-item.vbook:focus-visible{translate:0 -2px;box-shadow:var(--shadow-hover);border-color:var(--accent);outline:none}
 .codex-item.vbook:hover .ci-cover img{transform:scale(1.05)}
@@ -538,8 +547,8 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .codex-item.vbook.locked:hover,.codex-item.vbook.locked:focus-visible,
 .codex-item.vbook.soon:hover,.codex-item.vbook.soon:focus-visible{translate:none;box-shadow:none;border-color:var(--line)}
 .vbook .ci-cover{flex:1;min-height:56px;border-radius:8px}
-/* 位移放在封面裁切内，避免撑大 .vol-grid 的滚动范围。 */
-.vbook .ci-cover>img{animation:vol-cover-rise var(--dur-medium) var(--ease-out) var(--book-delay) backwards}
+/* 封面图在裁切框里多走一点，像跟在书卡后面落定；位移不出框，不撑大 .vol-grid 的滚动范围。 */
+.vbook .ci-cover>img{animation:picker-drift var(--dur-medium) var(--ease-out) var(--cascade-d,0ms) backwards}
 .vbook .ci-main{flex:none;gap:3px;padding:0 3px}
 /* 书名单行、占满卡宽：「当前」挪到封面左上角，不再和书名抢一行；真排不下才省略（悬停有全名） */
 .vbook .ci-name{font-size:13.5px;line-height:1.3}
@@ -555,8 +564,7 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 /* 4 本卷「样张条」：封面位从单张横裁换成几张竖图并排（封面在最左），竖构图的人物不再被切成一条；依次浮入 */
 .vb-strip{position:absolute;inset:0;z-index:0;display:flex;gap:2px;background:var(--card)}
 .ci-cover .vb-strip img{position:static;inset:auto;flex:1;min-width:0;width:auto;height:100%;object-fit:cover;object-position:50% 20%;opacity:1;
-  animation:strip-in var(--dur-long) var(--ease-out) backwards;animation-delay:calc(var(--vol-delay) + 80ms + var(--s,0) * 50ms)}
-@keyframes strip-in{from{opacity:0;translate:0 6px}}
+  animation:picker-in var(--dur-medium) var(--ease-out) calc(var(--cascade-d,0ms) + 30ms + var(--s,0) * 30ms) backwards}
 /* 5 本起「书架」：窄窗口排一列，够放两张并排时排两列。 */
 .vol-grid[data-layout="shelf"]{
   grid-template-columns:repeat(auto-fit,minmax(min(100%,max(184px,(100% - var(--book-gap)) / 2)),1fr));
@@ -578,10 +586,9 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .cat-codex .vol-grid[data-layout="shelf"] .vbook:not(.locked):focus-visible .ci-cover{transform:perspective(500px) rotateY(-14deg)}
 
 /* ── 手机线路图：每类一条竖向线路，书是线上的站 ──
-   打开时线路牌从左滑入、线段逐段自上而下画出、站点依次浮入；当前站的光环呼吸两次后停住。 */
+   打开时线路牌和站点跟着面板往下落（见上面「入场」），线段在每站落定后自上而下画出；当前站的光环呼吸两次后停住。 */
 .metro-line{position:relative;padding:2px 0 6px}
-.metro-badge{display:flex;align-items:center;gap:8px;min-width:0;margin:6px 6px 4px;
-  animation:metro-slide var(--dur-medium) var(--ease-out) backwards;animation-delay:calc(var(--i,0) * 24ms)}
+.metro-badge{display:flex;align-items:center;gap:8px;min-width:0;margin:6px 6px 4px}
 .mb-pill{flex:none;display:inline-flex;align-items:center;gap:6px;padding:5px 11px 5px 9px;border-radius:10px;background:var(--cat);color:var(--on-accent)}
 .mb-pill svg{display:block;width:16px;height:16px}
 .mb-pill b{font-family:var(--font-display);font-size:15px;font-weight:900;letter-spacing:.12em;line-height:1.2}
@@ -595,13 +602,12 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
   grid-template-areas:"dot head head" "dot sub stat" "dot tags stat";
   align-content:center;align-items:center;column-gap:12px;row-gap:2px;
   width:100%;height:70px;padding:0 10px 0 12px;border:0;border-radius:12px;background:transparent;
-  animation:metro-pop var(--dur-medium) var(--ease-out) backwards;animation-delay:calc(var(--i,0) * 24ms + 50ms);
 }
 .cat-string .codex-item.stn{height:auto;min-height:70px;padding-block:7px}
 /* 站与站之间的线段：从本站圆心画向下一站（站高默认 70，间距 2） */
 .codex-item.stn::before{
   content:"";position:absolute;left:31px;top:50%;width:6px;height:calc(100% + 2px);border-radius:3px;background:var(--cat);
-  transform-origin:50% 0;animation:metro-draw var(--dur-medium) cubic-bezier(.27,0,.51,1) backwards;animation-delay:calc(var(--i,0) * 24ms + 110ms);
+  transform-origin:50% 0;animation:metro-draw var(--dur-medium) var(--ease-out) calc(var(--cascade-d,0ms) + 80ms) backwards;
 }
 .codex-item.stn:last-child::before{display:none}
 .stn .ci-cover{grid-area:dot;z-index:1;width:44px;height:44px;border-radius:50%;
@@ -620,23 +626,21 @@ body.dark .codex-vol.is-open{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .codex-item.stn.active{background:var(--accent-soft)}
 .codex-item.stn.active .ci-cover{
   box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--accent),0 0 0 10px var(--accent-glow);
-  animation:stn-halo 1.4s ease-in-out 2 backwards;animation-delay:calc(var(--i,0) * 24ms + 420ms);
+  animation:stn-halo 1.4s ease-in-out 2 calc(var(--cascade-d,0ms) + 320ms) backwards;
 }
 .codex-item.stn.locked{cursor:not-allowed}
 .codex-item.stn.locked:hover{background:transparent}
 .codex-item.stn.locked .ci-cover{box-shadow:0 0 0 3px var(--panel),0 0 0 6px var(--line)}
 .stn-fresh{position:absolute;left:48px;top:calc(50% - 24px);z-index:2;width:10px;height:10px;border-radius:50%;
   background:var(--new);box-shadow:0 0 0 2px var(--panel);
-  animation:stn-ping var(--dur-long) var(--ease-out) backwards;animation-delay:calc(var(--i,0) * 24ms + 360ms)}
+  animation:stn-ping var(--dur-long) var(--ease-out) calc(var(--cascade-d,0ms) + 200ms) backwards}
 .metro-line.soon .metro-track{opacity:.75}
 
-@keyframes vol-rise{from{opacity:0;translate:0 10px}}
-/* 入场从卡框内缩放，保持书卡的滚动边界。 */
-@keyframes vol-book-in{from{opacity:0;transform:scale(.96)}}
-@keyframes vol-cover-rise{from{translate:0 9px}}
-@keyframes vol-fan{from{opacity:0;translate:0 8px;rotate:0deg}}
-@keyframes metro-slide{from{opacity:0;translate:-12px 0}}
-@keyframes metro-pop{from{opacity:0;translate:-8px 0}}
+@keyframes picker-fade{from{opacity:0}}
+@keyframes picker-in{from{opacity:0;translate:var(--cascade-x) var(--cascade-y)}}
+@keyframes picker-drift{from{translate:var(--cascade-x) var(--cascade-y)}}
+@keyframes picker-fan{from{opacity:0;translate:var(--cascade-x) var(--cascade-y);rotate:0deg}}
+@keyframes picker-out{to{opacity:0}}
 @keyframes metro-draw{from{scale:1 0}}
 @keyframes stn-ping{from{scale:0;opacity:0}}
 @keyframes stn-halo{
@@ -674,8 +678,8 @@ body.dark .codex-door-wrap{border-color:rgba(255,255,255,.1)}
   .codex-door,.codex-item,.ci-cover img,.n5-launch-book,.n5-launch-notice,
   .codex-vol,.codex-vol::before,.vol-spine,.vs-name,.vs-thumb,.vc-card,.stn .ci-cover,.cat-codex .vol-grid[data-layout="shelf"] .ci-cover{transition:none}
   .cat-codex .vol-grid[data-layout="shelf"] .vbook:hover .ci-cover{transform:none}
-  .codex-vol,.vol-head,.vc-card,.vr-cap,.vr-dist,.vr-bar::after,.ci-cover .vb-strip img,.codex-item.vbook,.metro-badge,.codex-item.stn,.codex-item.stn::before,
-  .stn-fresh,.codex-item.stn.active .ci-cover{animation:none}
+  .codex-vol,.vh-text,.vc-card,.vr-cap,.vr-dist,.vr-bar::after,.ci-cover .vb-strip img,.codex-item.vbook,.metro-badge,.codex-item.stn,.codex-item.stn::before,
+  .stn-fresh,.codex-item.stn.active .ci-cover,.codex-soon-banner,.codex-door-wrap,.vol-ghost{animation:none}
   .codex-door:hover,.codex-door:focus-visible,
   .codex-item:hover,.codex-item:focus-visible{transform:none;translate:none}
   .codex-item:hover .ci-cover img{transform:none}
@@ -1163,7 +1167,7 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
   border:2px solid color-mix(in srgb,var(--bday) 70%,transparent)}
 /* 选择器卷头：「最近新增」那一格换成「生日快乐 / 法典创作者 · 所长」+ 戴生日帽的头像（字在左、图在右，同原来的说明 + 样图） */
 .vol-bday{flex-direction:row-reverse;align-items:center;gap:12px;padding:0 4px 2px 0;
-  animation:vol-rise var(--dur-medium) var(--ease-out) backwards;animation-delay:calc(var(--vol-delay) + 40ms)}
+  animation:picker-in var(--dur-medium) var(--ease-out) var(--cascade-d,0ms) backwards}
 .bd-text{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .bd-text b{font-family:var(--font-display);font-size:20px;font-weight:900;letter-spacing:.08em;line-height:1.1;color:var(--text)}
 .bd-text small{font-size:11px;letter-spacing:.06em;white-space:nowrap;color:var(--muted)}
@@ -1185,7 +1189,7 @@ body.dark{--bday:#f2b75a;--bday-soft:rgba(242,183,90,.16);--bday-line:rgba(242,1
 @keyframes bdHatDrop{from{translate:0 -16px;rotate:-40deg;opacity:0}}
 /* 手机线路图没有卷头：挂在法典线的线路牌下面 */
 .metro-bday{display:flex;align-items:center;gap:12px;margin:10px 8px 6px;padding:12px 12px 9px;border-radius:12px;background:var(--bday-soft);
-  animation:metro-slide var(--dur-medium) var(--ease-out) backwards}
+  animation:picker-in var(--dur-medium) var(--ease-out) var(--cascade-d,0ms) backwards}
 .metro-bday .bd-avatar{width:46px;height:46px}
 .metro-bday .bd-text{align-items:flex-start;gap:1px}
 .metro-bday .bd-text b{font-size:16px}
