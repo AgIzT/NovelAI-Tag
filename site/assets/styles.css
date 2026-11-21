@@ -1366,14 +1366,26 @@ html.motion-off .bwall-drift{display:none}
 
 /* ---------- 结果栏 / 面包屑 ---------- */
 /* min-height 取 30px = 宽屏实测成品高度（原 26 会在文案填进来时长高 4px 顶动下方）；手机一档见 max-width:600px，
-   手机根目录固定一行，进目录、开更新筛选或有屏蔽时才折到第二行。 */
-.result-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--muted);font-size:13px;margin-bottom:12px;min-height:30px}
+   手机根目录固定一行，进目录、开更新筛选或有屏蔽时才折到第二行。
+   排布：左数字固定锚点 → 细竖线与面包屑向右延伸 → 操作组整体靠右，避免切目录时数字和胶囊满屏左右跳动。 */
+.result-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;color:var(--muted);font-size:13px;margin-bottom:12px;min-height:30px}
 .result-bar b{color:var(--accent)}
 #resultInfo{display:contents}
 .result-bar-head{display:contents}
-.result-bar-head:has(#searchClearAllBtn:not([hidden])){flex:1 0 100%;display:flex;align-items:flex-start;gap:12px}
-.result-bar-head:has(#searchClearAllBtn:not([hidden])) #resultInfo{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.result-bar-head:has(#searchClearAllBtn:not([hidden])){flex:1 0 100%;display:flex;align-items:center;gap:12px}
+.result-bar-head:has(#searchClearAllBtn:not([hidden])) #resultInfo{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px}
 .result-bar-head .search-clear-all{margin-left:auto;white-space:nowrap}
+.result-count{display:inline-flex;align-items:baseline;gap:3px;white-space:nowrap;flex:none}
+.result-count>b{
+  display:inline-flex;align-items:baseline;font-family:var(--font-display,var(--font-ui));
+  font-size:17px;font-weight:800;line-height:1.2;letter-spacing:-.015em;
+  font-variant-numeric:tabular-nums;overflow:clip;padding:1px 0;margin:-1px 0;--roll-dist:.78em;
+}
+.result-count-unit{font-size:12.5px;color:var(--muted)}
+.result-count-meta{font-size:12px;color:var(--muted);margin-left:3px}
+.result-bar-sep{display:inline-block;width:1px;height:14px;background:var(--line);flex:none;margin:0 1px}
+.result-bar-actions{display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px;margin-left:auto}
+.result-bar-actions:not(:has(> :not([hidden]))){display:none}
 .search-filter-summary{flex:0 1 auto;min-width:0;display:flex;align-items:flex-start;gap:8px}
 .search-filter-chips{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:7px}
 .search-filter-chip{
@@ -1496,11 +1508,12 @@ button.crumb{max-width:11em;overflow:hidden;text-overflow:ellipsis;white-space:n
   padding:10px 16px;gap:8px 12px;
 }
 .site-search-head .result-bar .result-bar-head:has(#searchClearAllBtn:not([hidden])),
-.site-search-head .result-bar .result-bar-head:has(#searchClearAllBtn:not([hidden])) #resultInfo{display:contents}
+.site-search-head .result-bar .result-bar-head:has(#searchClearAllBtn:not([hidden])) #resultInfo,
+.site-search-head .result-bar-actions{display:contents}
 .search-head-count{color:var(--text);white-space:nowrap}
 /* 条数变化：变了的那几位滚进来（app/ui-motion.js 的 setRollingNumber），变大从下、变小从上 */
 .num-roll{display:inline-block;animation:numRoll var(--dur-medium) var(--ease-spring) backwards;animation-delay:calc(var(--roll-i,0) * 28ms)}
-@keyframes numRoll{from{opacity:0;translate:0 calc(var(--roll-dir,1) * .55em)}}
+@keyframes numRoll{from{opacity:0;translate:0 calc(var(--roll-dir,1) * var(--roll-dist,.55em))}}
 @media (prefers-reduced-motion:reduce){.num-roll{animation:none}}
 .search-head-count b{margin-right:4px;font-size:24px;font-weight:800;line-height:1.25}
 .site-search-head .crumbs::before{content:"·";margin-right:4px;color:var(--muted)}
@@ -3388,6 +3401,9 @@ a.lightbox-credit:hover{text-decoration:underline}
   }
   .rail-chip{padding:7px 12px;font-size:12px}
   .result-bar{min-height:var(--ui-bar-touch-height);margin-bottom:10px}
+  .result-count>b{font-size:15.5px}
+  .result-bar-actions{margin-left:0}
+  .result-bar:has(.crumbs) .result-bar-actions{flex:1 0 100%}
   .settings-panel{padding:18px 16px 10px;border-radius:18px}
   .density-row,.seg-row{align-items:stretch;flex-direction:column}
   .density-control,.seg-control{width:100%;min-width:0}

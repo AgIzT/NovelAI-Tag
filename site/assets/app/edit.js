@@ -1436,6 +1436,7 @@ function openBatchImportDialog(path = null) {
 function ensureResultBarButton() {
   const bar = document.querySelector('.result-bar');
   if (!bar) return;
+  const host = bar.querySelector('.result-bar-actions') || bar;
   if (!document.getElementById('editNewEntryBtn')) {
     const btn = document.createElement('button');
     btn.id = 'editNewEntryBtn';
@@ -1446,7 +1447,7 @@ function ensureResultBarButton() {
       if (!canEditContext()) { toast('当前法典不可编辑'); return; }
       openCreateDialog();
     };
-    bar.appendChild(btn);
+    host.appendChild(btn);
   }
   if (!document.getElementById('editBatchImportBtn')) {
     const btn = document.createElement('button');
@@ -1458,6 +1459,6 @@ function ensureResultBarButton() {
       if (!canEditContext()) { toast('当前法典不可编辑'); return; }
       openBatchImportDialog();
     };
-    bar.appendChild(btn);
+    host.appendChild(btn);
   }
 }

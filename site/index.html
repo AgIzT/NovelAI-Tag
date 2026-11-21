@@ -429,16 +429,18 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
         <span id="resultInfo"></span>
         <button id="searchClearAllBtn" class="bar-btn search-clear-all" type="button" hidden>清除全部</button>
       </div>
-      <button id="blockingResultBtn" class="bar-btn blocking-result-btn" type="button" hidden>屏蔽管理</button>
       <div id="searchFilterSummary" class="search-filter-summary" hidden>
         <div id="searchFilterChips" class="search-filter-chips" role="list" aria-label="当前搜索筛选"></div>
       </div>
-      <div id="updateFilterControls" class="update-filter-controls" hidden></div>
-      <div id="artistPickControls" class="artist-pick-controls" hidden></div>
-      <button id="favoritesViewBackupBtn" class="bar-btn favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
-        <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
-        <span>备份与恢复</span>
-      </button>
+      <div class="result-bar-actions">
+        <button id="blockingResultBtn" class="bar-btn blocking-result-btn" type="button" hidden>屏蔽管理</button>
+        <div id="updateFilterControls" class="update-filter-controls" hidden></div>
+        <div id="artistPickControls" class="artist-pick-controls" hidden></div>
+        <button id="favoritesViewBackupBtn" class="bar-btn favorites-backup-result-btn favorites-view-backup-btn" type="button" data-favorites-backup-open aria-label="备份与恢复收藏" hidden>
+          <span class="favorites-view-backup-icon" aria-hidden="true">⇄</span>
+          <span>备份与恢复</span>
+        </button>
+      </div>
     </div>
     <section id="searchStatus" class="search-status" hidden>
       <p id="searchStatusLive" role="status" aria-live="polite"></p>

@@ -1667,6 +1667,7 @@ function syncSiteSearchHead(on = Boolean(state.siteSearchView)) {
   if (on === siteSearchHeadLaidOut) return;
   const bar = document.querySelector('.result-bar');
   const barHead = bar?.querySelector('.result-bar-head');
+  const actions = bar?.querySelector('.result-bar-actions');
   const rail = $('#chipRail');
   const info = $('#resultInfo');
   const filters = $('#searchFilterSummary');
@@ -1680,7 +1681,9 @@ function syncSiteSearchHead(on = Boolean(state.siteSearchView)) {
     info.after(filters, blocking);
   } else {
     rail.after(bar);
-    barHead.after(blocking, filters);
+    barHead.after(filters);
+    if (actions) actions.prepend(blocking);
+    else barHead.after(blocking, filters);
   }
   siteSearchHeadLaidOut = on;
 }
@@ -1770,31 +1773,42 @@ export function updateResultBar() {
     shownCrumbPath = [...path];
   }
   // 分类轨上的「全部」已经是选中态，根目录不再写一遍；进目录和搜索才需要面包屑退回
-  if (!searchHead && (searching || state.activePath.length || state.favoritesView)) box.appendChild(crumbs);
+  const showCrumbs = searchHead || searching || state.activePath.length > 0 || Boolean(state.favoritesView);
 
+  // 数字永远锚定在行首（去前缀），切换目录或筛选时原地滚动，不被面包屑推着跳
   const count = document.createElement('span');
-  if (searchHead) count.className = 'search-head-count';
-  let t;
+  count.className = searchHead ? 'search-head-count' : 'result-count';
   if (searching) {
     const scope = state.favoritesView ? '收藏内' : '本书';
     const relatedLabel = state.relatedDirectoryCount ? ` · ${state.relatedDirectoryCount} 个相关目录` : '';
     // 关键词和筛选都由条件胶囊呈现，这里不再写一遍
-    t = searchHead
+    count.innerHTML = searchHead
       ? `<b>${n}</b> 条图片结果${relatedLabel}`
-      : `${scope}搜索：<b>${n}</b> 条图片结果${relatedLabel}`;
+      : `<b>${n}</b> <span class="result-count-unit">条图片结果</span><span class="result-count-meta"> · ${scope}搜索${relatedLabel}</span>`;
+  } else if (state.favoritesView) {
+    count.innerHTML = `<b>${n}</b> <span class="result-count-unit">条</span><span class="result-count-meta"> · 收藏</span>`;
+  } else if (activeUpdateFilter()) {
+    const filter = activeUpdateFilter();
+    const imaged = state.list.filter(hasEntryImage).length;
+    count.innerHTML = `<b>${n}</b> <span class="result-count-unit">条</span><span class="result-count-meta"> · ${esc(filter.label)} · ${imaged} 已配图</span>`;
+  } else if (state.activePath.length) {
+    count.innerHTML = `<b>${n}</b> <span class="result-count-unit">条</span>`;
+  } else {
+    count.classList.add('result-root-count');
+    count.innerHTML = `<b>${n}</b> <span class="result-count-unit">条</span>`;
   }
-  else if (state.favoritesView) t = `收藏：<b>${n}</b> 条`;
-  else if (activeUpdateFilter()) t = `${esc(activeUpdateFilter().label)}：<b>${n}</b> 条 · ${state.list.filter(hasEntryImage).length} 条已配图`;
-  else if (state.activePath.length) t = `<b>${n}</b> 条`;
-  else {
-    t = `共 <b>${n}</b> 条`;
-    count.className = 'result-root-count';
-  }
-  count.innerHTML = t;
   setRollingNumber(count.querySelector('b'), n, shownResultCount);
   shownResultCount = n;
   box.appendChild(count);
-  if (searchHead) box.appendChild(crumbs);
+  if (showCrumbs) {
+    if (!searchHead) {
+      const sep = document.createElement('span');
+      sep.className = 'result-bar-sep';
+      sep.setAttribute('aria-hidden', 'true');
+      box.appendChild(sep);
+    }
+    box.appendChild(crumbs);
+  }
 
   const hiddenCount = (!state.siteSearchView && !state.favoritesView) ? accessHiddenCount() : 0;
   if (hiddenCount > 0) {
