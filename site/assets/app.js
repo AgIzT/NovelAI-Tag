@@ -756,7 +756,8 @@ async function prepareViewBaseCodex(options) {
   const requested = findCodexMeta(options.browseCodexId || options.urlState?.codex || '');
   if (requested && isCodexLocked(requested)) return null;
   if (base && !base._opening && !isCodexLocked(base) && (!requested || base.id === requested.id)) return base;
-  const meta = requested || firstUnlockedCodex();
+  // 底书还是开场包时取它自己的整本，不能落到第一本未锁的书：否则开场包期间进收藏 / 全站搜索，「返回法典」会回到默认那本。
+  const meta = requested || (base?._opening && !isCodexLocked(base) ? findCodexMeta(base.id) : null) || firstUnlockedCodex();
   if (!meta) return null;
   const codex = await fetchCodex(meta);
   return isCodexLocked(codex) ? null : codex;
