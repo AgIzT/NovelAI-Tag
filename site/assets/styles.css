@@ -2198,16 +2198,10 @@ body.dark .settings-drawer{border-color:var(--mat-frost-line)}
   flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:14px 14px 12px 18px;border-bottom:1px solid var(--mat-frost-line);
 }
-.settings-drawer-title-wrap{display:flex;align-items:center;gap:8px;min-width:0}
 .settings-drawer-head .settings-title{
   margin:0;font-family:var(--font-display);font-size:17px;font-weight:900;letter-spacing:.5px;
 }
 .settings-drawer-head .settings-close{position:static;flex:none}
-.settings-live-badge{
-  display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;
-  background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;white-space:nowrap;
-}
-.settings-live-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
 .settings-drawer-body{
   flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
   padding:14px 16px 20px;display:flex;flex-direction:column;gap:15px;
