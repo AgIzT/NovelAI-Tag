@@ -184,8 +184,9 @@ def update_filter_config(codex_id: str) -> list[dict]:
             and entry.get("isNew") is True
             for entry in data.get("entries", [])
         )
+        # 与前端 codexUpdateFilters 同口径：登记了却没有词条的批次（如某次导入这本零新增）页面上不显示，这里也跳过。
         if count <= 0:
-            raise RuntimeError(f"Update filter {filter_id!r} has no entries in {data_path}")
+            continue
         result.append({
             "id": filter_id, "label": label, "latest": latest,
             "count": count, "newOverlap": 0 if latest else new_overlap,
@@ -458,6 +459,19 @@ def reload(cdp: CDP, *, ignore_cache: bool = False) -> None:
 
 def settle(cdp: CDP, ms: int = 350) -> None:
     cdp.command("Runtime.evaluate", {"expression": f"new Promise(r => setTimeout(r, {ms}))", "awaitPromise": True}, timeout=5)
+
+
+def wait_full_codex(cdp: CDP, label: str, timeout: float = 15) -> None:
+    """大书先上开场包（只有前几十条），约半秒后才换成整本并重排。
+    从 state.list 挑夹具、或之后会改写列表的用例，要等整本到位，否则挑不到词条或被整本重排覆盖。"""
+    done = cdp.eval(f"""(async () => {{
+      const {{state}} = await import('./assets/app/state.js');
+      const until = Date.now() + {int(timeout * 1000)};
+      while (state.codex?._opening && Date.now() < until) await new Promise(r => setTimeout(r, 100));
+      return !state.codex?._opening;
+    }})()""", timeout=timeout + 5)
+    if not done:
+        raise CheckFailed(f"Timed out waiting for the full codex after the opening pack: {label}")
 
 
 def screenshot(cdp: CDP, out_dir: Path, name: str) -> str:
@@ -1536,9 +1550,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
 
     def new_update_filter():
         r18_update_filters = update_filter_config("suozhang_r18")
+        # 最新一期可能这本零新增（例如 10.27 色色上 0 条）：那时验证空批次不出 NEW 胶囊，而不是挑别的批次硬测。
         r18_latest_update = next((item for item in r18_update_filters if item["latest"]), None)
-        if not r18_latest_update:
-            raise RuntimeError("Expected a latest update filter for the R18 Suozhang regression")
         clear_errors(cdp)
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
         navigate(cdp, base + "?codex=suozhang")
@@ -1630,8 +1643,14 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         # The same data switch is enabled independently for the R18 codex.
         cdp.eval("localStorage.setItem('fadian-nsfw-ok','1'); localStorage.removeItem('fadian-r18g-ok')")
         navigate(cdp, base + "?codex=suozhang_r18&new=1")
-        wait_for(cdp, f"document.body.classList.contains('nsfw-unlocked') && document.querySelector('[data-update-filter=\"{r18_latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true'", "R18 NEW update filter", timeout=12)
-        r18_expected = f"NEW {r18_latest_update['label']} · {r18_latest_update['count']}"
+        if r18_latest_update:
+            wait_for(cdp, f"document.body.classList.contains('nsfw-unlocked') && document.querySelector('[data-update-filter=\"{r18_latest_update['id']}\"]')?.getAttribute('aria-pressed') === 'true'", "R18 NEW update filter", timeout=12)
+            r18_expected = f"NEW {r18_latest_update['label']} · {r18_latest_update['count']}"
+        else:
+            wait_for(cdp, "document.body.classList.contains('nsfw-unlocked') && document.querySelectorAll('.card').length >= 1", "R18 codex without a non-empty latest batch", timeout=12)
+            if cdp.eval("document.querySelectorAll('[data-update-filter][aria-pressed=\"true\"]').length") != 0:
+                raise CheckFailed("R18 ?new=1 pressed an update filter although its latest batch has no entries")
+            r18_expected = ""
         r18_text = cdp.eval("document.querySelector('#updateFilterControls .is-latest')?.innerText.replace(/\\s+/g,' ').trim() || ''")
         if r18_text != r18_expected:
             raise CheckFailed(f"R18 NEW update button mismatch: expected={r18_expected!r}, actual={r18_text!r}")
@@ -1839,6 +1858,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.command("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False})
         navigate(cdp, base + "?codex=nai5_community_pack")
         wait_for(cdp, ready, "pack book")
+        wait_full_codex(cdp, "pack book")
         settle(cdp, 500)
         foot = """(() => {
   const card = document.querySelector('#masonry .card');
@@ -1979,6 +1999,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             wait_for(cdp, "!document.querySelector('#favoritesBackupPanel')?.classList.contains('show') && document.activeElement?.textContent === '恢复收藏'", "focus returns to restore button")
             # 返回法典回到原来那本书
             cdp.eval("document.querySelectorAll('#empty .empty-actions button')[0].click(); true")
+            # 这一步刚好落在开场包期间（整本还没到），兼当「开场包期间进收藏再返回」的回归。
             wait_for(cdp, ready + " && !document.body.classList.contains('favorites-library-view') && history.state?.route?.codex === 'suozhang'", "back to the book", timeout=15)
             # 有收藏后控件回来
             cdp.eval("document.querySelector('#masonry .fav-btn').click(); true")
@@ -2034,16 +2055,18 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp.eval("[...document.querySelectorAll('#tagRelayPaneWarehouse [role=button]')].filter(n => n.getClientRects().length)[0].click(); true")
             wait_for(cdp, "!document.querySelector('#relayCopyPositive').disabled", "plan has content")
             cdp.eval("document.querySelector('#relayCopyPositive').click(); true")
-            wait_for(cdp, "(document.querySelector('.copy-seed-chip')?.textContent || '').includes('已复制正向提示词')", "relay copy chip", timeout=6)
-            chip = cdp.eval("document.querySelector('.copy-seed-chip').textContent")
-            if "tags" in chip:
-                raise CheckFailed(f"Relay copy chip should not count tags: {chip}")
+            # 11-21 动效改版起，从按钮复制由按钮原地打勾，不再飘芯片（芯片只在抛进中转站时出现）。
+            wait_for(cdp, "document.querySelector('#relayCopyPositive')?.classList.contains('copy-done')", "relay copy button check", timeout=6)
+            done = cdp.eval("""({face: document.querySelector('#relayCopyPositive .copy-done-face')?.textContent || '',
+              chip: [...document.querySelectorAll('.copy-seed-chip')].filter(n => n.getClientRects().length && getComputedStyle(n).opacity !== '0').map(n => n.textContent)})""")
+            if done["face"] != "已复制" or any("tags" in text for text in done["chip"]):
+                raise CheckFailed(f"Relay copy feedback should be the in-place check without a tag count: {done}")
             cdp.eval("document.querySelector('#tagRelayRailClose').click(); true")
         finally:
             cdp.eval(reset)
             cdp.command("Emulation.setFocusEmulationEnabled", {"enabled": False})
         check_no_errors(cdp)
-        return {"steps": steps, "empty": shown, "first": first, "second": second, "chip": chip}
+        return {"steps": steps, "empty": shown, "first": first, "second": second, "relayCopy": done}
 
     def author_search():
         clear_errors(cdp)
@@ -2511,6 +2534,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         cdp.eval("document.querySelector('#lightboxClose')?.click()")
         wait_for(cdp, "!document.querySelector('#lightbox')?.classList.contains('is-open')", "tag zh lightbox close")
         check_no_errors(cdp)
+        # 还原成默认（开）：留着「关」会让后面手机灯箱用例的长提示词变短、滚动夹具量错。
+        cdp.eval("localStorage.removeItem('fadian-tag-zh')")
         return {"entry": target["id"], "boxes": before["boxes"], "detail": detail, "screenshot": shot}
 
     def lightbox_prompt_fold():
@@ -3431,7 +3456,8 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             raise CheckFailed("Favorites backup entry was visible outside the favorites view")
         if "备份与恢复" not in data["button"] or data["dialog"] != "收藏备份与恢复":
             raise CheckFailed("Favorites backup entry did not open the shared dialog")
-        if data["atlas"] != "3" or "收藏：3 条" not in data["result"]:
+        # 只核条数，不锁结果栏措辞（结果栏改版后是「3 条 · 收藏全部」）。
+        if data["atlas"] != "3" or not re.match(r"3\s*条", data["result"]):
             raise CheckFailed(f"Historical favorite owners did not render all three cards: {data!r}")
         # 迁移归属由稳定 id 钉住；书名来自现行索引，避免正常更名把回归夹具变陈旧。
         # 收藏分组与前端 fav-codex.js 同口径：有「选择器短标题」就用短标题。
@@ -3495,6 +3521,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp.command('Emulation.setTouchEmulationEnabled', {'enabled':True,'maxTouchPoints':1})
             navigate(cdp, base + '?codex=suozhang')
             wait_for(cdp, "document.querySelectorAll('.card').length>0", 'mobile detail source')
+            wait_full_codex(cdp, 'mobile detail source')
             fixture = cdp.eval("""(async()=>{
               const {state}=await import('./assets/app/state.js');
               const {hasEntryImage,entryImages}=await import('./assets/app/media.js');
@@ -3619,8 +3646,11 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
             cdp.command('Emulation.setDeviceMetricsOverride', {'width':390,'height':844,'deviceScaleFactor':1,'mobile':True})
             cdp.command('Emulation.setTouchEmulationEnabled', {'enabled':True,'maxTouchPoints':2})
             cdp.command('Emulation.setEmulatedMedia', {'features':[{'name':'prefers-reduced-motion','value':'no-preference'}]})
+            # 夹具的滚动距离按默认排版量：中文对照要是被前面的用例关掉，长提示词变短，甩动会提前到顶。
+            cdp.eval("(() => { try { localStorage.removeItem('fadian-tag-zh'); } catch {} return true; })()")
             navigate(cdp,base+'?codex=suozhang')
             wait_for(cdp,"document.querySelectorAll('.card').length>0",'continuous reading fixture')
+            wait_full_codex(cdp,'continuous reading fixture')
             fixture=cdp.eval("""(async()=>{
               const{state}=await import('./assets/app/state.js');
               const{entryImages,hasEntryImage}=await import('./assets/app/media.js');
@@ -3837,6 +3867,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         try:
             navigate(cdp, base + "?codex=suozhang")
             wait_for(cdp, "document.querySelectorAll('.card').length > 0", "touch target fixture source")
+            wait_full_codex(cdp, "touch target fixture source")
             fixture = cdp.eval("""(async () => {
               const {state} = await import('./assets/app/state.js');
               const {hasEntryImage} = await import('./assets/app/media.js');
@@ -3933,6 +3964,7 @@ def run_suite(base_url: str, out_dir: Path, cdp: CDP, only: str = "") -> list[di
         try:
             navigate(cdp, base + "?codex=suozhang")
             wait_for(cdp, "document.querySelectorAll('.card').length > 0", "copy flow fixture source")
+            wait_full_codex(cdp, "copy flow fixture source")
             origin = urllib.parse.urlsplit(base)
             cdp.command("Browser.grantPermissions", {"origin": origin.scheme + '://' + origin.netloc,
                 "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]})

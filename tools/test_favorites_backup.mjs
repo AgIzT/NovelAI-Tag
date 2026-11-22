@@ -462,20 +462,31 @@ if (hasLocalData) {
       }
     }
   }
-  // 全站总词条数可以超过单份备份 30000 项的契约；逐册验证旧键/当前键去重与往返，不放宽限额。
+  // 全站总词条数可以超过单份备份 30000 项的契约；单册也可能超过，所以按块验证旧键/当前键去重与往返，不放宽限额。
+  // 旧键跟着它归一到的词条进同一块，保证块内去重后条数仍等于该块词条数。
   const restoredFavorites = [];
+  const auditChunkSize = 10000;
   for (const book of allBooks) {
-    const restored = parseFavoritesBackup(serializeFavoritesBackup({
-      atlasKeys: [
-        ...(legacyKeysByCodex.get(book.id) || []),
-        ...book.entries.map(entry => `${book.id}:${entry.id}`),
-      ],
-      codexes: realCodexes,
-      exportedAt,
-    }), realCodexes);
-    assert.equal(restored.unknownCodexCount, 0);
-    assert.equal(restored.favorites.atlas.length, book.entries.length, `${book.id} 历史键与当前键去重`);
-    restoredFavorites.push(...restored.favorites.atlas);
+    const legacyByEntry = new Map();
+    for (const oldKey of legacyKeysByCodex.get(book.id) || []) {
+      const { entryId } = canonicalizeAtlasStorageKey(oldKey, lookup);
+      if (!legacyByEntry.has(entryId)) legacyByEntry.set(entryId, []);
+      legacyByEntry.get(entryId).push(oldKey);
+    }
+    for (let start = 0; start < book.entries.length; start += auditChunkSize) {
+      const chunk = book.entries.slice(start, start + auditChunkSize);
+      const restored = parseFavoritesBackup(serializeFavoritesBackup({
+        atlasKeys: [
+          ...chunk.flatMap(entry => legacyByEntry.get(entry.id) || []),
+          ...chunk.map(entry => `${book.id}:${entry.id}`),
+        ],
+        codexes: realCodexes,
+        exportedAt,
+      }), realCodexes);
+      assert.equal(restored.unknownCodexCount, 0);
+      assert.equal(restored.favorites.atlas.length, chunk.length, `${book.id} 第 ${start / auditChunkSize + 1} 块历史键与当前键去重`);
+      restoredFavorites.push(...restored.favorites.atlas);
+    }
   }
   assert.equal(restoredFavorites.length, currentKeys.length);
   const actualIds = new Map(allBooks.map(book => [book.id, new Set(book.entries.map(entry => entry.id))]));

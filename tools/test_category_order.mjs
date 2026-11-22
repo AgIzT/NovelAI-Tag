@@ -7,7 +7,7 @@ import { state } from '../site/assets/app/state.js';
 import { parseSearchQuery, rankSearchResults } from '../site/assets/app/search.js';
 import { prepareSearchZh } from '../site/assets/app/search-zh.js';
 
-globalThis.window = { addEventListener() {} };
+globalThis.window = { addEventListener() {}, matchMedia: () => ({ matches: false, addEventListener() {} }) };
 const { accessHiddenCount, invalidateAccessViewMemo, visibleTree } = await import('../site/assets/app/codex-ui.js');
 
 const leaf = (name, count = 1, extra = {}) => ({ name, count, children: [], ...extra });

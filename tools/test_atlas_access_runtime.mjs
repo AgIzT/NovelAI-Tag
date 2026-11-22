@@ -41,6 +41,7 @@ class ElementStub {
     this.style = { setProperty() {} };
   }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
   set title(value) { this.setAttribute('title', value); }
   get title() { return this.attributes.get('title') || ''; }
   removeAttribute(name) {
@@ -54,6 +55,8 @@ class ElementStub {
   addEventListener(name, fn) { this.handlers.set(name, fn); }
   reset() { this.value = ''; }
   focus() {}
+  scrollTo() {}
+  after() {}
 }
 const elements = new Map();
 const $ = selector => {
@@ -97,6 +100,11 @@ const lightbox = await loadModule('app/lightbox.js', {
   imageItemUrl: (_kind, _entry, item) => item.path,
   resetArtistStrip: () => $('#artistPeekImg').removeAttribute('src'),
   clearTagZhDetails() {}, syncUrlState() {}, flushDeferredFavoritesViewRefresh() {},
+  // 替身元素没有 animate()，真实 animateUi 此时返回 null、cancelUiMotion 无事可做。
+  animateUi: () => null, cancelUiMotion() {},
+  resetArtistProfile() {},
+  // 夹具词条不属于画风书，真实实现走普通目录路径这一支。
+  lightboxPathText: entry => (entry?.path || []).join(' › '),
 }, 'export const lightboxTest = { setOriginalPreload: image => { lbOriginalPreload = image; } };');
 const restricted = { id: 'restricted', title: 'R18 词条', path: [], rating: 'r18', images: [{ path: '/restricted.jpg' }] };
 const safe = { id: 'safe-entry', title: '安全词条', path: [], images: [{ path: '/safe.jpg' }] };
@@ -217,7 +225,9 @@ for (const animated of [false, true]) {
     FAVORITES_CODEX_ID: 'favorites', SITE_SEARCH_CODEX_ID: 'search',
     firstUnlockedCodex: () => safeBook, showNsfwLockedHint() {},
     invalidateOrganizeRequest() {}, canAnimateSwitch: () => animated,
-    fetchCodex: () => response.promise, showSkeleton: seq => events.push(['skeleton', seq]),
+    $, fetchCodexInitialOrFull: () => response.promise, showSkeleton: seq => events.push(['skeleton', seq]),
+    cancelOpeningUpgrade() {}, scheduleOpeningUpgrade() {}, suppressBrowseStateSave() {}, renderArtistProfile() {},
+    commitCodexView: (_seq, _options, render) => render(), renderBannerIdentity() {}, showCodexIdentity() {},
     hideSkeleton() {}, replaceSkeleton: (_seq, render) => { events.push(['replace-skeleton']); render(); },
     cancelCodexSwitch: () => events.push(['cancel-switch']), setLoading() {}, clearMasonry() {},
     renderCodexView: codex => { state.codex = codex; events.push(['render', codex.id]); },
@@ -262,7 +272,14 @@ globalThis.fetch = url => url === '/api/feedback' ? feedbackResponse.promise
 const report = await loadModule('app/report.js', {
   state, $, isCodexLocked, isEntryAccessBlocked, findCodexMeta,
   clamp: (n, min, max) => Math.min(max, Math.max(min, n)), esc: String,
-  toast: text => messages.push(text), cancelUiMotion() {},
+  toast: text => messages.push(text), cancelUiMotion() {}, animateUi: () => null, shakeInvalid: () => null,
+  // 与真实 setButtonBusy 同样切换 aria-busy / is-waiting，省掉等待小圆点的 DOM。
+  setButtonBusy(button, busy) {
+    if (!button) return;
+    if (busy) { button.setAttribute('aria-busy', 'true'); button.classList.add('is-waiting'); return; }
+    button.removeAttribute('aria-busy');
+    button.classList.remove('is-waiting');
+  },
   openMask: mask => { mask.hidden = false; mask.classList.add('show'); }, closeMask() {},
   entryImages: entry => entry.images || [], imageItemUrl: (_kind, _entry, item) => item.path,
   hasEntryImage: entry => Boolean(entry.images?.length), entryImageCanUseOriginal: () => false,

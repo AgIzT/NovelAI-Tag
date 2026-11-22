@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-globalThis.window ??= { addEventListener() {} };
+globalThis.window ??= { addEventListener() {}, matchMedia: () => ({ matches: false, addEventListener() {} }) };
 globalThis.document ??= { querySelector() { return null; } };
 const { isDefaultResumeRoute, isLandingSnapshot, shouldOfferResume } = await import('../site/assets/app/resume-prompt.js');
 
