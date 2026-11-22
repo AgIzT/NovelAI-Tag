@@ -62,9 +62,21 @@ def now_stamp() -> str:
     return _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _urlopen(target, timeout: float = 5.0):
+    raw_url = target.full_url if isinstance(target, urllib.request.Request) else str(target)
+    host = (urllib.parse.urlparse(raw_url).hostname or "").lower()
+    if host in _LOOPBACK_HOSTS:
+        return _LOCAL_OPENER.open(target, timeout=timeout)
+    return urllib.request.urlopen(target, timeout=timeout)
+
+
 def url_ok(url: str, timeout: float = 2.0) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with _urlopen(url, timeout=timeout) as resp:
             return 200 <= resp.status < 500
     except Exception:
         return False
@@ -94,12 +106,17 @@ def start_preview(base_url: str) -> subprocess.Popen | None:
     proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if wait_url(base_url, timeout=12):
         return proc
+    # 先停进程再读输出，避免子进程活着把 stdout.read() 永久堵死。
+    proc.terminate()
     out = ""
     try:
-        out = proc.stdout.read() if proc.stdout else ""
+        out = proc.communicate(timeout=3)[0] or ""
     except Exception:
-        pass
-    proc.terminate()
+        proc.kill()
+        try:
+            out = proc.communicate(timeout=2)[0] or ""
+        except Exception:
+            pass
     raise RuntimeError(f"Preview server did not start at {base_url}\n{out}")
 
 
@@ -128,7 +145,7 @@ def find_chrome() -> str:
 
 
 def http_json(url: str, timeout: float = 5.0):
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
+    with _urlopen(url, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -384,18 +401,21 @@ def start_chrome(out_dir: Path, port: int) -> subprocess.Popen:
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def page_ws_url(port: int) -> str:
+def page_ws_url(port: int, chrome_proc: subprocess.Popen | None = None) -> str:
     base = f"http://127.0.0.1:{port}"
     end = time.time() + 10
     last = None
     while time.time() < end:
+        if chrome_proc is not None and chrome_proc.poll() is not None:
+            code = chrome_proc.returncode
+            raise RuntimeError(f"Chrome exited early with code {code} (0x{code & 0xFFFFFFFF:08x}) before DevTools became ready")
         try:
             pages = http_json(base + "/json/list")
             for page in pages:
                 if page.get("type") == "page" and page.get("webSocketDebuggerUrl"):
                     return page["webSocketDebuggerUrl"]
             req = urllib.request.Request(base + "/json/new?about:blank", method="PUT")
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with _urlopen(req, timeout=3) as resp:
                 page = json.loads(resp.read().decode("utf-8"))
                 return page["webSocketDebuggerUrl"]
         except Exception as exc:
@@ -5040,7 +5060,7 @@ def main() -> int:
         preview_proc = start_preview(base_url)
         port = find_free_port()
         chrome_proc = start_chrome(out_dir, port)
-        ws_url = page_ws_url(port)
+        ws_url = page_ws_url(port, chrome_proc=chrome_proc)
         cdp = CDP(ws_url)
         disable_motion(cdp)
         results = run_suite(base_url, out_dir, cdp, only=args.only)
