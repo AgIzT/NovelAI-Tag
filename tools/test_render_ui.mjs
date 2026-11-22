@@ -1655,8 +1655,9 @@ const { loadAnnouncements } = await import('../site/assets/app/announcements.js'
   assert.match(stylesSource, /\.toast\{[\s\S]*max-width:min\(360px,calc\(100vw - 24px\)\)/);
   assert.match(stylesSource, /\.toast\.has-action\{[\s\S]*min-height:44px[\s\S]*padding:4px 6px 4px 14px/);
   assert.match(stylesSource, /\.toast\.has-action \.toast-message\{[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/);
-  // 设置里界面风格下面依次是「背景动效」（默认勾上）和「点击卡片放大」（电脑端开关、手机隐藏；只管有图的卡，点击时现读设置）。
-  assert.match(indexSource, /id="themeControl"[\s\S]*?<\/div>\s*<\/div>\s*<div class="set-row">[\s\S]*?id="pageGlowToggle" checked[\s\S]*?<\/div>\s*<div class="set-row card-zoom-set-row">[\s\S]*?id="cardZoomToggle"/);
+  // 设置抽屉（右侧磨砂）：外观分区依次排深浅色 / 界面风格 / 字体 / 密度 / 背景动效（默认勾上），浏览分区首位是点击卡片放大（手机隐藏）。
+  assert.match(indexSource, /id="settings" class="settings-mask settings-drawer-mask"[\s\S]*?id="darkModeControl"[\s\S]*?id="themeControl"[\s\S]*?id="fontControl"[\s\S]*?id="densityControl"[\s\S]*?id="pageGlowToggle" checked[\s\S]*?class="set-row card-zoom-set-row"[\s\S]*?id="cardZoomToggle"[\s\S]*?id="nsfwToggle"[\s\S]*?id="r18gToggle"/);
+  assert.match(stylesSource, /\.settings-drawer\{[\s\S]*?var\(--mat-frost-bg\)[\s\S]*?var\(--mat-frost-filter\)/);
   assert.match(stylesSource, /@media \(max-width:600px\)\{[\s\S]*?\.card-zoom-set-row\{display:none\}/);
   // 「背景动效」关掉时先存偏好再停动态层。
   const uiGlowSource = await readFile(new URL('../site/assets/app/ui.js', import.meta.url), 'utf8');
