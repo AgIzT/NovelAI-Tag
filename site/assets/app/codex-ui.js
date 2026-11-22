@@ -2456,30 +2456,41 @@ export function renderBannerAbout(c, banner) {
   const pop = document.createElement('div');
   pop.className = 'banner-pop';
   pop.hidden = true;
-  let html = '';
-  if (c.source) html += `<div class="bp-sub">来源</div><div class="bp-source">${esc(c.source)}</div>`;
-  html += `<div class="bp-sub">数据</div><div class="bp-data"><span class="data-pill ${codexStatusClass(c)}">${esc(codexStatusLabel(c))}</span>${c.dataNotice ? `<small>${esc(c.dataNotice)}</small>` : ''}</div>`;
-  if (contributors.length) {
-    html += '<div class="bp-sub">贡献者</div><div class="bp-contrib">';
-    for (const p of contributors) {
-      const name = typeof p === 'string' ? p : (p.name || '');
-      const role = typeof p === 'string' ? '' : (p.role || '');
-      if (!name) continue;
-      const home = contributorHomepage(p);
-      html += home
-        ? `<a class="bp-chip is-link${home.platform === 'bilibili' ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener">${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}${ARROW_ICON}</a>`
-        : `<span class="bp-chip">${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}</span>`;
-    }
-    html += '</div>';
-  }
+
+  const typeMeta = CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_TYPES[0];
+  const origSections = originalSectionsOf(c);
+  const origTag = c.hasOriginal ? (c.exampleModel || '含原图') : (origSections.length ? '部分含原图' : '仅缩略图');
+  const origShort = c.hasOriginal
+    ? (c.exampleModel ? `例图由 ${c.exampleModel} 生成，支持原图查看` : '放大后可拖入 NovelAI 读取参数')
+    : (origSections.length ? `仅「${origSections.join('」「')}」支持原图拖读` : '压缩缩略图，不含原图参数');
   const validLinks = safeExternalLinks(links);
-  if (validLinks.length) {
-    html += '<div class="bp-sub">相关链接</div>';
-    for (const l of validLinks) {
-      html += `<a class="bp-link" href="${esc(l.url)}" target="_blank" rel="noopener">${EXT_ICON}<span>${esc(l.label || l.url)}</span></a>`;
-    }
+  const homeLinks = contributors
+    .map(p => contributorHomepage(p))
+    .filter(Boolean)
+    .map(h => ({ label: `${h.name}${h.platform === 'bilibili' ? ' · B 站主页' : ' · 主页'}`, url: h.url, bili: h.platform === 'bilibili' }));
+  const quickLinks = [...homeLinks, ...validLinks].slice(0, 2);
+
+  let html =
+    `<div class="bp-head">` +
+      `<span class="bp-tag is-type">${esc(typeMeta.name)}</span>` +
+      `<span class="bp-tag">${esc(origTag)}</span>` +
+      (c.version ? `<span class="bp-ver">${esc(c.version)}</span>` : '') +
+    `</div>` +
+    `<div class="bp-summary">` +
+      `<div class="bp-authors">${esc(formatArchiveAuthors(c.author))}</div>` +
+      `<div class="bp-note">${esc(origShort)}</div>` +
+    `</div>`;
+  if (c.dataNotice) {
+    html += `<div class="bp-warn">${esc(c.dataNotice)}</div>`;
   }
-  html += '<button class="bp-archive" type="button">查看完整档案</button>';
+  if (quickLinks.length) {
+    html += `<div class="bp-links">${quickLinks.map(l =>
+      `<a class="bp-link${l.bili ? ' is-bilibili' : ''}" href="${esc(l.url)}" target="_blank" rel="noopener"><span>${esc(l.label || l.url)}</span>${EXT_ICON}</a>`
+    ).join('')}</div>`;
+  }
+  const archiveHint = contributors.length > 2 ? `查看完整档案 · ${contributors.length} 位贡献者` : '查看完整档案';
+  html += `<button class="bp-archive ui-press" type="button"><span>${esc(archiveHint)}</span>${ARROW_ICON}</button>`;
+
   pop.innerHTML = html;
   pop.querySelector('.bp-archive')?.addEventListener('click', ev => {
     ev.stopPropagation();
@@ -2494,13 +2505,11 @@ export function renderBannerAbout(c, banner) {
       return;
     }
     closeBannerAboutDirect();
-    if (show) {
-      positionBannerPop(pop, banner);
-      pop.hidden = false;
-      btn.classList.add('open');
-      bannerAboutOpen = true;
-      openHistoryLayer('banner-about');
-    }
+    positionBannerPop(pop, banner);
+    pop.hidden = false;
+    btn.classList.add('open');
+    bannerAboutOpen = true;
+    openHistoryLayer('banner-about');
   };
 
   banner.appendChild(btn);
@@ -2510,42 +2519,164 @@ export function renderBannerAbout(c, banner) {
 window.addEventListener('resize', positionOpenBannerPop, { passive: true });
 window.addEventListener('scroll', positionOpenBannerPop, { passive: true });
 
+function normalizeArchiveDuty(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  if (/CC\s*BY/i.test(text)) return 'CC BY 4.0';
+  if (/原作者/.test(text)) return text.includes('维护') ? '原作者 · 维护' : (text.includes('编撰') ? '原作者 · 编撰' : '原作者');
+  if (/原图/.test(text) && /参数/.test(text)) return '原图 · 参数';
+  if (/原图/.test(text) && /标签/.test(text)) return '标签 · 原图';
+  if (/原图/.test(text)) return '原图提供';
+  if (/词条整理/.test(text) && /配图/.test(text)) return '词条 · 配图';
+  if (/素材收集/.test(text) && /配图/.test(text)) return '素材 · 配图';
+  if (/标签/.test(text) && /配图/.test(text)) return '标签 · 配图';
+  if (/标签整理/.test(text) && /例图/.test(text)) return '整理 · 例图';
+  if (/提示词/.test(text) && /例图/.test(text)) return '提示词 · 例图';
+  if (/配图数据提供/.test(text)) return '配图提供';
+  if (/整理者/.test(text)) return '整理者';
+  if (/图包整理/.test(text)) return '图包整理';
+  if (/素材来源/.test(text)) return '素材来源';
+  return text.replace(/\s*\/\s*/g, ' · ');
+}
+
+function formatArchiveAuthors(authorStr) {
+  const names = String(authorStr || '').split(/\s*\/\s*/).map(s => s.trim()).filter(Boolean);
+  if (!names.length) return '社区整理';
+  if (names.length <= 3) return names.join('、');
+  return `${names.slice(0, 3).join('、')} 等 ${names.length} 位作者`;
+}
+
+function buildArchiveSourcesAndContribs(c) {
+  const rawSources = String(c.source || '').split(/\s*\/\s*/).map(s => s.trim()).filter(Boolean);
+  const rawContribs = Array.isArray(c.contributors) ? c.contributors : [];
+
+  // 从 source 串提取「无原图」归属（如 雨燕、wwuumm、u/Carlyone），补充到对应贡献者卡
+  const noOrigNames = new Set();
+  for (const s of rawSources) {
+    if (!/无原图/.test(s)) continue;
+    const owner = s.split(/\s*·\s*/)[0].trim().toLowerCase();
+    if (owner) noOrigNames.add(owner);
+  }
+
+  const contribs = rawContribs.map(p => {
+    const name = typeof p === 'string' ? p : String(p?.name || '').trim();
+    const rawRole = typeof p === 'string' ? '' : String(p?.role || '').trim();
+    const home = contributorHomepage(p);
+    if (!name) return null;
+    const parts = rawRole.split(/\s*·\s*/).map(s => s.trim()).filter(Boolean);
+    let work = '';
+    let duty = '';
+    if (parts.length >= 2) {
+      work = parts.slice(0, -1).join(' · ');
+      duty = normalizeArchiveDuty(parts[parts.length - 1]);
+    } else if (parts.length === 1) {
+      duty = normalizeArchiveDuty(parts[0]);
+    }
+    const noOrig = noOrigNames.has(name.toLowerCase());
+    return { name, work, duty, home, noOrig };
+  }).filter(Boolean);
+
+  // 若单人/少量贡献者卡都没写作品名，而 source 给出了清晰出处，挂给首项或单独展示
+  const anyWork = contribs.some(x => x.work);
+  let standaloneSources = [];
+  if (!anyWork && rawSources.length) {
+    if (contribs.length === 1 && rawSources.length === 1) {
+      const cleaned = rawSources[0].replace(new RegExp(`^${contribs[0].name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*·\\s*`), '').trim();
+      if (cleaned && cleaned !== c.title) contribs[0].work = cleaned;
+    } else if (rawSources.length > contribs.length || !contribs.length) {
+      standaloneSources = rawSources;
+    }
+  }
+  return { contribs, standaloneSources };
+}
+
 export function renderCodexArchive() {
   const c = state.codex;
   const body = $('#archiveBody');
   if (!c || !body) return;
   const pct = c.entryCount ? Math.round((c.imagedCount / c.entryCount) * 100) : 0;
-  const contributors = Array.isArray(c.contributors) ? c.contributors : [];
+  const typeMeta = CODEX_TYPES.find(t => t.id === codexType(c)) || CODEX_TYPES[0];
   const links = safeExternalLinks(Array.isArray(c.links) ? c.links : []);
-  const statRows = [
-    ['作者', c.author || '未标注'],
-    ['版本', c.version || '未标注'],
-    ['词条', `${c.entryCount} 条`],
-    ['配图', `${c.imagedCount} / ${c.entryCount} (${pct}%)`],
-    ['数据', codexStatusLabel(c)],
+  const cover = codexCoverUrl(c);
+  const origSections = originalSectionsOf(c);
+  const batches = updateFilterDefinitions(c);
+
+  let origLabel = '仅缩略图';
+  let origSub = '不含原图参数';
+  let origSentence = '本册为压缩缩略图，无法拖入 NovelAI 读取参数。';
+  if (c.hasOriginal) {
+    origLabel = '含原图';
+    origSub = c.exampleModel ? `例图 ${c.exampleModel}` : '可拖读生成参数';
+    origSentence = c.exampleModel
+      ? `例图由 ${c.exampleModel} 生成，支持查看并下载原图。`
+      : '支持查看原图，放大后可拖入 NovelAI 读取生成参数。';
+  } else if (origSections.length) {
+    origLabel = '部分含原图';
+    origSub = `仅 ${origSections.join('、')}`;
+    origSentence = `「${origSections.join('」「')}」支持原图拖读参数，其余分区为缩略图。`;
+  }
+
+  const entrySub = pct === 100
+    ? '全部已配图'
+    : `已配图 ${c.imagedCount.toLocaleString()} · ${pct}%`;
+  const isExternalVer = c.version === '外部源';
+  const verVal = isExternalVer ? '外部同步' : (c.version || '未标注');
+  const verSub = isExternalVer
+    ? '实时拉取外部源'
+    : (batches.length > 1 ? `累计 ${batches.length} 期更新` : '当前收录版本');
+
+  const metrics = [
+    ['收录词条', `${c.entryCount.toLocaleString()} 条`, entrySub],
+    ['最近更新', verVal, verSub],
+    ['原图与参数', origLabel, origSub],
   ];
-  if (c.dataNotice) statRows.push(['状态说明', c.dataNotice]);
-  if (c.dataError) statRows.push(['失败原因', c.dataError]);
-  if (c.sourceDataUrl) statRows.push(['外部源', c.sourceDataUrl]);
-  else if (c.dataUrl) statRows.push(['源地址', c.dataUrl]);
-  if (c.fallbackDataUrl) statRows.push(['回退', c.fallbackDataUrl]);
+
+  const alerts = [];
+  if (c.dataNotice) alerts.push(['状态说明', c.dataNotice]);
+  if (c.dataError) alerts.push(['加载提示', c.dataError]);
+
+  const { contribs, standaloneSources } = buildArchiveSourcesAndContribs(c);
+  const contribGridClass = contribs.length <= 1 ? ' is-single' : '';
+  const dataSourceUrl = safeHttpUrl(c.sourceDataUrl || c.dataUrl);
+
   body.innerHTML =
     `<div class="archive-hero">` +
-    `<div><div class="archive-title">${esc(c.title)}</div><div class="archive-sub">${esc(c.source || '本地整理数据')}</div></div>` +
-    `<div class="archive-pct">${pct}%<span>配图率</span></div>` +
+      (cover ? `<div class="archive-cover"><img src="${esc(cover)}" alt=""${codexCoverStyle(c)}></div>` : '') +
+      `<div class="archive-hero-main">` +
+        `<div class="archive-eyebrow">` +
+          `<span class="archive-tag is-type">${esc(typeMeta.name)}</span>` +
+          (c.exampleModel ? `<span class="archive-tag">${esc(c.exampleModel)}</span>` : '') +
+          (c.nsfw ? `<span class="archive-tag is-nsfw">18+</span>` : '') +
+        `</div>` +
+        `<div class="archive-title">${esc(c.title)}</div>` +
+        `<div class="archive-author">${esc(formatArchiveAuthors(c.author))}</div>` +
+        `<div class="archive-orig-note">${esc(origSentence)}</div>` +
+      `</div>` +
     `</div>` +
-    `<div class="archive-grid">${statRows.map(([k, v]) => `<div class="archive-kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>` +
-    (contributors.length ? `<div class="archive-section"><h3>贡献者</h3><div class="archive-chips">${contributors.map(p => {
-      const name = typeof p === 'string' ? p : (p.name || '');
-      const role = typeof p === 'string' ? '' : (p.role || '');
-      const home = contributorHomepage(p);
-      if (!name) return '';
-      return home
-        ? `<a class="is-link${home.platform === 'bilibili' ? ' is-bilibili' : ''}" href="${esc(home.url)}" target="_blank" rel="noopener">${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}${ARROW_ICON}</a>`
-        : `<span>${esc(name)}${role ? `<small>${esc(role)}</small>` : ''}</span>`;
+    `<div class="archive-stats">${metrics.map(([k, v, sub]) =>
+      `<div class="archive-stat"><span>${esc(k)}</span><b>${esc(v)}</b><small>${esc(sub)}</small></div>`
+    ).join('')}</div>` +
+    (alerts.length ? `<div class="archive-alerts">${alerts.map(([k, v]) =>
+      `<div class="archive-alert"><b>${esc(k)}</b><span>${esc(v)}</span></div>`
+    ).join('')}</div>` : '') +
+    (standaloneSources.length ? `<div class="archive-section"><h3>收录来源</h3><ul class="archive-source-list">${standaloneSources.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>` : '') +
+    (contribs.length ? `<div class="archive-section"><div class="archive-sec-head"><h3>收录与致谢</h3>${contribs.length > 2 ? `<span>共 ${contribs.length} 项</span>` : ''}</div><div class="archive-chips${contribGridClass}">${contribs.map(item => {
+      const badges = [
+        item.duty ? `<span class="ac-duty">${esc(item.duty)}</span>` : '',
+        item.noOrig ? '<span class="ac-noorig">无原图</span>' : '',
+      ].filter(Boolean).join('');
+      const inner =
+        `<div class="ac-top"><span class="ac-name">${esc(item.name)}${item.home ? ARROW_ICON : ''}</span>${badges ? `<span class="ac-badges">${badges}</span>` : ''}</div>` +
+        (item.work ? `<div class="ac-work">${esc(item.work)}</div>` : '');
+      return item.home
+        ? `<a class="archive-contrib is-link${item.home.platform === 'bilibili' ? ' is-bilibili' : ''}" href="${esc(item.home.url)}" target="_blank" rel="noopener">${inner}</a>`
+        : `<div class="archive-contrib">${inner}</div>`;
     }).join('')}</div></div>` : '') +
-    (links.length ? `<div class="archive-section"><h3>相关链接</h3>${links.map(l => `<a class="archive-link" href="${esc(l.url)}" target="_blank" rel="noopener">${EXT_ICON}<span>${esc(l.label || l.url)}</span></a>`).join('')}</div>` : '') +
-    `<div class="archive-section"><h3>说明</h3><p>例图与法典内容版权归各自作者所有，本站仅作可视化整理与索引，感谢所有法典作者的无私分享。</p></div>`;
+    (links.length ? `<div class="archive-section"><h3>相关链接</h3><div class="archive-links${links.length === 1 ? ' is-single' : ''}">${links.map(l => `<a class="archive-link" href="${esc(l.url)}" target="_blank" rel="noopener"><span>${esc(l.label || l.url)}</span>${EXT_ICON}</a>`).join('')}</div></div>` : '') +
+    `<footer class="archive-foot">` +
+      `<p>词条与例图版权归原作者所有，本站仅作整理与索引。</p>` +
+      `<div class="archive-meta-line"><span>数据源：${esc(codexStatusLabel(c))}</span>${dataSourceUrl ? `<a href="${esc(dataSourceUrl)}" target="_blank" rel="noopener">查看源地址</a>` : ''}</div>` +
+    `</footer>`;
 }
 
 /* 关于本站（设置框）+ 侧栏小贴士轮播 */

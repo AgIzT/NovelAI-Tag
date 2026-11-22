@@ -799,13 +799,18 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <div id="contentBlocking" class="settings-mask" hidden>
   <div class="settings-panel blocking-panel" role="dialog" aria-modal="true" aria-labelledby="blockingTitle">
     <button id="blockingClose" class="settings-close" type="button" aria-label="关闭屏蔽管理">×</button>
-    <h2 id="blockingTitle" class="settings-title">屏蔽管理</h2>
-    <p class="settings-note">清单仅保存在当前浏览器，清除站点数据后会丢失。</p>
+    <div class="modal-head">
+      <h2 id="blockingTitle" class="settings-title">屏蔽管理</h2>
+      <p class="modal-sub">清单仅保存在当前浏览器，清除站点数据后会丢失。</p>
+    </div>
     <div class="blocking-enable-row">
-      <label for="blockingEnabled">启用内容屏蔽</label>
+      <div class="blocking-enable-copy">
+        <label for="blockingEnabled">启用内容屏蔽</label>
+        <small>关闭后暂停屏蔽，清单内容保留。</small>
+      </div>
       <label class="switch live"><input id="blockingEnabled" type="checkbox" checked><i></i></label>
     </div>
-    <p id="blockingPaused" class="settings-note blocking-paused" role="status" hidden>屏蔽已暂停，清单中的内容会正常显示。</p>
+    <p id="blockingPaused" class="blocking-paused" role="status" hidden>屏蔽已暂停，清单中的内容会正常显示。</p>
     <div class="seg-tabs blocking-tabs" role="tablist" aria-label="屏蔽清单">
       <button id="blockingWordsTab" type="button" role="tab" data-blocking-tab="words" aria-selected="true" aria-controls="blockingWordsPanel">屏蔽词 0</button>
       <button id="blockingEntriesTab" type="button" role="tab" data-blocking-tab="entries" aria-selected="false" aria-controls="blockingEntriesPanel" tabindex="-1">单独隐藏 0</button>
@@ -833,7 +838,7 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
   <div class="settings-panel blocking-reveal-panel" role="dialog" aria-modal="true" aria-labelledby="blockingRevealTitle">
     <button id="blockingRevealClose" class="settings-close" type="button" aria-label="关闭屏蔽提示">×</button>
     <h2 id="blockingRevealTitle" class="settings-title">此卡片已屏蔽</h2>
-    <p id="blockingRevealReason" class="settings-note"></p>
+    <p id="blockingRevealReason" class="modal-sub"></p>
     <div class="blocking-reveal-actions">
       <button id="blockingRevealCancel" class="panel-action" type="button">返回浏览</button>
       <button id="blockingRevealManage" class="panel-action" type="button">管理屏蔽</button>
@@ -845,16 +850,22 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <div id="nsfwConfirm" class="settings-mask" data-nosnippet hidden>
   <div class="settings-panel nsfw-panel" role="dialog" aria-modal="true" aria-labelledby="nsfwConfirmTitle">
     <button id="nsfwCancelX" class="settings-close" type="button" aria-label="关闭">×</button>
-    <div class="nsfw-icon" aria-hidden="true">18+</div>
-    <h2 id="nsfwConfirmTitle" class="settings-title">成人内容提示</h2>
-    <p class="settings-note nsfw-note">开启后，站点会展示包含成人向、裸露、性暗示或露骨性行为提示词与例图的法典内容。</p>
-    <div class="nsfw-body">
-      <p>确认你所在地区允许访问此类内容，并且你已年满 18 周岁或达到当地法定成年年龄。</p>
-      <p>开启后的浏览、复制和使用由你自行负责，需符合当地法律法规、平台规则和公共场合使用规范。</p>
+    <div class="nsfw-kicker" aria-hidden="true"><span>18+</span>成人向分区</div>
+    <h2 id="nsfwConfirmTitle" class="settings-title">解锁成人向内容</h2>
+    <div class="nsfw-points">
+      <div class="nsfw-point">
+        <b>包含范围</b>
+        <span>开启后会显示成人向、裸露与性相关的提示词及例图。</span>
+      </div>
+      <div class="nsfw-point">
+        <b>确认条件</b>
+        <span>请确认你已满 18 周岁、所处环境适宜浏览，并自行承担使用责任。</span>
+      </div>
     </div>
+    <p class="nsfw-footnote">随时可在设置中关闭，关闭后会立即隐藏相关内容。</p>
     <div class="nsfw-actions">
-      <button id="nsfwCancel" class="nsfw-secondary" type="button">取消</button>
-      <button id="nsfwAccept" class="nsfw-primary" type="button">我已成年并同意开启</button>
+      <button id="nsfwCancel" class="nsfw-secondary" type="button">暂不开启</button>
+      <button id="nsfwAccept" class="nsfw-primary" type="button">已满 18 岁，开启</button>
     </div>
   </div>
 </div>
@@ -875,7 +886,8 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 <div id="shortcutHelp" class="settings-mask" hidden>
   <div class="settings-panel shortcut-panel" role="dialog" aria-modal="true" aria-label="快捷键">
     <button id="shortcutClose" class="settings-close" type="button" aria-label="关闭">×</button>
-    <h2 class="settings-title">快捷键</h2>
+    <h2 class="settings-title">快捷键与操作</h2>
+    <div class="shortcut-group-label">键盘导航</div>
     <div class="shortcut-list">
       <div><kbd>/</kbd><span>聚焦搜索</span></div>
       <div><kbd>?</kbd><span>打开快捷键</span></div>
@@ -883,24 +895,34 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
       <div><kbd>Esc</kbd><span>关闭弹窗 / 词条详情</span></div>
       <div><kbd>←</kbd><kbd>→</kbd><span>词条详情里切图</span></div>
     </div>
+    <div class="shortcut-group-label">卡片与选词</div>
+    <div class="shortcut-list">
+      <div><kbd class="kbd-word">双击</kbd><span>放大卡片进入详情</span></div>
+      <div><kbd class="kbd-word">Ctrl</kbd><i class="kbd-plus">+</i><kbd class="kbd-word">点卡</kbd><span>多选画师（v5 词典）</span></div>
+      <div><kbd class="kbd-word">Shift</kbd><i class="kbd-plus">+</i><kbd class="kbd-word">点击</kbd><span>详情内连选一段 tag</span></div>
+    </div>
   </div>
 </div>
 
 <div id="historyPanel" class="settings-mask" hidden>
   <div class="settings-panel history-panel" role="dialog" aria-modal="true" aria-label="浏览记录">
     <button id="historyClose" class="settings-close" type="button" aria-label="关闭">×</button>
-    <h2 class="settings-title">浏览记录</h2>
-    <p class="settings-note">浏览记录只保存在当前浏览器。</p>
-    <div class="history-resume">
-      <div>
-        <b>继续上次浏览</b>
-        <small id="resumeDesc">暂无可恢复的位置</small>
-      </div>
-      <button class="ui-press" id="resumeBrowse" type="button">继续</button>
+    <div class="modal-head">
+      <h2 class="settings-title">浏览记录</h2>
+      <p class="modal-sub">仅保存在当前浏览器，不会上传。</p>
     </div>
-    <div class="history-resume-setting">
-      <span id="resumePromptLabel">打开网站时提示继续上次</span>
-      <label class="switch live"><input type="checkbox" id="resumePromptToggle" aria-labelledby="resumePromptLabel"><i></i></label>
+    <div class="history-resume-card">
+      <div class="history-resume">
+        <div>
+          <b>继续上次浏览</b>
+          <small id="resumeDesc">暂无可恢复的位置</small>
+        </div>
+        <button class="ui-press" id="resumeBrowse" type="button">继续</button>
+      </div>
+      <div class="history-resume-setting">
+        <span id="resumePromptLabel">打开网站时提示继续上次</span>
+        <label class="switch live"><input type="checkbox" id="resumePromptToggle" aria-labelledby="resumePromptLabel"><i></i></label>
+      </div>
     </div>
     <div class="history-head">
       <span>最近浏览</span>
@@ -1059,14 +1081,18 @@ if('scrollRestoration' in history)history.scrollRestoration='manual';</script>
 </div>
 
 <div id="about" class="settings-mask" hidden>
-  <div class="settings-panel" role="dialog" aria-modal="true" aria-label="关于本站">
+  <div class="settings-panel about-panel" role="dialog" aria-modal="true" aria-label="关于本站">
     <button id="aboutClose" class="settings-close" type="button" aria-label="关闭">×</button>
-    <h2 class="settings-title">关于本站</h2>
-    <p id="aboutIntro" class="about-intro"></p>
+    <div class="modal-head">
+      <div class="about-brand-line">法典<span>图鉴</span></div>
+      <p id="aboutIntro" class="about-intro"></p>
+    </div>
     <div class="about-sub">友情链接</div>
     <div id="aboutLinks" class="about-links"></div>
     <div class="about-sub">使用技巧</div>
-    <ul id="aboutTips" class="about-tips"></ul>
+    <div class="about-tips-card">
+      <ul id="aboutTips" class="about-tips"></ul>
+    </div>
     <div id="aboutCredits" class="about-credits"></div>
   </div>
 </div>
