@@ -565,8 +565,20 @@ function scheduleOpeningUpgrade(meta, seq, opening) {
       return upgrade.promise;
     },
   };
-  const triggerIfActive = () => {
-    if (openingUpgrade === upgrade && openingViewActive(opening)) {
+  const triggerIfActive = async () => {
+    const timer = upgrade.timer;
+    // 解析整本也会占用主线程，等开场落幕并画出终态再发请求。
+    await introSettled();
+    await new Promise(resolve => {
+      // 后台标签的 rAF 可能暂停，定时器保留补全兜底。
+      const fallback = window.setTimeout(resolve, 50);
+      requestAnimationFrame(() => {
+        clearTimeout(fallback);
+        window.setTimeout(resolve, 0);
+      });
+    });
+    // 等待中 window.load 可能重排定时器，搜索也可能已经接管或排好失败重试。
+    if (openingUpgrade === upgrade && upgrade.timer === timer && openingViewActive(opening)) {
       void upgrade.start();
     }
   };
